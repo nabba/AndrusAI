@@ -1,0 +1,31 @@
+version: '3.9'
+
+services:
+  gateway:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - '127.0.0.1:${GATEWAY_PORT}:${GATEWAY_PORT}'
+    volumes:
+      - ./workspace:/app/workspace
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${SIGNAL_SOCKET_PATH}:${SIGNAL_SOCKET_PATH}
+    depends_on:
+      - chromadb
+    networks:
+      - internal
+
+  chromadb:
+    image: chromadb/chroma:latest
+    restart: unless-stopped
+    volumes:
+      - ./workspace/memory:/chroma/chroma
+    networks:
+      - internal
+    # NOT exposed to host — internal only
+
+networks:
+  internal:
+    driver: bridge
+    internal: true   # No internet access for containers
