@@ -1,7 +1,7 @@
-from crewai import Agent, Task, Crew, Process
-from langchain_anthropic import ChatAnthropic
+import re
+from crewai import Agent, Task, Crew, Process, LLM
 from app.config import get_settings
-from app.tools.memory_tool import MemoryTool
+from app.tools.memory_tool import create_memory_tools
 from app.crews.research_crew import ResearchCrew
 from app.crews.coding_crew import CodingCrew
 from app.crews.writing_crew import WritingCrew
@@ -54,12 +54,12 @@ def _load_skills() -> str:
 
 class Commander:
     def __init__(self):
-        self.llm = ChatAnthropic(
-            model=settings.commander_model,
-            anthropic_api_key=settings.anthropic_api_key,
+        self.llm = LLM(
+            model=f"anthropic/{settings.commander_model}",
+            api_key=settings.anthropic_api_key,
             max_tokens=4096,
         )
-        self.memory = MemoryTool(collection="commander")
+        self.memory_tools = create_memory_tools(collection="commander")
 
     def handle(self, user_input: str) -> str:
         """Decompose input, dispatch crews, return final answer."""
@@ -67,7 +67,10 @@ class Commander:
         lower = user_input.lower().strip()
 
         if lower.startswith("learn "):
-            topic = user_input[6:].strip()
+            topic = user_input[6:].strip()[:200]  # Limit topic length
+            topic = re.sub(r'[^\w\s\-.,!?]', '', topic)  # Strip dangerous chars
+            if not topic:
+                return "Please provide a valid topic to learn."
             queue_file = Path(settings.self_improve_topic_file)
             queue_file.parent.mkdir(parents=True, exist_ok=True)
             with open(queue_file, "a") as f:
@@ -97,7 +100,7 @@ class Commander:
             goal="Coordinate specialist agents to fulfil the user request completely and accurately.",
             backstory=COMMANDER_BACKSTORY,
             llm=self.llm,
-            tools=[self.memory],
+            tools=self.memory_tools,
             verbose=True,
             allow_delegation=True,
         )

@@ -1,13 +1,13 @@
-from crewai import Agent, Task, Crew, Process
-from langchain_anthropic import ChatAnthropic
+from crewai import Agent, Task, Crew, Process, LLM
 from app.config import get_settings
 from app.tools.web_search import web_search
 from app.tools.web_fetch import web_fetch
 from app.tools.youtube_transcript import get_youtube_transcript
-from app.tools.memory_tool import MemoryTool
+from app.tools.memory_tool import create_memory_tools
 from app.tools.file_manager import file_manager
 from pathlib import Path
 import logging
+import re
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -30,23 +30,23 @@ class SelfImprovementCrew:
         if not topics:
             return
 
-        llm = ChatAnthropic(
-            model=settings.commander_model,
-            anthropic_api_key=settings.anthropic_api_key,
+        llm = LLM(
+            model=f"anthropic/{settings.commander_model}",
+            api_key=settings.anthropic_api_key,
             max_tokens=4096,
         )
-        memory = MemoryTool(collection="skills")
+        memory_tools = create_memory_tools(collection="skills")
 
         learner = Agent(
             role="Learning Specialist",
             goal="Acquire deep, practical knowledge on assigned topics and distil it into reusable skill files.",
             backstory="You are a relentless learner who reads documentation, articles, and YouTube transcripts to master new topics. You write clear, practical Markdown skill files.",
             llm=llm,
-            tools=[web_search, web_fetch, get_youtube_transcript, memory, file_manager],
+            tools=[web_search, web_fetch, get_youtube_transcript, file_manager] + memory_tools,
         )
 
         for topic in topics[:3]:  # Max 3 topics per run to control API cost
-            skill_filename = topic.replace(" ", "_")
+            skill_filename = re.sub(r'[^a-zA-Z0-9_-]', '_', topic)[:100]
             task = Task(
                 description=f'Research the topic: "{topic}". Search the web, read at least 3 sources, extract any relevant YouTube transcripts. Distil the key learnings into a structured Markdown file. Save it to workspace/skills/{skill_filename}.md',
                 expected_output=f'A Markdown skill file at workspace/skills/{skill_filename}.md with practical, actionable knowledge about "{topic}".',

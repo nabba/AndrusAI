@@ -1,10 +1,9 @@
-from crewai import Agent
-from langchain_anthropic import ChatAnthropic
+from crewai import Agent, LLM
 from app.config import get_settings
 from app.tools.web_search import web_search
 from app.tools.web_fetch import web_fetch
 from app.tools.youtube_transcript import get_youtube_transcript
-from app.tools.memory_tool import MemoryTool
+from app.tools.memory_tool import create_memory_tools
 from app.tools.file_manager import file_manager
 
 settings = get_settings()
@@ -24,18 +23,18 @@ RULES:
 
 
 def create_researcher() -> Agent:
-    llm = ChatAnthropic(
-        model=settings.specialist_model,
-        anthropic_api_key=settings.anthropic_api_key,
+    llm = LLM(
+        model=f"anthropic/{settings.specialist_model}",
+        api_key=settings.anthropic_api_key,
         max_tokens=4096,
     )
-    memory = MemoryTool(collection="researcher")
+    memory_tools = create_memory_tools(collection="researcher")
 
     return Agent(
         role="Researcher",
         goal="Find accurate, comprehensive information on any topic using web search, article reading, and YouTube transcripts.",
         backstory=RESEARCHER_BACKSTORY,
         llm=llm,
-        tools=[web_search, web_fetch, get_youtube_transcript, memory, file_manager],
+        tools=[web_search, web_fetch, get_youtube_transcript, file_manager] + memory_tools,
         verbose=True,
     )

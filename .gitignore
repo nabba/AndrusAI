@@ -1,9 +1,13 @@
 .env
 workspace/memory/
 workspace/output/
+workspace/skills/*.md
+!workspace/skills/learning_queue.md
 __pycache__/
 *.pyc
 .pytest_cache/
 *.egg-info/
 dist/
 .venv/
+*.log
+.DS_Store

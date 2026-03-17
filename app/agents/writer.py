@@ -1,7 +1,6 @@
-from crewai import Agent
-from langchain_anthropic import ChatAnthropic
+from crewai import Agent, LLM
 from app.config import get_settings
-from app.tools.memory_tool import MemoryTool
+from app.tools.memory_tool import create_memory_tools
 from app.tools.file_manager import file_manager
 from app.tools.web_search import web_search
 
@@ -23,18 +22,18 @@ RULES:
 
 
 def create_writer() -> Agent:
-    llm = ChatAnthropic(
-        model=settings.specialist_model,
-        anthropic_api_key=settings.anthropic_api_key,
+    llm = LLM(
+        model=f"anthropic/{settings.specialist_model}",
+        api_key=settings.anthropic_api_key,
         max_tokens=4096,
     )
-    memory = MemoryTool(collection="writer")
+    memory_tools = create_memory_tools(collection="writer")
 
     return Agent(
         role="Writer",
         goal="Write clear, well-structured content including summaries, reports, documentation, and emails.",
         backstory=WRITER_BACKSTORY,
         llm=llm,
-        tools=[memory, file_manager, web_search],
+        tools=[file_manager, web_search] + memory_tools,
         verbose=True,
     )

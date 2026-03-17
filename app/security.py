@@ -12,11 +12,21 @@ MAX_MESSAGES = 30
 WINDOW_MINUTES = 10
 
 
+def _redact_number(number: str) -> str:
+    """Redact phone number for safe logging: +3725100500 -> +372***0500"""
+    if len(number) > 7:
+        return number[:4] + "***" + number[-4:]
+    return "***"
+
+
 def is_authorized_sender(sender: str) -> bool:
     """Only the owner's number may send commands."""
-    authorized = sender.strip() == settings.signal_owner_number.strip()
+    # Normalize: strip whitespace, ensure + prefix
+    normalized_sender = sender.strip()
+    normalized_owner = settings.signal_owner_number.strip()
+    authorized = normalized_sender == normalized_owner
     if not authorized:
-        logger.warning(f"Blocked unauthorized sender: {sender}")
+        logger.warning(f"Blocked unauthorized sender: {_redact_number(normalized_sender)}")
     return authorized
 
 
@@ -27,7 +37,7 @@ def is_within_rate_limit(sender: str) -> bool:
     bucket = [t for t in _rate_buckets[sender] if t > cutoff]
     _rate_buckets[sender] = bucket
     if len(bucket) >= MAX_MESSAGES:
-        logger.warning(f"Rate limit exceeded for {sender}")
+        logger.warning("Rate limit exceeded")
         return False
     _rate_buckets[sender].append(now)
     return True

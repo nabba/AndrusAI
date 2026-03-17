@@ -6,37 +6,96 @@ import socket
 import json
 import requests
 import os
+import time
 
 SOCKET_PATH = os.environ.get("SIGNAL_SOCKET_PATH", "/tmp/signal-cli.sock")
 GATEWAY_URL = "http://127.0.0.1:8765/signal/inbound"
+GATEWAY_SECRET = os.environ.get("GATEWAY_SECRET", "")
+
+
+def log(msg):
+    print(f"[forwarder] {msg}", flush=True)
 
 
 def listen():
+    log(f"Connecting to signal-cli socket at {SOCKET_PATH}")
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(SOCKET_PATH)
-    buffer = b""
+    try:
+        sock.connect(SOCKET_PATH)
+        log("Connected. Waiting for incoming messages...")
+
+        subscribe = json.dumps({
+            "jsonrpc": "2.0",
+            "id": "sub1",
+            "method": "subscribeReceive",
+        }) + "\n"
+        sock.sendall(subscribe.encode())
+        log("Sent subscribeReceive request")
+
+        buffer = b""
+
+        while True:
+            data = sock.recv(4096)
+            if not data:
+                log("Socket closed by signal-cli, reconnecting...")
+                break
+            buffer += data
+
+            while b"\n" in buffer:
+                line, buffer = buffer.split(b"\n", 1)
+                try:
+                    msg = json.loads(line)
+
+                    envelope = msg.get("params", {}).get("envelope", msg.get("params", {}))
+                    data_msg = envelope.get("dataMessage", {})
+
+                    if data_msg and data_msg.get("message"):
+                        sender = envelope.get("source") or envelope.get("sourceNumber")
+                        message = data_msg["message"]
+                        # Log only message length, not content or full sender
+                        log(f"Incoming message ({len(message)} chars)")
+
+                        payload = {
+                            "sender": sender,
+                            "message": message,
+                        }
+                        headers = {}
+                        if GATEWAY_SECRET:
+                            headers["Authorization"] = f"Bearer {GATEWAY_SECRET}"
+
+                        try:
+                            resp = requests.post(
+                                GATEWAY_URL,
+                                json=payload,
+                                headers=headers,
+                                timeout=30,
+                            )
+                            log(f"Forwarded to gateway: {resp.status_code}")
+                        except Exception as e:
+                            log(f"Failed to forward: {e}")
+                except json.JSONDecodeError:
+                    pass
+                except Exception as e:
+                    log(f"Error processing message: {e}")
+    finally:
+        sock.close()
+
+
+def main():
+    if not GATEWAY_SECRET:
+        log("WARNING: GATEWAY_SECRET not set — requests will be rejected by gateway")
 
     while True:
-        data = sock.recv(4096)
-        if not data:
-            break
-        buffer += data
-
-        while b"\n" in buffer:
-            line, buffer = buffer.split(b"\n", 1)
-            try:
-                msg = json.loads(line)
-                # Only forward text DMs (SYNC_MESSAGE or RECEIPT excluded)
-                if msg.get("params", {}).get("dataMessage"):
-                    dm = msg["params"]
-                    payload = {
-                        "sender": dm.get("source"),
-                        "message": dm["dataMessage"].get("message", ""),
-                    }
-                    requests.post(GATEWAY_URL, json=payload, timeout=5)
-            except Exception:
-                pass
+        try:
+            listen()
+        except ConnectionRefusedError:
+            log("Connection refused, retrying in 5s...")
+        except FileNotFoundError:
+            log(f"Socket not found at {SOCKET_PATH}, retrying in 5s...")
+        except Exception as e:
+            log(f"Error: {e}, retrying in 5s...")
+        time.sleep(5)
 
 
 if __name__ == "__main__":
-    listen()
+    main()

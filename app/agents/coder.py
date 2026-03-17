@@ -1,10 +1,9 @@
-from crewai import Agent
-from langchain_anthropic import ChatAnthropic
+from crewai import Agent, LLM
 from app.config import get_settings
 from app.tools.code_executor import execute_code
 from app.tools.file_manager import file_manager
 from app.tools.web_search import web_search
-from app.tools.memory_tool import MemoryTool
+from app.tools.memory_tool import create_memory_tools
 
 settings = get_settings()
 
@@ -24,18 +23,18 @@ RULES:
 
 
 def create_coder() -> Agent:
-    llm = ChatAnthropic(
-        model=settings.specialist_model,
-        anthropic_api_key=settings.anthropic_api_key,
+    llm = LLM(
+        model=f"anthropic/{settings.specialist_model}",
+        api_key=settings.anthropic_api_key,
         max_tokens=4096,
     )
-    memory = MemoryTool(collection="coder")
+    memory_tools = create_memory_tools(collection="coder")
 
     return Agent(
         role="Coder",
         goal="Write, test, and debug code across any language. Execute code safely in a Docker sandbox.",
         backstory=CODER_BACKSTORY,
         llm=llm,
-        tools=[execute_code, file_manager, web_search, memory],
+        tools=[execute_code, file_manager, web_search] + memory_tools,
         verbose=True,
     )
