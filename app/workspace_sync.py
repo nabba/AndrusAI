@@ -68,11 +68,6 @@ def setup_workspace_repo(backup_repo: str) -> None:
 
     WORKSPACE.mkdir(parents=True, exist_ok=True)
 
-    # Write .gitignore before init so the first commit is clean
-    gi_path = WORKSPACE / ".gitignore"
-    if not gi_path.exists():
-        gi_path.write_text(_GITIGNORE)
-
     # Initialise repo if needed
     if not (WORKSPACE / ".git").exists():
         _git("init", "-b", "main")
@@ -87,16 +82,27 @@ def setup_workspace_repo(backup_repo: str) -> None:
     else:
         _git("remote", "set-url", "origin", backup_repo)
 
-    # Attempt to restore from remote — failure is non-fatal (may be a fresh repo)
+    # Attempt to restore from remote — failure is non-fatal (may be a fresh/empty repo)
     rc, out = _git("fetch", "origin")
     if rc == 0:
-        rc2, out2 = _git("merge", "--allow-unrelated-histories", "-X", "theirs", "origin/main")
-        if rc2 != 0:
-            logger.warning(f"workspace_sync: initial merge skipped or failed: {out2}")
+        # Verify origin/main actually exists (remote could be empty on first use)
+        rc_ref, _ = _git("rev-parse", "--verify", "origin/main")
+        if rc_ref == 0:
+            # Hard-reset to remote state so untracked local files don't block restore
+            rc2, out2 = _git("reset", "--hard", "origin/main")
+            if rc2 != 0:
+                logger.warning(f"workspace_sync: restore failed: {out2}")
+            else:
+                logger.info("workspace_sync: restored workspace state from remote")
         else:
-            logger.info("workspace_sync: restored workspace state from remote")
+            logger.info("workspace_sync: remote is empty, starting fresh")
     else:
         logger.info(f"workspace_sync: fetch skipped (remote may be empty): {out}")
+
+    # Ensure .gitignore exists — either just restored from remote, or create fresh
+    gi_path = WORKSPACE / ".gitignore"
+    if not gi_path.exists():
+        gi_path.write_text(_GITIGNORE)
 
 
 def sync_workspace(backup_repo: str) -> None:
