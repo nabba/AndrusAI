@@ -35,6 +35,17 @@ class Settings(BaseSettings):
     self_improve_cron: str = "0 3 * * *"
     self_improve_topic_file: str = "workspace/skills/learning_queue.md"
 
+    # Cloud backup — set to a GitHub/git remote URL to enable workspace sync.
+    # Use an HTTPS URL with a PAT for simplicity:
+    #   https://<PAT>@github.com/you/crewai-memory-backup.git
+    # Leave empty to disable (the system works fine without backups).
+    workspace_backup_repo: str = ""
+    workspace_sync_cron: str = "0 * * * *"  # default: every hour
+
+    # How many recent user+assistant exchanges to include in each new request
+    # so the LLM understands short/contextual replies.
+    conversation_history_turns: int = 10
+
     class Config:
         env_file = ".env"
 

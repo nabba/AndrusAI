@@ -14,6 +14,8 @@ from app.agents.commander import Commander
 from app.audit import (
     log_request_received, log_response_sent, log_security_event
 )
+from app.conversation_store import add_message
+from app.workspace_sync import setup_workspace_repo, sync_workspace
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -71,16 +73,39 @@ async def lifespan(app: FastAPI):
         )
 
     _configure_audit_log()
+
+    # Validate cron expressions early so misconfiguration fails fast
     try:
         trigger = CronTrigger.from_crontab(settings.self_improve_cron)
     except ValueError as exc:
         raise RuntimeError(
             f"Invalid SELF_IMPROVE_CRON expression {settings.self_improve_cron!r}: {exc}"
         ) from exc
+
+    try:
+        sync_trigger = CronTrigger.from_crontab(settings.workspace_sync_cron)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Invalid WORKSPACE_SYNC_CRON expression {settings.workspace_sync_cron!r}: {exc}"
+        ) from exc
+
+    # Restore workspace state from cloud backup (non-fatal if remote is empty/absent)
+    if settings.workspace_backup_repo:
+        await asyncio.to_thread(setup_workspace_repo, settings.workspace_backup_repo)
+
     scheduler.add_job(SelfImprovementCrew().run, trigger)
+    # Workspace sync: pass backup_repo as a kwarg so the job is a no-op when unset
+    scheduler.add_job(
+        sync_workspace,
+        sync_trigger,
+        kwargs={"backup_repo": settings.workspace_backup_repo},
+    )
     scheduler.start()
     logger.info("CrewAI Agent Team started")
     yield
+    # Final sync on clean shutdown
+    if settings.workspace_backup_repo:
+        await asyncio.to_thread(sync_workspace, settings.workspace_backup_repo)
     scheduler.shutdown()
 
 
@@ -136,8 +161,16 @@ async def receive_signal(request: Request):
 
 async def handle_task(sender: str, text: str):
     try:
-        result = await asyncio.to_thread(commander.handle, text)
+        # Persist the incoming message before processing so history is available
+        # even if the response fails
+        add_message(sender, "user", text)
+
+        result = await asyncio.to_thread(commander.handle, text, sender)
         log_response_sent(_redact_number(sender), len(result))
+
+        # Persist the assistant reply
+        add_message(sender, "assistant", result)
+
         await signal_client.send(sender, result)
     except Exception:
         logger.exception("Error handling task")
