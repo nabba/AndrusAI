@@ -150,6 +150,7 @@
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">hello / hi / any question</td><td>Commander routes to the right crew (research, coding, writing) or answers directly. Short replies are interpreted in context of your conversation history.</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">status</td><td>Returns system health and count of pending improvement proposals.</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">learn &lt;topic&gt;</td><td>Adds topic to the learning queue. At 3 AM daily (or on manual trigger), the self-improvement crew researches it and saves a skill file to workspace/skills/.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">watch &lt;youtube_url&gt;</td><td>Extracts the video transcript, distills key knowledge into a skill file, and stores a summary in shared team memory. The learned content improves all future agent responses.</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">show learning queue</td><td>Displays all pending topics in the learning queue.</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">run self-improvement now</td><td>Immediately processes the learning queue (up to 3 topics). Agents research, extract knowledge, and save skill files.</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">improve</td><td>Triggers an improvement scan. An analyst agent reviews current skills, tools, and crews, identifies capability gaps, and creates 1-3 structured improvement proposals.</td></tr>
@@ -168,6 +169,7 @@
     Complex requests can dispatch multiple crews in parallel (e.g. research + writing).
     <div style="margin-top:8px;font-weight:700;color:var(--text)">Self-improvement flow</div>
     <code>learn topic</code> &rarr; queued &rarr; cron or manual trigger &rarr; agent researches 3+ sources &rarr; saves skill .md file &rarr; skill loaded into all future requests<br>
+    <code>watch youtube_url</code> &rarr; extracts transcript &rarr; agent distills key knowledge &rarr; saves skill file + stores in team memory &rarr; improves future responses<br>
     <code>improve</code> &rarr; analyst scans capabilities &rarr; creates proposals &rarr; you approve/reject via Signal &rarr; approved changes applied
   </div>
 </details>

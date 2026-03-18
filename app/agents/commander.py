@@ -194,6 +194,14 @@ class Commander:
             SelfImprovementCrew().run()
             return "Self-improvement run completed."
 
+        # "watch <youtube_url>" — extract transcript, distill into skill + memory
+        if lower.startswith("watch "):
+            url = user_input[6:].strip()[:200]
+            if "youtu" not in url:
+                return "Please provide a YouTube URL. Usage: watch https://youtube.com/watch?v=..."
+            from app.crews.self_improvement_crew import SelfImprovementCrew
+            return SelfImprovementCrew().learn_from_youtube(url)
+
         if lower == "improve":
             from app.crews.self_improvement_crew import SelfImprovementCrew
             SelfImprovementCrew().run_improvement_scan()
