@@ -244,6 +244,15 @@ class Commander:
             SelfImprovementCrew().run_improvement_scan()
             return "Improvement scan completed. Use 'proposals' to see results."
 
+        if lower == "evolve":
+            from app.evolution import run_evolution_cycle
+            result = run_evolution_cycle()
+            return f"Evolution cycle completed:\n{result}"
+
+        if lower in ("experiments", "show experiments"):
+            from app.evolution import get_journal_summary
+            return f"Experiment History:\n\n{get_journal_summary(15)}"
+
         if lower in ("errors", "show errors"):
             from app.self_heal import get_recent_errors, get_error_patterns
             errors = get_recent_errors(5)

@@ -104,7 +104,18 @@ async def lifespan(app: FastAPI):
     if settings.workspace_backup_repo:
         await asyncio.to_thread(setup_workspace_repo, settings.workspace_backup_repo)
 
-    scheduler.add_job(SelfImprovementCrew().run, trigger)
+    scheduler.add_job(SelfImprovementCrew().run, trigger, id="self_improve")
+
+    # Evolution loop — continuous autonomous improvement (every 6 hours by default)
+    from app.evolution import run_evolution_cycle
+    evolution_cron = os.environ.get("EVOLUTION_CRON", "0 */6 * * *")
+    try:
+        evo_trigger = CronTrigger.from_crontab(evolution_cron)
+        scheduler.add_job(run_evolution_cycle, evo_trigger, id="evolution")
+        logger.info(f"Evolution loop scheduled: {evolution_cron}")
+    except ValueError:
+        logger.warning(f"Invalid EVOLUTION_CRON: {evolution_cron}, evolution loop disabled")
+
     # Workspace sync: pass backup_repo as a kwarg so the job is a no-op when unset
     scheduler.add_job(
         sync_workspace,

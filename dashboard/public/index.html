@@ -158,6 +158,8 @@
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">proposals</td><td>Lists all pending improvement proposals with their IDs, types, and titles.</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">approve &lt;id&gt;</td><td>Approves and applies a proposal. Skill proposals copy files to skills/ immediately. Code proposals are staged to applied_code/ and activate on next container rebuild.</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">reject &lt;id&gt;</td><td>Rejects and archives a proposal. No files are changed.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">evolve</td><td>Triggers one evolution cycle immediately. The system analyzes its own metrics (errors, skills, experiment history), proposes ONE improvement, and applies it (skills) or creates a proposal (code).</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">experiments</td><td>Shows the experiment journal: what the evolution engine has tried, what was kept, and what was discarded.</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">errors</td><td>Shows the 5 most recent errors with diagnosis status and recurring patterns. The self-healing system automatically diagnoses errors and creates fixes in the background.</td></tr>
     </tbody>
   </table>
@@ -174,7 +176,9 @@
     <code>watch youtube_url</code> &rarr; extracts transcript &rarr; agent distills key knowledge &rarr; saves skill file + stores in team memory &rarr; improves future responses<br>
     <code>improve</code> &rarr; analyst scans capabilities &rarr; creates proposals &rarr; you approve/reject via Signal &rarr; approved changes applied
     <div style="margin-top:8px;font-weight:700;color:var(--text)">Self-healing</div>
-    When any crew fails, the system automatically: logs the error with context &rarr; spawns a background "System Doctor" agent &rarr; diagnoses the root cause &rarr; either saves a knowledge fix (immediate) or creates a code fix proposal (needs approval). Use <code>errors</code> to check the error journal and diagnosis status.
+    When any crew fails, the system automatically: logs the error with context &rarr; spawns a background "System Doctor" agent &rarr; diagnoses the root cause &rarr; either saves a knowledge fix (immediate) or creates a code fix proposal (needs approval). Use <code>errors</code> to check the error journal.
+    <div style="margin-top:8px;font-weight:700;color:var(--text)">Evolution loop (autoresearch-inspired)</div>
+    Every 6 hours (configurable via EVOLUTION_CRON), the system runs an autonomous improvement cycle: gathers metrics (errors, skills, experiment history) &rarr; identifies the highest-impact improvement &rarr; executes ONE change (skill fix or code proposal) &rarr; logs the experiment &rarr; keeps improvements, discards regressions. Use <code>evolve</code> to trigger manually, <code>experiments</code> to see history.
   </div>
 </details>
 
