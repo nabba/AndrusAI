@@ -1,15 +1,20 @@
 import json
 import logging
 import re
-from crewai import Agent, Task, Crew, Process, LLM
+from crewai import Agent, Task, Crew, Process
 from app.agents.researcher import create_researcher
-from app.config import get_settings, get_anthropic_api_key
+from app.config import get_settings
+from app.llm_factory import create_specialist_llm
 from app.sanitize import wrap_user_input
 from app.self_heal import diagnose_and_fix
 from app.firebase_reporter import (
     crew_started, crew_completed, crew_failed, update_sub_agent_progress,
 )
 from app.crews.parallel_runner import run_parallel
+from app.memory.belief_state import update_belief
+from app.agents.critic import create_critic
+from app.policies.policy_loader import load_relevant_policies
+from app.benchmarks import record_metric
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -23,15 +28,27 @@ class ResearchCrew:
             eta_seconds=120, parent_task_id=parent_task_id,
         )
 
+        import time as _time
+        _start = _time.monotonic()
+
+        update_belief("researcher", "working", current_task=topic[:100])
         try:
             subtopics = self._plan_research(topic)
 
             if len(subtopics) <= 1:
-                return self._run_single(topic, task_id)
+                result = self._run_single(topic, task_id)
+            else:
+                logger.info(f"Research crew spawning {len(subtopics)} sub-agents")
+                result = self._run_parallel(topic, subtopics, task_id)
 
-            logger.info(f"Research crew spawning {len(subtopics)} sub-agents")
-            return self._run_parallel(topic, subtopics, task_id)
+            # Critic review step
+            result = self._critic_review(result, topic)
+
+            update_belief("researcher", "completed", current_task=topic[:100])
+            record_metric("task_completion_time", _time.monotonic() - _start, {"crew": "research"})
+            return result
         except Exception as exc:
+            update_belief("researcher", "failed", current_task=topic[:100])
             crew_failed("research", task_id, str(exc)[:200])
             diagnose_and_fix("research", topic, exc)
             raise
@@ -39,11 +56,7 @@ class ResearchCrew:
     def _plan_research(self, topic: str) -> list[str]:
         """Quick LLM call to split topic into 1-4 parallel subtopics."""
         try:
-            llm = LLM(
-                model=f"anthropic/{settings.specialist_model}",
-                api_key=get_anthropic_api_key(),
-                max_tokens=1024,
-            )
+            llm = create_specialist_llm(max_tokens=1024, role="research")
             agent = Agent(
                 role="Research Planner",
                 goal="Break a research topic into independent subtopics.",
@@ -74,8 +87,10 @@ class ResearchCrew:
     def _run_single(self, topic: str, task_id: str) -> str:
         """Single-agent research for simple topics."""
         researcher = create_researcher()
+        policies = load_relevant_policies(topic, "researcher")
+        policies_block = f"\n{policies}\n" if policies else ""
         task = Task(
-            description=f"""Research the following topic thoroughly:
+            description=f"""{policies_block}Research the following topic thoroughly:
 
 {wrap_user_input(topic)}
 
@@ -86,6 +101,10 @@ Compile a structured research report with:
 1. Key findings
 2. Important details and data points
 3. Sources (with URLs)
+
+After completing your research, use the self_report tool to assess your confidence,
+completeness, and any blockers. Then use store_reflection to record what you learned
+about your own performance on this task.
 """,
             expected_output="A structured research report with key findings and sources.",
             agent=researcher,
@@ -112,7 +131,8 @@ Compile a structured research report with:
                             f"{wrap_user_input(subtopic)}\n\n"
                             f"Search the web, read at least 2 sources. "
                             f"Store key findings in shared team memory. "
-                            f"Return a concise summary with sources."
+                            f"Return a concise summary with sources. "
+                            f"Then use self_report to assess your confidence and completeness."
                         ),
                         expected_output="Research findings with sources.",
                         agent=researcher,
@@ -142,6 +162,37 @@ Compile a structured research report with:
         # Phase 3: Synthesize
         return self._synthesize(topic, results, parent_task_id)
 
+    def _critic_review(self, result: str, topic: str) -> str:
+        """Run a Critic agent to review the research output for quality."""
+        try:
+            critic = create_critic()
+            review_task = Task(
+                description=(
+                    f"Review this research output for accuracy, gaps, and unjustified claims.\n\n"
+                    f"Topic: {topic[:200]}\n\n"
+                    f"Research output to review:\n{result[:4000]}\n\n"
+                    f"Check for:\n"
+                    f"1. Are claims supported by cited sources?\n"
+                    f"2. Are there obvious gaps or missing perspectives?\n"
+                    f"3. Is the confidence level justified by the evidence?\n"
+                    f"4. Are there any contradictions?\n\n"
+                    f"Provide a brief review with any issues found and suggestions. "
+                    f"Use self_report to assess your review confidence."
+                ),
+                expected_output="Brief quality review with issues and suggestions.",
+                agent=critic,
+            )
+            crew = Crew(
+                agents=[critic], tasks=[review_task],
+                process=Process.sequential, verbose=True,
+            )
+            review = str(crew.kickoff()).strip()
+            if review:
+                result += f"\n\n---\n\n**[Critic Review]**\n{review}"
+        except Exception:
+            logger.warning("Critic review failed, continuing without it", exc_info=True)
+        return result
+
     def _synthesize(self, topic: str, results: list, parent_task_id: str) -> str:
         """Combine parallel research results into a unified report."""
         successful = [r.result for r in results if r.success and r.result]
@@ -156,7 +207,9 @@ Compile a structured research report with:
             description=(
                 f"Synthesize these parallel research findings into one unified report on: {topic}\n\n"
                 f"Individual findings:\n{combined_input[:6000]}\n\n"
-                f"Create a cohesive report with: key findings, details, and all sources."
+                f"Create a cohesive report with: key findings, details, and all sources. "
+                f"After synthesizing, use self_report to assess overall research quality "
+                f"and store_reflection to note what worked and what could improve."
                 + (f"\n\nNote: {len(failed)} sub-tasks failed." if failed else "")
             ),
             expected_output="A unified research report combining all findings.",

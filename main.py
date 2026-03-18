@@ -4,13 +4,6 @@ import logging.handlers
 import asyncio
 import os
 
-# Ensure all loggers output to stdout so docker logs captures tracebacks
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-
-# Install API rate throttle BEFORE any litellm/crewai imports to monkey-patch early
-from app.rate_throttle import install_throttle
-install_throttle()
-
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -18,15 +11,13 @@ from app.config import get_settings, get_gateway_secret
 from app.security import is_authorized_sender, is_within_rate_limit, _redact_number
 from app.signal_client import SignalClient
 from app.agents.commander import Commander
-from app.self_heal import diagnose_and_fix
 from app.audit import (
     log_request_received, log_response_sent, log_security_event
 )
-from app.conversation_store import add_message, start_task, complete_task
+from app.conversation_store import add_message
 from app.workspace_sync import setup_workspace_repo, sync_workspace
 from app.firebase_reporter import (
-    report_system_online, report_system_offline, heartbeat, report_schedule,
-    cleanup_stale_tasks,
+    report_system_online, report_system_offline, heartbeat, report_schedule
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -105,68 +96,7 @@ async def lifespan(app: FastAPI):
     if settings.workspace_backup_repo:
         await asyncio.to_thread(setup_workspace_repo, settings.workspace_backup_repo)
 
-    scheduler.add_job(SelfImprovementCrew().run, trigger, id="self_improve")
-
-    # LLM Fleet — create shared model volume and schedule idle cleanup
-    from app.ollama_fleet import ensure_volume, stop_idle_containers
-    try:
-        await asyncio.to_thread(ensure_volume)
-    except Exception:
-        logger.debug("Fleet volume creation deferred", exc_info=True)
-    scheduler.add_job(stop_idle_containers, "interval", minutes=5, id="fleet_cleanup")
-    logger.info("LLM fleet cleanup scheduled (every 5 min)")
-
-    # Auditor — continuous code quality + error resolution
-    from app.auditor import run_code_audit, run_error_resolution
-    auditor_cron = os.environ.get("AUDITOR_CRON", "0 */4 * * *")
-    error_fix_cron = os.environ.get("ERROR_FIX_CRON", "*/30 * * * *")
-    try:
-        scheduler.add_job(run_code_audit, CronTrigger.from_crontab(auditor_cron), id="code_audit")
-        logger.info(f"Code auditor scheduled: {auditor_cron}")
-    except ValueError:
-        logger.warning(f"Invalid AUDITOR_CRON: {auditor_cron}")
-    try:
-        scheduler.add_job(run_error_resolution, CronTrigger.from_crontab(error_fix_cron), id="error_resolution")
-        logger.info(f"Error resolution loop scheduled: {error_fix_cron}")
-    except ValueError:
-        logger.warning(f"Invalid ERROR_FIX_CRON: {error_fix_cron}")
-
-    # Evolution loop — autoresearch-style continuous improvement (every 6 hours)
-    from app.evolution import run_evolution_session
-    evolution_cron = os.environ.get("EVOLUTION_CRON", "0 */6 * * *")
-    try:
-        evo_trigger = CronTrigger.from_crontab(evolution_cron)
-        scheduler.add_job(
-            run_evolution_session,
-            evo_trigger,
-            id="evolution",
-            kwargs={"max_iterations": settings.evolution_iterations},
-        )
-        logger.info(f"Evolution loop scheduled: {evolution_cron} ({settings.evolution_iterations} iterations/session)")
-    except ValueError:
-        logger.warning(f"Invalid EVOLUTION_CRON: {evolution_cron}, evolution loop disabled")
-
-    # Retrospective crew — meta-cognitive self-improvement (daily at 4 AM by default)
-    from app.crews.retrospective_crew import RetrospectiveCrew
-    try:
-        retro_trigger = CronTrigger.from_crontab(settings.retrospective_cron)
-        scheduler.add_job(RetrospectiveCrew().run, retro_trigger, id="retrospective")
-        logger.info(f"Retrospective crew scheduled: {settings.retrospective_cron}")
-    except ValueError:
-        logger.warning(f"Invalid RETROSPECTIVE_CRON: {settings.retrospective_cron}")
-
-    # Benchmark snapshot — daily summary of performance metrics
-    from app.benchmarks import get_benchmark_summary
-    try:
-        bench_trigger = CronTrigger.from_crontab(settings.benchmark_cron)
-        scheduler.add_job(
-            lambda: logger.info(f"Benchmark snapshot: {get_benchmark_summary()}"),
-            bench_trigger, id="benchmark_snapshot",
-        )
-        logger.info(f"Benchmark snapshot scheduled: {settings.benchmark_cron}")
-    except ValueError:
-        logger.warning(f"Invalid BENCHMARK_CRON: {settings.benchmark_cron}")
-
+    scheduler.add_job(SelfImprovementCrew().run, trigger)
     # Workspace sync: pass backup_repo as a kwarg so the job is a no-op when unset
     scheduler.add_job(
         sync_workspace,
@@ -177,8 +107,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(heartbeat, "interval", seconds=60, id="heartbeat")
     scheduler.start()
 
-    # Clean up zombie tasks from previous container, then report online
-    cleanup_stale_tasks()
+    # Report online status and publish schedule to Firebase
     report_system_online()
     _publish_schedule()
 
@@ -239,7 +168,6 @@ async def receive_signal(request: Request):
     payload = await request.json()
     sender = payload.get("sender", "")
     text = payload.get("message", "").strip()
-    attachments = payload.get("attachments", [])
 
     if not is_authorized_sender(sender):
         log_security_event("unauthorized_sender", _redact_number(sender))
@@ -247,66 +175,36 @@ async def receive_signal(request: Request):
     if not is_within_rate_limit(sender):
         log_security_event("rate_limit_exceeded", _redact_number(sender))
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
-    if not text and not attachments:
+    if not text:
         return {"status": "ignored"}
 
     # Enforce message length limit
     if len(text) > MAX_MESSAGE_LENGTH:
         text = text[:MAX_MESSAGE_LENGTH]
 
-    # Cap attachments (prevent abuse)
-    attachments = attachments[:5]
-
     log_request_received(_redact_number(sender), len(text))
-    asyncio.create_task(handle_task(sender, text, attachments))
+    asyncio.create_task(handle_task(sender, text))
     return {"status": "accepted"}
 
 
-async def handle_task(sender: str, text: str, attachments: list = None):
-    # Start task tracking for metrics
-    task_row_id = start_task(sender)
-
+async def handle_task(sender: str, text: str):
     try:
         # Persist the incoming message before processing so history is available
         # even if the response fails
-        att_note = ""
-        if attachments:
-            att_note = f" [+{len(attachments)} attachment(s)]"
-        add_message(sender, "user", text + att_note)
+        add_message(sender, "user", text)
 
-        result = await asyncio.to_thread(
-            commander.handle, text, sender, attachments or []
-        )
+        result = await asyncio.to_thread(commander.handle, text, sender)
         log_response_sent(_redact_number(sender), len(result))
 
         # Persist the assistant reply
         add_message(sender, "assistant", result)
 
-        # Record successful task completion with timing
-        complete_task(task_row_id, success=True)
-
         await signal_client.send(sender, result)
-    except Exception as exc:
+    except Exception:
         logger.exception("Error handling task")
         log_security_event("task_error", "unhandled exception in handle_task")
-
-        # Record failed task for metrics
-        complete_task(task_row_id, success=False, error_type=type(exc).__name__)
-
-        # Trigger self-healing: diagnose the error in the background
-        diagnose_and_fix(
-            crew="handle_task",
-            user_input=text,
-            error=exc,
-            context=f"attachments={len(attachments or [])}",
-        )
         # Generic error — do not leak internals to Signal
-        await signal_client.send(
-            sender,
-            "Something went wrong processing your request. "
-            "The self-healing system is analyzing the error and will attempt a fix. "
-            "Please try again shortly."
-        )
+        await signal_client.send(sender, "Sorry, something went wrong processing your request. Please try again.")
 
 
 @app.get("/health")

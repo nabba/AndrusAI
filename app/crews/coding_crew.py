@@ -1,19 +1,28 @@
+import time as _time
 from crewai import Task, Crew, Process
 from app.agents.coder import create_coder
 from app.sanitize import wrap_user_input
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
 from app.self_heal import diagnose_and_fix
+from app.memory.belief_state import update_belief
+from app.policies.policy_loader import load_relevant_policies
+from app.benchmarks import record_metric
 
 
 class CodingCrew:
     def run(self, task_description: str, parent_task_id: str = None) -> str:
         """Run a coding crew on the given task."""
+        _start = _time.monotonic()
         task_id = crew_started("coding", f"Code: {task_description[:100]}",
                                eta_seconds=180, parent_task_id=parent_task_id)
+        update_belief("coder", "working", current_task=task_description[:100])
         coder = create_coder()
 
+        policies = load_relevant_policies(task_description, "coder")
+        policies_block = f"\n{policies}\n" if policies else ""
+
         task = Task(
-            description=f"""Complete the following coding task:
+            description=f"""{policies_block}Complete the following coding task:
 
 {wrap_user_input(task_description)}
 
@@ -22,6 +31,10 @@ If the code fails, debug and fix it. Save the final working code to a file using
 the file_manager tool.
 
 Return the working code along with its output.
+
+After completing the task, use the self_report tool to assess your confidence in the
+code quality, completeness, and any risks. Then use store_reflection to record lessons
+learned about your coding approach.
 """,
             expected_output="Working code with execution output, saved to a file.",
             agent=coder,
@@ -37,9 +50,12 @@ Return the working code along with its output.
         try:
             result = crew.kickoff()
             result_str = str(result)
+            update_belief("coder", "completed", current_task=task_description[:100])
+            record_metric("task_completion_time", _time.monotonic() - _start, {"crew": "coding"})
             crew_completed("coding", task_id, result_str[:200])
             return result_str
         except Exception as exc:
+            update_belief("coder", "failed", current_task=task_description[:100])
             crew_failed("coding", task_id, str(exc)[:200])
             diagnose_and_fix("coding", task_description, exc)
             raise

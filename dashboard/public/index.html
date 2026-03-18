@@ -77,6 +77,18 @@
     .feed-detail { flex: 1; }
     .feed-crew   { color: var(--purple); font-weight: 600; }
 
+    /* Fleet containers */
+    .fleet-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+    .fleet-card.running { border-color: var(--green); }
+    .fleet-card .model-name { font-weight: 700; font-size: .85rem; color: var(--text); }
+    .fleet-card .model-meta { font-size: .7rem; color: var(--muted); margin-top: 4px; }
+    .fleet-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; background: var(--muted); }
+    .fleet-dot.running { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .fleet-dot.stopped { background: var(--red); }
+    .task-flow { font-size: .7rem; display: flex; align-items: center; gap: 3px; }
+    .task-flow .arrow { color: var(--orange); font-weight: 700; }
+    .model-tag { font-size: .65rem; padding: 1px 6px; border-radius: 6px; background: rgba(188,140,255,.15); color: var(--purple); font-weight: 600; white-space: nowrap; }
+
     .empty { color: var(--muted); font-size: .85rem; padding: 14px 0; text-align: center; }
     #last-updated { font-size: .7rem; color: var(--muted); text-align: right; }
 
@@ -111,18 +123,26 @@
 <div class="stats-row">
   <div class="stat-card"><div class="stat-val" id="s-active">—</div><div class="stat-lbl">Active Crews</div></div>
   <div class="stat-card"><div class="stat-val" id="s-tasks">—</div><div class="stat-lbl">Tasks Today</div></div>
+  <div class="stat-card"><div class="stat-val" id="s-containers">—</div><div class="stat-lbl">LLM Containers</div></div>
   <div class="stat-card"><div class="stat-val" id="s-uptime">—</div><div class="stat-lbl">Uptime</div></div>
-  <div class="stat-card"><div class="stat-val" id="s-last">—</div><div class="stat-lbl">Last Heartbeat</div></div>
 </div>
 
 <div class="section-title">🤖 Crew Status</div>
 <div id="crews-grid"></div>
 
+<div class="card" id="fleet-panel">
+  <div class="section-title">🐳 LLM Fleet Containers</div>
+  <div id="fleet-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+    <div class="empty">No fleet data yet</div>
+  </div>
+  <div id="fleet-benchmarks" style="margin-top:12px;font-size:.78rem;color:var(--muted)"></div>
+</div>
+
 <div class="card">
   <div class="section-title">📋 Current &amp; Recent Tasks</div>
   <table>
-    <thead><tr><th>Crew</th><th>Task</th><th>Status</th><th>Started</th><th>ETA / Done</th></tr></thead>
-    <tbody id="tasks-tbody"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+    <thead><tr><th>Crew</th><th>Task</th><th>Model</th><th>Status</th><th>Flow</th><th>ETA / Done</th></tr></thead>
+    <tbody id="tasks-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
   </table>
 </div>
 
@@ -161,6 +181,14 @@
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">evolve</td><td>Triggers one evolution cycle immediately. The system analyzes its own metrics (errors, skills, experiment history), proposes ONE improvement, and applies it (skills) or creates a proposal (code).</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">experiments</td><td>Shows the experiment journal: what the evolution engine has tried, what was kept, and what was discarded.</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">errors</td><td>Shows the 5 most recent errors with diagnosis status and recurring patterns. The self-healing system automatically diagnoses errors and creates fixes in the background.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">llm</td><td>Shows current LLM configuration: whether using local Ollama or cloud Claude, which model, vetting status, and cost breakdown.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">audit</td><td>Triggers an immediate code audit. The auditor reads all Python source files, identifies bugs/security issues/anti-patterns, and auto-deploys fixes. Runs automatically every 4 hours.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">fix errors</td><td>Triggers the error resolution loop. Scans for recurring error patterns, generates targeted fixes, applies them, and tracks whether they resolve the error. Loops up to 3 attempts per pattern. Runs automatically every 30 minutes.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">auditor</td><td>Shows audit activity summary: recent code audits, error resolution status (resolved/in-progress/failed), and recent auto-deployments.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">deploys</td><td>Shows the auto-deployment log: what files were deployed, when, and why.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">fleet</td><td>Shows the LLM fleet status: running containers, available models in catalog, and benchmark scores. Each model runs in its own Docker container, spawned on demand and killed when idle (&gt;10min).</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">fleet stop all</td><td>Stops all LLM fleet containers immediately, freeing all GPU/RAM.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">fleet pull &lt;model&gt;</td><td>Pulls a new model from the Ollama registry into the shared volume. Example: <code>fleet pull gemma3:27b</code>. The model persists and doesn't need re-downloading.</td></tr>
     </tbody>
   </table>
   <div style="margin-top:14px;padding:12px;background:var(--bg);border-radius:8px;font-size:.78rem;color:var(--muted)">
@@ -171,6 +199,13 @@
     &bull; <strong style="color:var(--blue)">Writing</strong> &mdash; summaries, documentation, emails, reports<br>
     &bull; <strong style="color:var(--blue)">Direct</strong> &mdash; simple questions answered by Commander itself<br>
     Complex requests can dispatch multiple crews in parallel (e.g. research + writing).
+    <div style="margin-top:8px;font-weight:700;color:var(--text)">LLM Fleet (containerized, dynamic model selection)</div>
+    Each LLM model runs in its <strong>own Docker container</strong>, spawned on-demand and killed when idle (&gt;10min). All containers share a persistent volume so models are downloaded once.<br>
+    <strong>Commander</strong> &rarr; Claude API (routing, max intelligence)<br>
+    <strong>Specialist Crews</strong> &rarr; <code>llm_selector</code> picks the best model for each task based on catalog strengths + benchmark history:<br>
+    &nbsp;&nbsp;Coding: codestral:22b or qwen3:30b-a3b &middot; Architecture: deepseek-r1:32b &middot; Research/Writing: auto-selected<br>
+    <strong>Vetting</strong> &rarr; Claude Opus 4.6 reviews ALL local output before delivery (quality gate)<br>
+    Up to 3 concurrent containers. Use <code>fleet</code> to see running containers and benchmarks.
     <div style="margin-top:8px;font-weight:700;color:var(--text)">Self-improvement flow</div>
     <code>learn topic</code> &rarr; queued &rarr; cron or manual trigger &rarr; agent researches 3+ sources &rarr; saves skill .md file &rarr; skill loaded into all future requests<br>
     <code>watch youtube_url</code> &rarr; extracts transcript &rarr; agent distills key knowledge &rarr; saves skill file + stores in team memory &rarr; improves future responses<br>
@@ -179,6 +214,12 @@
     When any crew fails, the system automatically: logs the error with context &rarr; spawns a background "System Doctor" agent &rarr; diagnoses the root cause &rarr; either saves a knowledge fix (immediate) or creates a code fix proposal (needs approval). Use <code>errors</code> to check the error journal.
     <div style="margin-top:8px;font-weight:700;color:var(--text)">Evolution loop (autoresearch-inspired)</div>
     Every 6 hours (configurable via EVOLUTION_CRON), the system runs an autonomous improvement cycle: gathers metrics (errors, skills, experiment history) &rarr; identifies the highest-impact improvement &rarr; executes ONE change (skill fix or code proposal) &rarr; logs the experiment &rarr; keeps improvements, discards regressions. Use <code>evolve</code> to trigger manually, <code>experiments</code> to see history.
+    <div style="margin-top:8px;font-weight:700;color:var(--text)">Code Auditor (continuous quality)</div>
+    Every 4 hours: reads all Python source files &rarr; deepseek-r1 analyzes for bugs, security issues, anti-patterns &rarr; writes fixes to applied_code/ &rarr; auto-deployer validates syntax &rarr; backs up originals &rarr; deploys fixes live. Use <code>audit</code> to trigger manually, <code>auditor</code> for status.
+    <div style="margin-top:8px;font-weight:700;color:var(--text)">Error Resolution Loop (persistent fix)</div>
+    Every 30 minutes: scans error journal for recurring patterns (2+ occurrences) &rarr; generates targeted code fix &rarr; applies fix &rarr; monitors if error recurs &rarr; if yes: tries different approach (up to 3 attempts) &rarr; if no: marks as resolved. Use <code>fix errors</code> to trigger manually, <code>auditor</code> for resolution status.
+    <div style="margin-top:8px;font-weight:700;color:var(--text)">Auto-Deployer</div>
+    When auditor or error loop writes fixes to applied_code/: validates Python syntax &rarr; backs up originals &rarr; copies to live /app/ &rarr; logs deployment. Use <code>deploys</code> to see history. All deploys are backed up for rollback.
   </div>
 </details>
 
@@ -219,7 +260,7 @@ const etaIn = iso => {
   return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`;
 };
 const ICONS = { commander:"🧭", research:"🔬", coding:"💻", writing:"✍️", self_improvement:"🧠" };
-const EVT   = { task_started:"▶️", task_completed:"✅", task_failed:"❌" };
+const EVT   = { task_started:"▶️", task_completed:"✅", task_failed:"❌", task_delegated:"↗️" };
 const touch = () => document.getElementById("last-updated").textContent = "Updated: " + new Date().toLocaleTimeString();
 
 // ── System ────────────────────────────────────────────────────────────────────
@@ -262,12 +303,13 @@ function renderCrews() {
     }
     const c = document.createElement("div");
     c.className = `crew-card${on?" active":""}`;
+    const modelTag = (on && d.model) ? `<span class="model-tag">${d.model}</span>` : '';
     c.innerHTML = `
       <div class="crew-header">
         <span class="crew-name">${ICONS[name]||"🤖"} ${name.replace("_"," ")}</span>
         <span class="crew-status${on?" active":""}">${d.state||"unknown"}</span>
       </div>
-      <div class="crew-task">${on?(d.current_task||"Working…"):'<span style="color:var(--muted)">No active task</span>'}</div>
+      <div class="crew-task">${on?(d.current_task||"Working…"):'<span style="color:var(--muted)">No active task</span>'} ${modelTag}</div>
       <div class="crew-eta">${etaStr}</div>
       ${on?`<div class="prog"><div class="fill" style="width:${prog}%"></div></div>`:""}`;
     g.appendChild(c);
@@ -279,7 +321,7 @@ CREWS.forEach(name => onSnapshot(doc(db,"crews",name), s => { crewData[name] = s
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 onSnapshot(query(collection(db,"tasks"), orderBy("started_at","desc"), limit(20)), snap => {
   const tbody = document.getElementById("tasks-tbody");
-  if (snap.empty) { tbody.innerHTML='<tr><td colspan="5" class="empty">No tasks yet</td></tr>'; return; }
+  if (snap.empty) { tbody.innerHTML='<tr><td colspan="6" class="empty">No tasks yet</td></tr>'; return; }
   const today = snap.docs.filter(d => (Date.now()-new Date(d.data().started_at))<86400000).length;
   document.getElementById("s-tasks").textContent = today;
   tbody.innerHTML = snap.docs.map(d => {
@@ -292,14 +334,60 @@ onSnapshot(query(collection(db,"tasks"), orderBy("started_at","desc"), limit(20)
               : t.state==="failed"    ? `<span style="color:var(--red)">Failed</span>`
               : t.eta                 ? `ETA ${etaIn(t.eta)||"—"}${progress}`
               :                         progress || "—";
+    // Model tag
+    const modelTag = t.model ? `<span class="model-tag">${t.model}</span>` : '<span style="color:var(--muted);font-size:.7rem">—</span>';
+    // Task flow / delegation
+    let flow = '';
+    if (t.delegated_from && t.delegated_to) {
+      flow = `<div class="task-flow">${ICONS[t.delegated_from]||"🤖"}<span class="arrow">→</span>${ICONS[t.delegated_to]||"🤖"}</div>`;
+    } else if (t.is_sub_agent && t.parent_task_id) {
+      flow = `<div class="task-flow"><span style="color:var(--muted)">sub-agent</span></div>`;
+    } else if (t.crew) {
+      flow = `<div class="task-flow">${ICONS["commander"]||""}<span class="arrow">→</span>${ICONS[t.crew]||"🤖"}</div>`;
+    }
     return `<tr${isChild?' style="opacity:.8"':''}>
       <td style="${indent}">${prefix}${ICONS[t.crew]||"🤖"} ${t.crew||"—"}</td>
-      <td style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.summary||"—"}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.summary||"—"}</td>
+      <td>${modelTag}</td>
       <td><span class="badge ${t.state||""}">${t.state||"—"}</span></td>
-      <td style="color:var(--muted)">${abs(t.started_at)}</td>
+      <td>${flow}</td>
       <td style="color:var(--muted)">${eta}</td>
     </tr>`;
   }).join("");
+  touch();
+});
+
+// ── Fleet ────────────────────────────────────────────────────────────────────
+onSnapshot(doc(db,"status","fleet"), s => {
+  const grid = document.getElementById("fleet-grid");
+  const bench = document.getElementById("fleet-benchmarks");
+  if (!s.exists()) { grid.innerHTML='<div class="empty">No fleet data yet</div>'; return; }
+  const d = s.data();
+  const containers = d.containers || [];
+  document.getElementById("s-containers").textContent =
+    containers.filter(c => c.status==="running").length + "/" + containers.length;
+
+  if (!containers.length) {
+    grid.innerHTML='<div class="empty">No containers spawned yet</div>';
+  } else {
+    grid.innerHTML = containers.map(c => {
+      const isRun = c.status === "running";
+      return `<div class="fleet-card${isRun?" running":""}">
+        <div><span class="fleet-dot ${c.status}"></span><span class="model-name">${c.model}</span></div>
+        <div class="model-meta">Port ${c.port} · ${isRun ? `Idle ${Math.round(c.idle_minutes)}m` : "Stopped"}</div>
+        <div class="model-meta">${c.container}</div>
+      </div>`;
+    }).join("");
+  }
+
+  // Benchmarks
+  const bmarks = d.benchmarks || [];
+  if (bmarks.length) {
+    bench.innerHTML = '<strong style="color:var(--text)">Benchmarks:</strong> ' +
+      bmarks.map(b => `<span style="color:var(--purple)">${b.model}</span>[${b.task}]=${b.score}`).join(" · ");
+  } else {
+    bench.innerHTML = '';
+  }
   touch();
 });
 

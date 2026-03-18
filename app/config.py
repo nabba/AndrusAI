@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     self_improve_cron: str = "0 3 * * *"
     self_improve_topic_file: str = "workspace/skills/learning_queue.md"
 
+    # Meta-cognitive loop — retrospective analysis and benchmarking
+    retrospective_cron: str = "0 4 * * *"   # daily at 4 AM (after self-improvement)
+    benchmark_cron: str = "0 5 * * *"        # daily at 5 AM
+
+    # Feature flags for advanced capabilities
+    proactive_scan_enabled: bool = True   # Phase 3: proactive trigger scanning
+    policy_loading_enabled: bool = True   # Phase 4: load policies before tasks
+
     # Parallelism — controls how many crews/sub-agents can run concurrently.
     max_parallel_crews: int = 3   # max crews commander can dispatch at once
     max_sub_agents: int = 4       # max sub-agents a single crew can spawn
@@ -63,6 +71,22 @@ class Settings(BaseSettings):
     # Evolution loop — autoresearch-style continuous improvement
     evolution_iterations: int = 5         # experiments per evolution session
     evolution_deep_iterations: int = 15   # experiments for "evolve deep" command
+
+    # ── Local LLM (Ollama) ───────────────────────────────────────────────
+    # Role-based model assignment. Only ONE model loaded at a time (dynamic swap).
+    local_llm_enabled: bool = True
+    local_llm_base_url: str = "http://host.docker.internal:11434"
+
+    # Role → model mapping (Ollama model names, auto-pulled on first use)
+    local_model_coding: str = "qwen3:30b-a3b"       # code generation
+    local_model_architecture: str = "deepseek-r1:32b"  # architecture, review, debug
+    local_model_research: str = "qwen3:30b-a3b"      # web research + synthesis
+    local_model_writing: str = "qwen3:30b-a3b"       # docs, summaries, reports
+    local_model_default: str = "qwen3:30b-a3b"       # fallback for unspecified
+
+    # Vetting — Claude reviews local LLM output before sending to user
+    vetting_enabled: bool = True
+    vetting_model: str = "claude-opus-4-6"  # Opus 4.6 for final code/quality review
 
     class Config:
         env_file = ".env"

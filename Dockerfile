@@ -8,8 +8,10 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     curl \
     gosu \
+    git \
     --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir yt-dlp
 
 # Install Python dependencies
 COPY requirements.txt .

@@ -4,8 +4,9 @@ import logging
 import re
 from pathlib import Path
 
-from crewai import Agent, Task, Crew, Process, LLM
-from app.config import get_settings, get_anthropic_api_key
+from crewai import Agent, Task, Crew, Process
+from app.config import get_settings
+from app.llm_factory import create_specialist_llm
 from app.sanitize import sanitize_input
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
 from app.tools.web_search import web_search
@@ -25,11 +26,7 @@ SKILLS_DIR = Path("/app/workspace/skills")
 class SelfImprovementCrew:
 
     def _make_llm(self):
-        return LLM(
-            model=f"anthropic/{settings.commander_model}",
-            api_key=get_anthropic_api_key(),
-            max_tokens=4096,
-        )
+        return create_specialist_llm(max_tokens=4096, role="research")
 
     # ── Mode 1: Learning (topic queue) ────────────────────────────────────
 

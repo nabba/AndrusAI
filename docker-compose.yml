@@ -7,9 +7,9 @@ services:
     privileged: true
     environment:
       CONTAINERS: 1        # Allow create/start/stop containers
-      IMAGES: 0
+      IMAGES: 1            # Allow pulling ollama/ollama image for fleet
       NETWORKS: 0
-      VOLUMES: 0
+      VOLUMES: 1           # Allow creating shared model volume
       POST: 1              # Allow POST (create/run)
       AUTH: 0
       SECRETS: 0
@@ -65,6 +65,10 @@ services:
     security_opt:
       - no-new-privileges:true
     # NOT exposed to host — internal only
+
+volumes:
+  crewai_ollama_models:  # Shared model storage — persists all downloaded models
+    driver: local        # across fleet container restarts (no re-download)
 
 networks:
   external:

@@ -29,6 +29,7 @@ from pathlib import Path
 
 from crewai import Agent, Task, Crew, Process, LLM
 from app.config import get_settings, get_anthropic_api_key
+from app.llm_factory import create_specialist_llm
 from app.metrics import compute_metrics, composite_score, format_metrics
 from app.results_ledger import (
     record_experiment, get_recent_results, format_ledger, get_best_score,
@@ -135,11 +136,7 @@ def _build_evolution_context() -> str:
 
 def _propose_mutation(context: str, tried_hashes: set[str]) -> MutationSpec | None:
     """Ask the evolution agent to propose ONE mutation."""
-    llm = LLM(
-        model=f"anthropic/{settings.specialist_model}",
-        api_key=get_anthropic_api_key(),
-        max_tokens=4096,
-    )
+    llm = create_specialist_llm(max_tokens=4096, role="architecture")
     memory_tools = create_memory_tools(collection="skills")
 
     tried_list = ", ".join(sorted(tried_hashes)[:20])

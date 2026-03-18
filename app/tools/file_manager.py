@@ -53,6 +53,10 @@ def file_manager(action: str, path: str, content: str = "") -> str:
     if action == "read":
         if not target.exists():
             return f"Error: File not found: {path}"
+        # Check file size before reading to prevent OOM on huge files
+        file_size = target.stat().st_size
+        if file_size > 10_000_000:  # 10 MB
+            return f"Error: File too large ({file_size:,} bytes). Max 10 MB."
         return target.read_text()[:32000]
     elif action == "write":
         if not _is_writable(target):

@@ -7,6 +7,8 @@ from app.config import get_settings
 settings = get_settings()
 
 WORKSPACE = pathlib.Path("/app/workspace/output").resolve()
+# Dedicated temp dir for sandbox — isolates code from other output files
+SANDBOX_TMPDIR = pathlib.Path("/app/workspace/output/.sandbox_tmp").resolve()
 
 
 @tool("execute_code")
@@ -39,12 +41,11 @@ def execute_code(language: str, code: str) -> str:
     if len(code.encode()) > MAX_CODE_BYTES:
         return f"Code too large (max {MAX_CODE_BYTES // 1024} KB)."
 
-    # Ensure workspace exists
-    WORKSPACE.mkdir(parents=True, exist_ok=True)
+    # Use a dedicated temp dir so sandbox can't read other output files
+    SANDBOX_TMPDIR.mkdir(parents=True, exist_ok=True)
 
-    # Write code to a temp file in workspace (readable by sandbox)
     with tempfile.NamedTemporaryFile(
-        suffix=ext, dir=WORKSPACE, delete=False, mode="w"
+        suffix=ext, dir=SANDBOX_TMPDIR, delete=False, mode="w"
     ) as f:
         f.write(code)
         host_path = pathlib.Path(f.name)
@@ -58,7 +59,7 @@ def execute_code(language: str, code: str) -> str:
         result = client.containers.run(
             settings.sandbox_image,
             command=[*cmd_parts, container_path],  # List form avoids shell injection
-            volumes={str(WORKSPACE): {"bind": "/sandbox", "mode": "ro"}},
+            volumes={str(SANDBOX_TMPDIR): {"bind": "/sandbox", "mode": "ro"}},
             network_disabled=True,  # No network in sandbox
             read_only=True,  # No writing to container FS
             mem_limit=settings.sandbox_memory_limit,

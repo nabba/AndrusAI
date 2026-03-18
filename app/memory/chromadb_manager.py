@@ -38,6 +38,7 @@ def store(collection_name: str, text: str, metadata: dict = None):
 
 
 def retrieve(collection_name: str, query: str, n: int = 5) -> list[str]:
+    n = min(max(1, n), 50)  # cap between 1 and 50 results
     client = get_client()
     col = client.get_or_create_collection(collection_name)
     if col.count() == 0:
@@ -57,3 +58,56 @@ def store_team(text: str, metadata: dict = None):
 def retrieve_team(query: str, n: int = 5) -> list[str]:
     """Retrieve from the shared team-wide collection."""
     return retrieve(TEAM_COLLECTION, query, n)
+
+
+def retrieve_with_metadata(
+    collection_name: str, query: str, n: int = 5
+) -> list[dict]:
+    """Retrieve documents with their metadata and distances.
+
+    Returns list of {"document": str, "metadata": dict, "distance": float}.
+    """
+    n = min(max(1, n), 50)
+    client = get_client()
+    col = client.get_or_create_collection(collection_name)
+    if col.count() == 0:
+        return []
+    embedding = _model.encode(query).tolist()
+    results = col.query(
+        query_embeddings=[embedding],
+        n_results=min(n, col.count()),
+        include=["documents", "metadatas", "distances"],
+    )
+    items = []
+    docs = results.get("documents", [[]])[0]
+    metas = results.get("metadatas", [[]])[0]
+    dists = results.get("distances", [[]])[0]
+    for doc, meta, dist in zip(docs, metas, dists):
+        items.append({"document": doc, "metadata": meta or {}, "distance": dist})
+    return items
+
+
+def retrieve_filtered(
+    collection_name: str, query: str, where: dict, n: int = 5
+) -> list[str]:
+    """Retrieve documents filtered by a ChromaDB 'where' clause.
+
+    Example: retrieve_filtered("scope_policies", "research", {"importance": "high"})
+    """
+    n = min(max(1, n), 50)
+    client = get_client()
+    col = client.get_or_create_collection(collection_name)
+    if col.count() == 0:
+        return []
+    embedding = _model.encode(query).tolist()
+    try:
+        results = col.query(
+            query_embeddings=[embedding],
+            n_results=min(n, col.count()),
+            where=where,
+        )
+        return results["documents"][0] if results["documents"] else []
+    except Exception:
+        # Fallback: if where clause fails (e.g., no matching metadata keys),
+        # return unfiltered results
+        return retrieve(collection_name, query, n)

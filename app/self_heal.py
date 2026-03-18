@@ -18,7 +18,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.config import get_settings, get_anthropic_api_key
+from app.config import get_settings
+from app.llm_factory import create_specialist_llm
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,12 @@ def get_error_patterns() -> dict[str, int]:
 
 # ── Auto-diagnosis ────────────────────────────────────────────────────────────
 
+_SKIP_DIAGNOSIS_ERRORS = {"RateLimitError", "AuthenticationError", "APIConnectionError"}
+_active_diagnoses = 0
+_MAX_CONCURRENT_DIAGNOSES = 2
+_diagnoses_lock = threading.Lock()
+
+
 def diagnose_and_fix(
     crew: str,
     user_input: str,
@@ -102,12 +109,38 @@ def diagnose_and_fix(
     """
     Fire-and-forget: log the error, then spawn a background thread
     that diagnoses the failure and attempts to create a fix.
+
+    Skips diagnosis for transient errors (rate limits, auth failures)
+    and caps concurrent diagnoses to prevent cascade.
     """
+    global _active_diagnoses
     entry = log_error(crew, user_input, error, context)
 
-    # Run diagnosis in background so it doesn't block the error response
+    # Don't try to diagnose rate limits or auth errors — they're transient
+    # and diagnosing them would just trigger MORE rate limit errors
+    error_type = type(error).__name__
+    if error_type in _SKIP_DIAGNOSIS_ERRORS:
+        logger.info(f"self_heal: skipping diagnosis for transient {error_type}")
+        _mark_diagnosed(entry["ts"])
+        return
+
+    # Cap concurrent diagnoses — use lock to avoid race condition
+    with _diagnoses_lock:
+        if _active_diagnoses >= _MAX_CONCURRENT_DIAGNOSES:
+            logger.info("self_heal: too many concurrent diagnoses, skipping")
+            return
+        _active_diagnoses += 1
+
+    def _wrapped(e):
+        global _active_diagnoses
+        try:
+            _diagnose_background(e)
+        finally:
+            with _diagnoses_lock:
+                _active_diagnoses = max(0, _active_diagnoses - 1)
+
     t = threading.Thread(
-        target=_diagnose_background,
+        target=_wrapped,
         args=(entry,),
         daemon=True,
         name="self-heal-diagnosis",
@@ -126,11 +159,7 @@ def _diagnose_background(entry: dict) -> None:
 
         task_id = crew_started("self_improvement", f"Self-heal: {entry['error_type']}", eta_seconds=90)
 
-        llm = LLM(
-            model=f"anthropic/{settings.specialist_model}",
-            api_key=get_anthropic_api_key(),
-            max_tokens=4096,
-        )
+        llm = create_specialist_llm(max_tokens=4096, role="architecture")
         memory_tools = create_memory_tools(collection="skills")
 
         # Gather error pattern context
