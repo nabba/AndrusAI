@@ -5,6 +5,9 @@ import re
 
 logger = logging.getLogger(__name__)
 
+# youtube-transcript-api v1.x uses instance methods: api.fetch(), api.list()
+_api = YouTubeTranscriptApi()
+
 
 def _extract_video_id(url_or_id: str) -> str | None:
     """Extract an 11-char YouTube video ID from various URL formats."""
@@ -21,6 +24,19 @@ def _extract_video_id(url_or_id: str) -> str | None:
     return None
 
 
+def _entries_to_text(entries) -> str:
+    """Convert transcript entries (list of snippet objects or dicts) to plain text."""
+    parts = []
+    for entry in entries:
+        if isinstance(entry, dict):
+            parts.append(entry.get("text", ""))
+        elif hasattr(entry, "text"):
+            parts.append(entry.text)
+        else:
+            parts.append(str(entry))
+    return " ".join(parts)
+
+
 @tool("get_youtube_transcript")
 def get_youtube_transcript(url_or_id: str) -> str:
     """
@@ -33,47 +49,59 @@ def get_youtube_transcript(url_or_id: str) -> str:
     if not video_id:
         return f"Invalid YouTube video ID or URL: {url_or_id[:80]}"
 
-    # Try multiple strategies to get a transcript
-    strategies = [
-        # 1. Default (manual captions in any language)
-        lambda: YouTubeTranscriptApi.get_transcript(video_id),
-        # 2. English manual or auto-generated
-        lambda: YouTubeTranscriptApi.get_transcript(video_id, languages=["en"]),
-        # 3. Auto-generated English specifically
-        lambda: YouTubeTranscriptApi.get_transcript(video_id, languages=["en-US", "en-GB"]),
-    ]
+    # Strategy 1: Direct fetch (uses default language selection)
+    try:
+        entries = _api.fetch(video_id)
+        text = _entries_to_text(entries)
+        if text.strip():
+            logger.info(f"YouTube transcript extracted for {video_id} ({len(text)} chars)")
+            return text[:12000]
+    except Exception as exc:
+        logger.debug(f"Direct fetch failed for {video_id}: {exc}")
 
-    # 4. Try listing all available transcripts and pick the best one
-    def _try_any_available():
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        # Prefer manual, then generated
+    # Strategy 2: List available transcripts and pick the best one
+    try:
+        transcript_list = _api.list(video_id)
+
+        # Try to find any transcript from the listing
+        # The list() result has .manual and .generated attributes in some versions,
+        # or is iterable. Try fetching each available one.
+        best = None
         for t in transcript_list:
-            if not t.is_generated:
-                return t.fetch()
-        for t in transcript_list:
-            return t.fetch()
-        raise Exception("No transcripts available")
+            if hasattr(t, "is_generated") and not t.is_generated:
+                best = t  # prefer manual
+                break
+        if best is None:
+            for t in transcript_list:
+                best = t
+                break
 
-    strategies.append(_try_any_available)
-
-    last_error = None
-    for strategy in strategies:
-        try:
-            entries = strategy()
-            text = " ".join(
-                entry.get("text", "") if isinstance(entry, dict) else str(entry)
-                for entry in entries
-            )
+        if best is not None:
+            if hasattr(best, "fetch"):
+                entries = best.fetch()
+            else:
+                # Some versions: the transcript object IS the entries
+                entries = best
+            text = _entries_to_text(entries)
             if text.strip():
-                logger.info(f"YouTube transcript extracted for {video_id} ({len(text)} chars)")
+                logger.info(f"YouTube transcript (listed) for {video_id} ({len(text)} chars)")
                 return text[:12000]
-        except Exception as exc:
-            last_error = exc
+    except Exception as exc:
+        logger.debug(f"List-based fetch failed for {video_id}: {exc}")
+
+    # Strategy 3: Fetch with explicit language codes
+    for langs in [["en"], ["en-US", "en-GB"]]:
+        try:
+            entries = _api.fetch(video_id, languages=langs)
+            text = _entries_to_text(entries)
+            if text.strip():
+                logger.info(f"YouTube transcript ({langs}) for {video_id} ({len(text)} chars)")
+                return text[:12000]
+        except Exception:
             continue
 
-    logger.warning(f"All transcript strategies failed for {video_id}: {last_error}")
+    logger.warning(f"All transcript strategies failed for {video_id}")
     return (
         f"Could not retrieve transcript for video {video_id}. "
-        f"The video may not have any captions (manual or auto-generated). "
-        f"Error: {str(last_error)[:150]}"
+        f"The video may not have any captions (manual or auto-generated)."
     )
