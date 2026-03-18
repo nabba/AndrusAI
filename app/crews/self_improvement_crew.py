@@ -144,8 +144,8 @@ class SelfImprovementCrew:
                     "that the team can use to improve their capabilities."
                 ),
                 llm=llm,
-                tools=[file_manager, web_search] + memory_tools,
-                verbose=True,
+                tools=[file_manager] + memory_tools,  # no web_search — transcript is the source
+                verbose=False,  # reduce LLM calls (rate limit: 5/min)
             )
 
             task = Task(

@@ -112,8 +112,8 @@ class Commander:
             goal="Route the request to the right specialist crew(s).",
             backstory=ROUTING_PROMPT,
             llm=self.llm,
-            tools=self.memory_tools,
-            verbose=True,
+            tools=[],  # routing needs no tools — just classification
+            verbose=False,  # reduce LLM rounds (rate limit: 5/min)
         )
 
         task = Task(
@@ -126,7 +126,7 @@ class Commander:
             agents=[agent],
             tasks=[task],
             process=Process.sequential,
-            verbose=True,
+            verbose=False,
         )
 
         raw = str(crew.kickoff()).strip()
