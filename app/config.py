@@ -1,6 +1,6 @@
 import re
 from pydantic_settings import BaseSettings
-from pydantic import SecretStr, field_validator
+from pydantic import ConfigDict, SecretStr, field_validator
 from functools import lru_cache
 
 # Hard caps — prevent a misconfigured or tampered .env from granting runaway resources
@@ -35,6 +35,21 @@ class Settings(BaseSettings):
 
     commander_model: str = "claude-opus-4-6"
     specialist_model: str = "claude-sonnet-4-6"
+
+    # ── Multi-tier LLM configuration ──────────────────────────────────
+    # Cost mode controls model selection across all roles.
+    # "budget"   = minimize cost (DeepSeek V3.2 everywhere, Sonnet for commander)
+    # "balanced" = best cost/quality trade-off (mixed models per role)
+    # "quality"  = maximize quality (Kimi/Gemini for specialists, Opus for vetting)
+    cost_mode: str = "balanced"
+
+    # API tier — frontier models via OpenRouter (DeepSeek, MiniMax, Kimi, GLM, Gemini)
+    # Get your key at https://openrouter.ai/keys
+    api_tier_enabled: bool = True
+    openrouter_api_key: str = ""
+
+    # LLM mode — "local", "cloud", or "hybrid" (initial value; changes at runtime)
+    llm_mode: str = "hybrid"
 
     sandbox_image: str = "crewai-sandbox:latest"
     sandbox_timeout_seconds: int = 30
@@ -89,10 +104,9 @@ class Settings(BaseSettings):
 
     # Vetting — Claude reviews local LLM output before sending to user
     vetting_enabled: bool = True
-    vetting_model: str = "claude-opus-4-6"  # Opus 4.6 for final code/quality review
+    vetting_model: str = "claude-sonnet-4.6"  # Sonnet 4.6: #1 GDPval-AA, 5x cheaper than Opus
 
-    class Config:
-        env_file = ".env"
+    model_config = ConfigDict(env_file=".env")
 
     @field_validator("sandbox_memory_limit")
     @classmethod
@@ -127,6 +141,14 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("cost_mode")
+    @classmethod
+    def validate_cost_mode(cls, v: str) -> str:
+        allowed = ("budget", "balanced", "quality")
+        if v not in allowed:
+            raise ValueError(f"cost_mode must be one of {allowed}, got {v!r}")
+        return v
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -148,3 +170,8 @@ def get_brave_api_key() -> str:
 def get_gateway_secret() -> str:
     """Return the gateway secret (for HTTP auth only)."""
     return get_settings().gateway_secret.get_secret_value()
+
+
+def get_openrouter_api_key() -> str:
+    """Return the OpenRouter API key (for API-tier LLMs only)."""
+    return get_settings().openrouter_api_key

@@ -46,47 +46,55 @@ for mod in _STUBS:
             m.YouTubeTranscriptApi = MagicMock
         sys.modules[mod] = m
 
-# Stub pydantic and pydantic_settings if not installed
-for _pmod in ["pydantic", "pydantic.functional_validators", "pydantic_settings"]:
-    if _pmod not in sys.modules:
-        _m = types.ModuleType(_pmod)
-        sys.modules[_pmod] = _m
+# Stub pydantic and pydantic_settings only if not actually installed
+try:
+    import pydantic as _real_pydantic  # noqa: F811
+    import pydantic_settings as _real_ps  # noqa: F811
+    _pydantic_available = True
+except ImportError:
+    _pydantic_available = False
 
-# pydantic needs SecretStr and field_validator
-_pydantic = sys.modules["pydantic"]
+if not _pydantic_available:
+    for _pmod in ["pydantic", "pydantic.functional_validators", "pydantic_settings"]:
+        if _pmod not in sys.modules:
+            _m = types.ModuleType(_pmod)
+            sys.modules[_pmod] = _m
 
-class _FakeSecretStr(str):
-    def get_secret_value(self):
-        return str(self)
-    def __repr__(self):
-        return "SecretStr('**********')"
+    # pydantic needs SecretStr and field_validator
+    _pydantic = sys.modules["pydantic"]
 
-_pydantic.SecretStr = _FakeSecretStr
+    class _FakeSecretStr(str):
+        def get_secret_value(self):
+            return str(self)
+        def __repr__(self):
+            return "SecretStr('**********')"
 
-def _fake_field_validator(*args, **kwargs):
-    def decorator(fn):
-        return fn
-    return decorator
+    _pydantic.SecretStr = _FakeSecretStr
 
-_pydantic.field_validator = _fake_field_validator
-sys.modules["pydantic.functional_validators"] = types.ModuleType("pydantic.functional_validators")
+    def _fake_field_validator(*args, **kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
 
-# BaseSettings stub
-class _FakeBaseSettings:
-    def __init__(self, **kwargs):
-        import os
-        # Load from env vars
-        for k, v in self.__class__.__annotations__.items():
-            env_key = k.upper()
-            env_val = kwargs.get(k, os.environ.get(env_key, getattr(self.__class__, k, "")))
-            if v is _FakeSecretStr or (isinstance(v, type) and issubclass(v, _FakeSecretStr)):
-                env_val = _FakeSecretStr(env_val)
-            setattr(self, k, env_val)
-    class Config:
-        env_file = ".env"
+    _pydantic.field_validator = _fake_field_validator
+    sys.modules["pydantic.functional_validators"] = types.ModuleType("pydantic.functional_validators")
 
-_ps = sys.modules["pydantic_settings"]
-_ps.BaseSettings = _FakeBaseSettings
+    # BaseSettings stub
+    class _FakeBaseSettings:
+        def __init__(self, **kwargs):
+            import os
+            # Load from env vars
+            for k, v in self.__class__.__annotations__.items():
+                env_key = k.upper()
+                env_val = kwargs.get(k, os.environ.get(env_key, getattr(self.__class__, k, "")))
+                if v is _FakeSecretStr or (isinstance(v, type) and issubclass(v, _FakeSecretStr)):
+                    env_val = _FakeSecretStr(env_val)
+                setattr(self, k, env_val)
+        class Config:
+            env_file = ".env"
+
+    _ps = sys.modules["pydantic_settings"]
+    _ps.BaseSettings = _FakeBaseSettings
 
 # Stub app.config before anything else
 os.environ.update({

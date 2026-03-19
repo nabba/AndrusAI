@@ -1,21 +1,29 @@
 """
-llm_selector.py — Task-aware model selection.
+llm_selector.py — Cost-aware, capability-aware model selection.
 
-Analyzes the task to determine type, then picks the best model using:
-1. Catalog strengths (static knowledge of what each model is good at)
-2. Benchmark history (actual measured performance per model per task)
-3. Available system resources (don't pick a 20GB model on a low-RAM system)
+Selection algorithm:
+  1. Check for env override (ROLE_MODEL_RESEARCH=kimi-k2.5)
+  2. Get default model for role + cost_mode from catalog
+  3. If task_hint present, detect task type and potentially override
+  4. Apply special rules (multimodal → Kimi, parallel → budget tier)
+  5. Check benchmark history for performance adjustments
+  6. Verify model availability (local: Ollama, API: key present)
+  7. Return best available model name
 """
 
 import logging
+import os
 import re
 
-from app.llm_catalog import get_candidates, get_smallest_model, get_ram_requirement, _TASK_ALIASES
+from app.config import get_settings
+from app.llm_catalog import (
+    CATALOG, TASK_ALIASES, ROLE_DEFAULTS,
+    get_model, get_default_for_role, get_candidates_by_tier,
+)
 from app.llm_benchmarks import get_scores
 
 logger = logging.getLogger(__name__)
 
-# Keywords that map to task types — used to auto-detect task from hint text
 _KEYWORD_PATTERNS: list[tuple[str, str]] = [
     (r"\b(debug|traceback|error|fix\s+bug|stacktrace)\b", "debugging"),
     (r"\b(architect|design|plan|system\s+design|review)\b", "architecture"),
@@ -23,96 +31,123 @@ _KEYWORD_PATTERNS: list[tuple[str, str]] = [
     (r"\b(research|search|find|learn|investigate|analyze)\b", "research"),
     (r"\b(write|summarize|document|report|explain|describe)\b", "writing"),
     (r"\b(reason|think|logic|proof|math)\b", "reasoning"),
+    (r"\b(image|photo|screenshot|picture|visual|pdf|scan)\b", "multimodal"),
 ]
+
+_MULTIMODAL_MODELS = [name for name, info in CATALOG.items() if info.get("multimodal")]
 
 
 def detect_task_type(role: str, task_hint: str = "") -> str:
-    """
-    Detect the task type from role + optional hint text.
-    Returns a canonical task type string.
-    """
-    # First: check hint text for keywords
     if task_hint:
         hint_lower = task_hint.lower()
         for pattern, task_type in _KEYWORD_PATTERNS:
             if re.search(pattern, hint_lower):
                 return task_type
-
-    # Second: map role to task type
     role_map = {
-        "coding": "coding",
-        "architecture": "architecture",
-        "research": "research",
-        "writing": "writing",
-        "default": "general",
+        "coding": "coding", "architecture": "architecture",
+        "research": "research", "writing": "writing",
+        "critic": "reasoning", "introspector": "reasoning",
+        "self_improve": "research", "vetting": "vetting",
+        "synthesis": "writing", "planner": "research", "default": "general",
     }
     return role_map.get(role, "general")
 
 
 def select_model(
-    role: str,
-    task_hint: str = "",
-    max_ram_gb: float = 48.0,
+    role: str, task_hint: str = "", max_ram_gb: float = 48.0, force_tier: str | None = None,
 ) -> str:
-    """
-    Pick the best available model for this role and task.
+    settings = get_settings()
 
-    Algorithm:
-    1. Detect task type from role + hint
-    2. Get catalog candidates ranked by strength
-    3. Boost/adjust scores with benchmark data
-    4. Filter by RAM constraint
-    5. Return top model (or smallest fallback)
-    """
+    # Step 1: Environment override
+    env_key = f"ROLE_MODEL_{role.upper()}"
+    env_override = os.environ.get(env_key)
+    if env_override and env_override in CATALOG:
+        logger.info(f"llm_selector: {env_key}={env_override} (env override)")
+        return env_override
+
+    # Step 2: Default from catalog
+    cost_mode = settings.cost_mode
+    default_model = get_default_for_role(role, cost_mode)
+
+    # Step 3: Task-specific overrides
     task_type = detect_task_type(role, task_hint)
 
-    # Catalog candidates: [(model, catalog_score)]
-    candidates = get_candidates(task_type)
+    # Multimodal tasks need a multimodal model
+    if task_type == "multimodal":
+        default_entry = get_model(default_model)
+        if default_entry and not default_entry.get("multimodal"):
+            for mm_model in _MULTIMODAL_MODELS:
+                mm_entry = get_model(mm_model)
+                if mm_entry and _tier_allowed(mm_entry["tier"], settings):
+                    logger.info(f"llm_selector: multimodal → {default_model} → {mm_model}")
+                    default_model = mm_model
+                    break
 
-    # Benchmark adjustments: model → measured_score
+    # Force tier if specified
+    if force_tier:
+        tier_candidates = get_candidates_by_tier(task_type, [force_tier])
+        if tier_candidates:
+            forced = tier_candidates[0][0]
+            if _model_available(forced, settings, max_ram_gb):
+                logger.info(f"llm_selector: force_tier={force_tier} → {forced}")
+                return forced
+
+    # Step 4: Benchmark adjustment
     bench_scores = get_scores(task_type)
+    if bench_scores:
+        default_entry = get_model(default_model)
+        default_bench = bench_scores.get(default_model)
+        if default_bench is not None and default_entry:
+            for name, bench_score in sorted(bench_scores.items(), key=lambda x: -x[1]):
+                if name == default_model:
+                    break
+                candidate = get_model(name)
+                if not candidate:
+                    continue
+                if candidate["tier"] == default_entry["tier"]:
+                    if bench_score > (default_bench + 0.1):
+                        logger.info(f"llm_selector: benchmark override {default_model} → {name}")
+                        default_model = name
+                        break
 
-    # Check which models are actually available in the fleet volume
-    available_models = set()
-    try:
-        from app.ollama_fleet import get_available_models
-        available_models = set(get_available_models())
-    except Exception:
-        pass
+    # Step 5: Availability check
+    if _model_available(default_model, settings, max_ram_gb):
+        logger.info(f"llm_selector: role={role} task={task_type} mode={cost_mode} → {default_model}")
+        return default_model
 
-    # Merge: weighted average of catalog score and benchmark score
-    # Strongly prefer models that are already downloaded (no pull delay)
-    BENCH_WEIGHT = 0.4
-    AVAILABLE_BOOST = 0.3  # boost for models already in the volume
-    merged = []
-    for model, catalog_score in candidates:
-        ram = get_ram_requirement(model)
-        if ram > max_ram_gb:
-            continue
+    return _find_fallback(role, task_type, settings, max_ram_gb)
 
-        bench = bench_scores.get(model)
-        if bench is not None:
-            score = (1 - BENCH_WEIGHT) * catalog_score + BENCH_WEIGHT * bench
-        else:
-            score = catalog_score
 
-        # Boost already-available models so we don't pick undownloaded ones
-        if available_models and model in available_models:
-            score += AVAILABLE_BOOST
+def _tier_allowed(tier: str, settings) -> bool:
+    if tier == "local":
+        return settings.local_llm_enabled
+    if tier in ("budget", "mid"):
+        return settings.api_tier_enabled
+    return True
 
-        merged.append((model, score))
+def _model_available(model_name: str, settings, max_ram_gb: float) -> bool:
+    entry = get_model(model_name)
+    if not entry:
+        return False
+    tier = entry["tier"]
+    if tier == "local":
+        if not settings.local_llm_enabled:
+            return False
+        return entry.get("ram_gb", 20) <= max_ram_gb
+    if tier in ("budget", "mid"):
+        return settings.api_tier_enabled and bool(settings.openrouter_api_key)
+    if entry["provider"] == "anthropic":
+        return True
+    if entry["provider"] == "openrouter":
+        return bool(settings.openrouter_api_key)
+    return False
 
-    merged.sort(key=lambda x: -x[1])
-
-    if merged:
-        best_model, best_score = merged[0]
-        logger.info(
-            f"llm_selector: task={task_type} role={role} → {best_model} "
-            f"(score={best_score:.2f})"
-        )
-        return best_model
-
-    # Fallback
-    fallback = get_smallest_model()
-    logger.warning(f"llm_selector: no suitable model, falling back to {fallback}")
-    return fallback
+def _find_fallback(role: str, task_type: str, settings, max_ram_gb: float) -> str:
+    for tier in ("budget", "mid", "premium"):
+        candidates = get_candidates_by_tier(task_type, [tier])
+        for name, _score in candidates:
+            if _model_available(name, settings, max_ram_gb):
+                logger.info(f"llm_selector: fallback role={role} → {name} (tier={tier})")
+                return name
+    logger.warning("llm_selector: all tiers failed, using Claude Sonnet 4.6")
+    return "claude-sonnet-4.6"

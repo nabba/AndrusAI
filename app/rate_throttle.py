@@ -83,7 +83,9 @@ def install_throttle() -> None:
                 throttle()
                 # Inject retry params if not already set
                 kwargs.setdefault("num_retries", _RETRY_COUNT)
-                return _original_completion(*args, **kwargs)
+                response = _original_completion(*args, **kwargs)
+                _record_token_usage(response, kwargs)
+                return response
 
             litellm.completion = _throttled_completion
 
@@ -94,11 +96,43 @@ def install_throttle() -> None:
                 async def _throttled_acompletion(*args, **kwargs):
                     throttle()  # blocking is fine — runs in thread anyway
                     kwargs.setdefault("num_retries", _RETRY_COUNT)
-                    return await _original_acompletion(*args, **kwargs)
+                    response = await _original_acompletion(*args, **kwargs)
+                    _record_token_usage(response, kwargs)
+                    return response
 
                 litellm.acompletion = _throttled_acompletion
 
             _patched = True
-            logger.info(f"rate_throttle: installed ({_MAX_RPM} RPM, {_RETRY_COUNT} retries)")
+            logger.info(f"rate_throttle: installed ({_MAX_RPM} RPM, {_RETRY_COUNT} retries, token tracking)")
         except ImportError:
             logger.warning("rate_throttle: litellm not found, throttle not installed")
+
+
+def _record_token_usage(response, kwargs: dict) -> None:
+    """Extract token usage from litellm response and record it."""
+    try:
+        usage = getattr(response, "usage", None)
+        if not usage:
+            return
+        model = getattr(response, "model", "") or kwargs.get("model", "unknown")
+        prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+        completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+        total = prompt_tokens + completion_tokens
+        if total > 0:
+            # Estimate cost from catalog
+            cost_usd = 0.0
+            try:
+                from app.llm_catalog import CATALOG
+                for _name, info in CATALOG.items():
+                    if info.get("model_id", "") == model or _name == model:
+                        cost_usd = (
+                            (prompt_tokens / 1_000_000) * info.get("cost_input_per_m", 0)
+                            + (completion_tokens / 1_000_000) * info.get("cost_output_per_m", 0)
+                        )
+                        break
+            except Exception:
+                pass
+            from app.llm_benchmarks import record_tokens
+            record_tokens(model, prompt_tokens, completion_tokens, cost_usd)
+    except Exception:
+        pass  # never fail the actual LLM call

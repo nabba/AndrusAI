@@ -26,7 +26,7 @@ from app.conversation_store import add_message, start_task, complete_task
 from app.workspace_sync import setup_workspace_repo, sync_workspace
 from app.firebase_reporter import (
     report_system_online, report_system_offline, heartbeat, report_schedule,
-    cleanup_stale_tasks,
+    cleanup_stale_tasks, report_llm_mode, start_mode_listener,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -185,6 +185,12 @@ async def lifespan(app: FastAPI):
     report_system_online()
     _publish_schedule()
 
+    # Initialize LLM mode from config and start Firestore listener for dashboard changes
+    from app.llm_mode import set_mode
+    set_mode(settings.llm_mode)
+    report_llm_mode(settings.llm_mode)
+    start_mode_listener()
+
     logger.info("CrewAI Agent Team started")
     yield
     # Final sync on clean shutdown
@@ -215,8 +221,12 @@ app = FastAPI(title="CrewAI Agent Gateway", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1"],
-    allow_methods=["POST"],
+    allow_origins=[
+        "http://127.0.0.1",
+        "https://botarmy-ba0c9.web.app",
+        "https://botarmy-ba0c9.firebaseapp.com",
+    ],
+    allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
@@ -310,6 +320,21 @@ async def handle_task(sender: str, text: str, attachments: list = None):
             "The self-healing system is analyzing the error and will attempt a fix. "
             "Please try again shortly."
         )
+
+
+@app.post("/config/llm_mode")
+async def set_llm_mode_endpoint(request: Request):
+    """Dashboard endpoint to switch LLM mode (local/cloud/hybrid)."""
+    if not _verify_gateway_secret(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    payload = await request.json()
+    mode = payload.get("mode", "").strip().lower()
+    if mode not in ("local", "cloud", "hybrid"):
+        raise HTTPException(status_code=400, detail="Invalid mode. Use: local, cloud, hybrid")
+    from app.llm_mode import set_mode
+    set_mode(mode)
+    report_llm_mode(mode)
+    return {"status": "ok", "mode": mode}
 
 
 @app.get("/health")

@@ -387,6 +387,39 @@ class Commander:
             from app.metrics import compute_metrics, format_metrics
             return f"System Metrics:\n\n{format_metrics(compute_metrics())}"
 
+        # ── LLM mode switching ─────────────────────────────────────────
+        if lower.startswith("mode "):
+            new_mode = user_input[5:].strip().lower()
+            if new_mode not in ("local", "cloud", "hybrid"):
+                return "Invalid mode. Use: mode local, mode cloud, or mode hybrid"
+            from app.llm_mode import set_mode
+            set_mode(new_mode)
+            from app.firebase_reporter import report_llm_mode
+            report_llm_mode(new_mode)
+            return f"LLM mode switched to: {new_mode.upper()}"
+
+        if lower == "mode":
+            from app.llm_mode import get_mode
+            mode = get_mode()
+            return f"Current LLM mode: {mode.upper()}\n\nUse 'mode local', 'mode cloud', or 'mode hybrid' to switch."
+
+        # ── Token usage ───────────────────────────────────────────────────
+        if lower in ("tokens", "token usage"):
+            from app.llm_benchmarks import format_token_stats
+            return format_token_stats("day")
+
+        if lower.startswith("tokens "):
+            period = user_input[7:].strip().lower()
+            valid_periods = ("hour", "day", "week", "month", "quarter", "year")
+            if period not in valid_periods:
+                return f"Invalid period. Use: {', '.join(valid_periods)}"
+            from app.llm_benchmarks import format_token_stats
+            return format_token_stats(period)
+
+        if lower in ("catalog", "show catalog"):
+            from app.llm_catalog import format_catalog, format_role_assignments
+            return f"{format_catalog()}\n\n{format_role_assignments(settings.cost_mode)}"
+
         if lower in ("program", "show program"):
             program_path = Path("/app/workspace/program.md")
             if program_path.exists():
@@ -479,30 +512,24 @@ class Commander:
             return f"System is running. All services operational.{pending_str}{score_str}{local_str}"
 
         if lower in ("llm status", "llm"):
-            from app.ollama_manager import model_status
-            if is_using_local():
-                ms = model_status()
-                active = ms.get("active_model", "none")
-                local_models = ms.get("local_models", [])
-                return (
-                    f"LLM Mode: LOCAL (Ollama) + Claude vetting\n"
-                    f"Coding: {settings.local_model_coding}\n"
-                    f"Architecture/Review: {settings.local_model_architecture}\n"
-                    f"Research: {settings.local_model_research}\n"
-                    f"Writing: {settings.local_model_writing}\n"
-                    f"Active in memory: {active}\n"
-                    f"Models on disk: {len(local_models)}\n"
-                    f"Vetting: {settings.vetting_model} ({'ON' if settings.vetting_enabled else 'OFF'})\n"
-                    f"Commander: {settings.commander_model}\n"
-                    f"Cost: crews=FREE, routing+vetting=API"
-                )
-            else:
-                return (
-                    f"LLM Mode: CLOUD (Anthropic API)\n"
-                    f"Commander: {settings.commander_model}\n"
-                    f"Specialists: {settings.specialist_model}\n"
-                    f"Ollama not detected. Install Ollama and set LOCAL_LLM_ENABLED=true"
-                )
+            from app.llm_mode import get_mode
+            from app.llm_factory import get_last_model, get_last_tier
+            from app.llm_catalog import format_role_assignments
+            mode = get_mode()
+            last_model = get_last_model() or "none"
+            last_tier = get_last_tier() or "none"
+            lines = [
+                f"LLM Mode: {mode.upper()}",
+                f"Cost Mode: {settings.cost_mode}",
+                f"Last Model: {last_model} (tier: {last_tier})",
+                f"Commander: {settings.commander_model}",
+                f"Vetting: {settings.vetting_model} ({'ON' if settings.vetting_enabled else 'OFF'})",
+                f"API Tier: {'ON' if settings.api_tier_enabled and settings.openrouter_api_key else 'OFF'}",
+                f"Local Ollama: {'ON' if settings.local_llm_enabled else 'OFF'}",
+                "",
+                format_role_assignments(settings.cost_mode),
+            ]
+            return "\n".join(lines)
 
         # ── Step 1: Route ─────────────────────────────────────────────────
         task_id = crew_started("commander", f"Route: {user_input[:80]}", eta_seconds=30)

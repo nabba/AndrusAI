@@ -182,6 +182,12 @@ def heartbeat() -> None:
             report_fleet_status(fleet, benchmarks)
         except Exception:
             pass
+
+        # Push token usage stats
+        try:
+            report_token_stats()
+        except Exception:
+            pass
     _fire(_write)
 
 
@@ -437,3 +443,66 @@ def _prune_activities(db) -> None:
             doc.reference.delete()
     except Exception:
         pass
+
+
+# ── LLM mode control ────────────────────────────────────────────────────────
+
+def report_llm_mode(mode: str) -> None:
+    """Push current LLM mode to Firestore for the dashboard."""
+    def _write():
+        db = _get_db()
+        if not db:
+            return
+        try:
+            db.collection("config").document("llm").set({
+                "mode": mode,
+                "updated_at": _now_iso(),
+            })
+        except Exception:
+            logger.debug("firebase_reporter: llm mode write failed", exc_info=True)
+    _fire(_write)
+
+
+def start_mode_listener() -> None:
+    """Listen for dashboard mode changes via Firestore on_snapshot."""
+    def _listen():
+        db = _get_db()
+        if not db:
+            return
+        try:
+            def on_snapshot(doc_snapshot, changes, read_time):
+                for doc in doc_snapshot:
+                    data = doc.to_dict()
+                    new_mode = data.get("mode")
+                    if new_mode in ("local", "cloud", "hybrid"):
+                        from app.llm_mode import get_mode, set_mode
+                        if new_mode != get_mode():
+                            set_mode(new_mode)
+
+            db.collection("config").document("llm").on_snapshot(on_snapshot)
+            logger.info("firebase_reporter: mode listener started")
+        except Exception:
+            logger.debug("firebase_reporter: mode listener failed", exc_info=True)
+    _fire(_listen)
+
+
+# ── Token usage stats ────────────────────────────────────────────────────────
+
+def report_token_stats() -> None:
+    """Push aggregated token usage to Firestore for the dashboard."""
+    def _write():
+        db = _get_db()
+        if not db:
+            return
+        try:
+            from app.llm_benchmarks import get_token_stats
+            stats = {}
+            for period in ("hour", "day", "week", "month", "quarter", "year"):
+                stats[period] = get_token_stats(period)
+            db.collection("status").document("tokens").set({
+                "stats": stats,
+                "updated_at": _now_iso(),
+            })
+        except Exception:
+            logger.debug("firebase_reporter: token stats write failed", exc_info=True)
+    _fire(_write)

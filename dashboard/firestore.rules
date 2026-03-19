@@ -9,6 +9,9 @@ service cloud.firestore {
     match /activities/{doc} { allow read: if true; allow write: if false; }
     match /schedule/{doc}   { allow read: if true; allow write: if false; }
 
+    // Config — public read, authenticated write (dashboard mode switch)
+    match /config/{doc}     { allow read: if true; allow write: if request.auth != null; }
+
     // Deny everything else
     match /{document=**} { allow read, write: if false; }
   }

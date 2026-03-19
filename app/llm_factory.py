@@ -1,35 +1,41 @@
 """
-llm_factory.py — Role-based LLM provider with native Ollama + Metal GPU.
+llm_factory.py — Multi-tier LLM provider with cascade routing.
 
 Architecture:
-  Commander:     always Claude (routing needs max intelligence)
-  Specialists:   local Ollama models via native macOS installation
-                 (Metal GPU acceleration, unified memory)
-  Vetting:       Claude Opus 4.6 (final quality gate for all local output)
-
-The llm_selector picks the best model for each task.
-Native Ollama uses Metal GPU for 5-10x faster inference than Docker.
-Falls back to Claude if Ollama is unavailable.
+  Commander:     always Claude Opus 4.6 (routing reliability, tiny token volume)
+  Specialists:   cascade through tiers based on llm_mode + cost_mode + availability:
+                   1. Local Ollama (free, Metal GPU)  — if mode allows and local_llm_enabled
+                   2. API tier (budget/mid via OpenRouter) — if mode allows and api_tier_enabled
+                   3. Claude Sonnet 4.6 (premium fallback) — always available
+  Vetting:       Claude Sonnet 4.6 by default (near-Opus quality, 5x cheaper)
+                 Only applied to local Ollama output (API-tier models are frontier quality)
 """
 
 import logging
 import time
 from crewai import LLM
 from app.config import get_settings, get_anthropic_api_key
+from app.llm_catalog import (
+    get_model, get_model_id, get_provider, get_tier,
+    get_default_for_role, CATALOG,
+)
 
 logger = logging.getLogger(__name__)
 
-ROLES = ("coding", "architecture", "research", "writing", "default")
-
-# Track the last model used and its URL for is_using_local()
-_last_local_url: str | None = None
+_last_model_name: str | None = None
+_last_tier: str | None = None
 
 
 def create_commander_llm() -> LLM:
     """Commander always uses Claude for maximum routing intelligence."""
     settings = get_settings()
+    model_name = get_default_for_role("commander", settings.cost_mode)
+    entry = get_model(model_name)
+    if not entry or entry["provider"] != "anthropic":
+        model_name = "claude-opus-4.6"
+        entry = get_model(model_name)
     return LLM(
-        model=f"anthropic/{settings.commander_model}",
+        model=entry["model_id"],
         api_key=get_anthropic_api_key(),
         max_tokens=512,
     )
@@ -41,72 +47,169 @@ def create_specialist_llm(
     task_hint: str = "",
 ) -> LLM:
     """
-    Create an LLM for a specialist role.
-
-    Uses llm_selector to pick the best model, then ollama_fleet to
-    spawn a container for it. Falls back to Claude if fleet is unavailable.
+    Create an LLM for a specialist role using the tier cascade.
+    Behavior depends on current llm_mode:
+      local:  Ollama only, Claude fallback if Ollama fails
+      cloud:  API tier (OpenRouter) or Claude, skip Ollama
+      hybrid: Try Ollama first, cascade to API tier, then Claude
     """
-    global _last_local_url
+    global _last_model_name, _last_tier
+    from app.llm_mode import get_mode
     settings = get_settings()
+    mode = get_mode()
 
-    if not settings.local_llm_enabled:
+    from app.llm_selector import select_model
+    model_name = select_model(role, task_hint)
+    entry = get_model(model_name)
+
+    if not entry:
+        logger.warning(f"llm_factory: model {model_name!r} not in catalog, falling back")
         return _claude_fallback(role, max_tokens)
 
-    try:
-        from app.llm_selector import select_model
-        from app.ollama_native import spawn_model
-        from app.llm_benchmarks import record
+    tier = entry["tier"]
+    provider = entry["provider"]
 
-        # Select the best model for this task
-        model = select_model(role, task_hint)
+    # ── LOCAL mode: only Ollama, Claude fallback ──────────────────────
+    if mode == "local":
+        if tier == "local" and settings.local_llm_enabled:
+            llm = _try_local(model_name, entry, max_tokens, role)
+            if llm:
+                return llm
+        return _claude_fallback(role, max_tokens)
 
-        # Ensure model is loaded in native Ollama (Metal GPU) — returns API URL
-        start = time.monotonic()
-        url = spawn_model(model)
-        spawn_ms = int((time.monotonic() - start) * 1000)
+    # ── CLOUD mode: skip Ollama, use API/Anthropic ───────────────────
+    if mode == "cloud":
+        if tier in ("budget", "mid") and settings.api_tier_enabled:
+            llm = _try_api(model_name, entry, max_tokens, role)
+            if llm:
+                return llm
+        if provider == "anthropic":
+            return _create_anthropic(model_name, entry, max_tokens, role)
+        if tier == "premium" and provider == "openrouter":
+            llm = _try_api(model_name, entry, max_tokens, role)
+            if llm:
+                return llm
+        return _claude_fallback(role, max_tokens)
 
-        if url:
-            _last_local_url = url
-            model_str = f"ollama_chat/{model}"
-            logger.info(
-                f"llm_factory: role={role} → {model} at {url} "
-                f"(spawn: {spawn_ms}ms)"
-            )
-            return LLM(
-                model=model_str,
-                base_url=url,
-                max_tokens=max_tokens,
-            )
+    # ── HYBRID mode: full cascade ────────────────────────────────────
+    # Try local Ollama first
+    if tier == "local" and settings.local_llm_enabled:
+        llm = _try_local(model_name, entry, max_tokens, role)
+        if llm:
+            return llm
+        # Local failed — try API tier
+        if settings.api_tier_enabled:
+            logger.info(f"llm_factory: local failed for role={role}, trying API tier")
+            api_model = get_default_for_role(role, settings.cost_mode)
+            api_entry = get_model(api_model)
+            if api_entry and api_entry["tier"] in ("budget", "mid"):
+                llm = _try_api(api_model, api_entry, max_tokens, role)
+                if llm:
+                    return llm
+        return _claude_fallback(role, max_tokens)
 
-    except Exception as exc:
-        logger.warning(f"llm_factory: fleet failed for role={role}: {exc}")
+    # Try API tier (OpenRouter)
+    if tier in ("budget", "mid") and settings.api_tier_enabled:
+        llm = _try_api(model_name, entry, max_tokens, role)
+        if llm:
+            return llm
+        return _claude_fallback(role, max_tokens)
+
+    # Premium tier (Anthropic or OpenRouter)
+    if provider == "anthropic":
+        return _create_anthropic(model_name, entry, max_tokens, role)
+    elif provider == "openrouter":
+        llm = _try_api(model_name, entry, max_tokens, role)
+        if llm:
+            return llm
+        return _claude_fallback(role, max_tokens)
 
     return _claude_fallback(role, max_tokens)
 
 
-def _claude_fallback(role: str, max_tokens: int) -> LLM:
-    """Fallback to Claude when fleet is unavailable."""
-    global _last_local_url
-    _last_local_url = None
-    settings = get_settings()
-    logger.info(f"llm_factory: role={role} → Claude (fleet unavailable)")
-    return LLM(
-        model=f"anthropic/{settings.specialist_model}",
-        api_key=get_anthropic_api_key(),
-        max_tokens=max_tokens,
-    )
-
-
 def create_vetting_llm() -> LLM:
-    """Vetting uses Claude Opus 4.6 — the final quality gate."""
+    """Vetting gate — Sonnet 4.6 by default (#1 GDPval-AA, 5x cheaper than Opus)."""
     settings = get_settings()
+    model_name = settings.vetting_model
+    entry = get_model(model_name)
+    if entry and entry["provider"] == "anthropic":
+        return LLM(
+            model=entry["model_id"],
+            api_key=get_anthropic_api_key(),
+            max_tokens=4096,
+        )
     return LLM(
-        model=f"anthropic/{settings.vetting_model}",
+        model="anthropic/claude-sonnet-4-6",
         api_key=get_anthropic_api_key(),
         max_tokens=4096,
     )
 
 
 def is_using_local() -> bool:
-    """Check if the last specialist LLM call used a local model."""
-    return _last_local_url is not None
+    return _last_tier == "local"
+
+def is_using_api_tier() -> bool:
+    return _last_tier in ("budget", "mid")
+
+def get_last_model() -> str | None:
+    return _last_model_name
+
+def get_last_tier() -> str | None:
+    return _last_tier
+
+
+def _try_local(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | None:
+    global _last_model_name, _last_tier
+    try:
+        from app.ollama_native import spawn_model
+        start = time.monotonic()
+        url = spawn_model(model_name)
+        spawn_ms = int((time.monotonic() - start) * 1000)
+        if url:
+            _last_model_name = model_name
+            _last_tier = "local"
+            logger.info(f"llm_factory: role={role} → LOCAL {model_name} at {url} (spawn: {spawn_ms}ms)")
+            return LLM(model=entry["model_id"], base_url=url, max_tokens=max_tokens)
+    except Exception as exc:
+        logger.warning(f"llm_factory: local {model_name} failed: {exc}")
+    return None
+
+
+def _try_api(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | None:
+    global _last_model_name, _last_tier
+    settings = get_settings()
+    api_key = settings.openrouter_api_key
+    if not api_key:
+        logger.warning("llm_factory: OpenRouter API key not set, skipping API tier")
+        return None
+    try:
+        _last_model_name = model_name
+        _last_tier = entry["tier"]
+        logger.info(f"llm_factory: role={role} → API {model_name} (${entry['cost_output_per_m']:.2f}/Mo)")
+        return LLM(
+            model=entry["model_id"],
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:
+        logger.warning(f"llm_factory: API {model_name} failed: {exc}")
+        _last_model_name = None
+        _last_tier = None
+    return None
+
+
+def _create_anthropic(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM:
+    global _last_model_name, _last_tier
+    _last_model_name = model_name
+    _last_tier = entry["tier"]
+    logger.info(f"llm_factory: role={role} → ANTHROPIC {model_name} (${entry['cost_output_per_m']:.2f}/Mo)")
+    return LLM(model=entry["model_id"], api_key=get_anthropic_api_key(), max_tokens=max_tokens)
+
+
+def _claude_fallback(role: str, max_tokens: int) -> LLM:
+    global _last_model_name, _last_tier
+    _last_model_name = "claude-sonnet-4.6"
+    _last_tier = "premium"
+    logger.info(f"llm_factory: role={role} → FALLBACK Claude Sonnet 4.6")
+    return LLM(model="anthropic/claude-sonnet-4-6", api_key=get_anthropic_api_key(), max_tokens=max_tokens)

@@ -92,6 +92,18 @@
     .empty { color: var(--muted); font-size: .85rem; padding: 14px 0; text-align: center; }
     #last-updated { font-size: .7rem; color: var(--muted); text-align: right; }
 
+    /* Mode selector */
+    #mode-selector { display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:3px; }
+    .mode-btn { background:none;border:none;color:var(--muted);padding:5px 14px;border-radius:16px;cursor:pointer;font-size:.78rem;font-weight:600;transition:all .2s; }
+    .mode-btn.active { background:var(--blue);color:#fff; }
+    .mode-btn:hover:not(.active) { color:var(--text); }
+
+    /* Token panel */
+    #token-summary { margin-bottom:12px; }
+    #token-summary .big { font-size:1.8rem;font-weight:700;color:var(--blue); }
+    #token-summary .cost { font-size:1rem;color:var(--green);margin-left:12px; }
+    #token-period { background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:.75rem; }
+
     @media (max-width: 700px) {
       body { padding: 14px; }
       .stats-row { grid-template-columns: 1fr 1fr; }
@@ -117,13 +129,20 @@
       <div class="subtitle">Agent Team Monitor</div>
     </div>
   </div>
-  <div id="sys-badge"><div class="dot"></div><span id="sys-label">Connecting…</span></div>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <div id="mode-selector">
+      <button class="mode-btn" data-mode="local">Local</button>
+      <button class="mode-btn active" data-mode="hybrid">Hybrid</button>
+      <button class="mode-btn" data-mode="cloud">Cloud</button>
+    </div>
+    <div id="sys-badge"><div class="dot"></div><span id="sys-label">Connecting…</span></div>
+  </div>
 </header>
 
 <div class="stats-row">
   <div class="stat-card"><div class="stat-val" id="s-active">—</div><div class="stat-lbl">Active Crews</div></div>
   <div class="stat-card"><div class="stat-val" id="s-tasks">—</div><div class="stat-lbl">Tasks Today</div></div>
-  <div class="stat-card"><div class="stat-val" id="s-containers">—</div><div class="stat-lbl">LLM Containers</div></div>
+  <div class="stat-card"><div class="stat-val" id="s-mode">—</div><div class="stat-lbl">LLM Mode</div></div>
   <div class="stat-card"><div class="stat-val" id="s-uptime">—</div><div class="stat-lbl">Uptime</div></div>
 </div>
 
@@ -136,6 +155,25 @@
     <div class="empty">No fleet data yet</div>
   </div>
   <div id="fleet-benchmarks" style="margin-top:12px;font-size:.78rem;color:var(--muted)"></div>
+</div>
+
+<div class="card">
+  <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>📊 Token Usage &amp; Cost</span>
+    <select id="token-period">
+      <option value="hour">Last Hour</option>
+      <option value="day" selected>Today</option>
+      <option value="week">This Week</option>
+      <option value="month">This Month</option>
+      <option value="quarter">This Quarter</option>
+      <option value="year">This Year</option>
+    </select>
+  </div>
+  <div id="token-summary"><div class="empty">Loading token data…</div></div>
+  <table id="token-table" style="display:none">
+    <thead><tr><th>Model</th><th>Input</th><th>Output</th><th>Total</th><th>Cost</th><th>Calls</th></tr></thead>
+    <tbody id="token-tbody"></tbody>
+  </table>
 </div>
 
 <div class="card">
@@ -228,7 +266,8 @@
 <script type="module">
 import { initializeApp }                               from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, collection, onSnapshot,
-         query, orderBy, limit }                       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+         query, orderBy, limit, setDoc }               from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, signInAnonymously }                  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const app = initializeApp({
   apiKey:            "AIzaSyBugNcyYowrllCJs5JPquySEghJY0t_tzg",
@@ -239,6 +278,8 @@ const app = initializeApp({
   appId:             "1:680485464185:web:48cf3f9dc4d91068128ca8",
 });
 const db = getFirestore(app);
+const auth = getAuth(app);
+signInAnonymously(auth).catch(e => console.warn("Anonymous auth failed:", e));
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const rel = iso => {
@@ -273,7 +314,7 @@ onSnapshot(doc(db,"status","system"), s => {
   document.getElementById("sys-label").textContent = d.state === "online" ? "Online" : "Offline";
   _startedAt = d.started_at;
   window._lastISO = d.last_seen;
-  document.getElementById("s-last").textContent = rel(d.last_seen);
+  // s-last element removed — uptime covers freshness
   _updateUptime();
   touch();
 });
@@ -364,8 +405,7 @@ onSnapshot(doc(db,"status","fleet"), s => {
   if (!s.exists()) { grid.innerHTML='<div class="empty">No fleet data yet</div>'; return; }
   const d = s.data();
   const containers = d.containers || [];
-  document.getElementById("s-containers").textContent =
-    containers.filter(c => c.status==="running").length + "/" + containers.length;
+  // s-containers stat card was replaced by s-mode
 
   if (!containers.length) {
     grid.innerHTML='<div class="empty">No containers spawned yet</div>';
@@ -436,6 +476,59 @@ onSnapshot(query(collection(db,"activities"), orderBy("ts","desc"), limit(50)), 
     </div>`).join("");
   touch();
 });
+
+// ── LLM Mode ─────────────────────────────────────────────────────────────────
+onSnapshot(doc(db, "config", "llm"), s => {
+  if (!s.exists()) return;
+  const mode = s.data().mode;
+  document.getElementById("s-mode").textContent = (mode || "—").toUpperCase();
+  document.querySelectorAll(".mode-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.mode === mode);
+  });
+  touch();
+});
+document.querySelectorAll(".mode-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const mode = btn.dataset.mode;
+    setDoc(doc(db, "config", "llm"), { mode, updated_at: new Date().toISOString() })
+      .catch(e => console.error("Mode switch failed:", e));
+  });
+});
+
+// ── Token Usage ──────────────────────────────────────────────────────────────
+let _tokenData = {};
+onSnapshot(doc(db, "status", "tokens"), s => {
+  if (!s.exists()) return;
+  _tokenData = s.data().stats || {};
+  renderTokens();
+  touch();
+});
+document.getElementById("token-period").addEventListener("change", renderTokens);
+function renderTokens() {
+  const period = document.getElementById("token-period").value;
+  const stats = _tokenData[period] || [];
+  const summary = document.getElementById("token-summary");
+  const table = document.getElementById("token-table");
+  const tbody = document.getElementById("token-tbody");
+  if (!stats.length) {
+    summary.innerHTML = '<div class="empty">No token data for this period</div>';
+    table.style.display = "none";
+    return;
+  }
+  const total = stats.reduce((s, r) => s + (r.total || 0), 0);
+  const cost = stats.reduce((s, r) => s + (r.cost_usd || 0), 0);
+  const costStr = cost > 0 ? `<span class="cost">$${cost.toFixed(4)}</span>` : "";
+  summary.innerHTML = `<span class="big">${total.toLocaleString()}</span> tokens ${costStr}`;
+  table.style.display = "";
+  tbody.innerHTML = stats.map(s => `<tr>
+    <td><span class="model-tag">${s.model}</span></td>
+    <td>${(s.prompt_tokens||0).toLocaleString()}</td>
+    <td>${(s.completion_tokens||0).toLocaleString()}</td>
+    <td style="font-weight:700">${(s.total||0).toLocaleString()}</td>
+    <td style="color:var(--green)">${s.cost_usd > 0 ? "$"+s.cost_usd.toFixed(4) : "free"}</td>
+    <td>${s.calls}</td>
+  </tr>`).join("");
+}
 
 // Refresh relative times every 30s
 setInterval(() => {
