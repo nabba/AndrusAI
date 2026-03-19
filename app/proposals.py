@@ -180,15 +180,24 @@ def approve_proposal(proposal_id: int) -> str:
             rel = f.relative_to(files_dir)
 
             if ptype == "skill":
-                # Skills go directly to workspace/skills/
-                dest = SKILLS_DIR / rel
+                dest = (SKILLS_DIR / rel).resolve()
+                # Path traversal check — dest must stay inside SKILLS_DIR
+                try:
+                    dest.relative_to(SKILLS_DIR.resolve())
+                except ValueError:
+                    logger.warning(f"Path traversal blocked in proposal #{proposal_id}: {rel}")
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(f, dest)
                 applied.append(f"skills/{rel}")
 
             elif ptype in ("code", "config"):
-                # Code goes to applied_code/ for entrypoint overlay
-                dest = APPLIED_CODE_DIR / rel
+                dest = (APPLIED_CODE_DIR / rel).resolve()
+                try:
+                    dest.relative_to(APPLIED_CODE_DIR.resolve())
+                except ValueError:
+                    logger.warning(f"Path traversal blocked in proposal #{proposal_id}: {rel}")
+                    continue
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(f, dest)
                 applied.append(f"applied_code/{rel}")

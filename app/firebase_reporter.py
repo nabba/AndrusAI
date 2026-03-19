@@ -96,6 +96,46 @@ def report_system_online(version: str = "1.0") -> None:
     _fire(_write)
 
 
+def cleanup_stale_tasks() -> None:
+    """
+    On startup: mark any 'running' tasks as failed (they're zombies from a
+    previous container that was restarted). Also reset all crews to idle.
+    """
+    def _cleanup():
+        db = _get_db()
+        if not db:
+            return
+        try:
+            from google.cloud.firestore_v1.base_query import FieldFilter
+            tasks = db.collection("tasks").where(
+                filter=FieldFilter("state", "==", "running")
+            ).get()
+            now = _now_iso()
+            cleaned = 0
+            for t in tasks:
+                t.reference.update({
+                    "state": "failed",
+                    "error": "Task was running when system restarted. Marked as failed.",
+                    "completed_at": now,
+                })
+                cleaned += 1
+
+            # Reset all crews to idle
+            for crew in ["commander", "research", "coding", "writing", "self_improvement"]:
+                db.collection("crews").document(crew).set({
+                    "state": "idle",
+                    "current_task": None,
+                    "eta": None,
+                    "started_at": None,
+                }, merge=True)
+
+            if cleaned:
+                logger.info(f"firebase_reporter: cleaned up {cleaned} stale running tasks")
+        except Exception:
+            logger.debug("firebase_reporter: stale task cleanup failed", exc_info=True)
+    _fire(_cleanup)
+
+
 def report_system_offline() -> None:
     """Called on graceful shutdown."""
     def _write():
@@ -113,7 +153,7 @@ def report_system_offline() -> None:
 
 
 def heartbeat() -> None:
-    """Update last_seen timestamp — call every 60 s from a background task."""
+    """Update last_seen timestamp + fleet status — call every 60 s."""
     def _write():
         db = _get_db()
         if not db:
@@ -125,16 +165,35 @@ def heartbeat() -> None:
             })
         except Exception:
             logger.debug("firebase_reporter: heartbeat write failed", exc_info=True)
+
+        # Also push fleet status
+        try:
+            from app.ollama_fleet import get_fleet_status
+            fleet = get_fleet_status()
+            benchmarks = []
+            try:
+                from app.llm_benchmarks import get_scores
+                for task_type in ["coding", "architecture", "research", "writing"]:
+                    scores = get_scores(task_type)
+                    for model, score in scores.items():
+                        benchmarks.append({"model": model, "task": task_type, "score": round(score, 2)})
+            except Exception:
+                pass
+            report_fleet_status(fleet, benchmarks)
+        except Exception:
+            pass
     _fire(_write)
 
 
 # ── Crew / agent status ───────────────────────────────────────────────────────
 
 def crew_started(crew: str, task_summary: str, eta_seconds: Optional[int] = None,
-                 parent_task_id: Optional[str] = None) -> str:
+                 parent_task_id: Optional[str] = None,
+                 model: Optional[str] = None) -> str:
     """Mark a crew as active.  Returns a task_id for later updates.
 
     If parent_task_id is set, this task is a sub-agent spawned by a parent task.
+    model: the LLM model name used for this task (e.g. "qwen3:30b-a3b").
     """
     task_id = uuid.uuid4().hex
     eta_iso = None
@@ -156,6 +215,7 @@ def crew_started(crew: str, task_summary: str, eta_seconds: Optional[int] = None
                     "task_id": task_id,
                     "started_at": now,
                     "eta": eta_iso,
+                    "model": model or "",
                     "last_updated": now,
                 })
             # Write a task record
@@ -170,6 +230,9 @@ def crew_started(crew: str, task_summary: str, eta_seconds: Optional[int] = None
                 "result_preview": None,
                 "parent_task_id": parent_task_id,
                 "is_sub_agent": parent_task_id is not None,
+                "model": model or "",
+                "delegated_to": None,
+                "delegated_from": None,
             })
             # Append to activity feed
             _add_activity(db, "task_started", crew, task_summary[:200], task_id)
@@ -247,6 +310,27 @@ def update_eta(crew: str, task_id: str, eta_seconds: int) -> None:
     _fire(_write)
 
 
+def task_delegated(task_id: str, from_crew: str, to_crew: str, reason: str = "") -> None:
+    """Record that a task was delegated from one crew/agent to another."""
+    def _write():
+        db = _get_db()
+        if not db:
+            return
+        now = _now_iso()
+        try:
+            db.collection("tasks").document(task_id).update({
+                "delegated_to": to_crew,
+                "delegated_from": from_crew,
+                "delegation_reason": reason[:200],
+                "delegation_ts": now,
+            })
+            _add_activity(db, "task_delegated", from_crew,
+                          f"→ {to_crew}: {reason[:100]}", task_id)
+        except Exception:
+            logger.debug("firebase_reporter: task_delegated write failed", exc_info=True)
+    _fire(_write)
+
+
 def update_sub_agent_progress(crew: str, parent_task_id: str,
                                completed: int, total: int) -> None:
     """Update the parent task with sub-agent completion progress."""
@@ -279,6 +363,25 @@ def report_proposals(proposals: list[dict]) -> None:
             })
         except Exception:
             logger.debug("firebase_reporter: proposals write failed", exc_info=True)
+    _fire(_write)
+
+
+# ── Fleet status ─────────────────────────────────────────────────────────
+
+def report_fleet_status(fleet_data: list[dict], benchmarks: list[dict] = None) -> None:
+    """Push LLM fleet container status to Firestore for the dashboard."""
+    def _write():
+        db = _get_db()
+        if not db:
+            return
+        try:
+            db.collection("status").document("fleet").set({
+                "containers": fleet_data[:10],
+                "benchmarks": (benchmarks or [])[:20],
+                "updated_at": _now_iso(),
+            })
+        except Exception:
+            logger.debug("firebase_reporter: fleet write failed", exc_info=True)
     _fire(_write)
 
 

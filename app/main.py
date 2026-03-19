@@ -25,7 +25,8 @@ from app.audit import (
 from app.conversation_store import add_message, start_task, complete_task
 from app.workspace_sync import setup_workspace_repo, sync_workspace
 from app.firebase_reporter import (
-    report_system_online, report_system_offline, heartbeat, report_schedule
+    report_system_online, report_system_offline, heartbeat, report_schedule,
+    cleanup_stale_tasks,
 )
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -106,6 +107,33 @@ async def lifespan(app: FastAPI):
 
     scheduler.add_job(SelfImprovementCrew().run, trigger, id="self_improve")
 
+    # Native Ollama — verify availability (Metal GPU acceleration)
+    from app.ollama_native import _is_running as ollama_is_running
+    if await asyncio.to_thread(ollama_is_running):
+        logger.info("Native Ollama detected — Metal GPU acceleration enabled")
+    else:
+        logger.warning(
+            "Native Ollama not detected at %s. "
+            "Local models will fall back to Claude API. "
+            "Start Ollama with: ollama serve",
+            settings.ollama_base_url,
+        )
+
+    # Auditor — continuous code quality + error resolution
+    from app.auditor import run_code_audit, run_error_resolution
+    auditor_cron = os.environ.get("AUDITOR_CRON", "0 */4 * * *")
+    error_fix_cron = os.environ.get("ERROR_FIX_CRON", "*/30 * * * *")
+    try:
+        scheduler.add_job(run_code_audit, CronTrigger.from_crontab(auditor_cron), id="code_audit")
+        logger.info(f"Code auditor scheduled: {auditor_cron}")
+    except ValueError:
+        logger.warning(f"Invalid AUDITOR_CRON: {auditor_cron}")
+    try:
+        scheduler.add_job(run_error_resolution, CronTrigger.from_crontab(error_fix_cron), id="error_resolution")
+        logger.info(f"Error resolution loop scheduled: {error_fix_cron}")
+    except ValueError:
+        logger.warning(f"Invalid ERROR_FIX_CRON: {error_fix_cron}")
+
     # Evolution loop — autoresearch-style continuous improvement (every 6 hours)
     from app.evolution import run_evolution_session
     evolution_cron = os.environ.get("EVOLUTION_CRON", "0 */6 * * *")
@@ -121,6 +149,27 @@ async def lifespan(app: FastAPI):
     except ValueError:
         logger.warning(f"Invalid EVOLUTION_CRON: {evolution_cron}, evolution loop disabled")
 
+    # Retrospective crew — meta-cognitive self-improvement (daily at 4 AM by default)
+    from app.crews.retrospective_crew import RetrospectiveCrew
+    try:
+        retro_trigger = CronTrigger.from_crontab(settings.retrospective_cron)
+        scheduler.add_job(RetrospectiveCrew().run, retro_trigger, id="retrospective")
+        logger.info(f"Retrospective crew scheduled: {settings.retrospective_cron}")
+    except ValueError:
+        logger.warning(f"Invalid RETROSPECTIVE_CRON: {settings.retrospective_cron}")
+
+    # Benchmark snapshot — daily summary of performance metrics
+    from app.benchmarks import get_benchmark_summary
+    try:
+        bench_trigger = CronTrigger.from_crontab(settings.benchmark_cron)
+        scheduler.add_job(
+            lambda: logger.info(f"Benchmark snapshot: {get_benchmark_summary()}"),
+            bench_trigger, id="benchmark_snapshot",
+        )
+        logger.info(f"Benchmark snapshot scheduled: {settings.benchmark_cron}")
+    except ValueError:
+        logger.warning(f"Invalid BENCHMARK_CRON: {settings.benchmark_cron}")
+
     # Workspace sync: pass backup_repo as a kwarg so the job is a no-op when unset
     scheduler.add_job(
         sync_workspace,
@@ -131,7 +180,8 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(heartbeat, "interval", seconds=60, id="heartbeat")
     scheduler.start()
 
-    # Report online status and publish schedule to Firebase
+    # Clean up zombie tasks from previous container, then report online
+    cleanup_stale_tasks()
     report_system_online()
     _publish_schedule()
 
