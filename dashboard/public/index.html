@@ -308,6 +308,79 @@
   </div>
 </div>
 
+<!-- ── Signal Commands Reference ──────────────────────────────────── -->
+<details class="card" style="cursor:pointer">
+  <summary class="section-title" style="margin-bottom:0;cursor:pointer">&#x2753; Signal Commands Reference</summary>
+  <table style="margin-top:14px">
+    <thead><tr><th>Command</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td colspan="2" style="font-weight:700;color:var(--blue);padding-top:12px;border-bottom:none">General</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">hello / hi / any question</td><td>Commander routes to the right crew (research, coding, writing) or answers directly. Short replies use conversation history for context.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">&#x1F4CE; Send file(s)</td><td>Attach PDF, DOCX, XLSX, JPG, or PNG to any message. The system extracts text/data and includes it as context. Works with all crews.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">status</td><td>Returns system health, pending proposals, composite score, and LLM info.</td></tr>
+
+      <tr><td colspan="2" style="font-weight:700;color:var(--blue);padding-top:12px;border-bottom:none">Learning &amp; Self-Improvement</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">learn &lt;topic&gt;</td><td>Adds topic to the learning queue. At 3 AM daily (or manually), the self-improvement crew researches it and saves a skill file.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">watch &lt;youtube_url&gt;</td><td>Extracts video transcript, distills key knowledge into a skill file, and stores a summary in shared team memory.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">show learning queue</td><td>Displays all pending topics in the learning queue.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">run self-improvement now</td><td>Immediately processes the learning queue (up to 3 topics). Agents research, extract knowledge, and save skill files.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">improve</td><td>Triggers an improvement scan. An analyst reviews current skills and creates 1-3 structured improvement proposals.</td></tr>
+
+      <tr><td colspan="2" style="font-weight:700;color:var(--blue);padding-top:12px;border-bottom:none">Proposals</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">proposals</td><td>Lists all pending improvement proposals with IDs, types, and titles.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">approve &lt;id&gt;</td><td>Approves and applies a proposal. Skill proposals copy files immediately; code proposals are staged for next rebuild.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">reject &lt;id&gt;</td><td>Rejects and archives a proposal. No files are changed.</td></tr>
+
+      <tr><td colspan="2" style="font-weight:700;color:var(--blue);padding-top:12px;border-bottom:none">Evolution &amp; Experiments</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">evolve</td><td>Triggers one evolution cycle. The system analyzes metrics, proposes ONE improvement, applies it, and keeps or discards based on score delta.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">evolve deep</td><td>Runs an extended evolution session with more iterations.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">experiments</td><td>Shows the experiment journal: what evolution has tried, kept, and discarded (last 15).</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">results</td><td>Displays the results ledger with score history (last 20).</td></tr>
+
+      <tr><td colspan="2" style="font-weight:700;color:var(--blue);padding-top:12px;border-bottom:none">Errors &amp; Auditing</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">errors</td><td>Shows the 5 most recent errors with diagnosis status and recurring patterns.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">audit</td><td>Triggers an immediate code audit. The auditor reads all Python source files, identifies bugs/security issues, and auto-deploys fixes.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">fix errors</td><td>Triggers the error resolution loop. Scans for recurring patterns, generates targeted fixes, applies them, and monitors recurrence (up to 3 attempts).</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">auditor</td><td>Shows audit activity summary: recent code audits, error resolution status, and recent auto-deployments.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">deploys</td><td>Shows the auto-deployment log: what files were deployed, when, and why (last 10).</td></tr>
+
+      <tr><td colspan="2" style="font-weight:700;color:var(--blue);padding-top:12px;border-bottom:none">LLM &amp; Fleet Management</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">llm</td><td>Shows current LLM configuration: mode, last model used, tier, vetting status, and cost breakdown.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">mode &lt;local|hybrid|cloud&gt;</td><td>Switches LLM mode. <code>mode</code> alone shows current mode.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">fleet</td><td>Shows LLM fleet status: running containers, available models, and benchmark scores.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">fleet stop all</td><td>Stops all fleet containers immediately, freeing all GPU/RAM.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">fleet pull &lt;model&gt;</td><td>Pulls a new model from Ollama registry. Example: <code>fleet pull gemma3:27b</code></td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">catalog</td><td>Shows the full LLM model catalog with tiers, costs, and role assignments.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">tokens</td><td>Shows token usage for today. Add period: <code>tokens week</code>, <code>tokens month</code>, etc.</td></tr>
+
+      <tr><td colspan="2" style="font-weight:700;color:var(--blue);padding-top:12px;border-bottom:none">Analysis &amp; Monitoring</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">metrics</td><td>Displays system metrics: composite score, task success rate, error rate, self-heal rate, and more.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">benchmarks</td><td>Shows model performance benchmarks across task types.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">policies</td><td>Shows all active self-learned policies that guide agent behavior.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">retrospective</td><td>Runs a retrospective analysis of recent execution data to discover patterns and generate new policies.</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">program</td><td>Shows the evolution program (research directions from workspace/program.md).</td></tr>
+    </tbody>
+  </table>
+  <div style="margin-top:14px;padding:12px;background:var(--bg);border-radius:8px;font-size:.78rem;color:var(--muted)">
+    <div style="margin-bottom:6px;font-weight:700;color:var(--text)">How routing works</div>
+    Commander classifies every message and dispatches to specialist crews:<br>
+    &bull; <strong style="color:var(--blue)">Research</strong> &mdash; web search, fact-finding, current events (can spawn parallel sub-agents for complex topics)<br>
+    &bull; <strong style="color:var(--blue)">Coding</strong> &mdash; writes, tests, and debugs code in a Docker sandbox<br>
+    &bull; <strong style="color:var(--blue)">Writing</strong> &mdash; summaries, documentation, emails, reports<br>
+    &bull; <strong style="color:var(--blue)">Direct</strong> &mdash; simple questions answered by Commander itself<br>
+    Complex requests can dispatch multiple crews in parallel.
+    <div style="margin-top:8px;font-weight:700;color:var(--text)">LLM tiers &amp; difficulty routing</div>
+    Commander classifies task difficulty (1-10). Easy tasks (1-3) &rarr; cheap local models. Hard tasks (8-10) &rarr; premium cloud models. Medium (4-7) &rarr; balanced selection.<br>
+    <strong>Vetting</strong> &rarr; 4-tier risk-based verification: none (premium+easy), schema (format check), cheap (budget model yes/no), full (Claude Sonnet review). Code always gets full vetting.
+    <div style="margin-top:8px;font-weight:700;color:var(--text)">Self-healing</div>
+    When any crew fails: logs error with context &rarr; spawns background "System Doctor" agent &rarr; diagnoses root cause &rarr; saves knowledge fix or creates code proposal.
+    <div style="margin-top:8px;font-weight:700;color:var(--text)">Evolution loop (autoresearch-inspired)</div>
+    Every 6 hours: gathers metrics &rarr; identifies highest-impact improvement &rarr; executes ONE change &rarr; keeps improvements, discards regressions. ETAs are dynamically calculated from historical task durations.
+    <div style="margin-top:8px;font-weight:700;color:var(--text)">Circuit breakers</div>
+    Each LLM provider (Ollama, OpenRouter, Anthropic) has a circuit breaker. After 3 consecutive failures, the provider is skipped for 60s cooldown, preventing slow timeouts.
+  </div>
+</details>
+
 <div id="last-updated" style="margin-top:10px"></div>
 
 <script type="module">
