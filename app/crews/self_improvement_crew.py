@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.llm_factory import create_specialist_llm
 from app.sanitize import sanitize_input
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
+from app.conversation_store import estimate_eta
 from app.tools.web_search import web_search
 from app.tools.web_fetch import web_fetch
 from app.tools.youtube_transcript import get_youtube_transcript
@@ -74,7 +75,7 @@ class SelfImprovementCrew:
             if not skill_filename or not re.fullmatch(r'[a-zA-Z0-9_-]+', skill_filename):
                 logger.warning(f"Skipping topic with unsafe filename: {sanitized_topic[:50]!r}")
                 continue
-            task_id = crew_started("self_improvement", f"Learn: {sanitized_topic[:100]}", eta_seconds=300)
+            task_id = crew_started("self_improvement", f"Learn: {sanitized_topic[:100]}", eta_seconds=estimate_eta("self_improvement"))
 
             # NOTE: path is now "skills/{filename}.md" (not "workspace/skills/...")
             # because file_manager is rooted at /app/workspace/
@@ -112,7 +113,7 @@ class SelfImprovementCrew:
 
     def learn_from_youtube(self, url: str) -> str:
         """Extract a YouTube transcript, distill into a skill file and team memory."""
-        task_id = crew_started("self_improvement", f"YouTube: {url[:60]}", eta_seconds=120)
+        task_id = crew_started("self_improvement", f"YouTube: {url[:60]}", eta_seconds=estimate_eta("self_improvement"))
 
         try:
             # Step 1: Extract transcript
@@ -182,7 +183,7 @@ class SelfImprovementCrew:
 
     def run_improvement_scan(self):
         """Analyze system capabilities and create improvement proposals."""
-        task_id = crew_started("self_improvement", "Improvement scan", eta_seconds=180)
+        task_id = crew_started("self_improvement", "Improvement scan", eta_seconds=estimate_eta("self_improvement"))
 
         try:
             proposals = self._analyze_and_propose()

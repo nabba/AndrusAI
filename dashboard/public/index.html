@@ -255,8 +255,8 @@
 <div class="card">
   <div class="section-title">Current & Recent Tasks</div>
   <table>
-    <thead><tr><th>Crew</th><th>Task</th><th>Model</th><th>Status</th><th>Flow</th><th>ETA / Done</th></tr></thead>
-    <tbody id="tasks-tbody"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+    <thead><tr><th>Crew</th><th>Task</th><th>Model</th><th>Status</th><th>Flow</th><th>Duration</th><th>ETA / Done</th></tr></thead>
+    <tbody id="tasks-tbody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
   </table>
 </div>
 
@@ -408,9 +408,18 @@ function renderCrews() {
 CREWS.forEach(name => onSnapshot(doc(db,"crews",name), s => { crewData[name] = s.exists()?s.data():{state:"idle"}; renderCrews(); }));
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
-onSnapshot(query(collection(db,"tasks"), orderBy("started_at","desc"), limit(20)), snap => {
+const fmtDuration = (seconds) => {
+  if (!seconds || seconds <= 0) return "—";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.floor(seconds/60)}m ${Math.round(seconds%60)}s`;
+  const h = Math.floor(seconds/3600), m = Math.floor((seconds%3600)/60);
+  return `${h}h ${m}m`;
+};
+let _taskSnap = null;
+function renderTasks() {
+  const snap = _taskSnap;
   const tbody = document.getElementById("tasks-tbody");
-  if (snap.empty) { tbody.innerHTML='<tr><td colspan="6" class="empty">No tasks yet</td></tr>'; return; }
+  if (!snap || snap.empty) { tbody.innerHTML='<tr><td colspan="7" class="empty">No tasks yet</td></tr>'; return; }
   const today = snap.docs.filter(d => (Date.now()-new Date(d.data().started_at))<86400000).length;
   document.getElementById("s-tasks").textContent = today;
   tbody.innerHTML = snap.docs.map(d => {
@@ -423,6 +432,18 @@ onSnapshot(query(collection(db,"tasks"), orderBy("started_at","desc"), limit(20)
               : t.state==="failed"    ? `<span style="color:var(--red)">Failed</span>`
               : t.eta                 ? `ETA ${etaIn(t.eta)||"—"}${progress}`
               :                         progress || "—";
+    // Duration: for completed/failed = completed_at - started_at, for running = now - started_at
+    let durationSec = 0;
+    if (t.started_at) {
+      const start = new Date(t.started_at).getTime();
+      if (t.completed_at) {
+        durationSec = (new Date(t.completed_at).getTime() - start) / 1000;
+      } else if (t.state === "running") {
+        durationSec = (Date.now() - start) / 1000;
+      }
+    }
+    const durationStr = durationSec > 0 ? fmtDuration(durationSec) : "—";
+    const durationColor = t.state === "running" ? "var(--orange)" : "var(--muted)";
     const modelTag = t.model ? `<span class="model-tag">${t.model}</span>` : '<span style="color:var(--muted);font-size:.7rem">—</span>';
     let flow = '';
     if (t.delegated_from && t.delegated_to) {
@@ -438,9 +459,14 @@ onSnapshot(query(collection(db,"tasks"), orderBy("started_at","desc"), limit(20)
       <td>${modelTag}</td>
       <td><span class="badge ${t.state||""}">${t.state||"—"}</span></td>
       <td>${flow}</td>
+      <td style="color:${durationColor};font-weight:600;font-size:.78rem;white-space:nowrap">${durationStr}</td>
       <td style="color:var(--muted)">${eta}</td>
     </tr>`;
   }).join("");
+}
+onSnapshot(query(collection(db,"tasks"), orderBy("started_at","desc"), limit(20)), snap => {
+  _taskSnap = snap;
+  renderTasks();
   touch();
 });
 
@@ -751,11 +777,12 @@ onSnapshot(doc(db, "status", "catalog"), s => {
   }).join("");
 });
 
-// Refresh relative times every 30s
+// Refresh relative times and running task durations every 5s
 setInterval(() => {
   _updateUptime();
   renderCrews();
-}, 30000);
+  renderTasks();
+}, 5000);
 </script>
 </body>
 </html>

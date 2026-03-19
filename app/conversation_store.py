@@ -207,3 +207,41 @@ def avg_response_time(hours: int = 24) -> float:
     except Exception:
         logger.exception("conversation_store: failed to compute avg response time")
         return 0.0
+
+
+# Default ETAs (seconds) — used when no historical data exists yet
+_DEFAULT_ETA: dict[str, int] = {
+    "commander": 30,
+    "research": 120,
+    "coding": 180,
+    "writing": 90,
+    "self_improvement": 300,
+    "retrospective": 180,
+}
+
+
+def get_crew_avg_duration(crew: str) -> float:
+    """Average task duration for a specific crew (last 7 days, successful tasks).
+
+    Returns seconds. Falls back to defaults if no historical data.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    try:
+        conn = _get_conn()
+        row = conn.execute(
+            "SELECT AVG(duration_s), COUNT(*) FROM tasks "
+            "WHERE crew = ? AND started_at > ? AND completed_at IS NOT NULL "
+            "AND success = 1 AND duration_s > 0",
+            (crew, cutoff),
+        ).fetchone()
+        avg, count = row if row else (None, 0)
+        if avg and count >= 3:
+            return round(avg, 1)
+    except Exception:
+        logger.debug("conversation_store: failed to get crew avg duration", exc_info=True)
+    return float(_DEFAULT_ETA.get(crew, 120))
+
+
+def estimate_eta(crew: str) -> int:
+    """Return estimated seconds for a task on this crew, based on history."""
+    return int(get_crew_avg_duration(crew))

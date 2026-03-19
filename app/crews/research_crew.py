@@ -54,9 +54,10 @@ If simple, return a single-item array.\
 class ResearchCrew:
     def run(self, topic: str, parent_task_id: str = None, difficulty: int = 5) -> str:
         """Run research, spawning sub-agents in parallel for complex topics."""
+        from app.conversation_store import estimate_eta
         task_id = crew_started(
             "research", f"Research: {topic[:100]}",
-            eta_seconds=120, parent_task_id=parent_task_id,
+            eta_seconds=estimate_eta("research"), parent_task_id=parent_task_id,
         )
 
         import time as _time
@@ -139,7 +140,7 @@ class ResearchCrew:
             def fn():
                 sub_id = crew_started(
                     "research", f"Sub: {subtopic[:80]}",
-                    eta_seconds=90, parent_task_id=parent_task_id,
+                    eta_seconds=estimate_eta("research"), parent_task_id=parent_task_id,
                 )
                 max_retries = 2
                 last_exc = None

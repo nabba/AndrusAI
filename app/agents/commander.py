@@ -551,7 +551,8 @@ class Commander:
         from app.rate_throttle import start_request_tracking, stop_request_tracking
 
         # ── Step 1: Route ─────────────────────────────────────────────────
-        task_id = crew_started("commander", f"Route: {user_input[:80]}", eta_seconds=30)
+        from app.conversation_store import estimate_eta
+        task_id = crew_started("commander", f"Route: {user_input[:80]}", eta_seconds=estimate_eta("commander"))
         tracker = start_request_tracking(task_id)
         try:
             decisions = self._route(user_input, sender, attachment_context)

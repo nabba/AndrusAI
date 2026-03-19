@@ -36,8 +36,9 @@ class WritingCrew:
     def run(self, task_description: str, parent_task_id: str = None, difficulty: int = 5) -> str:
         """Run a writing crew on the given task."""
         _start = _time.monotonic()
+        from app.conversation_store import estimate_eta
         task_id = crew_started("writing", f"Write: {task_description[:100]}",
-                               eta_seconds=90, parent_task_id=parent_task_id)
+                               eta_seconds=estimate_eta("writing"), parent_task_id=parent_task_id)
         update_belief("writer", "working", current_task=task_description[:100])
         from app.llm_mode import get_mode
         force_tier = difficulty_to_tier(difficulty, get_mode())

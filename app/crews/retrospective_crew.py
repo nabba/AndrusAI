@@ -22,8 +22,10 @@ logger = logging.getLogger(__name__)
 class RetrospectiveCrew:
     def run(self) -> str:
         """Run retrospective analysis on recent execution data."""
+        from app.conversation_store import estimate_eta
         task_id = crew_started(
-            "self_improvement", "Retrospective analysis", eta_seconds=180
+            "self_improvement", "Retrospective analysis",
+            eta_seconds=estimate_eta("retrospective"),
         )
 
         try:
