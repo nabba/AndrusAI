@@ -271,10 +271,16 @@ async def lifespan(app: FastAPI):
     report_system_online()
     _publish_schedule()
 
-    # Initialize LLM mode from config and start Firestore listener for dashboard changes
+    # Initialize LLM mode: prefer Firestore (dashboard-set) over config default
     from app.llm_mode import set_mode
-    set_mode(settings.llm_mode)
-    report_llm_mode(settings.llm_mode)
+    from app.firebase_reporter import read_llm_mode_from_firestore
+    firestore_mode = await asyncio.to_thread(read_llm_mode_from_firestore)
+    initial_mode = firestore_mode or settings.llm_mode
+    set_mode(initial_mode)
+    if firestore_mode:
+        logger.info(f"LLM mode restored from dashboard: {firestore_mode}")
+    else:
+        report_llm_mode(settings.llm_mode)
     start_mode_listener()
 
     logger.info("CrewAI Agent Team started")
@@ -478,7 +484,7 @@ async def set_llm_mode_endpoint(request: Request):
         raise HTTPException(status_code=429, detail="Too many config changes. Try again later.")
     payload = await request.json()
     mode = payload.get("mode", "").strip().lower()
-    if mode not in ("local", "cloud", "hybrid"):
+    if mode not in ("local", "cloud", "hybrid", "insane"):
         raise HTTPException(status_code=400, detail="Invalid mode. Use: local, cloud, hybrid")
     from app.llm_mode import set_mode
     set_mode(mode)

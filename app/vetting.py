@@ -107,6 +107,9 @@ _FAILURE_PATTERNS = [
     re.compile(r"^(?:sorry|apologies|unfortunately),?\s+I", re.IGNORECASE),
     re.compile(r"^As an AI", re.IGNORECASE),
     re.compile(r"^\s*$"),  # empty
+    # Meta-commentary: model describes what it will do instead of producing content
+    re.compile(r"(?:moving forward|next,?)\s+I\s+will\b", re.IGNORECASE),
+    re.compile(r"\bI\s+will\s+(?:now\s+)?(?:assess|evaluate|review|reflect|analyze|proceed)\b", re.IGNORECASE),
 ]
 
 

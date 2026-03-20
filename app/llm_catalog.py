@@ -192,7 +192,7 @@ CATALOG: dict[str, dict] = {
     "gemini-3.1-pro": {
         "tier": "premium",
         "provider": "openrouter",
-        "model_id": "openrouter/google/gemini-3.1-pro",
+        "model_id": "openrouter/google/gemini-3.1-pro-preview",
         "context": 1_000_000, "multimodal": True,
         "cost_input_per_m": 2.00, "cost_output_per_m": 12.00,
         "tool_use_reliability": 0.90,

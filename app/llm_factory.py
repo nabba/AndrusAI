@@ -54,6 +54,7 @@ def create_specialist_llm(
       local:  Ollama only, Claude fallback if Ollama fails
       cloud:  API tier (OpenRouter) or Claude, skip Ollama
       hybrid: Try Ollama first, cascade to API tier, then Claude
+      insane: Premium only — Opus for critical roles, Gemini 3.1 Pro / Sonnet for others
 
     If force_tier is set (e.g. from difficulty-based routing), it overrides
     the default tier selection from llm_selector.
@@ -62,6 +63,10 @@ def create_specialist_llm(
     from app.llm_mode import get_mode
     settings = get_settings()
     mode = get_mode()
+
+    # ── INSANE mode: premium-only, hardcoded role mapping ─────────────
+    if mode == "insane":
+        return _insane_mode_select(role, max_tokens)
 
     from app.llm_selector import select_model
     model_name = select_model(role, task_hint, force_tier=force_tier)
@@ -183,6 +188,63 @@ def get_last_model() -> str | None:
 
 def get_last_tier() -> str | None:
     return _last_tier
+
+
+# ── INSANE mode role → model mapping ──────────────────────────────────────
+# Critical roles get Opus; heavy-lifting roles get Gemini 3.1 Pro; support roles get Sonnet.
+_INSANE_ROLE_MAP = {
+    # Critical: Claude Opus 4.6
+    "commander":    "claude-opus-4.6",
+    "vetting":      "claude-opus-4.6",
+    "critic":       "claude-opus-4.6",
+    # Heavy-lifting: Gemini 3.1 Pro
+    "coding":       "gemini-3.1-pro",
+    "research":     "gemini-3.1-pro",
+    "architecture": "gemini-3.1-pro",
+    "debugging":    "gemini-3.1-pro",
+    "planner":      "gemini-3.1-pro",
+    # Support: Claude Sonnet 4.6
+    "writing":      "claude-sonnet-4.6",
+    "synthesis":    "claude-sonnet-4.6",
+    "introspector": "claude-sonnet-4.6",
+    "self_improve": "claude-sonnet-4.6",
+    "default":      "claude-sonnet-4.6",
+}
+
+
+def _insane_mode_select(role: str, max_tokens: int) -> LLM:
+    """INSANE mode: premium-only models — Opus, Gemini 3.1 Pro, Sonnet."""
+    global _last_model_name, _last_tier
+    model_name = _INSANE_ROLE_MAP.get(role, "claude-sonnet-4.6")
+    entry = get_model(model_name)
+    if not entry:
+        return _claude_fallback(role, max_tokens)
+
+    _last_model_name = model_name
+    _last_tier = "premium"
+
+    if entry["provider"] == "anthropic":
+        logger.info(f"llm_factory: [INSANE] role={role} → ANTHROPIC {model_name}")
+        return LLM(model=entry["model_id"], api_key=get_anthropic_api_key(), max_tokens=max_tokens)
+
+    # Gemini 3.1 Pro via OpenRouter — needs higher max_tokens because it's a
+    # reasoning model that uses thinking tokens from the output budget.
+    settings = get_settings()
+    api_key = settings.openrouter_api_key.get_secret_value()
+    if api_key and circuit_breaker.is_available("openrouter"):
+        gemini_max = max(max_tokens, 16384)  # reasoning models need headroom
+        logger.info(f"llm_factory: [INSANE] role={role} → API {model_name} (${entry['cost_output_per_m']:.2f}/Mo, max_tokens={gemini_max})")
+        circuit_breaker.record_success("openrouter")
+        return LLM(
+            model=entry["model_id"],
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+            max_tokens=gemini_max,
+        )
+
+    # Fallback if OpenRouter unavailable
+    logger.warning(f"llm_factory: [INSANE] OpenRouter unavailable for {model_name}, falling back to Claude")
+    return _claude_fallback(role, max_tokens)
 
 
 def _try_local(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | None:

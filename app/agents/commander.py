@@ -387,6 +387,17 @@ _QUALITY_FAILURE_PATTERNS = [
     re.compile(r"^Traceback \(most recent call", re.IGNORECASE),
 ]
 
+# Patterns that detect meta-commentary / planning output instead of actual content.
+# These fire when the model describes what it WILL do rather than producing the answer.
+_META_COMMENTARY_PATTERNS = [
+    re.compile(r"(?:moving forward|next,?)\s+I\s+will\b", re.IGNORECASE),
+    re.compile(r"^(?:the\s+)?(?:unified|final|compiled)\s+(?:research\s+)?report\s+(?:synthesizes|combines|compiles)", re.IGNORECASE),
+    re.compile(r"\bI\s+will\s+(?:now\s+)?(?:assess|evaluate|review|reflect|analyze|proceed)\b", re.IGNORECASE),
+    re.compile(r"^(?:I'll|I\s+will)\s+(?:start|begin|proceed)\s+(?:by|with|to)\b", re.IGNORECASE),
+    re.compile(r"^(?:Let me|Allow me to)\s+(?:now\s+)?(?:assess|evaluate|compile|synthesize|review)", re.IGNORECASE),
+    re.compile(r"^Here(?:'s| is) (?:my|the) (?:plan|approach|strategy)\b", re.IGNORECASE),
+]
+
 
 def _passes_quality_gate(result: str, crew_name: str) -> bool:
     """Quick heuristic quality check — no LLM call.
@@ -400,6 +411,14 @@ def _passes_quality_gate(result: str, crew_name: str) -> bool:
     for pattern in _QUALITY_FAILURE_PATTERNS:
         if pattern.match(text):
             return False
+
+    # Detect meta-commentary: model describing what it will do instead of doing it.
+    # Short outputs (<400 chars) that match meta patterns are almost always junk.
+    if len(text) < 400:
+        for pattern in _META_COMMENTARY_PATTERNS:
+            if pattern.search(text):
+                logger.info(f"quality_gate: meta-commentary detected ({len(text)} chars)")
+                return False
 
     # For coding tasks, expect at least a code block or code-like content
     if crew_name == "coding":
@@ -438,6 +457,15 @@ def _generate_reflection(
         return (
             f"Trial {trial} returned raw technical output instead of a useful response. "
             "Format the output as clear, human-readable text."
+        )
+
+    # Check for meta-commentary (model describing what it will do instead of doing it)
+    if any(p.search(text) for p in _META_COMMENTARY_PATTERNS):
+        return (
+            f"Trial {trial} produced meta-commentary describing WHAT you will do "
+            "instead of actually doing it. Do NOT describe your plan or approach. "
+            "Produce the ACTUAL content directly — the research report, the answer, "
+            "the code. Start with the content itself, not a description of it."
         )
 
     # For coding with no code
@@ -873,8 +901,8 @@ class Commander:
         # ── LLM mode switching ─────────────────────────────────────────
         if lower.startswith("mode "):
             new_mode = user_input[5:].strip().lower()
-            if new_mode not in ("local", "cloud", "hybrid"):
-                return "Invalid mode. Use: mode local, mode cloud, or mode hybrid"
+            if new_mode not in ("local", "cloud", "hybrid", "insane"):
+                return "Invalid mode. Use: mode local, mode cloud, mode hybrid, or mode insane"
             from app.llm_mode import set_mode
             set_mode(new_mode)
             from app.firebase_reporter import report_llm_mode

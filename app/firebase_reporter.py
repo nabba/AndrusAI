@@ -523,6 +523,22 @@ def report_llm_mode(mode: str) -> None:
     _fire(_write)
 
 
+def read_llm_mode_from_firestore() -> str | None:
+    """Read LLM mode from Firestore (dashboard-set value). Returns None if unavailable."""
+    db = _get_db()
+    if not db:
+        return None
+    try:
+        doc = db.collection("config").document("llm").get()
+        if doc.exists:
+            mode = doc.to_dict().get("mode")
+            if mode in ("local", "cloud", "hybrid", "insane"):
+                return mode
+    except Exception:
+        logger.debug("firebase_reporter: failed to read llm mode from Firestore", exc_info=True)
+    return None
+
+
 _mode_listener_unsub = None  # Must be kept alive to prevent GC of the listener
 
 
@@ -540,7 +556,7 @@ def start_mode_listener() -> None:
                 for snap in doc_snapshot:
                     data = snap.to_dict()
                     new_mode = data.get("mode")
-                    if new_mode in ("local", "cloud", "hybrid"):
+                    if new_mode in ("local", "cloud", "hybrid", "insane"):
                         from app.llm_mode import get_mode, set_mode
                         if new_mode != get_mode():
                             set_mode(new_mode)

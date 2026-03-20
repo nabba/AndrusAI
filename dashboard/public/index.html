@@ -106,6 +106,7 @@
     .mode-btn { background:none;border:none;color:var(--muted);padding:5px 14px;border-radius:16px;cursor:pointer;font-size:.78rem;font-weight:600;transition:all .2s; }
     .mode-btn.active { background:var(--blue);color:#fff; }
     .mode-btn:hover:not(.active) { color:var(--text); }
+    .mode-insane.active { background:linear-gradient(135deg,#f97316,#ef4444);color:#fff; }
 
     /* Token panel */
     #token-summary { margin-bottom:12px; }
@@ -188,6 +189,7 @@
       <button class="mode-btn" data-mode="local">Local Only</button>
       <button class="mode-btn active" data-mode="hybrid">Hybrid</button>
       <button class="mode-btn" data-mode="cloud">Cloud Only</button>
+      <button class="mode-btn mode-insane" data-mode="insane">🔥 Insane</button>
     </div>
     <div id="sys-badge"><div class="dot"></div><span id="sys-label">Connecting…</span></div>
   </div>

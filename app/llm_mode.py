@@ -5,6 +5,7 @@ The mode controls which model tiers are available for specialist agents:
   "local"  — Only Ollama models on Metal GPU, Claude fallback if Ollama fails
   "cloud"  — Only API models (OpenRouter + Anthropic), skip Ollama entirely
   "hybrid" — Try local first, cascade to API tier, then Claude fallback
+  "insane" — Premium only: Claude Opus 4.6 + Gemini 3.1 Pro, Sonnet for less critical
 
 Separate from config.py because Settings is frozen by lru_cache.
 The mode needs to change at runtime from Signal commands, dashboard writes,
@@ -15,14 +16,14 @@ import logging
 import threading
 from typing import Literal
 
-LLMMode = Literal["local", "cloud", "hybrid"]
+LLMMode = Literal["local", "cloud", "hybrid", "insane"]
 
 _lock = threading.Lock()
 _mode: str = "hybrid"
 
 logger = logging.getLogger(__name__)
 
-VALID_MODES = ("local", "cloud", "hybrid")
+VALID_MODES = ("local", "cloud", "hybrid", "insane")
 
 
 def get_mode() -> str:

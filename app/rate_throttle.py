@@ -108,12 +108,66 @@ def install_throttle() -> None:
         except ImportError:
             logger.warning("rate_throttle: litellm not found, throttle not installed")
 
+        # Also patch CrewAI's BaseLLM._track_token_usage_internal to record
+        # token usage for ALL providers (Anthropic, Gemini, etc.) that CrewAI
+        # handles natively without going through litellm.
+        try:
+            from crewai.llms.base_llm import BaseLLM
+            _original_track = BaseLLM._track_token_usage_internal
+
+            def _patched_track(self, usage_data: dict):
+                _original_track(self, usage_data)
+                try:
+                    model = getattr(self, "model", "unknown")
+                    prompt = (
+                        usage_data.get("prompt_tokens")
+                        or usage_data.get("input_tokens")
+                        or usage_data.get("prompt_token_count")
+                        or 0
+                    )
+                    completion = (
+                        usage_data.get("completion_tokens")
+                        or usage_data.get("output_tokens")
+                        or usage_data.get("candidates_token_count")
+                        or 0
+                    )
+                    total = prompt + completion
+                    if total > 0:
+                        cost_usd = 0.0
+                        cost_info = _find_cost(model) or _find_cost(f"anthropic/{model}")
+                        if cost_info:
+                            cost_usd = (
+                                (prompt / 1_000_000) * cost_info[0]
+                                + (completion / 1_000_000) * cost_info[1]
+                            )
+                        from app.llm_benchmarks import record_tokens
+                        record_tokens(model, prompt, completion, cost_usd)
+                        tracker = _request_cost.get(None)
+                        if tracker is not None:
+                            tracker.record(model, prompt, completion, cost_usd)
+                except Exception:
+                    pass
+
+            BaseLLM._track_token_usage_internal = _patched_track
+            logger.info("rate_throttle: CrewAI BaseLLM token tracking patched")
+        except Exception:
+            logger.debug("rate_throttle: could not patch BaseLLM", exc_info=True)
+
 
 _cost_lookup: dict[str, tuple[float, float]] | None = None
 
 
 def _get_cost_lookup() -> dict[str, tuple[float, float]]:
-    """Lazily build model→(cost_input, cost_output) dict from CATALOG. O(1) per lookup."""
+    """Lazily build model→(cost_input, cost_output) dict from CATALOG. O(1) per lookup.
+
+    Maps multiple key variants for each model so we match regardless of how
+    litellm reports the model name in the response:
+      - catalog name:     "deepseek-v3.2"
+      - model_id:         "openrouter/deepseek/deepseek-chat"
+      - stripped of prefix: "deepseek/deepseek-chat"   (litellm often strips "openrouter/")
+      - bare model:       "deepseek-chat"              (sometimes just the last segment)
+      - anthropic:        "claude-opus-4-6"            (litellm strips "anthropic/")
+    """
     global _cost_lookup
     if _cost_lookup is not None:
         return _cost_lookup
@@ -126,10 +180,44 @@ def _get_cost_lookup() -> dict[str, tuple[float, float]]:
             model_id = info.get("model_id", "")
             if model_id and model_id != name:
                 lookup[model_id] = costs
+                # Strip provider prefix: "openrouter/deepseek/deepseek-chat" → "deepseek/deepseek-chat"
+                if model_id.startswith("openrouter/"):
+                    stripped = model_id[len("openrouter/"):]
+                    lookup[stripped] = costs
+                # Strip "anthropic/" prefix: "anthropic/claude-opus-4-6" → "claude-opus-4-6"
+                if model_id.startswith("anthropic/"):
+                    stripped = model_id[len("anthropic/"):]
+                    lookup[stripped] = costs
+                # Strip "ollama_chat/" prefix
+                if model_id.startswith("ollama_chat/"):
+                    stripped = model_id[len("ollama_chat/"):]
+                    lookup[stripped] = costs
         _cost_lookup = lookup
     except Exception:
         _cost_lookup = {}
     return _cost_lookup
+
+
+def _find_cost(model: str) -> tuple[float, float] | None:
+    """Look up cost for a model, trying exact match then prefix match."""
+    lookup = _get_cost_lookup()
+    # Exact match
+    hit = lookup.get(model)
+    if hit:
+        return hit
+    # Try stripping version suffixes: "deepseek/deepseek-chat-v3" → "deepseek/deepseek-chat"
+    # Common pattern: litellm appends version info not in our catalog
+    import re
+    base = re.sub(r"-v\d+(\.\d+)*$", "", model)
+    if base != model:
+        hit = lookup.get(base)
+        if hit:
+            return hit
+    # Prefix match: find any key that starts with the model name or vice versa
+    for key, costs in lookup.items():
+        if model.startswith(key) or key.startswith(model):
+            return costs
+    return None
 
 
 def _record_token_usage(response, kwargs: dict) -> None:
@@ -143,10 +231,10 @@ def _record_token_usage(response, kwargs: dict) -> None:
         completion_tokens = getattr(usage, "completion_tokens", 0) or 0
         total = prompt_tokens + completion_tokens
         if total > 0:
-            # Estimate cost from catalog (O(1) lookup via pre-built dict)
+            # Estimate cost from catalog
             cost_usd = 0.0
             try:
-                cost_info = _get_cost_lookup().get(model)
+                cost_info = _find_cost(model)
                 if cost_info:
                     cost_usd = (
                         (prompt_tokens / 1_000_000) * cost_info[0]

@@ -87,8 +87,13 @@ class ResearchCrew:
         Simple questions (difficulty 1-3) use a fast path: single agent,
         concise template, no debate, no critic — returns a direct answer.
         """
+        # Extract the core user question for planning — strip injected context
+        # that _run_crew prepends (skills, knowledge base, team memory).
+        # The planner should only see the actual question, not KB noise.
+        core_topic = self._extract_core_topic(topic)
+
         task_id = crew_started(
-            "research", f"Research: {topic[:100]}",
+            "research", f"Research: {core_topic[:100]}",
             eta_seconds=estimate_eta("research"), parent_task_id=parent_task_id,
         )
 
@@ -98,17 +103,18 @@ class ResearchCrew:
         from app.llm_mode import get_mode
         force_tier = difficulty_to_tier(difficulty, get_mode())
 
-        update_belief("researcher", "working", current_task=topic[:100])
+        update_belief("researcher", "working", current_task=core_topic[:100])
         try:
             # ── Fast path for simple factual questions ─────────────────
             if difficulty <= 3:
                 result = self._run_simple(topic, task_id, force_tier=force_tier)
-                update_belief("researcher", "completed", current_task=topic[:100])
+                update_belief("researcher", "completed", current_task=core_topic[:100])
                 record_metric("task_completion_time", _time.monotonic() - _start, {"crew": "research"})
                 return result
 
             # ── Standard path for moderate/complex research ────────────
-            subtopics = self._plan_research(topic)
+            # Plan from core topic only — injected context goes to execution, not planning
+            subtopics = self._plan_research(core_topic)
 
             if len(subtopics) <= 1:
                 result = self._run_single(topic, task_id, force_tier=force_tier)
@@ -127,10 +133,45 @@ class ResearchCrew:
             record_metric("task_completion_time", _time.monotonic() - _start, {"crew": "research"})
             return result
         except Exception as exc:
-            update_belief("researcher", "failed", current_task=topic[:100])
+            update_belief("researcher", "failed", current_task=core_topic[:100])
             crew_failed("research", task_id, str(exc)[:200])
-            diagnose_and_fix("research", topic, exc)
+            diagnose_and_fix("research", core_topic, exc)
             raise
+
+    @staticmethod
+    def _extract_core_topic(enriched_task: str) -> str:
+        """Strip injected context prefixes to get the core user question.
+
+        Commander's _run_crew prepends RELEVANT KNOWLEDGE, RELEVANT SKILLS,
+        and TEAM MEMORY blocks before the actual task. The planner should
+        only see the user's question, not internal context.
+        """
+        # Context block markers injected by commander._run_crew
+        markers = [
+            "RELEVANT KNOWLEDGE:",
+            "RELEVANT TEAM CONTEXT:",
+            "KNOWLEDGE BASE CONTEXT",
+            "AVAILABLE SKILLS:",
+            "RELEVANT PAST LESSONS:",
+            "PREVIOUS ATTEMPTS AND REFLECTIONS:",
+        ]
+        text = enriched_task
+
+        # Find the last context block and take everything after it
+        last_marker_end = 0
+        for marker in markers:
+            idx = text.rfind(marker)
+            if idx >= 0:
+                # Find end of this block (next double newline or end)
+                block_end = text.find("\n\n", idx + len(marker))
+                if block_end > 0:
+                    last_marker_end = max(last_marker_end, block_end + 2)
+
+        if last_marker_end > 0:
+            text = text[last_marker_end:].strip()
+
+        # If we stripped everything, return original
+        return text if text else enriched_task
 
     def _plan_research(self, topic: str) -> list[str]:
         """Quick LLM call to split topic into 1-4 parallel subtopics."""

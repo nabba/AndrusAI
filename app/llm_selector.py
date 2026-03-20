@@ -31,6 +31,8 @@ def difficulty_to_tier(difficulty: int, mode: str) -> str | None:
     Returns None for medium difficulty (4-7) to let the default
     catalog/cost_mode logic decide.
     """
+    if mode == "insane":
+        return "premium"  # insane mode: always premium regardless of difficulty
     if difficulty <= 3:
         return "local" if mode != "cloud" else "budget"
     elif difficulty >= 8:
