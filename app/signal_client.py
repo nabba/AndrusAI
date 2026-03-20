@@ -9,6 +9,10 @@ from app.config import get_settings
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+# Reusable HTTP session for signal-cli calls (connection pooling)
+_http_session = http_requests.Session()
+_http_session.headers["Content-Type"] = "application/json"
+
 MAX_SIGNAL_LENGTH = 1500
 _MAX_RESPONSE_BYTES = 65536
 
@@ -33,8 +37,12 @@ class SignalClient:
                 text[i : i + MAX_SIGNAL_LENGTH]
                 for i in range(0, len(text), MAX_SIGNAL_LENGTH)
             ]
-            for chunk in chunks:
-                await asyncio.to_thread(self._send_sync, recipient, chunk)
+            if len(chunks) > 1:
+                await asyncio.gather(
+                    *(asyncio.to_thread(self._send_sync, recipient, c) for c in chunks)
+                )
+            elif chunks:
+                await asyncio.to_thread(self._send_sync, recipient, chunks[0])
         else:
             # With attachments, send a single message (text + files)
             await asyncio.to_thread(
@@ -67,7 +75,7 @@ class SignalClient:
                 "method": "send",
                 "params": params,
             }
-            resp = http_requests.post(
+            resp = _http_session.post(
                 base_url.rstrip("/") + "/api/v1/rpc",
                 json=payload,
                 timeout=15,

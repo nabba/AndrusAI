@@ -751,8 +751,6 @@ class TestNewConfigFields(unittest.TestCase):
         source = config_path.read_text()
         self.assertIn("retrospective_cron", source)
         self.assertIn("benchmark_cron", source)
-        self.assertIn("proactive_scan_enabled", source)
-        self.assertIn("policy_loading_enabled", source)
 
 
 class TestNewSignalCommands(unittest.TestCase):

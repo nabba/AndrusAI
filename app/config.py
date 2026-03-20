@@ -68,10 +68,6 @@ class Settings(BaseSettings):
     retrospective_cron: str = "0 4 * * *"   # daily at 4 AM (after self-improvement)
     benchmark_cron: str = "0 5 * * *"        # daily at 5 AM
 
-    # Feature flags for advanced capabilities
-    proactive_scan_enabled: bool = True   # Phase 3: proactive trigger scanning
-    policy_loading_enabled: bool = True   # Phase 4: load policies before tasks
-
     # Parallelism — controls how many crews/sub-agents can run concurrently.
     max_parallel_crews: int = 3   # max crews commander can dispatch at once
     max_sub_agents: int = 4       # max sub-agents a single crew can spawn

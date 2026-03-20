@@ -85,12 +85,20 @@ def select_model(
     # Step 3: Task-specific overrides
     task_type = detect_task_type(role, task_hint)
 
+    # Cache model lookups within this call to avoid redundant dict scans
+    _model_cache: dict[str, dict | None] = {}
+
+    def _cached_get_model(name: str) -> dict | None:
+        if name not in _model_cache:
+            _model_cache[name] = get_model(name)
+        return _model_cache[name]
+
     # Multimodal tasks need a multimodal model
     if task_type == "multimodal":
-        default_entry = get_model(default_model)
+        default_entry = _cached_get_model(default_model)
         if default_entry and not default_entry.get("multimodal"):
             for mm_model in _MULTIMODAL_MODELS:
-                mm_entry = get_model(mm_model)
+                mm_entry = _cached_get_model(mm_model)
                 if mm_entry and _tier_allowed(mm_entry["tier"], settings):
                     logger.info(f"llm_selector: multimodal → {default_model} → {mm_model}")
                     default_model = mm_model
@@ -108,13 +116,13 @@ def select_model(
     # Step 4: Benchmark adjustment
     bench_scores = get_scores(task_type)
     if bench_scores:
-        default_entry = get_model(default_model)
+        default_entry = _cached_get_model(default_model)
         default_bench = bench_scores.get(default_model)
         if default_bench is not None and default_entry:
             for name, bench_score in sorted(bench_scores.items(), key=lambda x: -x[1]):
                 if name == default_model:
                     break
-                candidate = get_model(name)
+                candidate = _cached_get_model(name)
                 if not candidate:
                     continue
                 if candidate["tier"] == default_entry["tier"]:

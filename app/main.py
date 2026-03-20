@@ -267,7 +267,7 @@ async def lifespan(app: FastAPI):
     scheduler.start()
 
     # Clean up zombie tasks from previous container, then report online
-    cleanup_stale_tasks()
+    await asyncio.to_thread(cleanup_stale_tasks)
     report_system_online()
     _publish_schedule()
 
@@ -399,10 +399,8 @@ async def handle_task(sender: str, text: str, attachments: list = None):
         # Persist the assistant reply (full text for conversation history)
         add_message(sender, "assistant", result)
 
-        # Extract facts into Mem0 persistent memory (background — non-blocking)
-        asyncio.create_task(asyncio.to_thread(
-            _extract_to_mem0, text, result
-        ))
+        # Extract facts into Mem0 persistent memory (fire-and-forget background task)
+        asyncio.get_running_loop().run_in_executor(None, _extract_to_mem0, text, result)
 
         # Record successful task completion with timing
         complete_task(task_row_id, success=True)

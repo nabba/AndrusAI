@@ -4,6 +4,13 @@ from app.config import get_brave_api_key
 
 BRAVE_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 
+# Reusable HTTP session for Brave API calls
+_session = requests.Session()
+_session.headers.update({
+    "Accept": "application/json",
+    "Accept-Encoding": "gzip",
+})
+
 
 @tool("web_search")
 def web_search(query: str) -> str:
@@ -11,16 +18,14 @@ def web_search(query: str) -> str:
     Search the web using Brave Search API.
     Returns top 5 results as title + URL + snippet.
     """
-    headers = {
-        "Accept": "application/json",
-        "Accept-Encoding": "gzip",
-        "X-Subscription-Token": get_brave_api_key(),
-    }
     params = {"q": query, "count": 5}
 
     try:
-        response = requests.get(
-            BRAVE_SEARCH_URL, headers=headers, params=params, timeout=10
+        response = _session.get(
+            BRAVE_SEARCH_URL,
+            headers={"X-Subscription-Token": get_brave_api_key()},
+            params=params,
+            timeout=10,
         )
         response.raise_for_status()
         data = response.json()

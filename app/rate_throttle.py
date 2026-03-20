@@ -109,6 +109,29 @@ def install_throttle() -> None:
             logger.warning("rate_throttle: litellm not found, throttle not installed")
 
 
+_cost_lookup: dict[str, tuple[float, float]] | None = None
+
+
+def _get_cost_lookup() -> dict[str, tuple[float, float]]:
+    """Lazily build model→(cost_input, cost_output) dict from CATALOG. O(1) per lookup."""
+    global _cost_lookup
+    if _cost_lookup is not None:
+        return _cost_lookup
+    try:
+        from app.llm_catalog import CATALOG
+        lookup: dict[str, tuple[float, float]] = {}
+        for name, info in CATALOG.items():
+            costs = (info.get("cost_input_per_m", 0), info.get("cost_output_per_m", 0))
+            lookup[name] = costs
+            model_id = info.get("model_id", "")
+            if model_id and model_id != name:
+                lookup[model_id] = costs
+        _cost_lookup = lookup
+    except Exception:
+        _cost_lookup = {}
+    return _cost_lookup
+
+
 def _record_token_usage(response, kwargs: dict) -> None:
     """Extract token usage from litellm response and record it."""
     try:
@@ -120,17 +143,15 @@ def _record_token_usage(response, kwargs: dict) -> None:
         completion_tokens = getattr(usage, "completion_tokens", 0) or 0
         total = prompt_tokens + completion_tokens
         if total > 0:
-            # Estimate cost from catalog
+            # Estimate cost from catalog (O(1) lookup via pre-built dict)
             cost_usd = 0.0
             try:
-                from app.llm_catalog import CATALOG
-                for _name, info in CATALOG.items():
-                    if info.get("model_id", "") == model or _name == model:
-                        cost_usd = (
-                            (prompt_tokens / 1_000_000) * info.get("cost_input_per_m", 0)
-                            + (completion_tokens / 1_000_000) * info.get("cost_output_per_m", 0)
-                        )
-                        break
+                cost_info = _get_cost_lookup().get(model)
+                if cost_info:
+                    cost_usd = (
+                        (prompt_tokens / 1_000_000) * cost_info[0]
+                        + (completion_tokens / 1_000_000) * cost_info[1]
+                    )
             except Exception:
                 pass
             from app.llm_benchmarks import record_tokens

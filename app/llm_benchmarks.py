@@ -9,6 +9,7 @@ Also tracks per-model token usage with cost estimation for the dashboard.
 import logging
 import sqlite3
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,12 +18,54 @@ logger = logging.getLogger(__name__)
 DB_PATH = Path("/app/workspace/llm_benchmarks.db")
 _local = threading.local()
 
+# ── Write batching ───────────────────────────────────────────────────────
+# Accumulate INSERT operations and flush every _BATCH_INTERVAL seconds or
+# when the buffer reaches _BATCH_SIZE. Reduces fsync overhead dramatically.
+_BATCH_SIZE = 20
+_BATCH_INTERVAL = 5.0  # seconds
+_write_buffer: list[tuple[str, tuple]] = []  # (sql, params) pairs
+_write_lock = threading.Lock()
+_last_flush: float = 0.0
+
+
+def _flush_writes() -> None:
+    """Flush buffered writes to SQLite."""
+    global _last_flush
+    with _write_lock:
+        if not _write_buffer:
+            return
+        batch = list(_write_buffer)
+        _write_buffer.clear()
+        _last_flush = time.monotonic()
+    try:
+        conn = _get_conn()
+        for sql, params in batch:
+            conn.execute(sql, params)
+        conn.commit()
+    except Exception:
+        logger.debug("llm_benchmarks: batch flush failed", exc_info=True)
+
+
+def _buffered_write(sql: str, params: tuple) -> None:
+    """Add a write to the buffer, flushing if threshold reached."""
+    global _last_flush
+    with _write_lock:
+        _write_buffer.append((sql, params))
+        now = time.monotonic()
+        should_flush = (
+            len(_write_buffer) >= _BATCH_SIZE
+            or (now - _last_flush) >= _BATCH_INTERVAL
+        )
+    if should_flush:
+        _flush_writes()
+
 
 def _get_conn() -> sqlite3.Connection:
     if not hasattr(_local, "conn") or _local.conn is None:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS benchmarks (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,16 +130,14 @@ def record(
     latency_ms: int = 0,
     tokens: int = 0,
 ) -> None:
-    """Record a model invocation outcome."""
+    """Record a model invocation outcome (batched write)."""
     try:
-        conn = _get_conn()
-        conn.execute(
+        _buffered_write(
             "INSERT INTO benchmarks (model, task_type, success, latency_ms, tokens, ts) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (model, task_type, int(success), latency_ms, tokens,
              datetime.now(timezone.utc).isoformat()),
         )
-        conn.commit()
     except Exception:
         logger.debug("llm_benchmarks: failed to record", exc_info=True)
 
@@ -107,6 +148,7 @@ def get_scores(task_type: str) -> dict[str, float]:
     Score = success_rate * speed_factor (higher is better).
     Only considers last 50 runs per model.
     """
+    _flush_writes()  # ensure pending records are visible
     try:
         conn = _get_conn()
         rows = conn.execute(
@@ -177,17 +219,15 @@ def record_tokens(
     completion_tokens: int,
     cost_usd: float = 0.0,
 ) -> None:
-    """Record token usage from a single LLM call."""
+    """Record token usage from a single LLM call (batched write)."""
     try:
-        conn = _get_conn()
         total = prompt_tokens + completion_tokens
-        conn.execute(
+        _buffered_write(
             "INSERT INTO token_usage (model, prompt_tokens, completion_tokens, total_tokens, cost_usd, ts) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (model, prompt_tokens, completion_tokens, total,
              cost_usd, datetime.now(timezone.utc).isoformat()),
         )
-        conn.commit()
     except Exception:
         logger.debug("llm_benchmarks: failed to record tokens", exc_info=True)
 
@@ -257,12 +297,11 @@ def format_token_stats(period: str = "day") -> str:
 # ── Request-level cost tracking ──────────────────────────────────────────────
 
 def record_request_cost(tracker) -> None:
-    """Persist aggregated request-level cost data."""
+    """Persist aggregated request-level cost data (batched write)."""
     try:
-        conn = _get_conn()
         models = ",".join(sorted(tracker.models_used)) if tracker.models_used else "none"
         crew = getattr(tracker, "crew_name", "") or ""
-        conn.execute(
+        _buffered_write(
             "INSERT INTO request_costs "
             "(request_id, crew_name, total_prompt, total_completion, total_cost_usd, call_count, models_used, ts) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -270,7 +309,6 @@ def record_request_cost(tracker) -> None:
              tracker.total_cost_usd, tracker.call_count, models,
              datetime.now(timezone.utc).isoformat()),
         )
-        conn.commit()
     except Exception:
         logger.debug("llm_benchmarks: failed to record request cost", exc_info=True)
 

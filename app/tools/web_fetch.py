@@ -4,7 +4,14 @@ import ipaddress
 import socket
 import trafilatura
 import requests
+from requests.adapters import HTTPAdapter
 from app.audit import log_tool_blocked
+
+# Reusable HTTP session with connection pooling
+_session = requests.Session()
+_session.headers["User-Agent"] = "Mozilla/5.0 (compatible; CrewAI-Bot/1.0)"
+_session.mount("https://", HTTPAdapter(pool_connections=5, pool_maxsize=5))
+_session.mount("http://", HTTPAdapter(pool_connections=2, pool_maxsize=2))
 
 # Blocked hostnames and schemes for SSRF protection
 _BLOCKED_HOSTS = {
@@ -110,10 +117,9 @@ def web_fetch(url: str) -> str:
     try:
         # Always fetch through requests so we can inspect redirect targets
         # (trafilatura.fetch_url has its own HTTP client that bypasses our SSRF check)
-        response = requests.get(
+        response = _session.get(
             url,
             timeout=15,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; CrewAI-Bot/1.0)"},
             allow_redirects=True,
             stream=True,  # Stream so we can check size before loading
         )

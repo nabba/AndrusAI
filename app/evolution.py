@@ -27,7 +27,7 @@ import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from crewai import Agent, Task, Crew, Process, LLM
+from crewai import Agent, Task, Crew, Process
 from app.config import get_settings, get_anthropic_api_key
 from app.llm_factory import create_specialist_llm
 from app.metrics import compute_metrics, composite_score, format_metrics
