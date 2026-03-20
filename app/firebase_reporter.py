@@ -553,8 +553,12 @@ def _add_activity(db, event_type: str, crew: str, detail: str, task_id: str = ""
             "detail": detail,
             "task_id": task_id,
         })
-        # Prune oldest entries beyond 50 — best-effort, non-blocking
-        _prune_activities(db)
+        # Prune oldest entries beyond 50 — only every 10th write to reduce Firestore load
+        global _activity_write_count
+        _activity_write_count = getattr(_add_activity, '_count', 0) + 1
+        _add_activity._count = _activity_write_count
+        if _activity_write_count % 10 == 0:
+            _prune_activities(db)
     except Exception:
         pass
 

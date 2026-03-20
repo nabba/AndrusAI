@@ -13,10 +13,37 @@ All local model output still gets full vetting. Code always gets full vetting.
 
 import logging
 import re
-from crewai import Agent, Task, Crew, Process
+import threading
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# ── Cached LLM singletons for vetting (avoid re-creation per call) ───────────
+_cheap_llm = None
+_full_llm = None
+_llm_lock = threading.Lock()
+
+
+def _get_cheap_vetting_llm():
+    global _cheap_llm
+    if _cheap_llm is not None:
+        return _cheap_llm
+    with _llm_lock:
+        if _cheap_llm is None:
+            from app.llm_factory import create_cheap_vetting_llm
+            _cheap_llm = create_cheap_vetting_llm()
+    return _cheap_llm
+
+
+def _get_full_vetting_llm():
+    global _full_llm
+    if _full_llm is not None:
+        return _full_llm
+    with _llm_lock:
+        if _full_llm is None:
+            from app.llm_factory import create_vetting_llm
+            _full_llm = create_vetting_llm()
+    return _full_llm
 
 # ── Vetting prompts (reused from original for full verification) ──────────────
 
@@ -188,27 +215,13 @@ def _verify_schema(response: str, crew_name: str) -> tuple[bool, str]:
 def _verify_cheap(user_request: str, response: str, crew_name: str) -> tuple[bool, str]:
     """Quick yes/no check via budget model. Returns (passed, response)."""
     try:
-        from app.llm_factory import create_cheap_vetting_llm
-        llm = create_cheap_vetting_llm()
-
-        agent = Agent(
-            role="Quick Reviewer",
-            goal="Quickly assess if a response is acceptable quality.",
-            backstory="You do fast quality checks on AI output. Be brief.",
-            llm=llm, tools=[], verbose=False,
+        llm = _get_cheap_vetting_llm()
+        prompt = CHEAP_VETTING_PROMPT.format(
+            request=user_request[:400],
+            response=response[:3000],
         )
-
-        task = Task(
-            description=CHEAP_VETTING_PROMPT.format(
-                request=user_request[:400],
-                response=response[:3000],
-            ),
-            expected_output='Either "PASS" or "FAIL: reason"',
-            agent=agent,
-        )
-
-        crew = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False)
-        result = str(crew.kickoff()).strip().upper()
+        # Direct LLM call — no Agent/Task/Crew overhead
+        result = str(llm.call([prompt])).strip().upper()
 
         if result.startswith("PASS"):
             logger.info(f"vetting[cheap]: PASS for {crew_name}")
@@ -228,32 +241,14 @@ def _verify_full(user_request: str, response: str, crew_name: str) -> str:
     Includes L4 conscience check for irreversible/high-impact actions.
     """
     try:
-        from app.llm_factory import create_vetting_llm
-        llm = create_vetting_llm()
+        llm = _get_full_vetting_llm()
         prompt_template = VETTING_PROMPTS.get(crew_name, DEFAULT_VETTING_PROMPT)
-
-        agent = Agent(
-            role="Quality Reviewer",
-            goal="Ensure response quality, accuracy, and security before delivery.",
-            backstory=(
-                "You are the final quality gate. You review output from AI "
-                "models before it reaches the user. You catch bugs, hallucinations, "
-                "and security issues. Be concise — the output goes to Signal."
-            ),
-            llm=llm, tools=[], verbose=False,
+        prompt = prompt_template.format(
+            request=user_request[:800],
+            response=response[:6000],
         )
-
-        task = Task(
-            description=prompt_template.format(
-                request=user_request[:800],
-                response=response[:6000],
-            ),
-            expected_output="A clean, vetted response ready for the user.",
-            agent=agent,
-        )
-
-        crew = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False)
-        vetted = str(crew.kickoff()).strip()
+        # Direct LLM call — no Agent/Task/Crew overhead
+        vetted = str(llm.call([prompt])).strip()
         if vetted and len(vetted) > 20:
             logger.info(f"vetting[full]: {crew_name} vetted ({len(response)}→{len(vetted)} chars)")
 

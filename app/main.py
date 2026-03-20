@@ -433,21 +433,24 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         complete_task(task_row_id, success=True)
 
         # ── Prepare for Signal delivery ─────────────────────────────────
-        # If the response is long, truncate for Signal and attach full .md
         from app.agents.commander import _MAX_RESPONSE_LENGTH, truncate_for_signal
-        signal_attachments = None
 
         if len(result) > _MAX_RESPONSE_LENGTH:
-            md_path = _write_response_md(result, text)
-            if md_path:
-                signal_text = truncate_for_signal(result)
-                signal_attachments = [md_path]
-            else:
-                signal_text = truncate_for_signal(result)
+            signal_text = truncate_for_signal(result)
+            # Write .md file in background — don't block Signal delivery
+            md_future = asyncio.get_running_loop().run_in_executor(
+                None, _write_response_md, result, text
+            )
+            await signal_client.send(sender, signal_text)
+            # Attach file in a follow-up if write succeeded
+            try:
+                md_path = await asyncio.wait_for(md_future, timeout=5)
+                if md_path:
+                    await signal_client.send(sender, "", attachments=[md_path])
+            except Exception:
+                pass
         else:
-            signal_text = result
-
-        await signal_client.send(sender, signal_text, attachments=signal_attachments)
+            await signal_client.send(sender, result)
     except Exception as exc:
         logger.exception("Error handling task")
         log_security_event("task_error", "unhandled exception in handle_task")

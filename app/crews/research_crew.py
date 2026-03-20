@@ -13,7 +13,6 @@ from app.firebase_reporter import (
 )
 from app.crews.parallel_runner import run_parallel
 from app.memory.belief_state import update_belief
-from app.agents.critic import create_critic
 from app.policies.policy_loader import load_relevant_policies
 from app.benchmarks import record_metric
 from app.conversation_store import estimate_eta
@@ -125,10 +124,6 @@ class ResearchCrew:
                 if difficulty >= 6:
                     result = self._debate_round(result, topic)
 
-            # Critic review — only for high-difficulty tasks (7+)
-            if difficulty >= 7:
-                result = self._critic_review_internal(result, topic)
-
             update_belief("researcher", "completed", current_task=topic[:100])
             record_metric("task_completion_time", _time.monotonic() - _start, {"crew": "research"})
             return result
@@ -177,20 +172,11 @@ class ResearchCrew:
         """Quick LLM call to split topic into 1-4 parallel subtopics."""
         try:
             llm = create_specialist_llm(max_tokens=1024, role="research")
-            agent = Agent(
-                role="Research Planner",
-                goal="Break a research topic into independent subtopics.",
-                backstory="You plan research by identifying 1-4 independent angles.",
-                llm=llm, verbose=False,
-            )
-            task = Task(
-                description=RESEARCH_PLAN_TEMPLATE.format(topic=topic[:500]),
-                expected_output='A JSON array of 1-4 subtopic strings',
-                agent=agent,
-            )
-            crew = Crew(agents=[agent], tasks=[task], process=Process.sequential, verbose=False)
+            # Direct LLM call — no Agent/Task/Crew overhead for JSON classification
+            prompt = RESEARCH_PLAN_TEMPLATE.format(topic=topic[:500])
+            raw = str(llm.call([prompt])).strip()
             from app.utils import safe_json_parse
-            subtopics, _err = safe_json_parse(str(crew.kickoff()).strip())
+            subtopics, _err = safe_json_parse(raw)
             if isinstance(subtopics, list) and all(isinstance(s, str) for s in subtopics):
                 return subtopics[:settings.max_sub_agents]
         except Exception:
@@ -348,136 +334,56 @@ class ResearchCrew:
     def _debate_round(self, result: str, topic: str) -> str:
         """Heterogeneous debate: two challenger perspectives review the synthesis.
 
-        Uses different reasoning strategies (not identical agents) to catch
-        different classes of errors — per Penn State/Shanghai AI Lab research
-        on heterogeneous MAD outperforming homogeneous approaches.
+        Uses direct LLM calls (no Crew overhead) run in parallel.
         """
         try:
-            # Use research role (qwen3:30b-a3b) — fast MoE model.
-            # architecture role picks deepseek-r1:32b which is too slow for debate.
             llm = create_specialist_llm(max_tokens=2048, role="research")
-
-            # Two challengers with genuinely different reasoning strategies
-            skeptic = Agent(
-                role="Research Skeptic",
-                goal="Find the weakest claims, missing counter-evidence, and logical gaps.",
-                backstory=(
-                    "You are a rigorous academic reviewer. Your job is to find flaws "
-                    "in reasoning, unsupported claims, and missing counter-evidence. "
-                    "Be specific — cite which claims are weak and why."
-                ),
-                llm=llm, tools=[], verbose=False,
-            )
-            practitioner = Agent(
-                role="Practitioner Reviewer",
-                goal="Evaluate practical applicability — what's missing for someone who needs to act on this?",
-                backstory=(
-                    "You are a domain practitioner who needs to make real decisions "
-                    "based on this research. Evaluate: Is it actionable? What context "
-                    "is missing? What would you need to know before acting on this?"
-                ),
-                llm=llm, tools=[], verbose=False,
-            )
-
             truncated = result[:4000]
 
-            def run_skeptic():
-                task = Task(
-                    description=(
-                        f"Review this research for weaknesses:\n\n"
-                        f"Topic: {topic[:200]}\n\n{truncated}\n\n"
-                        f"List the top 3 weakest claims or logical gaps. Be specific."
-                    ),
-                    expected_output="Top 3 weaknesses with specific citations.",
-                    agent=skeptic,
-                )
-                crew = Crew(agents=[skeptic], tasks=[task], process=Process.sequential, verbose=False)
-                return str(crew.kickoff())
+            skeptic_prompt = (
+                f"You are a rigorous academic reviewer. Find flaws in reasoning, "
+                f"unsupported claims, and missing counter-evidence.\n\n"
+                f"Review this research for weaknesses:\n\n"
+                f"Topic: {topic[:200]}\n\n{truncated}\n\n"
+                f"List the top 3 weakest claims or logical gaps. Be specific."
+            )
+            practitioner_prompt = (
+                f"You are a domain practitioner who needs to make real decisions "
+                f"based on this research.\n\n"
+                f"Review this research for practical applicability:\n\n"
+                f"Topic: {topic[:200]}\n\n{truncated}\n\n"
+                f"What's missing for someone who needs to act on this? "
+                f"List the top 3 gaps from a practitioner perspective."
+            )
 
-            def run_practitioner():
-                task = Task(
-                    description=(
-                        f"Review this research for practical applicability:\n\n"
-                        f"Topic: {topic[:200]}\n\n{truncated}\n\n"
-                        f"What's missing for someone who needs to act on this? "
-                        f"List the top 3 gaps from a practitioner perspective."
-                    ),
-                    expected_output="Top 3 practical gaps or missing context.",
-                    agent=practitioner,
-                )
-                crew = Crew(agents=[practitioner], tasks=[task], process=Process.sequential, verbose=False)
-                return str(crew.kickoff())
-
-            # Run challengers in parallel
+            # Run both challengers in parallel — direct LLM calls, no Crew overhead
             challenges = run_parallel([
-                ("skeptic", run_skeptic),
-                ("practitioner", run_practitioner),
+                ("skeptic", lambda: str(llm.call([skeptic_prompt]))),
+                ("practitioner", lambda: str(llm.call([practitioner_prompt]))),
             ])
 
             valid_challenges = [c.result for c in challenges if c.success and c.result]
             if not valid_challenges:
                 return result
 
-            # Resolution: researcher incorporates valid challenges
-            researcher = create_researcher()
+            # Resolution: direct LLM call to incorporate challenges
             challenge_text = "\n\n---\n\n".join(valid_challenges)
-            resolve_task = Task(
-                description=(
-                    f"Your research on '{topic[:200]}' received these challenges:\n\n"
-                    f"{challenge_text[:3000]}\n\n"
-                    f"Original research:\n{truncated}\n\n"
-                    f"Incorporate valid criticisms into an improved version. "
-                    f"Address legitimate gaps. Dismiss unfounded challenges with reasoning. "
-                    f"Return the improved research report."
-                ),
-                expected_output="Improved research report addressing valid challenges.",
-                agent=researcher,
+            resolve_prompt = (
+                f"Your research on '{topic[:200]}' received these challenges:\n\n"
+                f"{challenge_text[:3000]}\n\n"
+                f"Original research:\n{truncated}\n\n"
+                f"Incorporate valid criticisms into an improved version. "
+                f"Address legitimate gaps. Dismiss unfounded challenges with reasoning. "
+                f"Return the improved research report."
             )
-            crew = Crew(agents=[researcher], tasks=[resolve_task], process=Process.sequential, verbose=True)
-            resolved = str(crew.kickoff())
+            resolve_llm = create_specialist_llm(max_tokens=4096, role="research")
+            resolved = str(resolve_llm.call([resolve_prompt])).strip()
             if resolved and len(resolved) > 50:
                 logger.info("research_crew: debate_round improved research via heterogeneous MAD")
                 return resolved
 
         except Exception:
             logger.warning("Debate round failed, continuing with original result", exc_info=True)
-        return result
-
-    def _critic_review_internal(self, result: str, topic: str) -> str:
-        """Run a Critic agent to review research quality internally.
-
-        The critic review is used to decide whether the result needs improvement.
-        It is NEVER appended to the user-facing output — users should only see
-        the final polished answer, not internal QA metadata.
-        """
-        try:
-            critic = create_critic()
-            review_task = Task(
-                description=(
-                    f"Review this research output for accuracy, gaps, and unjustified claims.\n\n"
-                    f"Topic: {topic[:200]}\n\n"
-                    f"Research output to review:\n{result[:4000]}\n\n"
-                    f"Check for:\n"
-                    f"1. Are claims supported by cited sources?\n"
-                    f"2. Are there obvious gaps or missing perspectives?\n"
-                    f"3. Is the confidence level justified by the evidence?\n"
-                    f"4. Are there any contradictions?\n\n"
-                    f"Rate overall quality: GOOD, ACCEPTABLE, or POOR.\n"
-                    f"If POOR, explain what's wrong in 2-3 sentences."
-                ),
-                expected_output="Quality rating (GOOD/ACCEPTABLE/POOR) with brief explanation.",
-                agent=critic,
-            )
-            crew = Crew(
-                agents=[critic], tasks=[review_task],
-                process=Process.sequential, verbose=True,
-            )
-            review = str(crew.kickoff()).strip()
-            if review and "POOR" in review.upper():
-                logger.warning(f"Critic rated research as POOR: {review[:200]}")
-                # Don't append — the vetting layer will catch quality issues
-        except Exception:
-            logger.warning("Critic review failed, continuing without it", exc_info=True)
         return result
 
     def _synthesize(self, topic: str, results: list, parent_task_id: str) -> str:
@@ -489,20 +395,14 @@ class ResearchCrew:
             return "Research failed: no sub-agents returned results."
 
         combined_input = "\n\n---\n\n".join(successful)
-        researcher = create_researcher()
-        task = Task(
-            description=(
-                f"Synthesize these parallel research findings into one unified report on: {topic}\n\n"
-                f"Individual findings:\n{combined_input[:6000]}\n\n"
-                f"Create a cohesive report with: key findings, details, and all sources. "
-                f"After synthesizing, use self_report to assess overall research quality "
-                f"and store_reflection to note what worked and what could improve."
-                + (f"\n\nNote: {len(failed)} sub-tasks failed." if failed else "")
-            ),
-            expected_output="A unified research report combining all findings.",
-            agent=researcher,
+        # Direct LLM call — no Crew overhead for synthesis
+        llm = create_specialist_llm(max_tokens=4096, role="synthesis")
+        prompt = (
+            f"Synthesize these parallel research findings into one unified report on: {topic}\n\n"
+            f"Individual findings:\n{combined_input[:6000]}\n\n"
+            f"Create a cohesive report with: key findings, details, and all sources."
+            + (f"\n\nNote: {len(failed)} sub-tasks failed." if failed else "")
         )
-        crew = Crew(agents=[researcher], tasks=[task], process=Process.sequential, verbose=True)
-        result = str(crew.kickoff())
+        result = str(llm.call([prompt])).strip()
         crew_completed("research", parent_task_id, result[:200])
         return result

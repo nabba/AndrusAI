@@ -32,7 +32,7 @@ _pool = ThreadPoolExecutor(
 # Ollama concurrency gate — limit how many crews run LLM calls at once.
 # With OLLAMA_NUM_PARALLEL=4 and each crew making 3-8 LLM calls,
 # allowing 2 concurrent crews keeps total in-flight requests manageable.
-_ollama_concurrency = getattr(settings, "ollama_max_concurrent_crews", 2)
+_ollama_concurrency = getattr(settings, "ollama_max_concurrent_crews", 4)
 _ollama_semaphore = threading.Semaphore(_ollama_concurrency)
 
 

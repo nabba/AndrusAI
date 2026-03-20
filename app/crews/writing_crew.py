@@ -2,7 +2,6 @@ import logging
 import time as _time
 from crewai import Task, Crew, Process
 from app.agents.writer import create_writer
-from app.agents.critic import create_critic
 from app.sanitize import wrap_user_input
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
 from app.self_heal import diagnose_and_fix
@@ -67,9 +66,6 @@ class WritingCrew:
             result = crew.kickoff()
             result_str = str(result)
 
-            # Critic review — editorial quality check
-            result_str = self._critic_review(result_str, task_description)
-
             update_belief("writer", "completed", current_task=task_description[:100])
             record_metric("task_completion_time", _time.monotonic() - _start, {"crew": "writing"})
             crew_completed("writing", task_id, result_str[:200])
@@ -80,33 +76,3 @@ class WritingCrew:
             diagnose_and_fix("writing", task_description, exc)
             raise
 
-    def _critic_review(self, result: str, task_description: str) -> str:
-        """Run a Critic agent to review the writing output for quality."""
-        try:
-            critic = create_critic()
-            review_task = Task(
-                description=(
-                    f"Review this writing output for accuracy, completeness, and quality.\n\n"
-                    f"Task: {task_description[:200]}\n\n"
-                    f"Writing output to review:\n{result[:4000]}\n\n"
-                    f"Check for:\n"
-                    f"1. Is the content accurate and complete?\n"
-                    f"2. Does it match the requested format and tone?\n"
-                    f"3. Are there unsupported claims or missing sources?\n"
-                    f"4. Is the structure clear and well-organized?\n\n"
-                    f"Provide a brief review with any issues found. "
-                    f"Use self_report to assess your review confidence."
-                ),
-                expected_output="Brief editorial review with issues and suggestions.",
-                agent=critic,
-            )
-            crew = Crew(
-                agents=[critic], tasks=[review_task],
-                process=Process.sequential, verbose=True,
-            )
-            review = str(crew.kickoff()).strip()
-            if review and "POOR" in review.upper():
-                logger.warning(f"Critic rated writing as POOR: {review[:200]}")
-        except Exception:
-            logger.warning("Critic review failed, continuing without it", exc_info=True)
-        return result
