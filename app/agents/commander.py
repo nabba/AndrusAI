@@ -278,6 +278,73 @@ def _load_knowledge_base_context(task: str, n: int = 4) -> str:
         return ""
 
 
+# ── Context Pruning ──────────────────────────────────────────────────────────
+
+# Token budget per difficulty tier (approximate chars, ~4 chars/token)
+_CONTEXT_BUDGET = {
+    1: 800, 2: 800, 3: 1200,       # simple: minimal context
+    4: 2000, 5: 2000,               # moderate: standard
+    6: 3000, 7: 3000,               # complex: generous
+    8: 4000, 9: 4000, 10: 5000,     # expert: full context
+}
+
+
+def _prune_context(context: str, difficulty: int) -> str:
+    """Compress injected context to fit within a token budget.
+
+    Keeps the most relevant blocks (KB passages first, then skills, then
+    team memory) and truncates each block proportionally.  This reduces
+    per-agent latency by cutting input tokens without losing signal.
+    """
+    if not context:
+        return ""
+
+    budget = _CONTEXT_BUDGET.get(difficulty, 2000)
+    if len(context) <= budget:
+        return context
+
+    # Split into blocks by section headers and prioritize
+    _BLOCK_PRIORITY = [
+        "KNOWLEDGE BASE CONTEXT",  # highest: enterprise docs
+        "RELEVANT KNOWLEDGE",      # skills
+        "RELEVANT TEAM CONTEXT",   # operational memory
+    ]
+
+    blocks = []
+    remaining = context
+    for header in _BLOCK_PRIORITY:
+        idx = remaining.find(header)
+        if idx >= 0:
+            # Find end of this block (next section header or end)
+            end = len(remaining)
+            for other in _BLOCK_PRIORITY:
+                if other == header:
+                    continue
+                oidx = remaining.find(other, idx + len(header))
+                if oidx > 0:
+                    end = min(end, oidx)
+            blocks.append((header, remaining[idx:end].strip()))
+
+    if not blocks:
+        return context[:budget]
+
+    # Distribute budget proportionally across blocks
+    pruned = []
+    per_block = budget // len(blocks)
+    for header, block in blocks:
+        if len(block) <= per_block:
+            pruned.append(block)
+        else:
+            # Truncate at a paragraph boundary within budget
+            cut = block[:per_block]
+            last_para = cut.rfind("\n\n")
+            if last_para > per_block // 2:
+                cut = cut[:last_para]
+            pruned.append(cut + "\n")
+
+    return "\n\n".join(pruned) + "\n\n"
+
+
 # ── L5: Ecological Awareness ──────────────────────────────────────────────────
 
 def _store_ecological_report(
@@ -654,10 +721,19 @@ class Commander:
         implementing Write/Select/Compress/Isolate context engineering.
         Difficulty (1-10) is passed to crews for model tier selection.
 
+        Acceleration: checks semantic result cache before dispatching.
         L5 Ecological Awareness: tracks execution time and stores footprint.
         L2 World Model: stores prediction results for difficulty >= 6 tasks.
         """
         import time as _time
+
+        # ── Semantic result cache — skip crew if near-identical task was answered recently
+        from app.result_cache import lookup as cache_lookup, store as cache_store
+        cached = cache_lookup(crew_name, crew_task)
+        if cached is not None:
+            logger.info(f"Cache hit for {crew_name}, skipping crew dispatch")
+            return cached
+
         t0 = _time.monotonic()
 
         # Select only relevant context for this specific task
@@ -666,6 +742,9 @@ class Commander:
             + _load_relevant_team_memory(crew_task)
             + _load_knowledge_base_context(crew_task)
         )
+        # Context pruning: compress injected context to a token budget.
+        # Higher difficulty tasks get more context budget.
+        context = _prune_context(context, difficulty)
         enriched_task = context + crew_task if context else crew_task
 
         result = ""
@@ -683,6 +762,10 @@ class Commander:
             return crew_task
 
         duration_s = _time.monotonic() - t0
+
+        # Store result in semantic cache (TTL scales with difficulty)
+        cache_ttl = 1800 if difficulty <= 3 else 3600  # 30min for simple, 1h for complex
+        cache_store(crew_name, crew_task, result, ttl=cache_ttl)
 
         # L5: Store ecological footprint (non-blocking, best-effort)
         try:
@@ -1225,7 +1308,7 @@ class Commander:
                 difficulty=difficulty, model_tier=get_last_tier() or "unknown",
             )
         else:
-            # Multiple crews — parallel dispatch
+            # Multiple crews — parallel dispatch with streaming
             from app.crews.parallel_runner import run_parallel
 
             parallel_tasks = []
@@ -1245,7 +1328,35 @@ class Commander:
                 return decisions[0].get("task", "")
 
             tracker.crew_name = "+".join(n for n, _ in parallel_tasks)
-            results = run_parallel(parallel_tasks)
+
+            # Stream partial results: send each crew's output to Signal as it completes
+            streamed_parts = []
+            total_crews = len(parallel_tasks)
+            _stream_lock = __import__("threading").Lock()
+
+            def _on_crew_complete(pr):
+                if not pr.success or not sender or total_crews < 2:
+                    return
+                with _stream_lock:
+                    idx = len(streamed_parts) + 1
+                    if idx < total_crews:  # don't stream the last one — it goes as final
+                        try:
+                            import asyncio
+                            from app.main import signal_client
+                            loop = asyncio.get_event_loop()
+                            preview = pr.result[:600] if pr.result else ""
+                            loop.call_soon_threadsafe(
+                                asyncio.ensure_future,
+                                signal_client.send(
+                                    sender,
+                                    f"[{pr.label} crew — {idx}/{total_crews}]\n\n{preview}..."
+                                ),
+                            )
+                        except Exception:
+                            logger.debug("Streaming partial result failed", exc_info=True)
+                    streamed_parts.append(pr.label)
+
+            results = run_parallel(parallel_tasks, on_complete=_on_crew_complete)
 
             # Vet and aggregate results
             from app.llm_factory import get_last_tier

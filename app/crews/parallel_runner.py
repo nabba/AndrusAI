@@ -48,6 +48,7 @@ class ParallelResult:
 def run_parallel(
     tasks: list[tuple[str, Callable[[], str]]],
     timeout_seconds: int = 600,
+    on_complete: Optional[Callable[["ParallelResult"], None]] = None,
 ) -> list[ParallelResult]:
     """
     Run multiple callables in parallel and collect results.
@@ -56,6 +57,8 @@ def run_parallel(
         tasks: List of (label, callable) tuples.  Each callable should
                return a string result.
         timeout_seconds: Max time to wait for all tasks (default 10 min).
+        on_complete: Optional callback fired as each task finishes (for
+                     streaming partial results to the user).
 
     Returns:
         List of ParallelResult in the same order as input tasks.
@@ -87,15 +90,20 @@ def run_parallel(
             label = futures[future]
             try:
                 result = future.result()
-                results_map[label] = ParallelResult(
-                    label=label, success=True, result=str(result),
-                )
+                pr = ParallelResult(label=label, success=True, result=str(result))
+                results_map[label] = pr
                 logger.info(f"Parallel task '{label}' completed successfully")
             except Exception as exc:
                 logger.error(f"Parallel task '{label}' failed: {exc}")
-                results_map[label] = ParallelResult(
-                    label=label, success=False, error=str(exc)[:300],
-                )
+                pr = ParallelResult(label=label, success=False, error=str(exc)[:300])
+                results_map[label] = pr
+
+            # Fire callback for streaming / early-exit
+            if on_complete is not None:
+                try:
+                    on_complete(pr)
+                except Exception:
+                    logger.debug(f"on_complete callback failed for '{label}'", exc_info=True)
     except TimeoutError:
         logger.error("run_parallel: timed out waiting for tasks")
 

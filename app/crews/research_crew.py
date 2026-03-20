@@ -228,8 +228,54 @@ class ResearchCrew:
         crew_completed("research", task_id, result_str[:200])
         return result_str
 
+    @staticmethod
+    def _batch_subtopics(subtopics: list[str], max_per_batch: int = 2) -> list[str]:
+        """Batch closely related subtopics into single research calls.
+
+        When subtopics are variations of the same question (e.g., same metric
+        for different countries), combining them into one LLM call reduces
+        API overhead and avoids redundant web searches.
+        """
+        if len(subtopics) <= max_per_batch:
+            # Already small enough — single batch
+            return subtopics
+
+        # Simple heuristic: if subtopics share >60% of words, batch them
+        from collections import Counter
+
+        def word_overlap(a: str, b: str) -> float:
+            wa = Counter(a.lower().split())
+            wb = Counter(b.lower().split())
+            shared = sum((wa & wb).values())
+            total = max(sum(wa.values()), sum(wb.values()), 1)
+            return shared / total
+
+        batched = []
+        used = set()
+        for i, st in enumerate(subtopics):
+            if i in used:
+                continue
+            group = [st]
+            used.add(i)
+            for j in range(i + 1, len(subtopics)):
+                if j in used:
+                    continue
+                if word_overlap(st, subtopics[j]) > 0.6 and len(group) < max_per_batch:
+                    group.append(subtopics[j])
+                    used.add(j)
+            if len(group) > 1:
+                batched.append(" AND ".join(group))
+            else:
+                batched.append(group[0])
+        return batched
+
     def _run_parallel(self, topic: str, subtopics: list[str], parent_task_id: str) -> str:
-        """Spawn one sub-agent per subtopic, run in parallel, then synthesize."""
+        """Spawn one sub-agent per subtopic, run in parallel, then synthesize.
+
+        Batches closely related subtopics into single research calls to reduce
+        API overhead (e.g., "X in Finland" + "X in Estonia" → one call).
+        """
+        subtopics = self._batch_subtopics(subtopics)
 
         def make_sub_fn(subtopic: str):
             def fn():
