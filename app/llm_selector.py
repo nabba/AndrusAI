@@ -47,6 +47,7 @@ _KEYWORD_PATTERNS: list[tuple[str, str]] = [
     (r"\b(write|summarize|document|report|explain|describe)\b", "writing"),
     (r"\b(reason|think|logic|proof|math)\b", "reasoning"),
     (r"\b(image|photo|screenshot|picture|visual|pdf|scan)\b", "multimodal"),
+    (r"\b(video|audio|podcast|youtube|camera|media|voice|music|mp[34])\b", "multimodal"),
 ]
 
 _MULTIMODAL_MODELS = [name for name, info in CATALOG.items() if info.get("multimodal")]
@@ -61,7 +62,7 @@ def detect_task_type(role: str, task_hint: str = "") -> str:
     role_map = {
         "coding": "coding", "architecture": "architecture",
         "research": "research", "writing": "writing",
-        "critic": "reasoning", "introspector": "reasoning",
+        "media": "multimodal", "critic": "reasoning", "introspector": "reasoning",
         "self_improve": "research", "vetting": "vetting",
         "synthesis": "writing", "planner": "research", "default": "general",
     }
@@ -144,7 +145,7 @@ def select_model(
 def _tier_allowed(tier: str, settings) -> bool:
     if tier == "local":
         return settings.local_llm_enabled
-    if tier in ("budget", "mid"):
+    if tier in ("free", "budget", "mid"):
         return settings.api_tier_enabled
     return True
 
@@ -157,7 +158,7 @@ def _model_available(model_name: str, settings, max_ram_gb: float) -> bool:
         if not settings.local_llm_enabled:
             return False
         return entry.get("ram_gb", 20) <= max_ram_gb
-    if tier in ("budget", "mid"):
+    if tier in ("free", "budget", "mid"):
         return settings.api_tier_enabled and bool(settings.openrouter_api_key.get_secret_value())
     if entry["provider"] == "anthropic":
         return True
@@ -166,7 +167,7 @@ def _model_available(model_name: str, settings, max_ram_gb: float) -> bool:
     return False
 
 def _find_fallback(role: str, task_type: str, settings, max_ram_gb: float) -> str:
-    for tier in ("budget", "mid", "premium"):
+    for tier in ("free", "budget", "mid", "premium"):
         candidates = get_candidates_by_tier(task_type, [tier])
         for name, _score in candidates:
             if _model_available(name, settings, max_ram_gb):

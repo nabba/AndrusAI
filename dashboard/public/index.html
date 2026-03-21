@@ -51,6 +51,17 @@
     .mode-btn:hover:not(.active) { color: var(--text); }
     .mode-insane.active { background: linear-gradient(135deg,#f97316,#ef4444); color: #fff; }
 
+    /* ── Toggle Switch ────────────────────────────────────────── */
+    .toggle-group { display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 3px 10px; }
+    .toggle-label { font-size: .68rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+    .toggle-switch { position: relative; width: 32px; height: 18px; cursor: pointer; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-track { position: absolute; inset: 0; background: var(--dim); border-radius: 9px; transition: background .2s; }
+    .toggle-switch input:checked + .toggle-track { background: var(--green); }
+    .toggle-knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: #fff; border-radius: 50%; transition: transform .2s; }
+    .toggle-switch input:checked ~ .toggle-knob { transform: translateX(14px); }
+    .toggle-status { font-size: .6rem; color: var(--dim); min-width: 28px; }
+
     /* ── Connection Health ─────────────────────────────────────── */
     .conn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
     .cb-card { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); }
@@ -232,6 +243,15 @@
       <button class="mode-btn active" data-mode="hybrid">Hybrid</button>
       <button class="mode-btn" data-mode="cloud">Cloud</button>
       <button class="mode-btn mode-insane" data-mode="insane">Insane</button>
+    </div>
+    <div class="toggle-group" title="Background tasks: self-improvement, retrospective, evolution run during idle time">
+      <span class="toggle-label">BG Tasks</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="bg-toggle" checked>
+        <div class="toggle-track"></div>
+        <div class="toggle-knob"></div>
+      </label>
+      <span class="toggle-status" id="bg-status">ON</span>
     </div>
     <div id="sys-badge"><div class="dot"></div><span id="sys-label">Connecting</span></div>
   </div>
@@ -657,6 +677,27 @@ document.querySelectorAll(".mode-btn").forEach(btn => {
       console.error("Mode switch failed:", e);
     }
   });
+});
+
+// ── Background Tasks Kill Switch ─────────────────────────────────────────────
+const bgToggle = document.getElementById("bg-toggle");
+const bgStatus = document.getElementById("bg-status");
+onSnapshot(doc(db, "config", "background_tasks"), s => {
+  const enabled = s.exists() ? (s.data().enabled !== false) : true;
+  bgToggle.checked = enabled;
+  bgStatus.textContent = enabled ? "ON" : "OFF";
+  bgStatus.style.color = enabled ? "var(--green)" : "var(--red)";
+  touch();
+});
+bgToggle.addEventListener("change", async () => {
+  const enabled = bgToggle.checked;
+  bgStatus.textContent = enabled ? "ON" : "OFF";
+  bgStatus.style.color = enabled ? "var(--green)" : "var(--red)";
+  try {
+    await setDoc(doc(db, "config", "background_tasks"), { enabled, updated_at: new Date().toISOString() });
+  } catch (e) {
+    console.error("BG toggle failed:", e);
+  }
 });
 
 // ── Token Usage ──────────────────────────────────────────────────────────────

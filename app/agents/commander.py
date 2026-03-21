@@ -115,6 +115,7 @@ crew_name MUST be one of:
   "research"  — web lookups, fact-finding, comparisons, current events
   "coding"    — writing, running, or debugging code
   "writing"   — summaries, documentation, emails, reports, creative text
+  "media"     — YouTube video analysis, image/photo analysis, audio/podcast summarization, document OCR
   "direct"    — simple questions, greetings, or status queries you answer yourself
 
 "difficulty" rates the task complexity (1-10):
@@ -640,7 +641,25 @@ class Commander:
         )
 
         # Direct LLM call — no Agent/Task/Crew overhead for simple classification
-        raw = str(self.llm.call([prompt])).strip()
+        # Retry on transient errors (529 overloaded, timeouts)
+        last_exc = None
+        for attempt in range(1, 4):
+            try:
+                raw = str(self.llm.call(prompt)).strip()
+                break
+            except Exception as exc:
+                last_exc = exc
+                err_str = str(exc).lower()
+                is_transient = any(k in err_str for k in ("overloaded", "529", "timeout", "connection", "503", "502"))
+                if is_transient and attempt < 3:
+                    wait = 2 * attempt
+                    logger.warning(f"Commander routing attempt {attempt} failed (transient): {exc}, retrying in {wait}s")
+                    import time as _time
+                    _time.sleep(wait)
+                    continue
+                raise
+        else:
+            raise last_exc
         logger.info(f"Commander routing decision: {raw[:300]}")
 
         # Parse JSON — tolerant of markdown fences
@@ -716,6 +735,9 @@ class Commander:
         elif crew_name == "writing":
             from app.crews.writing_crew import WritingCrew
             result = WritingCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
+        elif crew_name == "media":
+            from app.crews.media_crew import MediaCrew
+            result = MediaCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
         else:
             return crew_task
 

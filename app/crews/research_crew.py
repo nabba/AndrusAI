@@ -174,7 +174,7 @@ class ResearchCrew:
             llm = create_specialist_llm(max_tokens=1024, role="research")
             # Direct LLM call — no Agent/Task/Crew overhead for JSON classification
             prompt = RESEARCH_PLAN_TEMPLATE.format(topic=topic[:500])
-            raw = str(llm.call([prompt])).strip()
+            raw = str(llm.call(prompt)).strip()
             from app.utils import safe_json_parse
             subtopics, _err = safe_json_parse(raw)
             if isinstance(subtopics, list) and all(isinstance(s, str) for s in subtopics):
@@ -358,8 +358,8 @@ class ResearchCrew:
 
             # Run both challengers in parallel — direct LLM calls, no Crew overhead
             challenges = run_parallel([
-                ("skeptic", lambda: str(llm.call([skeptic_prompt]))),
-                ("practitioner", lambda: str(llm.call([practitioner_prompt]))),
+                ("skeptic", lambda: str(llm.call(skeptic_prompt))),
+                ("practitioner", lambda: str(llm.call(practitioner_prompt))),
             ])
 
             valid_challenges = [c.result for c in challenges if c.success and c.result]
@@ -377,7 +377,7 @@ class ResearchCrew:
                 f"Return the improved research report."
             )
             resolve_llm = create_specialist_llm(max_tokens=4096, role="research")
-            resolved = str(resolve_llm.call([resolve_prompt])).strip()
+            resolved = str(resolve_llm.call(resolve_prompt)).strip()
             if resolved and len(resolved) > 50:
                 logger.info("research_crew: debate_round improved research via heterogeneous MAD")
                 return resolved
@@ -403,6 +403,6 @@ class ResearchCrew:
             f"Create a cohesive report with: key findings, details, and all sources."
             + (f"\n\nNote: {len(failed)} sub-tasks failed." if failed else "")
         )
-        result = str(llm.call([prompt])).strip()
+        result = str(llm.call(prompt)).strip()
         crew_completed("research", parent_task_id, result[:200])
         return result

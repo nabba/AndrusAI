@@ -102,6 +102,97 @@ CATALOG: dict[str, dict] = {
     },
 
     # ═══════════════════════════════════════════════════════════════════════
+    # FREE — $0 API models via OpenRouter (free tier, rate-limited)
+    # Best for: bulk parallel work, media analysis, low-priority background
+    # ═══════════════════════════════════════════════════════════════════════
+
+    "nemotron-nano-2-vl": {
+        "tier": "free",
+        "provider": "openrouter",
+        "model_id": "openrouter/nvidia/nemotron-nano-12b-v2-vl:free",
+        "context": 32_768, "multimodal": True,
+        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
+        "tool_use_reliability": 0.55,
+        "description": (
+            "NVIDIA Nemotron Nano 2 VL — 12B hybrid Transformer-Mamba. "
+            "Multimodal: text + multi-image. Leading OCRBench v2. "
+            "Free tier. Video understanding + document intelligence."
+        ),
+        "strengths": {
+            "multimodal": 0.88, "research": 0.65, "writing": 0.60,
+            "general": 0.62, "coding": 0.55, "reasoning": 0.60,
+        },
+    },
+    "nemotron-3-super": {
+        "tier": "free",
+        "provider": "openrouter",
+        "model_id": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+        "context": 1_000_000, "multimodal": False,
+        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
+        "tool_use_reliability": 0.65,
+        "description": (
+            "NVIDIA Nemotron 3 Super — 120B MoE (12B active). "
+            "1M context, cross-document reasoning, multi-step planning. "
+            "Free tier. Strong for synthesis and long-context tasks."
+        ),
+        "strengths": {
+            "research": 0.78, "reasoning": 0.80, "architecture": 0.75,
+            "writing": 0.75, "general": 0.76, "coding": 0.72,
+            "synthesis": 0.80,
+        },
+    },
+    "trinity-large": {
+        "tier": "free",
+        "provider": "openrouter",
+        "model_id": "openrouter/arcee-ai/trinity-large-preview:free",
+        "context": 128_000, "multimodal": False,
+        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
+        "tool_use_reliability": 0.60,
+        "description": (
+            "Arcee Trinity Large — 400B sparse MoE (13B active). "
+            "Strong creative writing, agentic tool use. "
+            "Free tier. Natively supports 512K (128K in preview)."
+        ),
+        "strengths": {
+            "writing": 0.82, "general": 0.75, "research": 0.72,
+            "coding": 0.70, "reasoning": 0.72, "architecture": 0.68,
+        },
+    },
+    "step-3.5-flash": {
+        "tier": "free",
+        "provider": "openrouter",
+        "model_id": "openrouter/stepfun/step-3.5-flash:free",
+        "context": 256_000, "multimodal": False,
+        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
+        "tool_use_reliability": 0.60,
+        "description": (
+            "StepFun Step 3.5 Flash — 196B sparse MoE (11B active). "
+            "Speed-optimized reasoning. 256K context. Free tier."
+        ),
+        "strengths": {
+            "reasoning": 0.78, "research": 0.72, "coding": 0.70,
+            "writing": 0.70, "general": 0.72, "architecture": 0.68,
+        },
+    },
+    "minimax-m2.5-free": {
+        "tier": "free",
+        "provider": "openrouter",
+        "model_id": "openrouter/minimax/minimax-m2.5:free",
+        "context": 196_608, "multimodal": False,
+        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
+        "tool_use_reliability": 0.75,
+        "description": (
+            "MiniMax M2.5 free tier — 80.2% SWE-bench, token-efficient. "
+            "Strong agentic coding + office document fluency."
+        ),
+        "strengths": {
+            "coding": 0.88, "debugging": 0.85, "reasoning": 0.82,
+            "writing": 0.78, "general": 0.80, "research": 0.78,
+            "architecture": 0.80,
+        },
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
     # BUDGET — Frontier API at <$1.50/M output (via OpenRouter)
     # Best for: parallel sub-agents, background jobs, high-volume work
     # ═══════════════════════════════════════════════════════════════════════
@@ -253,6 +344,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "research":     "deepseek-v3.2",
         "coding":       "minimax-m2.5",
         "writing":      "deepseek-v3.2",
+        "media":        "nemotron-nano-2-vl",
         "critic":       "deepseek-v3.2",
         "introspector": "deepseek-v3.2",
         "self_improve":  "deepseek-v3.2",
@@ -266,6 +358,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "research":     "deepseek-v3.2",
         "coding":       "minimax-m2.5",
         "writing":      "claude-sonnet-4.6",
+        "media":        "nemotron-nano-2-vl",
         "critic":       "gemini-3.1-pro",
         "introspector": "deepseek-v3.2",
         "self_improve":  "deepseek-v3.2",
@@ -279,6 +372,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "research":     "kimi-k2.5",
         "coding":       "gemini-3.1-pro",
         "writing":      "claude-sonnet-4.6",
+        "media":        "kimi-k2.5",
         "critic":       "gemini-3.1-pro",
         "introspector": "kimi-k2.5",
         "self_improve":  "deepseek-v3.2",

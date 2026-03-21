@@ -89,7 +89,7 @@ def create_specialist_llm(
 
     # ── CLOUD mode: skip Ollama, use API/Anthropic ───────────────────
     if mode == "cloud":
-        if tier in ("budget", "mid") and settings.api_tier_enabled:
+        if tier in ("free", "budget", "mid") and settings.api_tier_enabled:
             llm = _try_api(model_name, entry, max_tokens, role)
             if llm:
                 return llm
@@ -112,14 +112,14 @@ def create_specialist_llm(
             logger.info(f"llm_factory: local failed for role={role}, trying API tier")
             api_model = get_default_for_role(role, settings.cost_mode)
             api_entry = get_model(api_model)
-            if api_entry and api_entry["tier"] in ("budget", "mid"):
+            if api_entry and api_entry["tier"] in ("free", "budget", "mid"):
                 llm = _try_api(api_model, api_entry, max_tokens, role)
                 if llm:
                     return llm
         return _claude_fallback(role, max_tokens)
 
     # Try API tier (OpenRouter)
-    if tier in ("budget", "mid") and settings.api_tier_enabled:
+    if tier in ("free", "budget", "mid") and settings.api_tier_enabled:
         llm = _try_api(model_name, entry, max_tokens, role)
         if llm:
             return llm
@@ -203,6 +203,7 @@ _INSANE_ROLE_MAP = {
     "architecture": "gemini-3.1-pro",
     "debugging":    "gemini-3.1-pro",
     "planner":      "gemini-3.1-pro",
+    "media":        "gemini-3.1-pro",
     # Support: Claude Sonnet 4.6
     "writing":      "claude-sonnet-4.6",
     "synthesis":    "claude-sonnet-4.6",

@@ -271,6 +271,46 @@ SELF_MODELS: dict[str, dict] = {
             "When improvement seems too broad, narrow scope to a single measurable outcome",
         ],
     },
+    "media_analyst": {
+        "capabilities": [
+            "YouTube video transcript extraction and analysis",
+            "Image and document OCR and description",
+            "Audio/podcast content summarization",
+            "Chart, table, and infographic data extraction",
+            "Multi-image comparison and composition analysis",
+            "Visual content classification and context identification",
+        ],
+        "limitations": [
+            "Cannot directly process raw audio/video streams — relies on transcripts and descriptions",
+            "Image understanding depends on model's multimodal capabilities",
+            "Cannot verify authenticity of media (deepfakes, edited images)",
+            "Limited by transcript quality for auto-generated YouTube captions",
+        ],
+        "operating_principles": [
+            "Always extract transcript before analyzing YouTube videos",
+            "Describe objectively before interpreting — separate observation from inference",
+            "Note media quality and source credibility in every analysis",
+            "Store analysis results in team memory for cross-agent reference",
+            "Keep output concise — user reads on phone",
+        ],
+        "tools_available": [
+            "web_search", "web_fetch", "get_youtube_transcript",
+            "file_manager", "read_attachment",
+            "knowledge_search",
+            "memory_store", "memory_retrieve",
+            "self_report", "store_reflection",
+        ],
+        "typical_failure_modes": [
+            "Over-describing visual content without extracting actionable data",
+            "Hallucinating transcript content when video is unavailable",
+            "Providing analysis without noting limitations of the source material",
+        ],
+        "metacognitive_triggers": [
+            "When media quality is low, flag uncertainty explicitly",
+            "When content is outside known domains, search for context first",
+            "When asked about authenticity, note inability to verify rather than guessing",
+        ],
+    },
 }
 
 

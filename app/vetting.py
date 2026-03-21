@@ -101,6 +101,22 @@ MODEL CONTENT:
 
 CRITICAL: Return the polished version ONLY. Do NOT add any reviewer notes, disclaimers, warnings, caveats, or meta-commentary. No footnotes. No "Note:" blocks. The user sees your output directly.
 """,
+    "media": """\
+You are a media analysis reviewer checking output from an AI media analyst.
+
+1. ACCURACY: Are descriptions factual? No hallucinated visual/audio details?
+2. DATA: Are extracted numbers, quotes, and timestamps correct?
+3. COMPLETENESS: Does it answer what was asked about the media?
+4. FORMAT: Concise for Signal (under 1500 chars), structured clearly.
+
+USER REQUEST:
+{request}
+
+MODEL ANALYSIS:
+{response}
+
+CRITICAL: Return the vetted analysis ONLY. Do NOT add any reviewer notes, disclaimers, warnings, caveats, or meta-commentary. No footnotes. The user sees your output directly.
+""",
 }
 
 DEFAULT_VETTING_PROMPT = """\
@@ -157,8 +173,8 @@ def assess_risk_level(
     if crew_name == "coding":
         return "full"
 
-    # Local model output always gets full verification
-    if model_tier == "local":
+    # Local and free-tier model output always gets full verification
+    if model_tier in ("local", "free"):
         return "full"
 
     # High difficulty always gets full verification
@@ -221,7 +237,7 @@ def _verify_cheap(user_request: str, response: str, crew_name: str) -> tuple[boo
             response=response[:3000],
         )
         # Direct LLM call — no Agent/Task/Crew overhead
-        result = str(llm.call([prompt])).strip().upper()
+        result = str(llm.call(prompt)).strip().upper()
 
         if result.startswith("PASS"):
             logger.info(f"vetting[cheap]: PASS for {crew_name}")
@@ -248,7 +264,7 @@ def _verify_full(user_request: str, response: str, crew_name: str) -> str:
             response=response[:6000],
         )
         # Direct LLM call — no Agent/Task/Crew overhead
-        vetted = str(llm.call([prompt])).strip()
+        vetted = str(llm.call(prompt)).strip()
         if vetted and len(vetted) > 20:
             logger.info(f"vetting[full]: {crew_name} vetted ({len(response)}→{len(vetted)} chars)")
 

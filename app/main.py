@@ -32,6 +32,7 @@ from app.firebase_reporter import (
     cleanup_stale_tasks, report_llm_mode, start_mode_listener,
     start_kb_queue_poller,
 )
+from app import idle_scheduler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -39,6 +40,14 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
+# Dedicated thread pool for commander.handle() calls — ensures multiple
+# messages can be processed concurrently without saturating the default
+# asyncio executor.  Each message gets its own thread.
+from concurrent.futures import ThreadPoolExecutor
+_commander_pool = ThreadPoolExecutor(
+    max_workers=settings.max_parallel_crews + 2,
+    thread_name_prefix="commander",
+)
 
 _WORKSPACE_ROOT = "/app/workspace"
 
@@ -286,9 +295,21 @@ async def lifespan(app: FastAPI):
     start_mode_listener()
     start_kb_queue_poller()
 
+    # Idle scheduler — run background work (self-improvement, retrospective, evolution)
+    # during idle time. Kill switch read from Firestore config/background_tasks.
+    bg_enabled = await asyncio.to_thread(idle_scheduler.read_background_enabled)
+    if bg_enabled is not None:
+        idle_scheduler.set_enabled(bg_enabled)
+        logger.info(f"Background tasks: {'enabled' if bg_enabled else 'disabled'} (from dashboard)")
+    idle_scheduler.start_background_listener()
+    idle_scheduler.start()
+    logger.info("Idle scheduler started — background work runs when no user tasks active")
+
     logger.info("CrewAI Agent Team started")
     yield
     # Final sync on clean shutdown
+    idle_scheduler.stop()
+    idle_scheduler.stop_listener()
     if settings.workspace_backup_repo:
         await asyncio.to_thread(sync_workspace, settings.workspace_backup_repo)
     report_system_offline()
@@ -343,6 +364,8 @@ app.add_middleware(
 signal_client = SignalClient()
 commander = Commander()
 _signal_msg_count = 0
+_inflight_tasks = 0  # count of currently running commander.handle() calls
+_inflight_lock = threading.Lock()
 
 
 def _verify_gateway_secret(request: Request) -> bool:
@@ -400,6 +423,7 @@ async def receive_signal(request: Request):
 
 async def handle_task(sender: str, text: str, attachments: list = None,
                       msg_timestamp: int = 0):
+    global _inflight_tasks
     # Start task tracking for metrics
     task_row_id = start_task(sender)
 
@@ -410,6 +434,22 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         except Exception:
             logger.debug("Failed to send 👀 reaction", exc_info=True)
 
+    # Track activity for idle scheduler
+    idle_scheduler.notify_task_start()
+
+    # Notify user if other tasks are already in progress
+    with _inflight_lock:
+        currently_running = _inflight_tasks
+        _inflight_tasks += 1
+    if currently_running > 0:
+        try:
+            await signal_client.send(
+                sender,
+                f"Queued — {currently_running} task(s) in progress. I'll get to this next."
+            )
+        except Exception:
+            pass
+
     try:
         # Persist the incoming message before processing so history is available
         # even if the response fails
@@ -418,8 +458,9 @@ async def handle_task(sender: str, text: str, attachments: list = None,
             att_note = f" [+{len(attachments)} attachment(s)]"
         add_message(sender, "user", text + att_note)
 
-        result = await asyncio.to_thread(
-            commander.handle, text, sender, attachments or []
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            _commander_pool, commander.handle, text, sender, attachments or []
         )
         log_response_sent(_redact_number(sender), len(result))
 
@@ -472,6 +513,10 @@ async def handle_task(sender: str, text: str, attachments: list = None,
             "The self-healing system is analyzing the error and will attempt a fix. "
             "Please try again shortly."
         )
+    finally:
+        with _inflight_lock:
+            _inflight_tasks -= 1
+        idle_scheduler.notify_task_end()
 
 
 # Rate limiter for config endpoints — max 5 changes per minute
