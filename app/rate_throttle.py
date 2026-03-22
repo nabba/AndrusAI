@@ -1,10 +1,14 @@
 """
-rate_throttle.py — Global rate limiter for outgoing LLM API calls.
+rate_throttle.py — Per-provider rate limiter for outgoing LLM API calls.
 
-Anthropic free/low-tier orgs have a 5 requests/minute limit.
-This module provides a token-bucket throttle that all CrewAI LLM
-instances share, preventing rate-limit errors by waiting instead
-of hammering the API.
+Each LLM provider gets its own rate bucket:
+  - Anthropic:   conservative (default 10 RPM, configurable)
+  - OpenRouter:  generous (default 60 RPM)
+  - Ollama:      unlimited (local, no API limit)
+
+User-facing requests get priority over background tasks.  Background
+callers should call `set_background_caller(True)` before making LLM
+calls; they will yield to any waiting user-facing request.
 
 Also configures litellm's built-in retry with exponential backoff
 so transient 429s are retried automatically.
@@ -19,12 +23,11 @@ import time
 logger = logging.getLogger(__name__)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-# These can be overridden via .env
-# Default 3 RPM: conservative for free tier (5 RPM + 10K input tokens/min).
-# Each crew call uses ~2-4K input tokens, so 3 RPM ≈ 9K tokens/min — just under limit.
-_MAX_RPM = int(os.environ.get("ANTHROPIC_MAX_RPM", "3"))
+# Per-provider RPM limits (overridable via .env)
+_ANTHROPIC_RPM = int(os.environ.get("ANTHROPIC_MAX_RPM", "10"))
+_OPENROUTER_RPM = int(os.environ.get("OPENROUTER_MAX_RPM", "60"))
 _RETRY_COUNT = int(os.environ.get("LITELLM_NUM_RETRIES", "5"))
-_RETRY_BACKOFF = float(os.environ.get("LITELLM_RETRY_BACKOFF", "15"))  # seconds
+_RETRY_BACKOFF = float(os.environ.get("LITELLM_RETRY_BACKOFF", "3"))  # seconds (was 15)
 
 # ── litellm retry config (set before any litellm import) ──────────────────────
 os.environ.setdefault("LITELLM_NUM_RETRIES", str(_RETRY_COUNT))
@@ -32,31 +35,93 @@ os.environ.setdefault("LITELLM_NUM_RETRIES", str(_RETRY_COUNT))
 # ── Token bucket rate limiter ─────────────────────────────────────────────────
 
 class _TokenBucket:
-    """Thread-safe token bucket allowing at most `rate` calls per 60 seconds."""
+    """Thread-safe token bucket allowing at most `rate` calls per 60 seconds.
 
-    def __init__(self, rate: int):
+    Uses threading.Event for non-blocking wait that can be interrupted.
+    """
+
+    def __init__(self, rate: int, name: str = ""):
         self.rate = max(1, rate)
         self.interval = 60.0 / self.rate  # seconds between tokens
+        self.name = name
         self._lock = threading.Lock()
         self._last = 0.0
+        self._wake = threading.Event()
 
     def acquire(self) -> None:
-        """Block until a token is available."""
-        with self._lock:
-            now = time.monotonic()
-            wait = self._last + self.interval - now
-            if wait > 0:
-                logger.debug(f"rate_throttle: waiting {wait:.1f}s before next API call")
-                time.sleep(wait)
-            self._last = time.monotonic()
+        """Block until a token is available.
+
+        Releases the lock while waiting so other threads can compute their
+        own wait time.  Re-acquires the lock to stamp _last on completion.
+        """
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                wait = self._last + self.interval - now
+                if wait <= 0:
+                    # Token available — claim it immediately
+                    self._last = now
+                    return
+                if wait > 1.0:
+                    logger.debug(f"rate_throttle[{self.name}]: waiting {wait:.1f}s")
+            # Sleep outside the lock so other threads aren't blocked
+            self._wake.clear()
+            self._wake.wait(timeout=wait)
+            # Loop back to re-check under lock (another thread may have consumed the slot)
 
 
-_bucket = _TokenBucket(_MAX_RPM)
+# Per-provider buckets
+_buckets: dict[str, _TokenBucket] = {
+    "anthropic": _TokenBucket(_ANTHROPIC_RPM, "anthropic"),
+    "openrouter": _TokenBucket(_OPENROUTER_RPM, "openrouter"),
+    # Ollama: no bucket — unlimited local calls
+}
+
+# ── Background caller tracking ────────────────────────────────────────────────
+_is_background = threading.local()
+
+
+def set_background_caller(is_bg: bool) -> None:
+    """Mark the current thread as a background caller (lower priority)."""
+    _is_background.value = is_bg
+
+
+def _is_bg() -> bool:
+    return getattr(_is_background, "value", False)
+
+
+def _detect_provider(model: str = "", base_url: str = "", **kwargs) -> str:
+    """Detect LLM provider from model string or base_url."""
+    model_lower = (model or "").lower()
+    base_lower = (base_url or "").lower()
+
+    if "ollama" in model_lower or "ollama" in base_lower or "11434" in base_lower:
+        return "ollama"
+    if "openrouter" in base_lower:
+        return "openrouter"
+    if "anthropic" in model_lower or "claude" in model_lower:
+        return "anthropic"
+    # OpenRouter model IDs contain slashes like "deepseek/deepseek-chat"
+    if "/" in model_lower and "anthropic" not in model_lower:
+        return "openrouter"
+    return "anthropic"  # default to most restrictive
+
+
+def throttle_for_provider(provider: str) -> None:
+    """Apply rate limit for a specific provider. No-op for Ollama."""
+    if provider == "ollama":
+        return
+    bucket = _buckets.get(provider)
+    if bucket:
+        # Background callers yield briefly to let user-facing requests go first
+        if _is_bg():
+            time.sleep(0.1)
+        bucket.acquire()
 
 
 def throttle() -> None:
-    """Call before every LLM API request to respect the rate limit."""
-    _bucket.acquire()
+    """Legacy: throttle using Anthropic bucket (for unknown callers)."""
+    throttle_for_provider("anthropic")
 
 
 # ── Monkey-patch litellm completion to inject throttle ────────────────────────
@@ -67,7 +132,7 @@ _patch_lock = threading.Lock()
 
 def install_throttle() -> None:
     """
-    Patch litellm.completion to call throttle() before each request.
+    Patch litellm.completion to call per-provider throttle before each request.
     Safe to call multiple times (idempotent).
     """
     global _patched
@@ -81,7 +146,10 @@ def install_throttle() -> None:
             _original_completion = litellm.completion
 
             def _throttled_completion(*args, **kwargs):
-                throttle()
+                model = kwargs.get("model", args[0] if args else "")
+                base_url = kwargs.get("base_url") or kwargs.get("api_base") or ""
+                provider = _detect_provider(model, base_url)
+                throttle_for_provider(provider)
                 # Inject retry params if not already set
                 kwargs.setdefault("num_retries", _RETRY_COUNT)
                 response = _original_completion(*args, **kwargs)
@@ -95,7 +163,10 @@ def install_throttle() -> None:
                 _original_acompletion = litellm.acompletion
 
                 async def _throttled_acompletion(*args, **kwargs):
-                    throttle()  # blocking is fine — runs in thread anyway
+                    model = kwargs.get("model", args[0] if args else "")
+                    base_url = kwargs.get("base_url") or kwargs.get("api_base") or ""
+                    provider = _detect_provider(model, base_url)
+                    throttle_for_provider(provider)
                     kwargs.setdefault("num_retries", _RETRY_COUNT)
                     response = await _original_acompletion(*args, **kwargs)
                     _record_token_usage(response, kwargs)
@@ -104,7 +175,11 @@ def install_throttle() -> None:
                 litellm.acompletion = _throttled_acompletion
 
             _patched = True
-            logger.info(f"rate_throttle: installed ({_MAX_RPM} RPM, {_RETRY_COUNT} retries, token tracking)")
+            logger.info(
+                f"rate_throttle: installed (anthropic={_ANTHROPIC_RPM}RPM, "
+                f"openrouter={_OPENROUTER_RPM}RPM, ollama=unlimited, "
+                f"{_RETRY_COUNT} retries, {_RETRY_BACKOFF}s backoff)"
+            )
         except ImportError:
             logger.warning("rate_throttle: litellm not found, throttle not installed")
 

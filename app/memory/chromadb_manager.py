@@ -1,4 +1,5 @@
 import chromadb
+import functools
 import threading
 import uuid
 from sentence_transformers import SentenceTransformer
@@ -8,6 +9,22 @@ PERSIST_DIR = Path("/app/workspace/memory")
 TEAM_COLLECTION = "team_shared"
 
 _model = SentenceTransformer("all-MiniLM-L6-v2")  # Runs locally, no API
+
+
+@functools.lru_cache(maxsize=512)
+def _embed_cached(text: str) -> tuple:
+    """LRU-cached embedding computation.
+
+    Avoids re-encoding the same text multiple times per request
+    (e.g., result_cache lookup + context fetch + cache store all
+    embedding the same task string).  Returns tuple for hashability.
+    """
+    return tuple(_model.encode(text).tolist())
+
+
+def embed(text: str) -> list[float]:
+    """Get embedding for text, using LRU cache."""
+    return list(_embed_cached(text))
 
 # Thread-safe singleton — prevents lock contention when multiple threads
 # each try to create their own PersistentClient pointing to the same dir.
@@ -28,7 +45,7 @@ def get_client():
 def store(collection_name: str, text: str, metadata: dict = None):
     client = get_client()
     col = client.get_or_create_collection(collection_name)
-    embedding = _model.encode(text).tolist()
+    embedding = embed(text)
     col.add(
         documents=[text],
         embeddings=[embedding],
@@ -43,7 +60,7 @@ def retrieve(collection_name: str, query: str, n: int = 5) -> list[str]:
     col = client.get_or_create_collection(collection_name)
     if col.count() == 0:
         return []
-    embedding = _model.encode(query).tolist()
+    embedding = embed(query)
     results = col.query(
         query_embeddings=[embedding], n_results=min(n, col.count())
     )

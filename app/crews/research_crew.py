@@ -120,8 +120,15 @@ class ResearchCrew:
             else:
                 logger.info(f"Research crew spawning {len(subtopics)} sub-agents")
                 result = self._run_parallel(topic, subtopics, task_id)
-                # Heterogeneous debate — only for complex multi-subtopic research
-                if difficulty >= 6:
+                # Heterogeneous debate — only for very complex research (difficulty >= 8)
+                # or when synthesis looks weak (short output for a complex task).
+                # Previously triggered at difficulty >= 6, which added 3 extra LLM
+                # calls to most multi-source research — too aggressive.
+                needs_debate = (
+                    difficulty >= 8
+                    or (difficulty >= 6 and len(result.strip()) < 200)
+                )
+                if needs_debate:
                     result = self._debate_round(result, topic)
 
             update_belief("researcher", "completed", current_task=topic[:100])

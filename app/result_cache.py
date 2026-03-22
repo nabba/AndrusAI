@@ -35,8 +35,8 @@ def _get_collection():
 
 
 def _embed(text: str) -> list[float]:
-    from app.memory.chromadb_manager import _model
-    return _model.encode(text).tolist()
+    from app.memory.chromadb_manager import embed
+    return embed(text)
 
 
 def lookup(crew_name: str, task: str) -> Optional[str]:

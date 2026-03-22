@@ -303,6 +303,16 @@ def run_evolution_session(max_iterations: int = 5) -> str:
 
     try:
         for i in range(max_iterations):
+            # Cooperative yield: abort if a user task arrived
+            try:
+                from app.idle_scheduler import should_yield
+                if should_yield():
+                    logger.info(f"Evolution session: yielding to user task after {i} iterations")
+                    results_summary.append(f"  [yielded to user after {i} iterations]")
+                    break
+            except ImportError:
+                pass
+
             logger.info(f"Evolution session: iteration {i + 1}/{max_iterations}")
 
             # 1. Build fresh context (includes results from previous iterations)

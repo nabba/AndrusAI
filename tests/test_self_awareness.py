@@ -146,7 +146,7 @@ class TestSelfModel(unittest.TestCase):
 
     def test_all_roles_defined(self):
         from app.self_awareness.self_model import SELF_MODELS
-        expected_roles = {"researcher", "coder", "writer", "commander", "critic", "introspector", "self_improver"}
+        expected_roles = {"researcher", "coder", "writer", "commander", "critic", "introspector", "self_improver", "media_analyst"}
         self.assertEqual(set(SELF_MODELS.keys()), expected_roles)
 
     def test_critic_model_has_review_capabilities(self):

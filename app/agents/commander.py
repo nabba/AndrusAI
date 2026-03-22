@@ -20,12 +20,71 @@ from pathlib import Path
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+# Shared pool for lightweight context-fetching I/O (ChromaDB queries, Mem0 search,
+# skill name loading).  Replaces ephemeral ThreadPoolExecutors that were created
+# per-request in _route() and _run_crew(), eliminating thread churn.
+_ctx_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ctx-fetch")
+
 SKILLS_DIR = Path("/app/workspace/skills")
 
 # Cache for skill names (TTL-based to avoid re-globbing disk every request)
 _skill_names_cache: str = ""
 _skill_names_ts: float = 0.0
 _SKILL_NAMES_TTL = 60.0  # seconds
+
+# ── Fast-path routing patterns ───────────────────────────────────────────────
+# Simple questions that can be classified without an Opus LLM call.
+# Returns (crew_name, difficulty) or None if no match.
+
+_FAST_ROUTE_PATTERNS = [
+    # Simple factual questions → research, difficulty 2
+    (re.compile(
+        r"^(?:what|who|when|where|how (?:many|much|old|long|far|big|tall|fast))\b",
+        re.IGNORECASE,
+    ), "research", 2),
+    # Definition questions → research, difficulty 2
+    (re.compile(r"^(?:define|explain|describe)\s+\w", re.IGNORECASE), "research", 3),
+    # Comparison → research, difficulty 4
+    (re.compile(r"^(?:compare|difference between|vs\.?\b)", re.IGNORECASE), "research", 4),
+    # Code requests → coding, difficulty 4-5
+    (re.compile(
+        r"^(?:write|create|build|implement|fix|debug|refactor)\s+(?:a |an |the )?(?:code|function|script|program|class|module|api|endpoint|test)",
+        re.IGNORECASE,
+    ), "coding", 5),
+    # Writing requests → writing, difficulty 3
+    (re.compile(
+        r"^(?:write|draft|compose|create)\s+(?:a |an |the )?(?:email|letter|report|summary|document|memo|message|post|article|blog)",
+        re.IGNORECASE,
+    ), "writing", 3),
+    # YouTube/media → media, difficulty 4
+    (re.compile(r"(?:youtube\.com|youtu\.be|analyze (?:this |the )?(?:video|image|photo|audio|podcast))", re.IGNORECASE), "media", 4),
+]
+
+
+def _try_fast_route(user_input: str, has_attachments: bool) -> list[dict] | None:
+    """Attempt to route without an LLM call using keyword patterns.
+
+    Returns a routing decision list, or None if the input needs full LLM routing.
+    Only fires for short, clear-intent messages without attachments.
+    """
+    text = user_input.strip()
+
+    # Skip fast-path for long/complex messages or those with attachments
+    if len(text) > 300 or has_attachments:
+        return None
+
+    # Skip if it looks like a multi-part request (conjunctions, numbered lists)
+    if re.search(r"\b(?:and also|then also|additionally|furthermore)\b", text, re.IGNORECASE):
+        return None
+    if re.match(r"^\d+[\.\)]\s", text):
+        return None
+
+    for pattern, crew, difficulty in _FAST_ROUTE_PATTERNS:
+        if pattern.search(text):
+            logger.info(f"fast_route: matched '{crew}' d={difficulty} for: {text[:80]}")
+            return [{"crew": crew, "task": text, "difficulty": difficulty}]
+
+    return None
 
 # Maximum response length for Signal delivery.  Anything longer gets truncated
 # with a note.  Signal itself can handle ~4000 chars but users read on phones
@@ -583,7 +642,16 @@ class Commander:
 
     def _route(self, user_input: str, sender: str,
                attachment_context: str = "") -> list[dict]:
-        """Ask the LLM to classify the request.  Returns a list of {crew, task} dicts."""
+        """Classify the request and return a list of {crew, task, difficulty} dicts.
+
+        Tries fast keyword-based routing first (free, instant).
+        Falls back to Opus LLM routing for complex/ambiguous requests.
+        """
+        # ── Fast-path: skip Opus call for obvious request types ──────────
+        fast = _try_fast_route(user_input, bool(attachment_context))
+        if fast is not None:
+            return fast
+
         history_block = ""
         if sender:
             history_text = get_history(sender, n=3)
@@ -622,13 +690,12 @@ class Commander:
                 pass
             return ""
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            fut_skills = pool.submit(_fetch_skills)
-            fut_state = pool.submit(_fetch_team_state)
-            fut_mem0 = pool.submit(_fetch_mem0)
-            skills_context = fut_skills.result(timeout=5)
-            team_state_block = fut_state.result(timeout=5)
-            mem0_context = fut_mem0.result(timeout=5)
+        fut_skills = _ctx_pool.submit(_fetch_skills)
+        fut_state = _ctx_pool.submit(_fetch_team_state)
+        fut_mem0 = _ctx_pool.submit(_fetch_mem0)
+        skills_context = fut_skills.result(timeout=5)
+        team_state_block = fut_state.result(timeout=5)
+        mem0_context = fut_mem0.result(timeout=5)
 
         prompt = (
             f"{ROUTING_PROMPT}\n\n"
@@ -711,15 +778,14 @@ class Commander:
         t0 = _time.monotonic()
 
         # Select relevant context in parallel (3 independent vector DB queries)
-        with ThreadPoolExecutor(max_workers=3) as ctx_pool:
-            f_skills = ctx_pool.submit(_load_relevant_skills, crew_task)
-            f_memory = ctx_pool.submit(_load_relevant_team_memory, crew_task)
-            f_kb = ctx_pool.submit(_load_knowledge_base_context, crew_task)
-            context = (
-                f_skills.result(timeout=5)
-                + f_memory.result(timeout=5)
-                + f_kb.result(timeout=5)
-            )
+        f_skills = _ctx_pool.submit(_load_relevant_skills, crew_task)
+        f_memory = _ctx_pool.submit(_load_relevant_team_memory, crew_task)
+        f_kb = _ctx_pool.submit(_load_knowledge_base_context, crew_task)
+        context = (
+            f_skills.result(timeout=5)
+            + f_memory.result(timeout=5)
+            + f_kb.result(timeout=5)
+        )
         # Context pruning: compress injected context to a token budget.
         context = _prune_context(context, difficulty)
         enriched_task = context + crew_task if context else crew_task
@@ -774,10 +840,16 @@ class Commander:
 
         Only retries if quality gate fails. No extra LLM calls for reflection —
         reflection is heuristic-based. Extra cost only from the retry itself.
+
+        Optimizations vs original:
+          - Context from trial 1 is reused on retries (skip redundant vector DB queries)
+          - Model tier escalates on retry: budget → mid → premium
         """
         reflections: list[str] = []
         past_lessons = _load_past_reflexion_lessons(task)
         result = ""
+        # Cache context from first trial to avoid redundant vector DB queries on retry
+        _cached_context: str | None = None
 
         for trial in range(1, max_trials + 1):
             # Build enriched task with reflection context

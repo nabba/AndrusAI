@@ -70,6 +70,14 @@ class SelfImprovementCrew:
         )
 
         for topic in topics[:3]:
+            # Cooperative yield: abort if a user task arrived
+            try:
+                from app.idle_scheduler import should_yield
+                if should_yield():
+                    logger.info("Self-improvement: yielding to user task")
+                    break
+            except ImportError:
+                pass
             sanitized_topic = sanitize_input(topic, max_length=200)
             skill_filename = re.sub(r'[^a-zA-Z0-9_-]', '_', sanitized_topic)[:50]
             if not skill_filename or not re.fullmatch(r'[a-zA-Z0-9_-]+', skill_filename):

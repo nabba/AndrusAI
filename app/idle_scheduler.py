@@ -9,6 +9,8 @@ Architecture:
   - If a user task arrives, background work is interrupted at the next yield point
   - Kill switch via Firestore config/background_tasks {enabled: bool}
   - Dashboard toggle controls the kill switch in real time
+  - Background LLM calls are marked as low-priority (rate_throttle yields to user calls)
+  - Long-running jobs can check should_yield() to abort mid-execution when user arrives
 
 The idle loop does NOT replace cron jobs — cron jobs are the guaranteed baseline.
 Idle scheduling is opportunistic: it fills dead time between user requests.
@@ -63,6 +65,16 @@ def is_idle() -> bool:
         return (time.monotonic() - _last_task_end) >= IDLE_DELAY_SECONDS
 
 
+def should_yield() -> bool:
+    """Check if a background job should abort because a user task arrived.
+
+    Long-running background functions (evolution iterations, self-improvement)
+    should call this between units of work and return early if True.
+    """
+    with _lock:
+        return _active_tasks > 0
+
+
 def set_enabled(enabled: bool) -> None:
     """Kill switch — disable/enable background work."""
     global _enabled
@@ -81,7 +93,14 @@ def _run_idle_loop(jobs: list[tuple[str, Callable[[], None]]]) -> None:
 
     Each job is a (name, callable) tuple. The callable should do one unit of work
     and return. The loop cycles through jobs round-robin, pausing between each.
+
+    Background threads are marked as low-priority for rate limiting — user-facing
+    LLM calls always get priority over background work.
     """
+    # Mark this thread as a background caller for rate_throttle priority
+    from app.rate_throttle import set_background_caller
+    set_background_caller(True)
+
     logger.info(f"idle_scheduler: started with {len(jobs)} jobs")
     job_idx = 0
 
