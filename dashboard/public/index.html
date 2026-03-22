@@ -250,6 +250,45 @@
     details.card summary::-webkit-details-marker { display: none; }
     details.card summary::before { content: "▶ "; font-size: .65rem; transition: transform .2s; display: inline-block; }
     details.card[open] summary::before { content: "▼ "; }
+
+    /* ── Chat Pane ────────────────────────────────────────────── */
+    #chat-toggle { position: fixed; bottom: 20px; right: 20px; width: 48px; height: 48px; border-radius: 50%; background: var(--blue); color: #fff; border: none; font-size: 1.3rem; cursor: pointer; box-shadow: 0 4px 12px rgba(96,165,250,.4); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: transform .2s; }
+    #chat-toggle:hover { transform: scale(1.1); }
+    #chat-toggle .unread { position: absolute; top: -2px; right: -2px; width: 16px; height: 16px; border-radius: 50%; background: var(--red); font-size: .55rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+    #chat-pane { position: fixed; bottom: 80px; right: 20px; width: 380px; height: 520px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,.5); z-index: 999; display: none; flex-direction: column; overflow: hidden; }
+    #chat-pane.open { display: flex; }
+    .chat-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .chat-header h3 { font-size: .82rem; font-weight: 700; }
+    .chat-close { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; }
+    #chat-messages { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .chat-msg { max-width: 85%; padding: 7px 11px; border-radius: 10px; font-size: .75rem; line-height: 1.4; word-break: break-word; }
+    .chat-msg.user { align-self: flex-end; background: var(--blue); color: #fff; border-bottom-right-radius: 3px; }
+    .chat-msg.assistant { align-self: flex-start; background: var(--surface2); color: var(--text); border-bottom-left-radius: 3px; }
+    .chat-msg .src { font-size: .55rem; color: rgba(255,255,255,.5); margin-top: 2px; }
+    .chat-msg.assistant .src { color: var(--dim); }
+    .chat-msg .ts { font-size: .55rem; color: rgba(255,255,255,.4); }
+    .chat-msg.assistant .ts { color: var(--dim); }
+    .chat-input-row { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--border); background: var(--bg); }
+    .chat-input-row input { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-size: .78rem; outline: none; }
+    .chat-input-row input:focus { border-color: var(--blue); }
+    .chat-input-row button { background: var(--blue); border: none; color: #fff; padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: .72rem; cursor: pointer; white-space: nowrap; }
+    .chat-input-row button:hover { opacity: .85; }
+
+    /* ── Section Command Buttons ─────────────────────────────── */
+    .cmd-bar { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(36,45,58,.4); }
+    .cmd-btn { background: rgba(96,165,250,.1); border: 1px solid rgba(96,165,250,.2); color: var(--blue); padding: 3px 10px; border-radius: 5px; font-size: .62rem; font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap; }
+    .cmd-btn:hover { background: rgba(96,165,250,.25); border-color: var(--blue); }
+    .cmd-btn.danger { background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.2); color: var(--red); }
+    .cmd-btn.danger:hover { background: rgba(248,113,113,.25); }
+    .cmd-btn.warn { background: rgba(251,191,36,.1); border-color: rgba(251,191,36,.2); color: var(--yellow); }
+    .cmd-btn.warn:hover { background: rgba(251,191,36,.25); }
+    .cmd-btn.green { background: rgba(52,211,153,.1); border-color: rgba(52,211,153,.2); color: var(--green); }
+    .cmd-btn.green:hover { background: rgba(52,211,153,.25); }
+    .cmd-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    @media (max-width: 480px) {
+      #chat-pane { width: calc(100vw - 24px); right: 12px; bottom: 72px; height: 420px; }
+    }
   </style>
 </head>
 <body>
@@ -362,11 +401,21 @@
   <div class="card" style="margin:0">
     <div class="section-title">Skills Learned</div>
     <div id="skills-list"><div class="empty">No skills yet</div></div>
+    <div class="cmd-bar">
+      <button class="cmd-btn" onclick="sendCmd('improve')">Improve</button>
+      <button class="cmd-btn" onclick="sendCmd('show learning queue')">Queue</button>
+      <button class="cmd-btn" onclick="sendCmd('run self-improvement now')">Learn Now</button>
+    </div>
   </div>
   <div class="card" style="margin:0">
     <div class="section-title">Model Catalog & Roles</div>
     <div id="role-assignments"><div class="empty">Loading…</div></div>
     <div id="model-catalog" style="max-height:200px;overflow-y:auto"></div>
+    <div class="cmd-bar">
+      <button class="cmd-btn" onclick="sendCmd('fleet')">Fleet Status</button>
+      <button class="cmd-btn" onclick="sendCmd('catalog')">Catalog</button>
+      <button class="cmd-btn" onclick="sendCmd('tokens')">Token Usage</button>
+    </div>
   </div>
 </div>
 
@@ -376,11 +425,24 @@
     <div class="section-title">Errors & Self-Healing</div>
     <div id="error-patterns"></div>
     <div id="error-list"><div class="empty">No errors</div></div>
+    <div class="cmd-bar">
+      <button class="cmd-btn" onclick="sendCmd('errors')">Show Errors</button>
+      <button class="cmd-btn green" onclick="sendCmd('fix errors')">Fix Errors</button>
+      <button class="cmd-btn" onclick="sendCmd('audit')">Run Audit</button>
+      <button class="cmd-btn" onclick="sendCmd('audit status')">Audit Status</button>
+    </div>
   </div>
   <div class="card" style="margin:0">
     <div class="section-title">Evolution Experiments</div>
     <div id="evo-stats" style="margin-bottom:6px"></div>
     <div id="evo-list"><div class="empty">No experiments yet</div></div>
+    <div class="cmd-bar">
+      <button class="cmd-btn green" onclick="sendCmd('evolve')">Evolve</button>
+      <button class="cmd-btn warn" onclick="sendCmd('evolve deep')">Evolve Deep</button>
+      <button class="cmd-btn" onclick="sendCmd('experiments')">Experiments</button>
+      <button class="cmd-btn" onclick="sendCmd('results')">Results</button>
+      <button class="cmd-btn" onclick="sendCmd('metrics')">Metrics</button>
+    </div>
   </div>
 </div>
 
@@ -389,11 +451,19 @@
   <div class="card" style="margin:0">
     <div class="section-title">🛡️ Anomaly Detection</div>
     <div id="anomaly-list"><div class="empty">No anomalies — system healthy</div></div>
+    <div class="cmd-bar">
+      <button class="cmd-btn" onclick="sendCmd('anomalies')">Show Anomalies</button>
+      <button class="cmd-btn" onclick="sendCmd('retrospective')">Retrospective</button>
+    </div>
   </div>
   <div class="card" style="margin:0">
     <div class="section-title">🧬 Evolution Genealogy</div>
     <div id="variant-stats" style="margin-bottom:6px"></div>
     <div id="variant-list"><div class="empty">No variants yet</div></div>
+    <div class="cmd-bar">
+      <button class="cmd-btn" onclick="sendCmd('variants')">Show Variants</button>
+      <button class="cmd-btn" onclick="sendCmd('program')">Program</button>
+    </div>
   </div>
 </div>
 
@@ -401,10 +471,16 @@
   <div class="card" style="margin:0">
     <div class="section-title">🔬 Tech Radar</div>
     <div id="tech-radar-list"><div class="empty">No tech discoveries yet — runs during idle time</div></div>
+    <div class="cmd-bar">
+      <button class="cmd-btn" onclick="sendCmd('tech radar')">Refresh Radar</button>
+    </div>
   </div>
   <div class="card" style="margin:0">
     <div class="section-title">🏗️ Self-Deploy Pipeline</div>
     <div id="deploy-pipeline"><div class="empty">No deployments</div></div>
+    <div class="cmd-bar">
+      <button class="cmd-btn" onclick="sendCmd('deploys')">Deploy Log</button>
+    </div>
   </div>
 </div>
 
@@ -412,6 +488,11 @@
 <div class="card">
   <div class="section-title">Improvement Proposals</div>
   <div id="proposals-list"><div class="empty">No proposals yet</div></div>
+  <div class="cmd-bar">
+    <button class="cmd-btn" onclick="sendCmd('proposals')">Refresh</button>
+    <button class="cmd-btn" onclick="sendCmd('benchmarks')">Benchmarks</button>
+    <button class="cmd-btn" onclick="sendCmd('policies')">Policies</button>
+  </div>
 </div>
 
 <!-- ── Knowledge Base ─────────────────────────────────────────── -->
@@ -430,6 +511,11 @@
   </div>
   <div id="kb-categories" style="margin-bottom:6px"></div>
   <div id="kb-documents"></div>
+  <div class="cmd-bar">
+    <button class="cmd-btn" onclick="sendCmd('kb list')">List Docs</button>
+    <button class="cmd-btn" onclick="sendCmd('kb status')">KB Status</button>
+    <button class="cmd-btn danger" onclick="if(confirm('Reset entire knowledge base?'))sendCmd('kb reset')">Reset KB</button>
+  </div>
 </div>
 
 <!-- ── Schedule & Activity Feed ───────────────────────────────── -->
@@ -558,6 +644,10 @@ const app = initializeApp({
   appId:             "1:680485464185:web:48cf3f9dc4d91068128ca8",
 });
 const db = getFirestore(app);
+
+// Expose to non-module chat pane script
+window._db = db;
+window._fb = { collection, query, orderBy, limit, onSnapshot, addDoc, doc, setDoc, serverTimestamp };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 const rel = iso => {
@@ -1268,6 +1358,135 @@ setInterval(() => {
   renderCrews();
   renderTasks();
 }, 5000);
+</script>
+<!-- ── Chat Pane ───────────────────────────────────────────────── -->
+<button id="chat-toggle" onclick="toggleChat()" title="Open Chat">
+  💬
+  <span class="unread" id="chat-unread" style="display:none">0</span>
+</button>
+<div id="chat-pane">
+  <div class="chat-header">
+    <h3>💬 Chat <span style="font-size:.6rem;color:var(--muted);font-weight:400;margin-left:6px">Mirror of Signal</span></h3>
+    <button class="chat-close" onclick="toggleChat()">✕</button>
+  </div>
+  <div id="chat-messages"></div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="Type a message or command…" onkeydown="if(event.key==='Enter')sendChatMsg()" autocomplete="off" />
+    <button onclick="sendChatMsg()">Send</button>
+  </div>
+</div>
+
+<script>
+// ── Chat Pane Logic ──────────────────────────────────────────────
+let _chatOpen = false;
+let _chatUnread = 0;
+let _chatLastSeen = 0;
+
+function toggleChat() {
+  _chatOpen = !_chatOpen;
+  document.getElementById('chat-pane').classList.toggle('open', _chatOpen);
+  if (_chatOpen) {
+    _chatUnread = 0;
+    document.getElementById('chat-unread').style.display = 'none';
+    const msgs = document.getElementById('chat-messages');
+    msgs.scrollTop = msgs.scrollHeight;
+    document.getElementById('chat-input').focus();
+  }
+}
+
+function sendChatMsg() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  input.disabled = true;
+
+  // Add optimistic user bubble
+  _addChatBubble('user', text, 'dashboard', new Date().toISOString());
+
+  // Write to Firestore chat_inbox
+  const { addDoc, collection, Timestamp } = window._fb;
+  addDoc(collection(window._db, 'chat_inbox'), {
+    text: text,
+    status: 'pending',
+    ts: new Date().toISOString(),
+  }).then(() => {
+    input.disabled = false;
+    input.focus();
+  }).catch(err => {
+    console.error('Chat send failed:', err);
+    input.disabled = false;
+    _addChatBubble('assistant', 'Failed to send: ' + err.message, 'dashboard', new Date().toISOString());
+  });
+}
+
+function sendCmd(cmd) {
+  // Open chat pane and send the command
+  if (!_chatOpen) toggleChat();
+  document.getElementById('chat-input').value = cmd;
+  sendChatMsg();
+}
+
+function _addChatBubble(role, text, source, ts) {
+  const msgs = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  const time = ts ? new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+  const srcLabel = source === 'dashboard' ? '📱 Dashboard' : '📡 Signal';
+  // Truncate long messages in bubble
+  const displayText = text.length > 800 ? text.substring(0, 800) + '…' : text;
+  div.innerHTML = displayText.replace(/\n/g, '<br>') +
+    '<div class="src">' + srcLabel + ' · <span class="ts">' + time + '</span></div>';
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  // Update unread counter if chat is closed
+  if (!_chatOpen && role === 'assistant') {
+    _chatUnread++;
+    const badge = document.getElementById('chat-unread');
+    badge.textContent = _chatUnread;
+    badge.style.display = '';
+  }
+}
+
+// Firestore listener for chat_messages — real-time sync
+function _initChatListener() {
+  if (!window._db || !window._fb) return;
+  const { collection, query, orderBy, limit, onSnapshot } = window._fb;
+  const q = query(collection(window._db, 'chat_messages'), orderBy('ts', 'desc'), limit(50));
+  let first = true;
+  onSnapshot(q, snap => {
+    if (first) {
+      // Initial load — render all messages (oldest first)
+      first = false;
+      const msgs = [];
+      snap.forEach(d => msgs.push(d.data()));
+      msgs.reverse();
+      const container = document.getElementById('chat-messages');
+      container.innerHTML = '';
+      msgs.forEach(m => _addChatBubble(m.role, m.text, m.source || 'signal', m.ts));
+    } else {
+      // Incremental — only new messages
+      snap.docChanges().forEach(change => {
+        if (change.type === 'added') {
+          const m = change.doc.data();
+          _addChatBubble(m.role, m.text, m.source || 'signal', m.ts);
+        }
+      });
+    }
+  });
+}
+
+// Hook into existing Firebase init
+(function() {
+  const origInit = window._onFirebaseReady || function(){};
+  const checkAndInit = setInterval(() => {
+    if (window._db && window._fb) {
+      clearInterval(checkAndInit);
+      _initChatListener();
+    }
+  }, 500);
+})();
 </script>
 </body>
 </html>

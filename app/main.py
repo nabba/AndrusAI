@@ -30,7 +30,7 @@ from app.workspace_sync import setup_workspace_repo, sync_workspace
 from app.firebase_reporter import (
     report_system_online, report_system_offline, heartbeat, report_schedule,
     cleanup_stale_tasks, report_llm_mode, start_mode_listener,
-    start_kb_queue_poller,
+    start_kb_queue_poller, report_chat_message, start_chat_inbox_poller,
 )
 from app import idle_scheduler
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -320,6 +320,28 @@ async def lifespan(app: FastAPI):
     start_mode_listener()
     start_kb_queue_poller()
 
+    # Chat inbox poller — processes messages sent from the dashboard
+    # and delivers them through the same Commander pipeline as Signal
+    async def _handle_chat_message(text: str) -> str:
+        """Process a dashboard chat message through Commander, same as Signal."""
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            _commander_pool, commander.handle, text, settings.signal_owner_number, []
+        )
+        # Also send to Signal so the user sees it there too
+        try:
+            await signal_client.send(settings.signal_owner_number, f"[Dashboard] {text}")
+            from app.agents.commander import _MAX_RESPONSE_LENGTH, truncate_for_signal
+            if len(result) > _MAX_RESPONSE_LENGTH:
+                await signal_client.send(settings.signal_owner_number, truncate_for_signal(result))
+            else:
+                await signal_client.send(settings.signal_owner_number, result)
+        except Exception:
+            logger.debug("Failed to mirror chat response to Signal", exc_info=True)
+        return result
+
+    start_chat_inbox_poller(_handle_chat_message)
+
     # Idle scheduler — run background work (self-improvement, retrospective, evolution)
     # during idle time. Kill switch read from Firestore config/background_tasks.
     bg_enabled = await asyncio.to_thread(idle_scheduler.read_background_enabled)
@@ -483,6 +505,9 @@ async def handle_task(sender: str, text: str, attachments: list = None,
             att_note = f" [+{len(attachments)} attachment(s)]"
         add_message(sender, "user", text + att_note)
 
+        # Mirror to dashboard chat (so dashboard users see Signal messages)
+        report_chat_message("user", text + att_note, source="signal")
+
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             _commander_pool, commander.handle, text, sender, attachments or []
@@ -491,6 +516,9 @@ async def handle_task(sender: str, text: str, attachments: list = None,
 
         # Persist the assistant reply (full text for conversation history)
         add_message(sender, "assistant", result)
+
+        # Mirror to dashboard chat (so dashboard users see Signal responses)
+        report_chat_message("assistant", result, source="signal")
 
         # Extract facts into Mem0 persistent memory (fire-and-forget background task)
         asyncio.get_running_loop().run_in_executor(None, _extract_to_mem0, text, result)

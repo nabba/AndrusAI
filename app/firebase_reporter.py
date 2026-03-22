@@ -1116,3 +1116,123 @@ def start_kb_queue_poller() -> None:
     t = threading.Thread(target=_poll_kb, daemon=True, name="firebase-kb-poll")
     t.start()
     logger.info("firebase_reporter: KB queue poller started (10s interval)")
+
+
+# ── Bidirectional chat (dashboard ↔ Signal) ────────────────────────────────
+
+def report_chat_message(role: str, text: str, source: str = "signal") -> None:
+    """Write a chat message to Firestore so dashboard sees it in real time.
+
+    Args:
+        role:   "user" or "assistant"
+        text:   message content
+        source: "signal" or "dashboard" (where it originated)
+    """
+    def _write():
+        db = _get_db()
+        if not db:
+            return
+        try:
+            db.collection("chat_messages").add({
+                "role": role,
+                "text": text[:4000],
+                "source": source,
+                "ts": _now_iso(),
+            })
+            # Trim to last 100 messages to prevent unbounded growth
+            _trim_chat_messages(db)
+        except Exception:
+            logger.debug("firebase_reporter: chat message write failed", exc_info=True)
+    _fire(_write)
+
+
+def _trim_chat_messages(db, max_messages: int = 100) -> None:
+    """Keep only the most recent max_messages in chat_messages."""
+    try:
+        from google.cloud.firestore_v1 import Query
+        docs = (
+            db.collection("chat_messages")
+            .order_by("ts", direction=Query.DESCENDING)
+            .offset(max_messages)
+            .limit(50)
+            .stream()
+        )
+        for doc in docs:
+            doc.reference.delete()
+    except Exception:
+        pass
+
+
+def start_chat_inbox_poller(handle_fn) -> None:
+    """Poll Firestore chat_inbox for messages sent from the dashboard.
+
+    When a new message is found, calls handle_fn(text) which should
+    process it exactly like a Signal message and return the response.
+    The response is then written back to chat_messages AND sent via Signal.
+
+    Args:
+        handle_fn: async function(text: str) -> str — processes the message
+    """
+    import asyncio
+
+    _stop = threading.Event()
+
+    def _poll():
+        db = _get_db()
+        if not db:
+            logger.warning("firebase_reporter: chat inbox poller — no Firestore, skipping")
+            return
+
+        logger.info("firebase_reporter: chat inbox poller started (3s interval)")
+        while not _stop.is_set():
+            try:
+                docs = (
+                    db.collection("chat_inbox")
+                    .where("status", "==", "pending")
+                    .limit(5)
+                    .stream()
+                )
+                for snap in docs:
+                    data = snap.to_dict()
+                    text = (data.get("text") or "").strip()
+                    if not text:
+                        snap.reference.update({"status": "empty"})
+                        continue
+
+                    # Mark as processing immediately
+                    snap.reference.update({"status": "processing"})
+                    logger.info(f"firebase_reporter: chat inbox message: {text[:80]}")
+
+                    # Write the user message to chat_messages so Signal users see it
+                    report_chat_message("user", text, source="dashboard")
+
+                    # Process via the same handler as Signal
+                    try:
+                        loop = asyncio.new_event_loop()
+                        result = loop.run_until_complete(handle_fn(text))
+                        loop.close()
+
+                        # Write assistant response to chat_messages
+                        report_chat_message("assistant", result, source="dashboard")
+
+                        snap.reference.update({
+                            "status": "done",
+                            "response": result[:4000],
+                            "processed_at": _now_iso(),
+                        })
+                    except Exception as e:
+                        snap.reference.update({
+                            "status": "error",
+                            "error": str(e)[:200],
+                            "processed_at": _now_iso(),
+                        })
+                        report_chat_message("assistant", f"Error: {str(e)[:200]}", source="dashboard")
+
+            except Exception:
+                logger.debug("firebase_reporter: chat inbox poll error", exc_info=True)
+
+            _stop.wait(3)  # Poll every 3 seconds for responsive chat
+
+    t = threading.Thread(target=_poll, daemon=True, name="firebase-chat-poll")
+    t.start()
+    logger.info("firebase_reporter: chat inbox poller started (3s interval)")

@@ -38,6 +38,23 @@ service cloud.firestore {
       allow update: if true;  // backend updates status to done/error
     }
 
+    // Chat messages — backend writes, dashboard reads
+    match /chat_messages/{doc} {
+      allow read: if true;
+      allow write: if false;  // backend-only via admin SDK
+    }
+
+    // Chat inbox — dashboard creates pending messages, backend processes them
+    match /chat_inbox/{doc} {
+      allow read: if true;
+      allow create: if request.resource.data.status == 'pending'
+                    && request.resource.data.keys().hasAll(['text', 'status', 'ts'])
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() > 0
+                    && request.resource.data.text.size() <= 4000;
+      allow update: if true;  // backend updates status to done/error
+    }
+
     // Deny everything else
     match /{document=**} { allow read, write: if false; }
   }
