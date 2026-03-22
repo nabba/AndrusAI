@@ -12,6 +12,7 @@ Architecture:
 """
 
 import logging
+import threading
 import time
 from crewai import LLM
 from app.config import get_settings, get_anthropic_api_key
@@ -23,8 +24,18 @@ from app import circuit_breaker
 
 logger = logging.getLogger(__name__)
 
-_last_model_name: str | None = None
-_last_tier: str | None = None
+# Thread-local storage for last model/tier — prevents race conditions
+# when multiple crews process concurrently in the commander thread pool (Q7).
+_tls = threading.local()
+
+
+def _get_last(attr: str) -> str | None:
+    return getattr(_tls, attr, None)
+
+
+def _set_last(model: str | None, tier: str | None) -> None:
+    _tls.last_model_name = model
+    _tls.last_tier = tier
 
 
 def create_commander_llm() -> LLM:
@@ -59,7 +70,7 @@ def create_specialist_llm(
     If force_tier is set (e.g. from difficulty-based routing), it overrides
     the default tier selection from llm_selector.
     """
-    global _last_model_name, _last_tier
+    # Q7: thread-local last model/tier tracking
     from app.llm_mode import get_mode
     settings = get_settings()
     mode = get_mode()
@@ -178,16 +189,16 @@ def create_cheap_vetting_llm() -> LLM:
 
 
 def is_using_local() -> bool:
-    return _last_tier == "local"
+    return _get_last("last_tier") == "local"
 
 def is_using_api_tier() -> bool:
-    return _last_tier in ("budget", "mid")
+    return _get_last("last_tier") in ("budget", "mid")
 
 def get_last_model() -> str | None:
-    return _last_model_name
+    return _get_last("last_model_name")
 
 def get_last_tier() -> str | None:
-    return _last_tier
+    return _get_last("last_tier")
 
 
 # ── INSANE mode role → model mapping ──────────────────────────────────────
@@ -215,14 +226,13 @@ _INSANE_ROLE_MAP = {
 
 def _insane_mode_select(role: str, max_tokens: int) -> LLM:
     """INSANE mode: premium-only models — Opus, Gemini 3.1 Pro, Sonnet."""
-    global _last_model_name, _last_tier
+    # Q7: thread-local last model/tier tracking
     model_name = _INSANE_ROLE_MAP.get(role, "claude-sonnet-4.6")
     entry = get_model(model_name)
     if not entry:
         return _claude_fallback(role, max_tokens)
 
-    _last_model_name = model_name
-    _last_tier = "premium"
+    _set_last(model_name, "premium")
 
     if entry["provider"] == "anthropic":
         logger.info(f"llm_factory: [INSANE] role={role} → ANTHROPIC {model_name}")
@@ -249,7 +259,7 @@ def _insane_mode_select(role: str, max_tokens: int) -> LLM:
 
 
 def _try_local(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | None:
-    global _last_model_name, _last_tier
+    # Q7: thread-local last model/tier tracking
     if not circuit_breaker.is_available("ollama"):
         logger.info(f"llm_factory: skipping Ollama (circuit open)")
         return None
@@ -259,8 +269,7 @@ def _try_local(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM 
         url = spawn_model(model_name)
         spawn_ms = int((time.monotonic() - start) * 1000)
         if url:
-            _last_model_name = model_name
-            _last_tier = "local"
+            _set_last(model_name, "local")
             circuit_breaker.record_success("ollama")
             logger.info(f"llm_factory: role={role} → LOCAL {model_name} at {url} (spawn: {spawn_ms}ms)")
             return LLM(model=entry["model_id"], base_url=url, max_tokens=max_tokens)
@@ -272,7 +281,7 @@ def _try_local(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM 
 
 
 def _try_api(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | None:
-    global _last_model_name, _last_tier
+    # Q7: thread-local last model/tier tracking
     if not circuit_breaker.is_available("openrouter"):
         logger.info(f"llm_factory: skipping OpenRouter (circuit open)")
         return None
@@ -282,8 +291,7 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | 
         logger.warning("llm_factory: OpenRouter API key not set, skipping API tier")
         return None
     try:
-        _last_model_name = model_name
-        _last_tier = entry["tier"]
+        _set_last(model_name, entry["tier"])
         circuit_breaker.record_success("openrouter")
         logger.info(f"llm_factory: role={role} → API {model_name} (${entry['cost_output_per_m']:.2f}/Mo)")
         return LLM(
@@ -295,22 +303,19 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | 
     except Exception as exc:
         circuit_breaker.record_failure("openrouter")
         logger.warning(f"llm_factory: API {model_name} failed: {exc}")
-        _last_model_name = None
-        _last_tier = None
+        _set_last(None, None)
     return None
 
 
 def _create_anthropic(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM:
-    global _last_model_name, _last_tier
-    _last_model_name = model_name
-    _last_tier = entry["tier"]
+    # Q7: thread-local last model/tier tracking
+    _set_last(model_name, entry["tier"])
     logger.info(f"llm_factory: role={role} → ANTHROPIC {model_name} (${entry['cost_output_per_m']:.2f}/Mo)")
     return LLM(model=entry["model_id"], api_key=get_anthropic_api_key(), max_tokens=max_tokens)
 
 
 def _claude_fallback(role: str, max_tokens: int) -> LLM:
-    global _last_model_name, _last_tier
-    _last_model_name = "claude-sonnet-4.6"
-    _last_tier = "premium"
+    # Q7: thread-local last model/tier tracking
+    _set_last("claude-sonnet-4.6", "premium")
     logger.info(f"llm_factory: role={role} → FALLBACK Claude Sonnet 4.6")
     return LLM(model="anthropic/claude-sonnet-4-6", api_key=get_anthropic_api_key(), max_tokens=max_tokens)

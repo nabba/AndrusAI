@@ -159,15 +159,19 @@ def web_fetch(url: str) -> str:
             return f"URL blocked: {ip_reason}"
 
         # Extract with trafilatura from already-fetched HTML (no second request)
+        # Q13: Limit to 12000 chars (~3K tokens) — keeps room in the model's
+        # context window for system prompt, tools, task, and other search results.
+        # Original 32K could fill a 32K-context local model entirely.
+        _MAX_TEXT_CHARS = 12000
         text = trafilatura.extract(html_text)
         if text:
-            return text[:32000]
+            return text[:_MAX_TEXT_CHARS]
 
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(html_text, "html.parser")
         for tag in soup(["script", "style", "nav", "footer", "header"]):
             tag.decompose()
         text = soup.get_text(separator="\n", strip=True)
-        return text[:32000]
+        return text[:_MAX_TEXT_CHARS]
     except Exception:
         return "Fetch error: unable to retrieve URL content."

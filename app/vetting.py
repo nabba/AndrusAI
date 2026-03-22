@@ -251,30 +251,85 @@ def _verify_cheap(user_request: str, response: str, crew_name: str) -> tuple[boo
         return False, response
 
 
+_FULL_VETTING_PROMPT = """\
+You are a quality gate reviewing AI output before delivery to a user.
+
+USER REQUEST:
+{request}
+
+AI RESPONSE TO REVIEW:
+{response}
+
+TASK: Check this response for factual errors, hallucinated URLs/data, \
+and completeness. Reply with EXACTLY this JSON format:
+
+{{"verdict": "PASS"}} — if the response is accurate and complete.
+
+{{"verdict": "FAIL", "issues": ["issue1", "issue2"], "corrected": "..."}} — \
+if there are factual errors. "corrected" must contain the ORIGINAL response \
+with ONLY the incorrect parts fixed. Do NOT rewrite, rephrase, shorten, \
+or add commentary. Preserve the original structure, data points, and sources. \
+Only change what is factually wrong.
+
+Reply with the JSON object ONLY — no markdown fences, no prose.
+"""
+
+
 def _verify_full(user_request: str, response: str, crew_name: str) -> str:
-    """Full Claude Sonnet verification — the original vetting logic.
+    """Full Claude Sonnet verification — pass/fail with targeted corrections only.
+
+    Changed from rewrite mode to pass/fail+correct (Q3): Sonnet returns the
+    original response with only factual errors fixed, preserving all data
+    points, sources, and structure from the original.
 
     Includes L4 conscience check for irreversible/high-impact actions.
     """
     try:
         llm = _get_full_vetting_llm()
-        prompt_template = VETTING_PROMPTS.get(crew_name, DEFAULT_VETTING_PROMPT)
-        prompt = prompt_template.format(
+        prompt = _FULL_VETTING_PROMPT.format(
             request=user_request[:800],
             response=response[:6000],
         )
         # Direct LLM call — no Agent/Task/Crew overhead
-        vetted = str(llm.call(prompt)).strip()
-        if vetted and len(vetted) > 20:
-            logger.info(f"vetting[full]: {crew_name} vetted ({len(response)}→{len(vetted)} chars)")
+        raw = str(llm.call(prompt)).strip()
 
-            # L4: Conscience check — flag irreversible actions
-            conscience_ok, conscience_reason = _conscience_check(vetted)
-            if not conscience_ok:
-                logger.warning(f"vetting[conscience]: {conscience_reason}")
-                vetted += f"\n\nNote: {conscience_reason}"
+        # Parse structured verdict
+        from app.utils import safe_json_parse
+        parsed, err = safe_json_parse(raw)
 
-            return vetted
+        if parsed and isinstance(parsed, dict):
+            verdict = parsed.get("verdict", "").upper()
+            if verdict == "PASS":
+                logger.info(f"vetting[full]: {crew_name} PASSED")
+                result = response  # return ORIGINAL unchanged
+            elif verdict == "FAIL":
+                issues = parsed.get("issues", [])
+                corrected = parsed.get("corrected", "")
+                logger.info(f"vetting[full]: {crew_name} FAILED: {issues}")
+                # Use corrected version if provided and substantive
+                if corrected and len(corrected) > len(response) * 0.5:
+                    result = corrected
+                else:
+                    result = response  # corrections too aggressive, keep original
+            else:
+                logger.warning(f"vetting[full]: unexpected verdict '{verdict}', keeping original")
+                result = response
+        else:
+            # Couldn't parse JSON — check if it's a plain PASS/FAIL
+            if raw.upper().startswith("PASS"):
+                logger.info(f"vetting[full]: {crew_name} PASSED (plain text)")
+                result = response
+            else:
+                logger.warning(f"vetting[full]: unparseable response, keeping original")
+                result = response
+
+        # L4: Conscience check — flag irreversible actions
+        conscience_ok, conscience_reason = _conscience_check(result)
+        if not conscience_ok:
+            logger.warning(f"vetting[conscience]: {conscience_reason}")
+            result += f"\n\nNote: {conscience_reason}"
+
+        return result
 
     except Exception as exc:
         logger.warning(f"vetting[full]: failed ({exc}), returning unvetted response")

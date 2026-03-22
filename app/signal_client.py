@@ -17,6 +17,47 @@ MAX_SIGNAL_LENGTH = 1500
 _MAX_RESPONSE_BYTES = 65536
 
 
+def _chunk_at_sentences(text: str, max_len: int) -> list[str]:
+    """Split text into chunks at sentence/paragraph boundaries (Q12).
+
+    Avoids breaking mid-word or mid-URL. Falls back to hard cut if no
+    good boundary is found within the chunk.
+    """
+    if len(text) <= max_len:
+        return [text]
+
+    chunks = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_len:
+            chunks.append(remaining)
+            break
+        # Try to find a good cut point within the budget
+        window = remaining[:max_len]
+        # Prefer paragraph boundary
+        cut = window.rfind("\n\n")
+        if cut > max_len // 3:
+            chunks.append(remaining[:cut].rstrip())
+            remaining = remaining[cut:].lstrip("\n")
+            continue
+        # Then sentence boundary (". " followed by uppercase or newline)
+        cut = window.rfind(". ")
+        if cut > max_len // 3:
+            chunks.append(remaining[:cut + 1])
+            remaining = remaining[cut + 2:]
+            continue
+        # Then any newline
+        cut = window.rfind("\n")
+        if cut > max_len // 3:
+            chunks.append(remaining[:cut])
+            remaining = remaining[cut + 1:]
+            continue
+        # Hard cut at max_len (last resort)
+        chunks.append(remaining[:max_len])
+        remaining = remaining[max_len:]
+    return chunks
+
+
 class SignalClient:
     async def react(self, recipient: str, emoji: str,
                     target_author: str, target_timestamp: int):
@@ -141,13 +182,10 @@ class SignalClient:
             logger.error("Blocked attempt to send to non-owner recipient")
             return
 
-        # If no attachments, chunk long messages and send sequentially
+        # If no attachments, chunk long messages at sentence boundaries (Q12)
         # (parallel sends via gather don't guarantee delivery order)
         if not attachments:
-            chunks = [
-                text[i : i + MAX_SIGNAL_LENGTH]
-                for i in range(0, len(text), MAX_SIGNAL_LENGTH)
-            ]
+            chunks = _chunk_at_sentences(text, MAX_SIGNAL_LENGTH)
             for chunk in chunks:
                 await asyncio.to_thread(self._send_sync, recipient, chunk)
         else:

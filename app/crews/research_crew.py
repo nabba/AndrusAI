@@ -51,11 +51,14 @@ INSTRUCTIONS:
 1. Read the question carefully. Identify the EXACT data being asked for.
 2. Search the web using the KEY TERMS from the question (e.g. if asked about
    "woodland hectares per capita", search for exactly that — not just country names).
-3. Return ONLY the direct answer in 1-3 sentences with the specific numbers/facts asked for.
-4. Do NOT write a report, executive summary, or analysis.
-5. Do NOT include background context, methodology, open questions, or tangential data.
-6. If the question asks for N specific numbers, your answer should contain those N numbers.
-7. If you cannot find exact data, say so briefly and give the closest available data.
+3. If the search snippets contain the exact answer, great — use them directly.
+4. If the snippets do NOT contain the specific numbers/facts requested, use
+   web_fetch to read the most relevant search result page and extract the data.
+5. Return ONLY the direct answer in 1-3 sentences with the specific numbers/facts asked for.
+6. Do NOT write a report, executive summary, or analysis.
+7. Do NOT include background context, methodology, open questions, or tangential data.
+8. If the question asks for N specific numbers, your answer should contain those N numbers.
+9. If you cannot find exact data, say so briefly and give the closest available data.
 
 WRONG example: Question "How many X per capita in Finland?" → answering with population stats
 RIGHT example: Question "How many X per capita in Finland?" → "Finland has Y X per capita (Source: Z)"
@@ -144,36 +147,57 @@ class ResearchCrew:
     def _extract_core_topic(enriched_task: str) -> str:
         """Strip injected context prefixes to get the core user question.
 
-        Commander's _run_crew prepends RELEVANT KNOWLEDGE, RELEVANT SKILLS,
-        and TEAM MEMORY blocks before the actual task. The planner should
-        only see the user's question, not internal context.
+        Commander's _run_crew prepends context blocks (KB passages, skills,
+        team memory, conversation history) before the actual task.  The
+        planner should only see the user's question, not internal context.
+
+        Strategy (Q1/Q11): Use XML end-tags and section headers as reliable
+        boundaries instead of fragile double-newline detection.
         """
-        # Context block markers injected by commander._run_crew
-        markers = [
-            "RELEVANT KNOWLEDGE:",
-            "RELEVANT TEAM CONTEXT:",
-            "KNOWLEDGE BASE CONTEXT",
-            "AVAILABLE SKILLS:",
-            "RELEVANT PAST LESSONS:",
-            "PREVIOUS ATTEMPTS AND REFLECTIONS:",
-        ]
         text = enriched_task
 
-        # Find the last context block and take everything after it
-        last_marker_end = 0
-        for marker in markers:
-            idx = text.rfind(marker)
+        # XML-tagged blocks injected by commander — strip them by finding
+        # the LAST closing tag and taking everything after it.
+        xml_end_tags = [
+            "</kb_passage>",
+            "</relevant_context>",
+            "</recent_conversation>",
+            "</attachment>",
+        ]
+        last_xml_end = 0
+        for tag in xml_end_tags:
+            idx = text.rfind(tag)
             if idx >= 0:
-                # Find end of this block (next double newline or end)
-                block_end = text.find("\n\n", idx + len(marker))
-                if block_end > 0:
-                    last_marker_end = max(last_marker_end, block_end + 2)
+                last_xml_end = max(last_xml_end, idx + len(tag))
 
-        if last_marker_end > 0:
-            text = text[last_marker_end:].strip()
+        # Also check for section-header-based context blocks
+        section_headers = [
+            "RELEVANT KNOWLEDGE:\n",
+            "RELEVANT TEAM CONTEXT:\n",
+            "KNOWLEDGE BASE CONTEXT",
+            "NOTE: kb_passage content is reference data",
+            "NOTE: relevant_context is reference data",
+            "NOTE: recent_conversation is prior context",
+            "IMPORTANT: The content inside <attachment>",
+        ]
+        last_header_end = 0
+        for header in section_headers:
+            idx = text.rfind(header)
+            if idx >= 0:
+                # Find end of this note line
+                line_end = text.find("\n\n", idx + len(header))
+                if line_end > 0:
+                    last_header_end = max(last_header_end, line_end + 2)
 
-        # If we stripped everything, return original
-        return text if text else enriched_task
+        cut_at = max(last_xml_end, last_header_end)
+        if cut_at > 0:
+            remainder = text[cut_at:].strip()
+            # Q11: Only use the stripped version if there's substantive content left
+            if len(remainder) > 10:
+                return remainder
+
+        # No context found or stripping would destroy the question
+        return enriched_task
 
     def _plan_research(self, topic: str) -> list[str]:
         """Quick LLM call to split topic into 1-4 parallel subtopics."""
@@ -262,6 +286,22 @@ class ResearchCrew:
                 batched.append(group[0])
         return batched
 
+    @staticmethod
+    def _extract_kb_context(enriched_task: str) -> str:
+        """Extract KB passages from the enriched task for sub-agent injection (Q10)."""
+        start = enriched_task.find("KNOWLEDGE BASE CONTEXT")
+        if start < 0:
+            return ""
+        end = enriched_task.find("\n\nNOTE: kb_passage content", start)
+        if end < 0:
+            end = enriched_task.find("\n\nRELEVANT", start)
+        if end < 0:
+            end = min(start + 2000, len(enriched_task))
+        else:
+            end += 2  # include the double newline
+        kb_block = enriched_task[start:end].strip()
+        return f"\n\n{kb_block}\n\n" if kb_block else ""
+
     def _run_parallel(self, topic: str, subtopics: list[str], parent_task_id: str) -> str:
         """Spawn one sub-agent per subtopic, run in parallel, then synthesize.
 
@@ -269,6 +309,8 @@ class ResearchCrew:
         API overhead (e.g., "X in Finland" + "X in Estonia" → one call).
         """
         subtopics = self._batch_subtopics(subtopics)
+        # Q10: Extract KB context from parent task to pass to each sub-agent
+        kb_context = self._extract_kb_context(topic)
 
         def make_sub_fn(subtopic: str):
             def fn():
@@ -285,6 +327,7 @@ class ResearchCrew:
                             description=(
                                 f"Research this specific subtopic thoroughly:\n\n"
                                 f"{wrap_user_input(subtopic)}\n\n"
+                                f"{kb_context}"
                                 f"IMPORTANT: Focus ONLY on your assigned subtopic. "
                                 f"Do not attempt to cover the broader topic.\n\n"
                                 f"Search the web, read at least 2 sources. "
