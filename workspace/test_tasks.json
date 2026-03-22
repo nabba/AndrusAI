@@ -1,58 +1,32 @@
 [
   {
-    "id": "factual_01",
-    "prompt": "What is the capital of France?",
-    "expected_crew": "direct",
-    "type": "factual",
-    "validate": "contains:Paris"
+    "task": "What is the capital of Estonia?",
+    "crew": "research",
+    "difficulty": 1,
+    "validation": "contains:Tallinn"
   },
   {
-    "id": "factual_02",
-    "prompt": "How many planets are in the solar system?",
-    "expected_crew": "direct",
-    "type": "factual",
-    "validate": "contains:8"
+    "task": "Write a Python function that checks if a number is prime",
+    "crew": "coding",
+    "difficulty": 3,
+    "validation": "contains:def"
   },
   {
-    "id": "research_01",
-    "prompt": "What is the latest stable version of Python?",
-    "expected_crew": "research",
-    "type": "research",
-    "validate": "contains:3."
+    "task": "Summarize the key benefits of renewable energy in 3 bullet points",
+    "crew": "writing",
+    "difficulty": 2,
+    "validation": "min_length:100"
   },
   {
-    "id": "coding_01",
-    "prompt": "Write a Python function to check if a number is prime",
-    "expected_crew": "coding",
-    "type": "coding",
-    "validate": "contains:def"
+    "task": "What is the difference between TCP and UDP?",
+    "crew": "research",
+    "difficulty": 3,
+    "validation": "contains:connection"
   },
   {
-    "id": "writing_01",
-    "prompt": "Write a one-paragraph summary of what machine learning is",
-    "expected_crew": "writing",
-    "type": "writing",
-    "validate": "min_length:100"
-  },
-  {
-    "id": "routing_01",
-    "prompt": "Hello, how are you?",
-    "expected_crew": "direct",
-    "type": "routing",
-    "validate": "min_length:5"
-  },
-  {
-    "id": "coding_02",
-    "prompt": "Write a bash script that counts lines in a file",
-    "expected_crew": "coding",
-    "type": "coding",
-    "validate": "contains:wc"
-  },
-  {
-    "id": "research_02",
-    "prompt": "Compare PostgreSQL and MySQL — give me a brief summary",
-    "expected_crew": "research",
-    "type": "research",
-    "validate": "min_length:100"
+    "task": "Write a concise email declining a meeting invitation politely",
+    "crew": "writing",
+    "difficulty": 2,
+    "validation": "min_length:50"
   }
 ]

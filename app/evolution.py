@@ -154,9 +154,13 @@ def _propose_mutation(context: str, tried_hashes: set[str]) -> MutationSpec | No
             "3. A small improvement that adds ugly complexity is NOT worth it\n"
             "4. Removing something and getting equal/better results IS worth it\n"
             "5. NEVER REPEAT — check experiment history, don't retry failed ideas\n"
-            "6. PRIORITIZE — fix errors first, then expand capabilities\n"
-            "7. MEASURE — your change will be tested with before/after metrics\n"
-            "8. Read program.md research directions for guidance on what to try"
+            "6. PRIORITIZE — fix errors first with CODE proposals, then expand capabilities\n"
+            "7. MEASURE — your change will be tested with ACTUAL tasks, not just metrics\n"
+            "8. Read program.md research directions for guidance on what to try\n"
+            "9. Do NOT create skill files about error handling or API errors — "
+            "those need CODE fixes, not knowledge files\n"
+            "10. Skill files should teach domain knowledge (topics the team researches), "
+            "NOT system infrastructure knowledge"
         ),
         llm=llm,
         tools=[web_search, file_manager] + memory_tools,
@@ -172,10 +176,12 @@ def _propose_mutation(context: str, tried_hashes: set[str]) -> MutationSpec | No
             f"## Your Task\n"
             f"1. Read the research directions in program.md section above\n"
             f"2. Identify the HIGHEST-IMPACT improvement opportunity:\n"
-            f"   - Recurring errors → fix the root cause (highest priority)\n"
-            f"   - Missing skills → research and create them\n"
-            f"   - Capability gaps → propose new skills\n"
-            f"   - Inefficiencies → simplify or optimize\n\n"
+            f"   - Recurring errors → propose a CODE fix (highest priority, NOT a skill file)\n"
+            f"   - Missing domain knowledge → research and create a skill file\n"
+            f"   - Capability gaps → propose CODE for new tools/features\n"
+            f"   - Inefficiencies → propose CODE simplifications\n\n"
+            f"IMPORTANT: If there are undiagnosed errors, you MUST propose a code fix.\n"
+            f"Do NOT create skill files about error handling — those don't fix bugs.\n\n"
             f"3. Execute ONE of these actions:\n\n"
             f"   a) SKILL (immediate, tested): Research a topic and save a skill file "
             f"using file_manager (action 'write', path 'skills/<name>.md'). "
@@ -373,25 +379,59 @@ def run_evolution_session(max_iterations: int = 5) -> str:
         return f"Evolution session failed: {str(exc)[:200]}"
 
 
+def _run_test_tasks() -> tuple[int, int]:
+    """R3: Run test tasks and count pass/fail.
+
+    Returns (passed, total). Uses test_tasks.json if it exists.
+    Only runs a quick sample (max 2 tasks) to keep evolution cycles fast.
+    """
+    from app.experiment_runner import load_test_tasks, validate_response
+    tasks = load_test_tasks()
+    if not tasks:
+        return 0, 0
+
+    # Pick a random sample of 2 tasks for speed
+    import random
+    sample = random.sample(tasks, min(2, len(tasks)))
+    passed = 0
+    total = len(sample)
+
+    for test in sample:
+        try:
+            task_text = test.get("task", "")
+            crew = test.get("crew", "research")
+            difficulty = test.get("difficulty", 3)
+            rule = test.get("validation", "")
+
+            # Run through the actual crew pipeline (lightweight — difficulty capped at 3)
+            from app.agents.commander import Commander
+            commander = Commander()
+            result = commander._run_crew(crew, task_text, difficulty=min(difficulty, 3))
+
+            if validate_response(result, rule):
+                passed += 1
+                logger.info(f"Test task PASS: {task_text[:50]}")
+            else:
+                logger.info(f"Test task FAIL: {task_text[:50]} (validation: {rule})")
+        except Exception as exc:
+            logger.warning(f"Test task ERROR: {test.get('task', '')[:50]}: {exc}")
+
+    return passed, total
+
+
 def _measure_skill_impact(
     runner: ExperimentRunner, mutation: MutationSpec
 ) -> "ExperimentResult":
     """
     Measure the impact of a skill file that was already saved by the agent.
 
-    Strategy: the file is already on disk. We measure current metrics (with file),
-    then record the result. If metrics are worse than before, revert.
+    R3: Now runs actual test tasks (if test_tasks.json exists) in addition
+    to checking composite_score. This prevents metric gaming — skills must
+    actually help with real tasks to be kept.
     """
     from app.experiment_runner import ExperimentResult
 
-    # The file was already written by the evolution agent via file_manager.
-    # We measure current score as "after" and use the ledger's last known score as "before".
-    try:
-        after = composite_score()
-    except Exception:
-        after = 0.5
-
-    # Get baseline from the most recent "keep" result, or use 0.5
+    # Get baseline score
     recent = get_recent_results(5)
     baseline = 0.5
     for r in reversed(recent):
@@ -399,21 +439,36 @@ def _measure_skill_impact(
             baseline = r["metric_after"]
             break
 
+    # R3: Run test tasks with the new skill in place
+    test_passed, test_total = _run_test_tasks()
+
+    try:
+        after = composite_score()
+    except Exception:
+        after = 0.5
+
     delta = after - baseline
+
+    # R3: If test tasks exist and skill didn't help pass more, discount delta
+    if test_total > 0 and test_passed < test_total:
+        # Skill didn't help all test tasks — reduce effective delta
+        test_ratio = test_passed / test_total
+        if test_ratio < 0.5:
+            delta = min(delta, -0.001)  # force discard if tests mostly fail
+            logger.info(f"Skill penalized: only {test_passed}/{test_total} test tasks passed")
 
     # Keep if not harmful
     if delta >= -0.005:
         status = "keep"
-        detail = f"Skill kept (delta={delta:+.4f})"
+        detail = f"Skill kept (delta={delta:+.4f}, tests={test_passed}/{test_total})"
     else:
         status = "discard"
-        # Revert: delete the skill file
         for rel_path in mutation.files:
             full_path = Path("/app/workspace") / rel_path
             if full_path.exists():
                 full_path.unlink()
                 logger.info(f"Reverted skill: {rel_path}")
-        detail = f"Skill reverted — score decreased by {abs(delta):.4f}"
+        detail = f"Skill reverted (delta={delta:+.4f}, tests={test_passed}/{test_total})"
 
     result = ExperimentResult(
         experiment_id=mutation.experiment_id,

@@ -166,13 +166,31 @@ def _deploy_locked(reason: str) -> str:
         if dest.exists():
             backup_file = backup / rel
             backup_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(dest, backup_file)
+            try:
+                shutil.copy2(dest, backup_file)
+            except OSError:
+                pass  # backup is best-effort
 
-        # Copy new version
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, dest)
-        deployed.append(str(rel))
-        logger.info(f"auto_deployer: deployed {rel}")
+        # Copy new version — may fail on read-only filesystem (Docker read_only: true)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            deployed.append(str(rel))
+            logger.info(f"auto_deployer: deployed {rel}")
+        except OSError as exc:
+            # R2: Read-only filesystem — log clearly so user knows to remove
+            # read_only:true from docker-compose.yml if they want code self-modification.
+            logger.warning(
+                f"auto_deployer: cannot deploy {rel} — filesystem is read-only. "
+                f"Remove 'read_only: true' from docker-compose.yml gateway service "
+                f"to enable code self-modification. Error: {exc}"
+            )
+            _log_deploy("blocked", reason, [], f"Read-only filesystem: {rel}")
+            return (
+                f"Deploy blocked: filesystem is read-only. "
+                f"To enable code self-modification, remove 'read_only: true' "
+                f"from the gateway service in docker-compose.yml and restart."
+            )
 
     # Clean up applied_code (files have been deployed)
     for src, rel in files_to_deploy:
@@ -186,6 +204,14 @@ def _deploy_locked(reason: str) -> str:
     msg = f"Deployed {len(deployed)} files: {', '.join(deployed)}"
     _log_deploy("success", reason, deployed)
     logger.info(f"auto_deployer: {msg}")
+
+    # R2: Hot-reload deployed modules so changes take effect without restart.
+    # Uses importlib.reload() for each modified module. This is imperfect
+    # (circular imports, cached references) but handles simple fixes.
+    reloaded = _hot_reload_modules(deployed)
+    if reloaded:
+        msg += f" Hot-reloaded: {', '.join(reloaded)}"
+        logger.info(f"auto_deployer: hot-reloaded {len(reloaded)} modules")
 
     # Notify via Firebase
     try:
@@ -202,6 +228,35 @@ def _deploy_locked(reason: str) -> str:
         pass
 
     return msg
+
+
+def _hot_reload_modules(deployed_files: list[str]) -> list[str]:
+    """Attempt to hot-reload deployed Python modules.
+
+    R2: Converts file paths like 'app/tools/web_search.py' to module names
+    like 'app.tools.web_search' and calls importlib.reload(). Returns list
+    of successfully reloaded module names.
+
+    This is best-effort — some modules may have cached references that
+    won't update. But for simple fixes (adding error handling, changing
+    constants, fixing logic), it works without restart.
+    """
+    import importlib
+    import sys
+
+    reloaded = []
+    for filepath in deployed_files:
+        if not filepath.endswith(".py"):
+            continue
+        # Convert path to module name: "app/tools/web_search.py" → "app.tools.web_search"
+        module_name = filepath[:-3].replace("/", ".")
+        if module_name in sys.modules:
+            try:
+                importlib.reload(sys.modules[module_name])
+                reloaded.append(module_name)
+            except Exception as exc:
+                logger.warning(f"auto_deployer: reload failed for {module_name}: {exc}")
+    return reloaded
 
 
 def _cleanup_empty_dirs(root: Path) -> None:

@@ -88,7 +88,7 @@ def _self_heal_rate() -> float:
 
 
 def _skill_count() -> int:
-    """Number of learned skill files."""
+    """Number of learned skill files (for display, not scoring)."""
     try:
         if not SKILLS_DIR.exists():
             return 0
@@ -98,6 +98,24 @@ def _skill_count() -> int:
         )
     except Exception:
         return 0
+
+
+def _error_resolution_rate() -> float:
+    """Fraction of recurring error patterns that have been resolved (0.0-1.0).
+
+    R1: Replaces skill_count in composite_score. Measures ACTUAL self-healing
+    effectiveness instead of rewarding raw file count (which was gameable by
+    just creating more .md files).
+    """
+    try:
+        from app.auditor import _load_tracker
+        tracker = _load_tracker()
+        if not tracker:
+            return 0.5  # no data = neutral
+        resolved = sum(1 for t in tracker.values() if t.get("resolved"))
+        return resolved / len(tracker) if tracker else 0.5
+    except Exception:
+        return 0.5
 
 
 def _output_quality_score() -> float:
@@ -165,25 +183,25 @@ def composite_score() -> float:
     uses to decide keep vs discard.
 
     Components (weighted):
-      - task_success_rate (0.30): core purpose — do tasks succeed?
-      - error_rate_24h    (0.20): system stability — how many errors?
-      - self_heal_rate    (0.15): resilience — can the system fix itself?
-      - output_quality    (0.15): quality — how confident are agents in output?
-      - skill_breadth     (0.10): capability — how much has it learned?
-      - response_time     (0.10): efficiency — how fast are responses?
+      - task_success_rate    (0.30): core purpose — do tasks succeed?
+      - error_rate_24h       (0.20): system stability — how many errors?
+      - self_heal_rate       (0.15): resilience — can the system diagnose errors?
+      - output_quality       (0.15): quality — how confident are agents in output?
+      - error_resolution     (0.10): self-healing — are recurring errors fixed?
+      - response_time        (0.10): efficiency — how fast are responses?
+
+    R1: Replaced skill_breadth (raw file count — gameable) with
+    error_resolution_rate (fraction of error patterns resolved — actionable).
     """
     success = _task_success_rate()
     errors = _error_rate_24h()
     heal = _self_heal_rate()
     quality = _output_quality_score()
-    skills = _skill_count()
+    resolution = _error_resolution_rate()
     resp_time = _avg_response_time()
 
     # Normalize error rate: 0 errors/hr = 1.0, 5+ errors/hr = 0.0
     error_score = max(0.0, 1.0 - errors / 5.0)
-
-    # Normalize skill count: 0 = 0.0, 20+ = 1.0 (diminishing returns)
-    skill_score = min(1.0, skills / 20.0)
 
     # Normalize response time: 0s = 1.0, 60s+ = 0.0
     if resp_time <= 0:
@@ -196,7 +214,7 @@ def composite_score() -> float:
         + 0.20 * error_score
         + 0.15 * heal
         + 0.15 * quality
-        + 0.10 * skill_score
+        + 0.10 * resolution
         + 0.10 * time_score
     )
 
@@ -214,6 +232,7 @@ def compute_metrics() -> dict:
     heal = _self_heal_rate()
     quality = _output_quality_score()
     skills = _skill_count()
+    resolution = _error_resolution_rate()
     resp_time = _avg_response_time()
     evo_eff = _evolution_efficiency()
     score = composite_score()
@@ -225,6 +244,7 @@ def compute_metrics() -> dict:
         "error_trend": _error_trend(),
         "self_heal_rate": round(heal, 4),
         "output_quality": round(quality, 4),
+        "error_resolution_rate": round(resolution, 4),
         "skill_count": skills,
         "avg_response_time_s": round(resp_time, 2),
         "evolution_efficiency": round(evo_eff, 4),
@@ -246,6 +266,7 @@ def format_metrics(metrics: dict) -> str:
         f"Error Rate (24h): {metrics['error_rate_24h']:.2f}/hr {trend_icon} "
         f"(last 1h: {metrics.get('error_rate_1h', 0):.0f})\n"
         f"Self-Heal Rate: {metrics['self_heal_rate']:.1%}\n"
+        f"Error Resolution: {metrics.get('error_resolution_rate', 0):.1%}\n"
         f"Skills: {metrics['skill_count']}\n"
         f"Avg Response Time: {metrics['avg_response_time_s']:.1f}s\n"
         f"Evolution Efficiency: {metrics['evolution_efficiency']:.1%}\n"

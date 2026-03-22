@@ -261,8 +261,18 @@ def approve_proposal(proposal_id: int) -> str:
     msg = f"Proposal #{proposal_id} approved and applied."
     if applied:
         msg += f" Files: {', '.join(applied)}"
-    if ptype in ("code", "config"):
-        msg += " Note: code changes will take effect after container restart."
+
+    # R2: Trigger auto-deployer for code proposals so changes reach the live codebase
+    if ptype == "code" and applied:
+        try:
+            from app.auto_deployer import schedule_deploy
+            schedule_deploy(f"proposal #{proposal_id}: {status.get('title', '')[:60]}")
+            msg += " Deploying to live codebase..."
+        except Exception as exc:
+            msg += f" Deploy trigger failed: {str(exc)[:100]}. Manual restart needed."
+            logger.warning(f"Deploy trigger failed for proposal #{proposal_id}: {exc}")
+    elif ptype == "config":
+        msg += " Note: config changes require manual restart."
     return msg
 
 

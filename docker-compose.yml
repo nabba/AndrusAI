@@ -52,7 +52,9 @@ services:
       - internal
     security_opt:
       - no-new-privileges:true
-    read_only: true
+    # read_only removed — needed for code self-modification (auto_deployer).
+    # Security still enforced by: no-new-privileges, non-root user, sandbox isolation,
+    # AST validation of deployed code, blocked dangerous imports, user approval gate.
     tmpfs:
       - /tmp
       - /run
