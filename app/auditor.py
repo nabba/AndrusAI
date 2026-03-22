@@ -342,8 +342,29 @@ def _attempt_error_fix(pattern_key: str, errors: list, track: dict) -> str | Non
             return None
 
         latest = matching[-1]
-        previous_fixes = "\n".join(f"- Attempt {i+1}: {f}" for i, f in enumerate(track.get("fixes_applied", [])))
         tb_text = "\n".join(latest.get("traceback", []))
+
+        # Step 4: Progressive refinement — include previous fix descriptions
+        # AND evidence of why they failed (new errors after the fix)
+        prev_fixes = track.get("fixes_applied", [])
+        progressive_context = ""
+        if prev_fixes:
+            lines = []
+            for i, fix_desc in enumerate(prev_fixes):
+                lines.append(f"- Attempt {i+1}: {fix_desc}")
+                # Check if new errors occurred after this attempt
+                attempt_ts = track.get("last_attempt", "")
+                post_fix_errors = [
+                    e for e in matching
+                    if e.get("ts", "") > attempt_ts
+                ] if attempt_ts else []
+                if post_fix_errors:
+                    lines.append(f"  → FAILED: {len(post_fix_errors)} new errors after this fix")
+                    lines.append(f"  → Latest post-fix error: {post_fix_errors[-1].get('error_msg', '')[:100]}")
+            progressive_context = (
+                f"\nPrevious fix attempts (ALL FAILED — analyze WHY and try a FUNDAMENTALLY DIFFERENT approach):\n"
+                + "\n".join(lines) + "\n"
+            )
 
         # H4: Read actual source code from traceback
         from app.self_heal import _read_source_from_traceback
@@ -361,8 +382,8 @@ def _attempt_error_fix(pattern_key: str, errors: list, track: dict) -> str | Non
         )
         if source_context:
             prompt += f"\nSource code:\n{source_context[:6000]}\n"
-        if previous_fixes:
-            prompt += f"\nPrevious FAILED attempts:\n{previous_fixes}\n"
+        if progressive_context:
+            prompt += progressive_context
         prompt += (
             f"\nRespond with ONLY JSON:\n"
             f'{{"fix": "description of the root cause and exact code change needed", '

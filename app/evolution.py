@@ -22,6 +22,7 @@ Program file: /app/workspace/program.md
 
 import json
 import logging
+import os
 import re
 import hashlib
 from datetime import datetime, timezone
@@ -120,15 +121,37 @@ def _build_evolution_context() -> str:
         )
     errors_text = "\n".join(error_lines) if error_lines else "  No undiagnosed errors."
 
+    # Variant archive context (DGM genealogy)
+    try:
+        from app.variant_archive import format_archive_context, get_drift_score
+        archive_ctx = format_archive_context()
+        drift = get_drift_score()
+    except Exception:
+        archive_ctx = "No variant archive available."
+        drift = 0
+
+    # Tech radar discoveries (if any)
+    tech_ctx = ""
+    try:
+        from app.crews.tech_radar_crew import get_recent_discoveries
+        discoveries = get_recent_discoveries(5)
+        if discoveries:
+            tech_ctx = "\n## Recent Tech Discoveries\n" + "\n".join(f"  - {d[:150]}" for d in discoveries)
+    except Exception:
+        pass
+
     return (
         f"## Research Directions (program.md)\n{program}\n\n"
         f"## Current Metrics\n{format_metrics(metrics)}\n\n"
+        f"{archive_ctx}\n\n"
         f"## Recent Experiments (keep/discard history)\n{experiments_text}\n\n"
         f"## Error Patterns\n{patterns_text}\n\n"
         f"## Undiagnosed Errors\n{errors_text}\n\n"
         f"## Current Skills ({len(skill_names)})\n"
         f"  {', '.join(skill_names[:20]) if skill_names else 'None'}\n\n"
+        f"## Drift from baseline: {drift} mutations\n"
         f"## Best Score Ever: {get_best_score():.4f}"
+        f"{tech_ctx}"
     )
 
 
@@ -294,6 +317,29 @@ def run_evolution_session(max_iterations: int = 5) -> str:
     Returns:
         Summary of all experiments run
     """
+    # Step 9/6A: Rate limiting — max 3 promoted mutations per day
+    _MAX_DAILY_PROMOTIONS = int(os.environ.get("EVOLUTION_MAX_DAILY_PROMOTIONS", "3"))
+    try:
+        from app.variant_archive import get_recent_variants
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today_kept = sum(
+            1 for v in get_recent_variants(50)
+            if v.get("status") == "keep" and v.get("timestamp", "").startswith(today)
+        )
+        if today_kept >= _MAX_DAILY_PROMOTIONS:
+            logger.info(f"Evolution rate limited: {today_kept}/{_MAX_DAILY_PROMOTIONS} promoted today")
+            return f"Evolution rate limited: {today_kept} mutations promoted today (max {_MAX_DAILY_PROMOTIONS})."
+    except Exception:
+        today_kept = 0
+
+    # Step 5A: Verify evaluation integrity before experiments
+    try:
+        from app.experiment_runner import verify_eval_integrity
+        if not verify_eval_integrity():
+            return "Evolution aborted: evaluation function integrity check failed."
+    except Exception:
+        pass
+
     task_id = crew_started(
         "self_improvement",
         f"Evolution session ({max_iterations} iterations)",
@@ -346,13 +392,49 @@ def run_evolution_session(max_iterations: int = 5) -> str:
             else:
                 result = runner.run_experiment(mutation)
 
-            # 5. Track results
+            # 5. Track results + store in variant archive (DGM genealogy)
             if result.status == "keep":
                 kept += 1
             elif result.status == "discard":
                 discarded += 1
             else:
                 crashed += 1
+
+            # Store in variant archive with genealogy
+            try:
+                from app.variant_archive import add_variant, get_last_kept_id, get_drift_score
+                parent_id = get_last_kept_id()
+                add_variant(
+                    experiment_id=result.experiment_id,
+                    hypothesis=result.hypothesis,
+                    change_type=result.change_type,
+                    parent_id=parent_id,
+                    fitness_before=result.metric_before,
+                    fitness_after=result.metric_after,
+                    status=result.status,
+                    files_changed=result.files_changed,
+                    mutation_summary=result.detail,
+                )
+                # Step 8: Drift alert — notify if system has evolved significantly
+                drift = get_drift_score()
+                if drift > 0 and drift % 20 == 0:  # every 20 mutations
+                    logger.warning(f"Evolution drift alert: {drift} mutations from baseline")
+                    try:
+                        from app.firebase_reporter import _fire, _get_db, _now_iso
+                        def _alert(d=drift):
+                            db = _get_db()
+                            if db:
+                                db.collection("activities").add({
+                                    "ts": _now_iso(),
+                                    "event": "drift_alert",
+                                    "crew": "evolution",
+                                    "detail": f"⚠️ System has {d} mutations from baseline — review recommended",
+                                })
+                        _fire(_alert)
+                    except Exception:
+                        pass
+            except Exception:
+                logger.debug("Failed to store variant", exc_info=True)
 
             results_summary.append(
                 f"  [{i + 1}] {result.status:7s} {result.delta:+.4f} | "

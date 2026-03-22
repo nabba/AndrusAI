@@ -235,6 +235,12 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         SelfImprovementCrew().run_improvement_scan()
     jobs.append(("improvement-scan", _improvement_scan))
 
+    # ── Tech radar: scan internet for new technologies ────────────────
+    def _tech_radar():
+        from app.crews.tech_radar_crew import run_tech_scan
+        run_tech_scan()
+    jobs.append(("tech-radar", _tech_radar))
+
     return jobs
 
 

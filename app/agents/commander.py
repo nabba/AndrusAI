@@ -1250,6 +1250,81 @@ class Commander:
             from app.auto_deployer import get_deploy_log
             return f"Deploy Log:\n{get_deploy_log(10)}"
 
+        # Step 9: diff and rollback commands for governance
+        if lower.startswith("diff "):
+            try:
+                pid = int(user_input.split()[1])
+            except (IndexError, ValueError):
+                return "Usage: diff <proposal_id>"
+            from app.proposals import get_proposal
+            p = get_proposal(pid)
+            if not p:
+                return f"Proposal #{pid} not found."
+            lines = [f"Proposal #{pid}: {p.get('title', '')}", f"Type: {p.get('type', '')}", f"Status: {p.get('status', '')}"]
+            if p.get("description"):
+                lines.append(f"\n{p['description'][:800]}")
+            if p.get("files"):
+                for fpath, content in p["files"].items():
+                    lines.append(f"\n--- {fpath} ---\n{content[:500]}")
+            return "\n".join(lines)
+
+        if lower.startswith("rollback "):
+            try:
+                pid = int(user_input.split()[1])
+            except (IndexError, ValueError):
+                return "Usage: rollback <proposal_id>"
+            from app.proposals import get_proposal
+            p = get_proposal(pid)
+            if not p or p.get("status") != "approved":
+                return f"Proposal #{pid} not found or not approved."
+            # Check for backup
+            from app.auto_deployer import BACKUP_DIR
+            backups = sorted(BACKUP_DIR.iterdir()) if BACKUP_DIR.exists() else []
+            if not backups:
+                return "No backups available for rollback."
+            latest_backup = backups[-1]
+            # Restore from backup
+            import shutil
+            restored = []
+            for f in latest_backup.rglob("*.py"):
+                rel = f.relative_to(latest_backup)
+                dest = Path("/app") / rel
+                try:
+                    shutil.copy2(f, dest)
+                    restored.append(str(rel))
+                except OSError as exc:
+                    return f"Rollback failed: {exc}"
+            if restored:
+                return f"Rolled back {len(restored)} files: {', '.join(restored[:5])}"
+            return "No files found in backup to restore."
+
+        # Step 9: Tech radar command
+        if lower in ("tech radar", "tech", "radar", "discoveries"):
+            from app.crews.tech_radar_crew import get_recent_discoveries
+            discoveries = get_recent_discoveries(10)
+            if not discoveries:
+                return "No tech discoveries yet. The tech radar runs during idle time."
+            lines = ["Recent Tech Discoveries:\n"]
+            for d in discoveries:
+                lines.append(f"  • {d[:150]}")
+            return "\n".join(lines)
+
+        # Step 1: Anomaly alerts command
+        if lower in ("anomalies", "alerts"):
+            from app.anomaly_detector import get_recent_alerts
+            alerts = get_recent_alerts(10)
+            if not alerts:
+                return "No anomalies detected. System metrics are within normal ranges."
+            lines = ["Recent Anomaly Alerts:\n"]
+            for a in alerts:
+                lines.append(f"  [{a['ts'][:16]}] {a['type']}: {a['metric']}={a['value']} ({a['sigma']}σ {a['direction']})")
+            return "\n".join(lines)
+
+        # Step 2: Variant archive command
+        if lower in ("variants", "archive", "genealogy"):
+            from app.variant_archive import format_archive_context
+            return format_archive_context(15)
+
         if lower in ("proposals", "show proposals"):
             from app.proposals import list_proposals
             pending = list_proposals("pending")

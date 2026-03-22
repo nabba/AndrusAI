@@ -273,8 +273,17 @@ async def lifespan(app: FastAPI):
         sync_trigger,
         kwargs={"backup_repo": settings.workspace_backup_repo},
     )
-    # Heartbeat — keep monitoring dashboard "last_seen" fresh
-    scheduler.add_job(heartbeat, "interval", seconds=60, id="heartbeat")
+    # Heartbeat — keep monitoring dashboard "last_seen" fresh + anomaly detection
+    def _heartbeat_with_anomaly():
+        heartbeat()
+        try:
+            from app.anomaly_detector import collect_and_check, handle_alerts
+            alerts = collect_and_check()
+            if alerts:
+                handle_alerts(alerts)
+        except Exception:
+            pass
+    scheduler.add_job(_heartbeat_with_anomaly, "interval", seconds=60, id="heartbeat")
     scheduler.start()
 
     # Clean up zombie tasks from previous container, then report online

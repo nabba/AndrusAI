@@ -43,6 +43,49 @@ _BLOCKED_IMPORTS = frozenset({
 _BLOCKED_CALLS = frozenset({"eval", "exec", "compile", "__import__", "getattr"})
 
 
+# Constitutional invariants — evolved code must NEVER remove these.
+# Checked at deploy time (not just AST safety).
+_CONSTITUTIONAL_IMPORTS = {
+    # Security essentials that must never be removed from a file that has them
+    "app.sanitize": ["sanitize_input", "wrap_user_input"],
+    "app.vetting": ["vet_response"],
+    "app.security": ["is_authorized_sender"],
+}
+
+
+def _check_constitutional_invariants(src_path: Path, new_source: str) -> list[str]:
+    """Verify that evolved code doesn't remove constitutional security imports.
+
+    Compares the new source against the existing live file. If the live file
+    imports a constitutional module and the new version doesn't, it's blocked.
+    """
+    violations = []
+    dest = LIVE_CODE_DIR / src_path
+    if not dest.exists():
+        return []  # new file, no baseline to compare
+
+    try:
+        old_source = dest.read_text()
+    except OSError:
+        return []
+
+    for module, functions in _CONSTITUTIONAL_IMPORTS.items():
+        # Check if the old file imported this module
+        if module in old_source:
+            # Verify the new file still imports it
+            if module not in new_source:
+                violations.append(
+                    f"Constitutional violation: removed import of {module}"
+                )
+            # Check individual functions
+            for func in functions:
+                if func in old_source and func not in new_source:
+                    violations.append(
+                        f"Constitutional violation: removed {func} from {module}"
+                    )
+    return violations
+
+
 def _check_dangerous_imports(tree: ast.AST) -> list[str]:
     """Scan AST for dangerous imports and calls. Returns list of violations."""
     violations = []
@@ -149,6 +192,17 @@ def _deploy_locked(reason: str) -> str:
 
     if dangerous:
         msg = f"Deploy blocked: dangerous imports in {'; '.join(dangerous[:3])}"
+        logger.error(f"auto_deployer: {msg}")
+        _log_deploy("blocked", reason, [], msg)
+        return msg
+
+    # Step 8: Constitutional invariant check — evolved code must not remove security imports
+    constitutional = []
+    for src, rel in files_to_deploy:
+        violations = _check_constitutional_invariants(rel, src.read_text())
+        constitutional.extend(violations)
+    if constitutional:
+        msg = f"Deploy blocked: {'; '.join(constitutional[:3])}"
         logger.error(f"auto_deployer: {msg}")
         _log_deploy("blocked", reason, [], msg)
         return msg

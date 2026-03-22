@@ -243,11 +243,18 @@ class ExperimentRunner:
         return True, "ok"
 
 
-def load_test_tasks() -> list[dict]:
-    """Load the test task bank for evaluation."""
+def load_test_tasks(suite: str = "all") -> list[dict]:
+    """Load the test task bank for evaluation.
+
+    Args:
+        suite: "fixed" (regression), "rotating" (novelty), or "all" (both).
+    """
     try:
         if TEST_TASKS_PATH.exists():
-            return json.loads(TEST_TASKS_PATH.read_text())
+            tasks = json.loads(TEST_TASKS_PATH.read_text())
+            if suite == "all":
+                return tasks
+            return [t for t in tasks if t.get("suite", "fixed") == suite]
     except (json.JSONDecodeError, OSError):
         pass
     return []
@@ -262,8 +269,69 @@ def validate_response(response: str, rule: str) -> bool:
         expected = rule[len("contains:"):]
         return expected.lower() in response.lower()
 
+    if rule.startswith("not_contains:"):
+        forbidden = rule[len("not_contains:"):]
+        return forbidden.lower() not in response.lower()
+
     if rule.startswith("min_length:"):
         min_len = int(rule[len("min_length:"):])
         return len(response) >= min_len
 
+    if rule.startswith("max_length:"):
+        max_len = int(rule[len("max_length:"):])
+        return len(response) <= max_len
+
+    return True
+
+
+# 5A: Immutable evaluation hash — prevents DGM-style test manipulation
+_eval_hash: str | None = None
+
+
+def compute_eval_hash() -> str:
+    """Compute SHA-256 hash of test suites + scoring logic.
+
+    Called once at startup. Before each experiment, the current hash
+    is verified against the startup hash. If mismatch → abort.
+    """
+    import hashlib
+    h = hashlib.sha256()
+    # Hash test tasks
+    try:
+        if TEST_TASKS_PATH.exists():
+            h.update(TEST_TASKS_PATH.read_bytes())
+    except OSError:
+        pass
+    # Hash security tests
+    sec_path = Path("/app/workspace/security_tests.json")
+    try:
+        if sec_path.exists():
+            h.update(sec_path.read_bytes())
+    except OSError:
+        pass
+    # Hash this module's source (scoring logic)
+    try:
+        h.update(Path(__file__).read_bytes())
+    except OSError:
+        pass
+    return h.hexdigest()[:16]
+
+
+def verify_eval_integrity() -> bool:
+    """Verify evaluation functions haven't been tampered with.
+
+    Returns True if integrity check passes (or if no baseline exists).
+    """
+    global _eval_hash
+    current = compute_eval_hash()
+    if _eval_hash is None:
+        _eval_hash = current
+        logger.info(f"Evaluation integrity baseline: {_eval_hash}")
+        return True
+    if current != _eval_hash:
+        logger.error(
+            f"EVAL INTEGRITY VIOLATION: hash changed from {_eval_hash} to {current}. "
+            f"Possible test manipulation detected."
+        )
+        return False
     return True

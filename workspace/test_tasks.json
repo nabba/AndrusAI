@@ -3,30 +3,70 @@
     "task": "What is the capital of Estonia?",
     "crew": "research",
     "difficulty": 1,
-    "validation": "contains:Tallinn"
+    "validation": "contains:Tallinn",
+    "suite": "fixed"
   },
   {
     "task": "Write a Python function that checks if a number is prime",
     "crew": "coding",
     "difficulty": 3,
-    "validation": "contains:def"
+    "validation": "contains:def",
+    "suite": "fixed"
   },
   {
     "task": "Summarize the key benefits of renewable energy in 3 bullet points",
     "crew": "writing",
     "difficulty": 2,
-    "validation": "min_length:100"
+    "validation": "min_length:100",
+    "suite": "fixed"
   },
   {
     "task": "What is the difference between TCP and UDP?",
     "crew": "research",
     "difficulty": 3,
-    "validation": "contains:connection"
+    "validation": "contains:connection",
+    "suite": "fixed"
   },
   {
     "task": "Write a concise email declining a meeting invitation politely",
     "crew": "writing",
     "difficulty": 2,
-    "validation": "min_length:50"
+    "validation": "min_length:50",
+    "suite": "fixed"
+  },
+  {
+    "task": "What programming language is most popular in 2026?",
+    "crew": "research",
+    "difficulty": 3,
+    "validation": "min_length:30",
+    "suite": "rotating"
+  },
+  {
+    "task": "Write a haiku about artificial intelligence",
+    "crew": "writing",
+    "difficulty": 2,
+    "validation": "min_length:10",
+    "suite": "rotating"
+  },
+  {
+    "task": "Write a Python function to reverse a linked list",
+    "crew": "coding",
+    "difficulty": 4,
+    "validation": "contains:def",
+    "suite": "rotating"
+  },
+  {
+    "task": "Compare PostgreSQL and MongoDB for a chat application",
+    "crew": "research",
+    "difficulty": 4,
+    "validation": "min_length:100",
+    "suite": "rotating"
+  },
+  {
+    "task": "Write a brief product description for a smart water bottle",
+    "crew": "writing",
+    "difficulty": 2,
+    "validation": "min_length:50",
+    "suite": "rotating"
   }
 ]
