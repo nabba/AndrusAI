@@ -61,6 +61,45 @@ def sanitize_input(text: str, max_length: int = MAX_TASK_INPUT_LENGTH) -> str:
     return text
 
 
+def validate_content(text: str) -> bool:
+    """Check if content is safe to store in memory/KB (no injection patterns).
+
+    Returns True if safe, False if content contains injection patterns.
+    Used by ChromaDB memory storage, knowledge base ingestion, and skill files
+    to prevent persistent prompt injection attacks.
+    """
+    if not text:
+        return True
+    for pattern in _COMPILED_PATTERNS:
+        if pattern.search(text):
+            return False
+    # Also check for hidden instruction patterns common in web content
+    hidden_patterns = [
+        r"SYSTEM\s+OVERRIDE",
+        r"TEAM\s+DECISION\s*:.*disable",
+        r"from\s+now\s+on.*ignore",
+        r"new\s+rule\s*:.*safety",
+        r"execute\s+the\s+following\s+(code|command)",
+    ]
+    for p in hidden_patterns:
+        if re.search(p, text, re.IGNORECASE):
+            return False
+    return True
+
+
+def sanitize_content(text: str) -> str:
+    """Sanitize content for storage in memory/KB — strip injection patterns.
+
+    Unlike sanitize_input() which marks with [FILTERED], this completely
+    removes matching patterns to prevent persistent poisoning.
+    """
+    if not text:
+        return text
+    for pattern in _COMPILED_PATTERNS:
+        text = pattern.sub("", text)
+    return text
+
+
 def wrap_user_input(text: str) -> str:
     """
     Wrap sanitized user input with clear delimiters so the LLM

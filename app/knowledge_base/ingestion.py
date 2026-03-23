@@ -294,6 +294,14 @@ def ingest_document(
                 error="No text content could be extracted.",
             )
 
+        # C3: Sanitize extracted content to prevent persistent prompt injection
+        # via poisoned documents or web pages with hidden instructions.
+        try:
+            from app.sanitize import sanitize_content
+            raw_text = sanitize_content(raw_text)
+        except ImportError:
+            pass
+
         # Clean
         raw_text = re.sub(r"\n{3,}", "\n\n", raw_text).strip()
 

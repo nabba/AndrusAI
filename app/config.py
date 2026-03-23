@@ -126,11 +126,24 @@ class Settings(BaseSettings):
 
     @property
     def mem0_postgres_url(self) -> str:
-        """Build postgres URL from components — password never hardcoded."""
+        """Build postgres URL from components — password never hardcoded.
+
+        H6: URL contains plaintext password — callers must NEVER log this value.
+        The __repr__ of Settings already masks SecretStr fields, but this property
+        returns a plain str so it must be handled with care.
+        """
         pw = self.mem0_postgres_password.get_secret_value()
         if not pw:
             return ""
         return f"postgresql://{self.mem0_postgres_user}:{pw}@{self.mem0_postgres_host}:{self.mem0_postgres_port}/{self.mem0_postgres_db}"
+
+    @property
+    def mem0_postgres_url_safe(self) -> str:
+        """Redacted version safe for logging."""
+        pw = self.mem0_postgres_password.get_secret_value()
+        if not pw:
+            return ""
+        return f"postgresql://{self.mem0_postgres_user}:***@{self.mem0_postgres_host}:{self.mem0_postgres_port}/{self.mem0_postgres_db}"
 
     # Firebase — service account for Firestore dashboard writes
     firebase_service_account_json: str = ""

@@ -332,13 +332,11 @@ def run_evolution_session(max_iterations: int = 5) -> str:
     except Exception:
         today_kept = 0
 
-    # Step 5A: Verify evaluation integrity before experiments
-    try:
-        from app.experiment_runner import verify_eval_integrity
-        if not verify_eval_integrity():
-            return "Evolution aborted: evaluation function integrity check failed."
-    except Exception:
-        pass
+    # M5: Mandatory eval integrity check — abort on failure, never skip silently
+    from app.experiment_runner import verify_eval_integrity
+    if not verify_eval_integrity():
+        logger.error("Evolution ABORTED: evaluation function integrity check failed")
+        return "Evolution aborted: evaluation function integrity check failed."
 
     task_id = crew_started(
         "self_improvement",

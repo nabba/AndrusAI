@@ -43,6 +43,19 @@ def get_client():
 
 
 def store(collection_name: str, text: str, metadata: dict = None):
+    # H1: Validate content before storage to prevent memory poisoning attacks.
+    # Injection patterns in stored memory can affect all future agent queries.
+    try:
+        from app.sanitize import validate_content
+        if not validate_content(text):
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Memory store BLOCKED — injection pattern detected in "
+                f"collection={collection_name}: {text[:80]!r}"
+            )
+            return  # reject poisoned content silently
+    except ImportError:
+        pass  # sanitize not available in test environment
     client = get_client()
     col = client.get_or_create_collection(collection_name)
     embedding = embed(text)

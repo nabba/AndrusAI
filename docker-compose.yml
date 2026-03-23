@@ -9,7 +9,7 @@ services:
       CONTAINERS: 1        # Allow create/start/stop containers
       IMAGES: 1            # Allow pulling ollama/ollama image for fleet
       NETWORKS: 0
-      VOLUMES: 1           # Allow creating shared model volume
+      VOLUMES: 0           # H5: Disabled — prevents host filesystem escape via volume creation
       POST: 1              # Allow POST (create/run)
       AUTH: 0
       SECRETS: 0

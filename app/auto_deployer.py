@@ -32,15 +32,66 @@ DEPLOY_LOG = Path("/app/workspace/deploy_log.json")
 # Modules that LLM-generated code must never import — prevents code execution
 # attacks, credential theft, network exfiltration, etc.
 _BLOCKED_IMPORTS = frozenset({
-    "subprocess", "os.system", "shutil.rmtree",
+    "subprocess", "os", "sys", "shutil",
     "ctypes", "importlib", "pickle", "shelve", "marshal",
     "socket", "http.server", "xmlrpc", "ftplib", "smtplib",
     "webbrowser", "code", "codeop", "compileall",
     "pty", "resource", "sysconfig",
+    "yaml", "signal", "multiprocessing", "tempfile",
 })
 
 # Also block builtins used in code: eval(), exec(), compile(), __import__()
-_BLOCKED_CALLS = frozenset({"eval", "exec", "compile", "__import__", "getattr"})
+_BLOCKED_CALLS = frozenset({"eval", "exec", "compile", "__import__", "getattr",
+                            "globals", "locals", "vars", "dir", "delattr", "setattr"})
+
+# Files that self-modification systems (evolution, self-heal, auditor) must
+# NEVER be allowed to modify.  These enforce the security boundary.
+PROTECTED_FILES = frozenset({
+    "app/sanitize.py",
+    "app/security.py",
+    "app/vetting.py",
+    "app/auto_deployer.py",
+    "app/rate_throttle.py",
+    "app/circuit_breaker.py",
+    "app/config.py",
+    "app/main.py",
+    "app/experiment_runner.py",
+    "app/evolution.py",
+    "app/proposals.py",
+    "app/signal_client.py",
+    "app/firebase_reporter.py",
+    "entrypoint.sh",
+    "Dockerfile",
+    "docker-compose.yml",
+    "dashboard/firestore.rules",
+})
+
+
+def validate_proposal_paths(files: dict[str, str]) -> list[str]:
+    """Validate all file paths in a proposal. Returns list of violations.
+
+    Checks:
+      - No path traversal (.. or absolute paths)
+      - No protected files
+      - Only allowed directories (app/, skills/, or bare filenames like skill.md)
+    """
+    violations = []
+    for fpath in files:
+        # Block path traversal
+        if ".." in fpath or fpath.startswith("/"):
+            violations.append(f"Path traversal blocked: {fpath}")
+            continue
+        # Normalize
+        normalized = str(Path(fpath))
+        # Block protected files
+        if normalized in PROTECTED_FILES:
+            violations.append(f"Protected file: {normalized}")
+            continue
+        # Allow: app/ subdirs, skills/ subdir, or bare filenames (skills, configs)
+        has_dir = "/" in normalized
+        if has_dir and not (normalized.startswith("app/") or normalized.startswith("skills/")):
+            violations.append(f"Outside allowed directories: {normalized}")
+    return violations
 
 
 # Constitutional invariants — evolved code must NEVER remove these.

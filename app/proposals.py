@@ -101,6 +101,15 @@ def create_proposal(
             except Exception:
                 pass
 
+    # Validate file paths before creating proposal (C2, H7: prevent path traversal
+    # and modification of protected security-critical files)
+    if files:
+        from app.auto_deployer import validate_proposal_paths
+        path_violations = validate_proposal_paths(files)
+        if path_violations:
+            logger.warning(f"Proposal rejected — path violations: {path_violations}")
+            return -1  # Signal rejection to caller
+
     pid = _next_id()
     safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)[:40].strip()
     dirname = f"{pid:03d}_{safe_title.replace(' ', '_')}"

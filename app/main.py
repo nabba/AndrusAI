@@ -323,7 +323,14 @@ async def lifespan(app: FastAPI):
     # Chat inbox poller — processes messages sent from the dashboard
     # and delivers them through the same Commander pipeline as Signal
     async def _handle_chat_message(text: str) -> str:
-        """Process a dashboard chat message through Commander, same as Signal."""
+        """Process a dashboard chat message through Commander, same as Signal.
+
+        Dashboard input is UNTRUSTED — apply same sanitization as Signal messages.
+        """
+        from app.sanitize import sanitize_input
+        text = sanitize_input(text)
+        if not text.strip():
+            return "Empty or blocked message."
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             _commander_pool, commander.handle, text, settings.signal_owner_number, []
@@ -445,9 +452,11 @@ async def receive_signal(request: Request):
     if not text and not attachments:
         return {"status": "ignored"}
 
-    # Enforce message length limit
+    # Enforce message length limit + sanitize input
     if len(text) > MAX_MESSAGE_LENGTH:
         text = text[:MAX_MESSAGE_LENGTH]
+    from app.sanitize import sanitize_input
+    text = sanitize_input(text)
 
     # Cap attachments (prevent abuse)
     attachments = attachments[:5]

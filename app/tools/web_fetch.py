@@ -57,11 +57,14 @@ def _is_safe_url(url: str) -> tuple[bool, str]:
     if not hostname:
         return False, "Missing hostname"
 
+    # M2: Strip IPv6 brackets for comparison (urlparse keeps brackets on hostname)
+    hostname_clean = hostname.strip("[]").lower()
+
     # Block dotless hostnames (e.g., "chromadb" or single-word hosts)
-    if "." not in hostname and ":" not in hostname:
+    if "." not in hostname_clean and ":" not in hostname_clean:
         return False, f"Blocked internal hostname: {hostname}"
 
-    if hostname.lower() in _BLOCKED_HOSTS:
+    if hostname_clean in _BLOCKED_HOSTS:
         return False, f"Blocked host: {hostname}"
 
     # Block numeric IPs that look like internal addresses (e.g., http://2130706433)
@@ -73,8 +76,10 @@ def _is_safe_url(url: str) -> tuple[bool, str]:
     except ValueError:
         pass  # Not a raw IP, continue with DNS resolution
 
-    # Resolve hostname and check for private/internal IPs
+    # M3: Resolve hostname with timeout and check for private/internal IPs
+    _old_timeout = socket.getdefaulttimeout()
     try:
+        socket.setdefaulttimeout(5)  # 5s DNS timeout prevents hanging
         resolved_addrs = []
         for info in socket.getaddrinfo(hostname, parsed.port or 443):
             addr = info[4][0]
@@ -85,6 +90,10 @@ def _is_safe_url(url: str) -> tuple[bool, str]:
             return False, f"No addresses resolved for: {hostname}"
     except socket.gaierror:
         return False, f"Cannot resolve hostname: {hostname}"
+    except socket.timeout:
+        return False, f"DNS resolution timed out for: {hostname}"
+    finally:
+        socket.setdefaulttimeout(_old_timeout)
 
     return True, ""
 

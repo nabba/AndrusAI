@@ -19,6 +19,22 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+# M9: Cooldown tracking for auto-remediation (max 1 per hour per type)
+_REMEDIATION_COOLDOWN = 3600  # 1 hour in seconds
+_last_remediation: dict[str, float] = {}
+_remediation_lock = threading.Lock()
+
+
+def _check_remediation_cooldown(alert_type: str) -> bool:
+    """Return True if auto-remediation is allowed (cooldown expired)."""
+    now = time.monotonic()
+    with _remediation_lock:
+        last = _last_remediation.get(alert_type, 0)
+        if now - last < _REMEDIATION_COOLDOWN:
+            return False
+        _last_remediation[alert_type] = now
+        return True
+
 logger = logging.getLogger(__name__)
 
 # Rolling window: 24h of 60s samples = 1440 data points
@@ -189,6 +205,12 @@ def handle_alerts(alerts: list[AnomalyAlert]) -> None:
             _fire(_report)
         except Exception:
             pass
+
+        # M9: Rate-limit auto-remediation — max 1 per hour per type
+        _auto_remediation_allowed = _check_remediation_cooldown(alert.alert_type)
+        if not _auto_remediation_allowed:
+            logger.info(f"Anomaly handler: skipping auto-remediation (cooldown) for {alert.alert_type}")
+            return alert
 
         # Trigger appropriate handler
         if alert.alert_type == "high_error_rate" and alert.direction == "high":
