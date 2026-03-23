@@ -233,11 +233,48 @@ CATALOG: dict[str, dict] = {
         },
     },
 
+    "mimo-v2-omni": {
+        "tier": "budget",
+        "provider": "openrouter",
+        "model_id": "openrouter/xiaomi/mimo-v2-omni",
+        "context": 256_000, "multimodal": True,
+        "cost_input_per_m": 0.40, "cost_output_per_m": 2.00,
+        "tool_use_reliability": 0.80,
+        "description": (
+            "Xiaomi MiMo-V2-Omni — frontier omni-modal model. Natively processes "
+            "image, video, and audio inputs. Visual grounding, multi-step planning, "
+            "tool use, code execution. 256K context."
+        ),
+        "strengths": {
+            "multimodal": 0.92, "research": 0.82, "coding": 0.80,
+            "reasoning": 0.82, "writing": 0.78, "general": 0.82,
+            "architecture": 0.78, "debugging": 0.78,
+        },
+    },
+
     # ═══════════════════════════════════════════════════════════════════════
     # MID — Strong API at $1-4/M output (via OpenRouter)
     # Best for: quality research, multimodal, agentic coding
     # ═══════════════════════════════════════════════════════════════════════
 
+    "mimo-v2-pro": {
+        "tier": "mid",
+        "provider": "openrouter",
+        "model_id": "openrouter/xiaomi/mimo-v2-pro",
+        "context": 1_000_000, "multimodal": False,
+        "cost_input_per_m": 1.00, "cost_output_per_m": 3.00,
+        "tool_use_reliability": 0.90,
+        "description": (
+            "Xiaomi MiMo-V2-Pro (ex-Hunter Alpha) — 1T+ params, 1M context. "
+            "Top-tier agentic model. #1 on ClawBench, approaches Opus 4.6 on "
+            "PinchBench. Designed as agent brain for complex orchestration."
+        ),
+        "strengths": {
+            "coding": 0.92, "reasoning": 0.93, "architecture": 0.92,
+            "research": 0.90, "writing": 0.85, "debugging": 0.90,
+            "general": 0.90, "routing": 0.85, "vetting": 0.85,
+        },
+    },
     "kimi-k2.5": {
         "tier": "mid",
         "provider": "openrouter",
@@ -344,7 +381,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "research":     "deepseek-v3.2",
         "coding":       "minimax-m2.5",
         "writing":      "deepseek-v3.2",
-        "media":        "nemotron-nano-2-vl",
+        "media":        "mimo-v2-omni",
         "critic":       "deepseek-v3.2",
         "introspector": "deepseek-v3.2",
         "self_improve":  "deepseek-v3.2",
@@ -358,7 +395,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "research":     "deepseek-v3.2",
         "coding":       "minimax-m2.5",
         "writing":      "claude-sonnet-4.6",
-        "media":        "nemotron-nano-2-vl",
+        "media":        "mimo-v2-omni",
         "critic":       "gemini-3.1-pro",
         "introspector": "deepseek-v3.2",
         "self_improve":  "deepseek-v3.2",
@@ -369,17 +406,17 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "quality": {
         "commander":    "claude-opus-4.6",
-        "research":     "kimi-k2.5",
-        "coding":       "gemini-3.1-pro",
+        "research":     "mimo-v2-pro",
+        "coding":       "mimo-v2-pro",
         "writing":      "claude-sonnet-4.6",
-        "media":        "kimi-k2.5",
+        "media":        "mimo-v2-omni",
         "critic":       "gemini-3.1-pro",
-        "introspector": "kimi-k2.5",
+        "introspector": "mimo-v2-pro",
         "self_improve":  "deepseek-v3.2",
         "vetting":      "claude-opus-4.6",
         "synthesis":    "claude-sonnet-4.6",
-        "planner":      "kimi-k2.5",
-        "default":      "kimi-k2.5",
+        "planner":      "mimo-v2-pro",
+        "default":      "mimo-v2-pro",
     },
 }
 
