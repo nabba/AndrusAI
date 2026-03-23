@@ -183,6 +183,19 @@ def schedule_deploy(reason: str) -> None:
 
     logger.info(f"auto_deployer: deploy scheduled — {reason}")
 
+    # Notify user via Signal that auto-deploy is starting
+    try:
+        from app.signal_client import send_message
+        from app.config import get_settings
+        s = get_settings()
+        send_message(
+            s.signal_owner_number,
+            f"🚀 AUTO-DEPLOY INITIATED: {reason[:100]}\n"
+            f"Validating syntax, safety checks, deploying in 5s...",
+        )
+    except Exception:
+        pass
+
     import time
 
     def _delayed():
