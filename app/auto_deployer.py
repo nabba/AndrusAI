@@ -150,13 +150,17 @@ def _check_dangerous_imports(tree: ast.AST) -> list[str]:
             if mod in _BLOCKED_IMPORTS or mod.split(".")[0] in _BLOCKED_IMPORTS:
                 violations.append(f"from {mod} import ...")
         elif isinstance(node, ast.Call):
-            # Check for eval(), exec(), compile(), __import__()
+            # Check for dangerous builtin calls: eval(), exec(), compile(), __import__()
+            # Only block BARE calls (Name nodes), not method calls (Attribute nodes)
+            # e.g., block `eval(x)` but allow `re.compile(pattern)`
             func = node.func
             name = None
             if isinstance(func, ast.Name):
                 name = func.id
             elif isinstance(func, ast.Attribute):
-                name = func.attr
+                # Only block specific dangerous method calls on objects
+                if func.attr in ("eval", "exec", "__import__"):
+                    name = func.attr
             if name in _BLOCKED_CALLS:
                 violations.append(f"{name}() call")
     return violations
