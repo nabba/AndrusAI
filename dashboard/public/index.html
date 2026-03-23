@@ -414,6 +414,7 @@
       <button class="cmd-btn" onclick="sendCmd('improve')">Improve</button>
       <button class="cmd-btn" onclick="sendCmd('show learning queue')">Queue</button>
       <button class="cmd-btn" onclick="sendCmd('run self-improvement now')">Learn Now</button>
+      <button class="cmd-btn" onclick="sendCmd('skills')">List Skills</button>
     </div>
   </div>
   <div class="card" style="margin:0">
@@ -424,6 +425,7 @@
       <button class="cmd-btn" onclick="sendCmd('fleet')">Fleet Status</button>
       <button class="cmd-btn" onclick="sendCmd('catalog')">Catalog</button>
       <button class="cmd-btn" onclick="sendCmd('tokens')">Token Usage</button>
+      <button class="cmd-btn" onclick="sendCmd('models')">Models</button>
     </div>
   </div>
 </div>
@@ -437,6 +439,7 @@
     <div class="cmd-bar">
       <button class="cmd-btn" onclick="sendCmd('errors')">Show Errors</button>
       <button class="cmd-btn green" onclick="sendCmd('fix errors')">Fix Errors</button>
+      <button class="cmd-btn" onclick="sendCmd('diagnose')">Diagnose</button>
       <button class="cmd-btn" onclick="sendCmd('audit')">Run Audit</button>
       <button class="cmd-btn" onclick="sendCmd('audit status')">Audit Status</button>
     </div>
@@ -463,6 +466,8 @@
     <div class="cmd-bar">
       <button class="cmd-btn" onclick="sendCmd('anomalies')">Show Anomalies</button>
       <button class="cmd-btn" onclick="sendCmd('retrospective')">Retrospective</button>
+      <button class="cmd-btn" onclick="sendCmd('status')">System Status</button>
+      <button class="cmd-btn" onclick="sendCmd('memory')">Team Memory</button>
     </div>
   </div>
   <div class="card" style="margin:0">
@@ -489,6 +494,9 @@
     <div id="deploy-pipeline"><div class="empty">No deployments</div></div>
     <div class="cmd-bar">
       <button class="cmd-btn" onclick="sendCmd('deploys')">Deploy Log</button>
+      <button class="cmd-btn" onclick="sendCmd('auto deploy')">Auto-Deploy Status</button>
+      <button class="cmd-btn green" onclick="if(confirm('Enable auto-deploy? Code mutations will deploy without approval.'))sendCmd('auto deploy on')">Auto ON</button>
+      <button class="cmd-btn danger" onclick="sendCmd('auto deploy off')">Auto OFF</button>
     </div>
   </div>
 </div>
@@ -608,6 +616,10 @@
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">audit</td><td>Run a code quality audit across the codebase</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">audit status</td><td>Show audit activity, error resolution status, and deploy log</td></tr>
       <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">deploys</td><td>Show recent deployment log (auto-deploys from approved proposals)</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">diagnose</td><td>Manually trigger error diagnosis for recent undiagnosed errors</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">auto deploy</td><td>Check auto-deploy status (enabled/disabled)</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">auto deploy on</td><td>Enable auto-deploy: code mutations deploy without approval (with 60s monitoring)</td></tr>
+      <tr><td style="white-space:nowrap;font-weight:600;color:var(--blue)">auto deploy off</td><td>Disable auto-deploy: code proposals require human approval (default)</td></tr>
 
       <!-- Tech Radar -->
       <tr><td colspan="2" style="font-weight:700;color:var(--blue);padding-top:10px;border-bottom:none;font-size:.72rem">🔬 Tech Radar — Internet Technology Monitor</td></tr>
