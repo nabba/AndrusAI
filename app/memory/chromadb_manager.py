@@ -175,20 +175,27 @@ def _get_col(name: str):
         # Check dimension compatibility if collection has data
         try:
             if col.count() > 0:
-                # Peek at one embedding to check dimension
-                sample = col.peek(1)
+                # Peek at one embedding to check dimension — must request include=["embeddings"]
+                sample = col.peek(1, include=["embeddings"])
                 if sample and sample.get("embeddings") and sample["embeddings"][0]:
                     existing_dim = len(sample["embeddings"][0])
                     current_dim = get_embed_dim()
                     if existing_dim != current_dim:
                         logger.warning(
                             f"Collection '{name}' has {existing_dim}-dim embeddings "
-                            f"but model produces {current_dim}-dim — recreating collection"
+                            f"but model produces {current_dim}-dim — recreating"
                         )
                         client.delete_collection(name)
                         col = client.get_or_create_collection(name)
-        except Exception:
-            pass  # dimension check is best-effort
+        except Exception as e:
+            # If peek fails with dimension error, recreate the collection
+            if "dimension" in str(e).lower():
+                logger.warning(f"Collection '{name}' dimension error — recreating: {e}")
+                try:
+                    client.delete_collection(name)
+                    col = client.get_or_create_collection(name)
+                except Exception:
+                    pass
         _collections[name] = col
     return _collections[name]
 
@@ -216,12 +223,32 @@ def store(collection_name: str, text: str, metadata: dict = None):
         pass
     col = _get_col(collection_name)
     embedding = embed(text)
-    col.add(
-        documents=[text],
-        embeddings=[embedding],
-        metadatas=[metadata or {}],
-        ids=[str(uuid.uuid4())],
-    )
+    try:
+        col.add(
+            documents=[text],
+            embeddings=[embedding],
+            metadatas=[metadata or {}],
+            ids=[str(uuid.uuid4())],
+        )
+    except Exception as e:
+        # Dimension mismatch: collection has 384-dim but model produces 768-dim
+        # Recreate the collection and retry (operational data is ephemeral)
+        if "dimension" in str(e).lower():
+            logger.warning(f"Dimension mismatch in '{collection_name}' — recreating and retrying")
+            _collections.pop(collection_name, None)
+            _count_cache.pop(collection_name, None)
+            client = get_client()
+            client.delete_collection(collection_name)
+            col = client.get_or_create_collection(collection_name)
+            _collections[collection_name] = col
+            col.add(
+                documents=[text],
+                embeddings=[embedding],
+                metadatas=[metadata or {}],
+                ids=[str(uuid.uuid4())],
+            )
+        else:
+            raise
     _count_cache.pop(collection_name, None)
 
 
