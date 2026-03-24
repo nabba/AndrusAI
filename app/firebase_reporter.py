@@ -1151,6 +1151,94 @@ def start_kb_queue_poller() -> None:
     logger.info("firebase_reporter: KB queue poller started (10s interval)")
 
 
+# ── Credit / Billing Alerts ────────────────────────────────────────────────
+
+# Provider → purchase URL mapping
+_CREDIT_URLS = {
+    "openrouter": "https://openrouter.ai/settings/credits",
+    "anthropic":  "https://console.anthropic.com/settings/billing",
+    "google":     "https://console.cloud.google.com/billing",
+    "openai":     "https://platform.openai.com/settings/organization/billing",
+}
+
+# Patterns that indicate credit/billing exhaustion in error messages
+_CREDIT_PATTERNS = [
+    "402", "payment required", "insufficient", "credits", "quota",
+    "billing", "afford", "exceeded", "budget", "out of credits",
+    "rate_limit_exceeded", "insufficient_quota", "plan_limit",
+]
+
+_active_alerts: dict[str, dict] = {}  # provider → alert dict
+
+
+def detect_credit_error(error: Exception | str) -> str | None:
+    """Check if an error indicates credit/billing exhaustion.
+
+    Returns the provider name if a credit error is detected, else None.
+    """
+    err = str(error).lower()
+    if not any(p in err for p in _CREDIT_PATTERNS):
+        return None
+    # Identify provider from error context
+    if "openrouter" in err or "afford" in err:
+        return "openrouter"
+    if "anthropic" in err or "claude" in err:
+        return "anthropic"
+    if "google" in err or "gemini" in err or "vertex" in err:
+        return "google"
+    if "openai" in err:
+        return "openai"
+    # 402 without clear provider — check the numeric patterns
+    if "402" in err:
+        return "openrouter"  # most common 402 source
+    return None
+
+
+def report_credit_alert(provider: str, error_msg: str = "") -> None:
+    """Report a credit exhaustion alert to Firestore for dashboard display."""
+    url = _CREDIT_URLS.get(provider, "")
+    alert = {
+        "provider": provider,
+        "error": error_msg[:300],
+        "url": url,
+        "ts": _now_iso(),
+        "resolved": False,
+    }
+    _active_alerts[provider] = alert
+    logger.warning(f"CREDIT ALERT: {provider} — {error_msg[:100]}")
+
+    def _write():
+        db = _get_db()
+        if not db:
+            return
+        try:
+            db.collection("status").document("credit_alerts").set({
+                "alerts": _active_alerts,
+                "updated_at": _now_iso(),
+            })
+        except Exception:
+            logger.debug("firebase_reporter: credit alert write failed", exc_info=True)
+    _fire(_write)
+
+
+def resolve_credit_alert(provider: str) -> None:
+    """Mark a provider's credit alert as resolved (successful call after error)."""
+    if provider in _active_alerts:
+        del _active_alerts[provider]
+        def _write():
+            db = _get_db()
+            if not db:
+                return
+            try:
+                db.collection("status").document("credit_alerts").set({
+                    "alerts": _active_alerts,
+                    "updated_at": _now_iso(),
+                })
+            except Exception:
+                pass
+        _fire(_write)
+
+
 # ── Bidirectional chat (dashboard ↔ Signal) ────────────────────────────────
 
 def report_chat_message(role: str, text: str, source: str = "signal") -> None:

@@ -2,7 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Dashboard collections — public read, backend-only write
+    // Dashboard collections — public read, backend-only write (admin SDK)
     match /status/{doc}     { allow read: if true; allow write: if false; }
     match /crews/{doc}      { allow read: if true; allow write: if false; }
     match /tasks/{doc}      { allow read: if true; allow write: if false; }

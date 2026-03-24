@@ -152,7 +152,13 @@ def install_throttle() -> None:
                 throttle_for_provider(provider)
                 # Inject retry params if not already set
                 kwargs.setdefault("num_retries", _RETRY_COUNT)
-                response = _original_completion(*args, **kwargs)
+                try:
+                    response = _original_completion(*args, **kwargs)
+                except Exception as exc:
+                    _check_credit_error(exc, provider)
+                    raise
+                # Successful call — resolve any prior credit alert for this provider
+                _resolve_credit_if_needed(provider)
                 _record_token_usage(response, kwargs)
                 return response
 
@@ -326,6 +332,36 @@ def _record_token_usage(response, kwargs: dict) -> None:
                 tracker.record(model, prompt_tokens, completion_tokens, cost_usd)
     except Exception:
         pass  # never fail the actual LLM call
+
+
+# ── Credit alert integration ─────────────────────────────────────────────────
+
+_resolved_providers: set[str] = set()  # avoid repeated resolve calls
+
+
+def _check_credit_error(exc: Exception, provider: str) -> None:
+    """If the error looks like a credit/billing issue, report it."""
+    try:
+        from app.firebase_reporter import detect_credit_error, report_credit_alert
+        detected = detect_credit_error(exc)
+        if detected:
+            report_credit_alert(detected, str(exc)[:300])
+            _resolved_providers.discard(detected)
+    except Exception:
+        pass  # never interfere with the real error
+
+
+def _resolve_credit_if_needed(provider: str) -> None:
+    """On success, resolve any active credit alert for this provider."""
+    if provider in _resolved_providers:
+        return  # already resolved, skip
+    try:
+        from app.firebase_reporter import _active_alerts, resolve_credit_alert
+        if provider in _active_alerts:
+            resolve_credit_alert(provider)
+            _resolved_providers.add(provider)
+    except Exception:
+        pass
 
 
 # ── Request-level cost tracking ──────────────────────────────────────────────

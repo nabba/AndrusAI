@@ -351,6 +351,7 @@
   <div class="card" style="margin:0">
     <div class="section-title">Connection Health</div>
     <div id="circuit-breakers" class="conn-grid"><div class="empty">Loading…</div></div>
+    <div id="credit-alerts" style="margin-top:6px"></div>
   </div>
 </div>
 
@@ -1161,6 +1162,27 @@ onSnapshot(doc(db, "status", "signal"), s => {
   // Re-render connections when signal data updates
   const cbDoc = document.getElementById("circuit-breakers");
   if (cbDoc._lastCBData) renderConnectionsFull(cbDoc._lastCBData, _signalData);
+});
+
+// ── Credit Alerts ──────────────────────────────────────────────
+onSnapshot(doc(db, "status", "credit_alerts"), s => {
+  const el = document.getElementById("credit-alerts");
+  if (!s.exists()) { el.innerHTML = ""; return; }
+  const alerts = s.data().alerts || {};
+  const keys = Object.keys(alerts).filter(k => !alerts[k].resolved);
+  if (!keys.length) { el.innerHTML = ""; return; }
+  el.innerHTML = keys.map(k => {
+    const a = alerts[k];
+    const name = esc(a.provider || k).toUpperCase();
+    const url = esc(a.url || "");
+    const msg = esc((a.error || "").substring(0, 120));
+    const link = url ? `<a href="${url}" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:underline;font-weight:700;margin-left:6px">Top Up →</a>` : "";
+    return `<div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:6px;margin-bottom:4px">` +
+      `<span style="font-size:1rem">⚠️</span>` +
+      `<div style="flex:1"><div style="font-size:.72rem;font-weight:700;color:var(--red)">${name} Credits Exhausted</div>` +
+      `<div style="font-size:.6rem;color:var(--muted);margin-top:1px">${msg}</div></div>` +
+      link + `</div>`;
+  }).join("");
 });
 
 function renderConnections(cbData) {
