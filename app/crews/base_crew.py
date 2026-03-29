@@ -114,5 +114,5 @@ def run_single_agent_crew(
     except Exception as exc:
         update_belief(agent_role, "failed", current_task=task_description[:100])
         crew_failed(crew_name, task_id, str(exc)[:200])
-        diagnose_and_fix(crew_name, task_description, exc)
+        diagnose_and_fix(crew_name, task_description, exc, task_id=task_id)
         raise

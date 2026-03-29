@@ -229,6 +229,46 @@
     .empty { color: var(--muted); font-size: .68rem; padding: 8px 0; text-align: center; }
     #last-updated { font-size: .55rem; color: var(--dim); text-align: right; }
 
+    /* ── Task Detail Modal ────────────────────────────────────── */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 100; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 16px; }
+    .modal-overlay.open { display: flex; animation: fadeIn .15s; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 100%; max-width: 520px; max-height: 85vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,.5); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1; }
+    .modal-head h3 { font-size: .82rem; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+    .modal-close { background: none; border: none; color: var(--muted); font-size: 1.1rem; cursor: pointer; padding: 4px 8px; border-radius: 4px; line-height: 1; }
+    .modal-close:hover { color: var(--text); background: var(--surface2); }
+    .modal-body { padding: 14px; }
+    .modal-section { margin-bottom: 12px; }
+    .modal-section:last-child { margin-bottom: 0; }
+    .modal-label { font-size: .58rem; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin-bottom: 3px; }
+    .modal-value { font-size: .75rem; color: var(--text); line-height: 1.4; }
+    .modal-value code { background: var(--bg); padding: 1px 5px; border-radius: 3px; font-size: .68rem; }
+    .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .modal-stat { background: var(--bg); border-radius: var(--radius); padding: 8px; text-align: center; }
+    .modal-stat .val { font-size: 1rem; font-weight: 700; }
+    .modal-stat .lbl { font-size: .55rem; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
+    .modal-stat .val.green { color: var(--green); }
+    .modal-stat .val.blue { color: var(--blue); }
+    .modal-stat .val.cyan { color: var(--cyan); }
+    .modal-stat .val.red { color: var(--red); }
+    .modal-stat .val.orange { color: var(--orange); }
+    .modal-task-text { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; font-size: .72rem; line-height: 1.4; max-height: 120px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+    .heal-timeline { border-left: 2px solid var(--border); padding-left: 10px; margin-top: 6px; }
+    .heal-step { position: relative; padding: 4px 0 8px; font-size: .7rem; }
+    .heal-step::before { content: ""; position: absolute; left: -14px; top: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+    .heal-step.success::before { background: var(--green); }
+    .heal-step.fail::before { background: var(--red); }
+    .heal-step.pending::before { background: var(--yellow); }
+    .heal-step .heal-label { font-weight: 600; color: var(--text); }
+    .heal-step .heal-detail { color: var(--muted); font-size: .65rem; margin-top: 1px; }
+    .task-link { cursor: pointer; color: var(--text); text-decoration: none; }
+    .task-link:hover { color: var(--blue); text-decoration: underline; }
+    @media (max-width: 480px) {
+      .modal { max-width: 100%; max-height: 90vh; border-radius: 12px 12px 0 0; }
+      .modal-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+      .modal-overlay { padding: 0; align-items: flex-end; }
+    }
+
     /* ── Responsive — tablet (601–1024px) ───────────────────── */
     @media (max-width: 1024px) {
       .stats-row { grid-template-columns: repeat(3, 1fr); }
@@ -675,7 +715,8 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, doc, collection, onSnapshot,
-         query, orderBy, limit, setDoc, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+         query, orderBy, limit, where, getDocs,
+         setDoc, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 // Firebase Storage removed — uploads go inline via Firestore kb_queue
 
 const app = initializeApp({
@@ -690,7 +731,7 @@ const db = getFirestore(app);
 
 // Expose to non-module chat pane script
 window._db = db;
-window._fb = { collection, query, orderBy, limit, onSnapshot, addDoc, doc, setDoc, serverTimestamp };
+window._fb = { collection, query, orderBy, limit, where, getDocs, onSnapshot, addDoc, doc, setDoc, serverTimestamp };
 
 // Tab navigation removed — all sections visible in single-page layout
 
@@ -815,6 +856,8 @@ function renderTasks() {
   document.getElementById("s-tasks").textContent = today;
   tbody.innerHTML = snap.docs.map(d => {
     const t = d.data();
+    const tid = d.id;
+    storeTaskData(tid, t);
     const isChild = t.parent_task_id;
     const indent = isChild ? 'padding-left:22px' : '';
     const prefix = isChild ? '<span style="color:var(--dim)">└ </span>' : '';
@@ -845,7 +888,7 @@ function renderTasks() {
     }
     return `<tr${isChild?' style="opacity:.75"':''}>
       <td style="${indent}">${prefix}${ICONS[t.crew]||"🤖"} ${esc(t.crew)||"—"}</td>
-      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.summary)||"—"}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a class="task-link" onclick="openTaskModal('${esc(tid)}')" title="Click for details">${esc(t.summary)||"—"}</a></td>
       <td>${modelTag}</td>
       <td>${tokenStr}</td>
       <td>${costStr}</td>
@@ -1490,6 +1533,176 @@ function _initChatListener() {
     if (window._db && window._fb) { clearInterval(check); _initChatListener(); }
   }, 500);
 })();
+// ── Task Detail Modal ──────────────────────────────────────────────────────
+const _taskDataMap = {};
+function storeTaskData(id, data) { _taskDataMap[id] = data; }
+
+function openTaskModal(taskId) {
+  const t = _taskDataMap[taskId];
+  if (!t) return;
+  const m = document.getElementById('task-modal');
+  const icon = ICONS[t.crew] || '🤖';
+  const stateColor = t.state === 'completed' ? 'green' : t.state === 'failed' ? 'red' : 'blue';
+
+  // Duration
+  let durationSec = 0;
+  if (t.started_at) {
+    const start = new Date(t.started_at).getTime();
+    const end = t.completed_at ? new Date(t.completed_at).getTime() : (t.state === 'running' ? Date.now() : start);
+    durationSec = (end - start) / 1000;
+  }
+
+  // Format times
+  const started = t.started_at ? new Date(t.started_at).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+  const completed = t.completed_at ? new Date(t.completed_at).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'}) : (t.state === 'running' ? 'In progress…' : '—');
+  const tokens = t.tokens_used ? fmtNum(t.tokens_used) : '—';
+  const cost = t.cost_usd ? '$' + t.cost_usd.toFixed(4) : '—';
+  const model = t.model || '—';
+
+  // Build modal content
+  let html = `
+    <div class="modal-head">
+      <h3>${icon} <span>${esc(t.crew || '—')}</span> <span class="badge ${t.state||''}" style="margin-left:4px">${t.state||'—'}</span></h3>
+      <button class="modal-close" onclick="closeTaskModal()" title="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <div class="modal-label">Task</div>
+        <div class="modal-task-text">${esc(t.summary || '—')}</div>
+      </div>
+
+      <div class="modal-grid">
+        <div class="modal-stat"><div class="val ${stateColor}">${fmtDuration(durationSec)}</div><div class="lbl">Duration</div></div>
+        <div class="modal-stat"><div class="val cyan">${tokens}</div><div class="lbl">Tokens</div></div>
+        <div class="modal-stat"><div class="val green">${cost}</div><div class="lbl">Cost</div></div>
+        <div class="modal-stat"><div class="val blue">${esc(model)}</div><div class="lbl">LLM Model</div></div>
+      </div>
+
+      <div class="modal-section" style="margin-top:10px">
+        <div class="modal-grid">
+          <div><div class="modal-label">Started</div><div class="modal-value">${started}</div></div>
+          <div><div class="modal-label">${t.state==='completed'?'Completed':'Status'}</div><div class="modal-value">${completed}</div></div>
+        </div>
+      </div>`;
+
+  // Flow info
+  if (t.delegated_from || t.delegated_to || t.parent_task_id) {
+    html += `<div class="modal-section">
+      <div class="modal-label">Flow</div>
+      <div class="modal-value">`;
+    if (t.delegated_from && t.delegated_to) {
+      html += `${ICONS[t.delegated_from]||'🤖'} ${esc(t.delegated_from)} → ${ICONS[t.delegated_to]||'🤖'} ${esc(t.delegated_to)}`;
+    }
+    if (t.parent_task_id) html += ` <code style="font-size:.6rem">parent: ${esc(t.parent_task_id).substring(0,8)}…</code>`;
+    html += `</div></div>`;
+  }
+
+  // Result preview
+  if (t.result_preview) {
+    html += `<div class="modal-section">
+      <div class="modal-label">Result Preview</div>
+      <div class="modal-task-text">${esc(t.result_preview)}</div>
+    </div>`;
+  }
+
+  // Error + self-healing timeline for failed tasks
+  if (t.state === 'failed') {
+    html += `<div class="modal-section">
+      <div class="modal-label" style="color:var(--red)">Error</div>
+      <div class="modal-task-text" style="border-color:rgba(248,113,113,.3)">${esc(t.error || 'Unknown error')}</div>
+    </div>
+    <div class="modal-section">
+      <div class="modal-label">Self-Healing Response</div>
+      <div class="heal-timeline" id="heal-timeline-${esc(taskId)}">
+        <div class="heal-step pending">
+          <div class="heal-label">Loading healing data…</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  html += `</div>`;
+  document.getElementById('task-modal-content').innerHTML = html;
+  m.classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  // Load healing data async for failed tasks
+  if (t.state === 'failed') loadHealingData(taskId, t);
+}
+
+function closeTaskModal() {
+  document.getElementById('task-modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// Close on overlay click or Escape
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTaskModal(); });
+
+function loadHealingData(taskId, task) {
+  const el = document.getElementById('heal-timeline-' + taskId);
+  if (!el) return;
+
+  // Check inline heal fields first (written directly to the task doc)
+  if (task.heal_action) {
+    const healTime = task.heal_at ? new Date(task.heal_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+    const cls = task.heal_action === 'proposal_created' ? 'success'
+              : task.heal_action === 'knowledge_fix' ? 'success'
+              : task.heal_action === 'transient' ? 'pending' : 'pending';
+    const icon = task.heal_action === 'proposal_created' ? '🔧'
+               : task.heal_action === 'knowledge_fix' ? '📚'
+               : task.heal_action === 'transient' ? '🔄' : '⏳';
+    let proposalLink = '';
+    if (task.heal_proposal_id) {
+      proposalLink = `<div style="margin-top:4px"><button class="cmd-btn" onclick="closeTaskModal();sendCmd('diff ${task.heal_proposal_id}')" style="font-size:.6rem">View Proposal #${task.heal_proposal_id}</button> <button class="cmd-btn green" onclick="closeTaskModal();sendCmd('approve ${task.heal_proposal_id}')" style="font-size:.6rem">Approve</button></div>`;
+    }
+    el.innerHTML = `
+      <div class="heal-step ${cls}">
+        <div class="heal-label">${icon} ${esc(task.heal_action.replace(/_/g,' '))} <span style="color:var(--dim);font-weight:400;font-size:.6rem">${healTime}</span></div>
+        <div class="heal-detail">${esc(task.heal_detail || '')}</div>
+        ${proposalLink}
+      </div>`;
+    return;
+  }
+
+  // Fallback: query activities collection for this task
+  if (!window._db || !window._fb) {
+    el.innerHTML = '<div class="heal-step pending"><div class="heal-label">⏳ Diagnosis queued</div><div class="heal-detail">The self-healing system is analyzing this error.</div></div>';
+    return;
+  }
+  const { collection: col, query: q, where: w, orderBy: ob, limit: lim, getDocs } = window._fb;
+  getDocs(q(col(window._db, 'activities'), w('task_id', '==', taskId), ob('ts', 'desc'), lim(10)))
+    .then(snap => {
+      if (snap.empty) {
+        el.innerHTML = '<div class="heal-step pending"><div class="heal-label">⏳ Diagnosis in progress</div><div class="heal-detail">The self-healing system is analyzing this error. Check Proposals for any fix that was generated.</div></div>';
+        return;
+      }
+      let html = '';
+      const events = [];
+      snap.forEach(d => events.push(d.data()));
+      events.reverse();
+      events.forEach(ev => {
+        const evTime = ev.ts ? new Date(ev.ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+        let cls = 'pending';
+        if (ev.event === 'task_completed' || ev.event === 'proposal_created') cls = 'success';
+        if (ev.event === 'task_failed') cls = 'fail';
+        const label = ev.event ? ev.event.replace(/_/g, ' ') : 'event';
+        html += `<div class="heal-step ${cls}">
+          <div class="heal-label">${esc(label)} <span style="color:var(--dim);font-weight:400;font-size:.6rem">${evTime}</span></div>
+          <div class="heal-detail">${esc(ev.detail || ev.preview || '')}</div>
+        </div>`;
+      });
+      el.innerHTML = html || '<div class="heal-step pending"><div class="heal-label">No healing activity recorded</div></div>';
+    })
+    .catch(() => {
+      el.innerHTML = '<div class="heal-step pending"><div class="heal-label">Could not load healing data</div></div>';
+    });
+}
 </script>
+
+<!-- Task Detail Modal -->
+<div class="modal-overlay" id="task-modal" onclick="if(event.target===this)closeTaskModal()">
+  <div class="modal" id="task-modal-content"></div>
+</div>
+
 </body>
 </html>

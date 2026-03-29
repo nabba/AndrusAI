@@ -104,6 +104,7 @@ def diagnose_and_fix(
     user_input: str,
     error: Exception,
     context: str = "",
+    task_id: str = "",
 ) -> None:
     """
     Fire-and-forget: log the error, then spawn a background thread
@@ -114,6 +115,7 @@ def diagnose_and_fix(
     """
     global _active_diagnoses
     entry = log_error(crew, user_input, error, context)
+    entry["task_id"] = task_id  # link back to the failed task for dashboard tracing
 
     # Don't try to diagnose rate limits or auth errors — they're transient
     # and diagnosing them would just trigger MORE rate limit errors
@@ -145,6 +147,32 @@ def diagnose_and_fix(
         name="self-heal-diagnosis",
     )
     t.start()
+
+
+def _update_task_healing(entry: dict, action: str, detail: str, proposal_id: int = 0) -> None:
+    """Write healing outcome back to the failed task's Firestore doc for dashboard tracing."""
+    try:
+        from app.firebase_reporter import _get_db, _fire, _now_iso
+        failed_task_id = entry.get("task_id", "")
+        if not failed_task_id:
+            return
+
+        def _write():
+            db = _get_db()
+            if not db:
+                return
+            try:
+                db.collection("tasks").document(failed_task_id).update({
+                    "heal_action": action,
+                    "heal_detail": detail[:300],
+                    "heal_proposal_id": proposal_id,
+                    "heal_at": _now_iso(),
+                })
+            except Exception:
+                pass
+        _fire(_write)
+    except Exception:
+        pass
 
 
 def _read_source_from_traceback(entry: dict) -> str:
@@ -251,6 +279,8 @@ def _diagnose_background(entry: dict) -> None:
                 )
                 if pid > 0:
                     logger.info(f"self_heal: created code proposal #{pid} for {entry['error_type']}")
+                    # Link diagnosis back to the failed task for dashboard tracing
+                    _update_task_healing(entry, "proposal_created", f"Proposal #{pid}: {title}", pid)
                     # Notify user via Signal about the proposal
                     try:
                         from app.signal_client import send_message
@@ -275,11 +305,13 @@ def _diagnose_background(entry: dict) -> None:
                     )
                     _skill_files_per_pattern[pattern_key] = existing_skills + 1
                     logger.info(f"self_heal: stored knowledge fix for {pattern_key}")
+                    _update_task_healing(entry, "knowledge_fix", f"Learned: {diagnosis[:100]}")
                 except Exception:
                     pass
 
             elif fix_type == "transient":
                 logger.info(f"self_heal: transient error: {diagnosis[:100]}")
+                _update_task_healing(entry, "transient", f"Transient: {diagnosis[:100]}")
 
         else:
             # F5: Do NOT mark as diagnosed if we couldn't parse the response.
