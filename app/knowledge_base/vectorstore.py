@@ -45,21 +45,54 @@ class KnowledgeStore:
     ):
         Path(persist_dir).mkdir(parents=True, exist_ok=True)
 
-        # B6: Reuse the shared ChromaDB client from chromadb_manager instead of
-        # creating a duplicate PersistentClient (which loaded a second
-        # SentenceTransformer model). Now uses the Ollama Metal GPU embedding
-        # backend shared with the memory system.
-        from app.memory.chromadb_manager import get_client
-        self._client = get_client()
+        # Use a dedicated PersistentClient for the KB so it reads from
+        # config.CHROMA_PERSIST_DIR (/app/workspace/knowledge), NOT the
+        # shared memory client which points to /app/workspace/memory.
+        # Both use the same embed() function (Ollama GPU / CPU fallback).
+        self._client = chromadb.PersistentClient(path=persist_dir)
 
-        self._collection = self._client.get_or_create_collection(
+        col = self._client.get_or_create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"},
         )
 
+        # Handle embedding dimension mismatch (e.g. old 384-dim all-MiniLM
+        # data vs. current 768-dim Ollama nomic-embed-text).
+        # If mismatch: delete and recreate — documents must be re-ingested.
+        from app.memory.chromadb_manager import get_embed_dim
+        try:
+            if col.count() > 0:
+                sample = col.peek(1, include=["embeddings"])
+                if sample and sample.get("embeddings") and sample["embeddings"][0]:
+                    existing_dim = len(sample["embeddings"][0])
+                    current_dim = get_embed_dim()
+                    if existing_dim != current_dim:
+                        logger.warning(
+                            f"KnowledgeStore: collection '{collection_name}' has "
+                            f"{existing_dim}-dim embeddings but current model produces "
+                            f"{current_dim}-dim — recreating (documents must be re-ingested)"
+                        )
+                        self._client.delete_collection(collection_name)
+                        col = self._client.get_or_create_collection(
+                            name=collection_name,
+                            metadata={"hnsw:space": "cosine"},
+                        )
+        except Exception as e:
+            if "dimension" in str(e).lower():
+                logger.warning(f"KnowledgeStore: dimension error on init — recreating: {e}")
+                try:
+                    self._client.delete_collection(collection_name)
+                    col = self._client.get_or_create_collection(
+                        name=collection_name,
+                        metadata={"hnsw:space": "cosine"},
+                    )
+                except Exception:
+                    pass
+
+        self._collection = col
         logger.info(
             f"KnowledgeStore initialized: {self._collection.count()} chunks "
-            f"in collection '{collection_name}'"
+            f"in collection '{collection_name}' at '{persist_dir}'"
         )
 
     # ─────────────────────────────────────────────
