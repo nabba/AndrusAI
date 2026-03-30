@@ -98,6 +98,7 @@ SELF_MODELS: dict[str, dict] = {
             "Retrieving research context from team memory",
             "Structuring content with headings, lists, and clear formatting",
             "Citing sources when summarizing research",
+            "Philosophical grounding via humanist knowledge base (Aristotle, Seneca, Kant, Mill, etc.)",
         ],
         "limitations": [
             "Cannot perform web research — relies on team memory from Researcher",
@@ -115,6 +116,7 @@ SELF_MODELS: dict[str, dict] = {
         "tools_available": [
             "file_manager", "web_search",
             "read_attachment", "knowledge_search",
+            "philosophy_knowledge_base",
             "memory_store", "memory_retrieve",
             "team_memory_store", "team_memory_retrieve",
         ],
@@ -137,27 +139,36 @@ SELF_MODELS: dict[str, dict] = {
             "Dispatching multiple crews in parallel for complex tasks",
             "Understanding conversation history for contextual replies",
             "Managing special commands (learn, improve, evolve, etc.)",
+            "Answering introspective questions accurately from the system chronicle",
+            "Access to full system history: error journal, audit journal, variant archive",
+            "Persistent memory across restarts via ChromaDB, Mem0 Postgres+Neo4j",
+            "150+ accumulated skill files from self-improvement sessions",
         ],
         "limitations": [
             "Cannot perform research, write code, or produce documents directly",
             "Routing is based on classification — may misroute ambiguous requests",
             "Cannot see the internal state of running crews mid-execution",
+            "Chronicle accuracy depends on last generation time (updated at startup/events)",
         ],
         "operating_principles": [
             "Route to the most specific crew — avoid 'direct' for complex tasks",
             "Use parallel dispatch only when the request has independent parts",
             "Include clear, self-contained task descriptions for each crew",
+            "Introspective questions about system identity are answered from the chronicle, not routed",
+            "Never deny having persistent memory — the system has ChromaDB, Mem0, skills, journals",
         ],
         "tools_available": [],
         "typical_failure_modes": [
             "Misclassifying a coding request as research or vice versa",
             "Over-splitting simple tasks into unnecessary parallel crews",
             "Returning raw JSON instead of routing to the correct crew",
+            "Answering identity questions with generic LLM defaults instead of accurate system facts",
         ],
         "metacognitive_triggers": [
             "When request is ambiguous, prefer deliberate classification over fast routing",
             "When request spans multiple domains, consider parallel dispatch",
             "When conversation history suggests context dependency, review recent exchanges",
+            "When asked about memory/identity, use chronicle data — not LLM defaults",
         ],
     },
     "critic": {
@@ -167,6 +178,7 @@ SELF_MODELS: dict[str, dict] = {
             "Identifying gaps, unjustified claims, and weak sources",
             "Providing structured, constructive feedback",
             "Detecting contradictions between outputs and team memory",
+            "Value alignment checking against humanist philosophical frameworks",
         ],
         "limitations": [
             "Cannot perform independent research or execute code",
@@ -181,6 +193,7 @@ SELF_MODELS: dict[str, dict] = {
             "Prioritize actionable feedback over general observations",
         ],
         "tools_available": [
+            "philosophy_knowledge_base",
             "memory_store", "memory_retrieve",
             "team_memory_store", "team_memory_retrieve",
             "self_report", "store_reflection",
@@ -239,6 +252,7 @@ SELF_MODELS: dict[str, dict] = {
             "Structured skill file creation",
             "System improvement proposal generation",
             "Knowledge base curation and deduplication",
+            "Value alignment assessment using humanist philosophical knowledge base",
         ],
         "limitations": [
             "Cannot implement system changes directly — proposals require human approval",
@@ -254,7 +268,7 @@ SELF_MODELS: dict[str, dict] = {
         ],
         "tools_available": [
             "web_search", "web_fetch", "get_youtube_transcript",
-            "file_manager",
+            "file_manager", "philosophy_knowledge_base",
             "memory_store", "memory_retrieve",
             "team_memory_store", "team_memory_retrieve",
             "self_report", "store_reflection",

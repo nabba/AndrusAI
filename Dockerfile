@@ -24,7 +24,7 @@ COPY app/ app/
 COPY dashboard/public/index.html dashboard/index.html
 
 # Create workspace directories
-RUN mkdir -p workspace/output workspace/memory workspace/skills workspace/proposals workspace/applied_code
+RUN mkdir -p workspace/output workspace/memory workspace/skills workspace/proposals workspace/applied_code workspace/philosophy/texts
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app/workspace

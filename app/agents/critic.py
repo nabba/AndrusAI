@@ -13,6 +13,7 @@ from app.tools.scoped_memory_tool import create_scoped_memory_tools
 from app.tools.self_report_tool import create_self_report_tool
 from app.tools.reflection_tool import ReflectionTool
 from app.souls.loader import compose_backstory
+from app.philosophy.rag_tool import PhilosophyRAGTool
 
 # Critic doesn't have its own soul file yet — compose_backstory will
 # return just the self-model block, which preserves Phase 1 behavior.
@@ -53,6 +54,6 @@ def create_critic() -> Agent:
         goal="Adversarially review work from other agents to catch errors, gaps, and unjustified claims.",
         backstory=CRITIC_BACKSTORY,
         llm=llm,
-        tools=memory_tools + scoped_tools + awareness_tools,
+        tools=[PhilosophyRAGTool()] + memory_tools + scoped_tools + awareness_tools,
         verbose=True,
     )

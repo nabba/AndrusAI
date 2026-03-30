@@ -937,6 +937,27 @@ def report_knowledge_base() -> None:
         logger.debug("firebase_reporter: knowledge_base write failed", exc_info=True)
 
 
+def report_philosophy_kb() -> None:
+    """Push philosophy knowledge base stats to Firestore for the dashboard."""
+    db = _get_db()
+    if not db:
+        return
+    try:
+        from app.philosophy.vectorstore import get_store
+        store = get_store()
+        stats = store.get_stats()
+        db.collection("status").document("philosophy_kb").set({
+            "total_chunks": stats.get("total_chunks", 0),
+            "total_texts": stats.get("total_texts", 0),
+            "traditions": stats.get("traditions", []),
+            "authors": stats.get("authors", []),
+            "titles": stats.get("titles", []),
+            "updated_at": _now_iso(),
+        })
+    except Exception:
+        logger.debug("firebase_reporter: philosophy_kb write failed", exc_info=True)
+
+
 # ── L5: Ecological awareness stats ────────────────────────────────────────────
 
 def report_ecological_stats() -> None:

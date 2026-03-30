@@ -298,6 +298,8 @@ async def lifespan(app: FastAPI):
                 report_deploys()
                 report_proposals()  # push pending proposals to dashboard
                 report_proposal_actions()  # process dashboard approve/reject clicks
+                from app.firebase_reporter import report_philosophy_kb
+                report_philosophy_kb()
             except Exception:
                 pass
     scheduler.add_job(_heartbeat_with_anomaly, "interval", seconds=60, id="heartbeat")
@@ -359,6 +361,17 @@ async def lifespan(app: FastAPI):
     idle_scheduler.start()
     logger.info("Idle scheduler started — background work runs when no user tasks active")
 
+    # Create philosophy KB directories
+    os.makedirs("/app/workspace/philosophy/texts", exist_ok=True)
+
+    # Generate system chronicle at startup — gives agents accurate self-knowledge
+    try:
+        from app.memory.system_chronicle import generate_and_save
+        await asyncio.to_thread(generate_and_save)
+        logger.info("System chronicle generated.")
+    except Exception:
+        logger.warning("System chronicle generation failed (non-fatal)", exc_info=True)
+
     logger.info("CrewAI Agent Team started")
     yield
     # Final sync on clean shutdown
@@ -388,6 +401,10 @@ def _publish_schedule() -> None:
 
 
 app = FastAPI(title="CrewAI Agent Gateway", lifespan=lifespan)
+
+# Mount philosophy API routes
+from app.philosophy.api import philosophy_router
+app.include_router(philosophy_router)
 
 # Security headers middleware
 from starlette.middleware.base import BaseHTTPMiddleware

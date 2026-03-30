@@ -9,6 +9,7 @@ from app.tools.attachment_reader import read_attachment
 from app.souls.loader import compose_backstory
 from app.tools.mem0_tools import create_mem0_tools
 from app.knowledge_base.tools import KnowledgeSearchTool
+from app.philosophy.rag_tool import PhilosophyRAGTool
 
 settings = get_settings()
 
@@ -27,6 +28,6 @@ def create_writer(force_tier: str | None = None) -> Agent:
         goal="Write clear, well-structured content including summaries, reports, documentation, and emails.",
         backstory=WRITER_BACKSTORY,
         llm=llm,
-        tools=[file_manager, web_search, read_attachment, KnowledgeSearchTool()] + memory_tools + scoped_tools + mem0_tools,
+        tools=[file_manager, web_search, read_attachment, KnowledgeSearchTool(), PhilosophyRAGTool()] + memory_tools + scoped_tools + mem0_tools,
         verbose=True,
     )

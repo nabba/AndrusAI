@@ -10,6 +10,7 @@ from app.tools.file_manager import file_manager
 from app.tools.self_report_tool import create_self_report_tool
 from app.tools.reflection_tool import ReflectionTool
 from app.souls.loader import compose_backstory
+from app.philosophy.rag_tool import PhilosophyRAGTool
 
 settings = get_settings()
 
@@ -31,6 +32,6 @@ def create_self_improver() -> Agent:
         goal="Acquire deep, practical knowledge on assigned topics and distil it into reusable skill files.",
         backstory=SELF_IMPROVER_BACKSTORY,
         llm=llm,
-        tools=[web_search, web_fetch, get_youtube_transcript, file_manager] + memory_tools + scoped_tools + awareness_tools,
+        tools=[web_search, web_fetch, get_youtube_transcript, file_manager, PhilosophyRAGTool()] + memory_tools + scoped_tools + awareness_tools,
         verbose=True,
     )
