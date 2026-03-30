@@ -996,13 +996,16 @@ onSnapshot(doc(db, "status", "variants"), s => {
     ${variants.filter(v => v.status === 'keep').length}/${variants.length} kept
   </div>`;
   if (!variants.length) { el.innerHTML = '<div class="empty">No variants</div>'; return; }
-  el.innerHTML = variants.slice(0, 8).map(v => `
-    <div class="variant-item">
+  el.innerHTML = variants.slice(0, 8).map((v, i) => {
+    window._variantData = window._variantData || {};
+    window._variantData[i] = v;
+    return `<div class="variant-item" style="cursor:pointer" onclick="openVariantModal(${i})">
       <span class="gen-badge">G${v.generation||0}</span>
       <span class="evo-status ${v.status||''}">${(v.status||"?").toUpperCase()}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v.hypothesis)||"—"}</span>
       <span style="color:var(--muted);font-size:.65rem">${v.delta !== undefined ? (v.delta >= 0 ? '+' : '') + v.delta.toFixed(4) : '—'}</span>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 });
 
 // ── Tech Radar ──────────────────────────────────────────────────────────────
@@ -1319,12 +1322,15 @@ onSnapshot(doc(db, "status", "evolution"), s => {
     ${trend.length > 1 ? ` · ${trend[0]?.toFixed(3)||"?"} → ${trend[trend.length-1]?.toFixed(3)||"?"}` : ''}
   </div>`;
   if (!experiments.length) { el.innerHTML = '<div class="empty">No experiments</div>'; return; }
-  el.innerHTML = experiments.slice(0, 8).map(e => `
-    <div class="evo-item">
+  el.innerHTML = experiments.slice(0, 8).map((e, i) => {
+    window._evoData = window._evoData || {};
+    window._evoData[i] = e;
+    return `<div class="evo-item" style="cursor:pointer" onclick="openEvoModal(${i})">
       <span class="evo-status ${e.status||''}">${(e.status||"?").toUpperCase()}</span>
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.hypothesis)||"—"}</span>
       <span style="color:var(--muted);font-size:.65rem">${e.delta !== undefined ? (e.delta >= 0 ? '+' : '') + (e.delta*100).toFixed(2) + '%' : '—'}</span>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 });
 
 // ── Skills Learned ───────────────────────────────────────────────────────────
@@ -1333,13 +1339,17 @@ onSnapshot(doc(db, "status", "skills"), s => {
   if (!s.exists()) { el.innerHTML = '<div class="empty">No skills yet. Use <code>learn &lt;topic&gt;</code> via Signal.</div>'; return; }
   const skills = s.data().skills || [];
   if (!skills.length) { el.innerHTML = '<div class="empty">No skills yet</div>'; return; }
-  el.innerHTML = skills.sort((a,b) => (b.modified_at||"").localeCompare(a.modified_at||"")).map(sk => `
-    <div class="skill-item">
+  const sorted = skills.sort((a,b) => (b.modified_at||"").localeCompare(a.modified_at||""));
+  window._skillData = {};
+  el.innerHTML = sorted.map((sk, i) => {
+    window._skillData[i] = sk;
+    return `<div class="skill-item" style="cursor:pointer" onclick="openSkillModal(${i})">
       <span class="skill-icon">🧠</span>
       <span class="skill-name">${esc(sk.name)}</span>
       <span class="skill-desc">${esc(sk.description||"")}</span>
       <span class="skill-date">${sk.modified_at ? rel(sk.modified_at) : "—"}</span>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 });
 
 // ── Knowledge Base ───────────────────────────────────────────────────────────
@@ -1601,6 +1611,135 @@ function _loadHealingData(taskId, task) {
       el.innerHTML = '<div class="heal-step pending"><div class="heal-label">Could not load healing data</div></div>';
     });
 }
+
+// ── Skill Detail Modal ───────────────────────────────────────────────────────
+window.openSkillModal = function(idx) {
+  const sk = (window._skillData || {})[idx];
+  if (!sk) return;
+  const m = document.getElementById('task-modal');
+  const modified = sk.modified_at ? new Date(sk.modified_at).toLocaleString([], {month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+  const created = sk.created_at ? new Date(sk.created_at).toLocaleString([], {month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'}) : modified;
+  const size = sk.size_bytes ? (sk.size_bytes > 1024 ? (sk.size_bytes/1024).toFixed(1)+'KB' : sk.size_bytes+'B') : '—';
+
+  let html = `
+    <div class="modal-head">
+      <h3>🧠 <span>${esc(sk.name||'Skill')}</span></h3>
+      <button class="modal-close" onclick="closeTaskModal()" title="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <div class="modal-label">Description</div>
+        <div class="modal-task-text">${esc(sk.description||'No description')}</div>
+      </div>
+      <div class="modal-grid">
+        <div class="modal-stat"><div class="val blue">${esc(sk.source||'self-improvement')}</div><div class="lbl">Source</div></div>
+        <div class="modal-stat"><div class="val cyan">${size}</div><div class="lbl">Size</div></div>
+      </div>
+      <div class="modal-section" style="margin-top:10px">
+        <div class="modal-grid">
+          <div><div class="modal-label">Created</div><div class="modal-value">${created}</div></div>
+          <div><div class="modal-label">Last Modified</div><div class="modal-value">${modified}</div></div>
+        </div>
+      </div>`;
+  if (sk.sections && sk.sections.length) {
+    html += `<div class="modal-section"><div class="modal-label">Sections</div><div class="modal-task-text">${sk.sections.map(s => '• '+esc(s)).join('<br>')}</div></div>`;
+  }
+  if (sk.sources && sk.sources.length) {
+    html += `<div class="modal-section"><div class="modal-label">Sources</div><div class="modal-task-text">${sk.sources.map(s => '• '+esc(s)).join('<br>')}</div></div>`;
+  }
+  html += `</div>`;
+  document.getElementById('task-modal-content').innerHTML = html;
+  m.classList.add('open');
+  document.body.style.overflow = 'hidden';
+};
+
+// ── Evolution Experiment Detail Modal ────────────────────────────────────────
+window.openEvoModal = function(idx) {
+  const e = (window._evoData || {})[idx];
+  if (!e) return;
+  const m = document.getElementById('task-modal');
+  const stateColor = e.status === 'keep' ? 'green' : e.status === 'discard' ? 'red' : 'yellow';
+  const delta = e.delta !== undefined ? (e.delta >= 0 ? '+' : '') + (e.delta*100).toFixed(2) + '%' : '—';
+  const deltaColor = e.delta > 0 ? 'green' : e.delta < 0 ? 'red' : 'muted';
+  const ts = e.timestamp ? new Date(e.timestamp).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+
+  let html = `
+    <div class="modal-head">
+      <h3>🧬 <span>Experiment</span> <span class="badge ${e.status||''}" style="margin-left:4px">${(e.status||'?').toUpperCase()}</span></h3>
+      <button class="modal-close" onclick="closeTaskModal()" title="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <div class="modal-label">Hypothesis</div>
+        <div class="modal-task-text">${esc(e.hypothesis||'—')}</div>
+      </div>
+      <div class="modal-grid">
+        <div class="modal-stat"><div class="val ${stateColor}">${(e.status||'?').toUpperCase()}</div><div class="lbl">Verdict</div></div>
+        <div class="modal-stat"><div class="val ${deltaColor}">${delta}</div><div class="lbl">Impact</div></div>
+        <div class="modal-stat"><div class="val blue">${e.before !== undefined ? e.before.toFixed(4) : '—'}</div><div class="lbl">Score Before</div></div>
+        <div class="modal-stat"><div class="val blue">${e.after !== undefined ? e.after.toFixed(4) : '—'}</div><div class="lbl">Score After</div></div>
+      </div>
+      <div class="modal-section" style="margin-top:10px">
+        <div class="modal-grid">
+          <div><div class="modal-label">Type</div><div class="modal-value">${esc(e.change_type||e.type||'—')}</div></div>
+          <div><div class="modal-label">Timestamp</div><div class="modal-value">${ts}</div></div>
+        </div>
+      </div>`;
+  if (e.detail) {
+    html += `<div class="modal-section"><div class="modal-label">Detail</div><div class="modal-task-text">${esc(e.detail)}</div></div>`;
+  }
+  if (e.experiment_id) {
+    html += `<div class="modal-section"><div class="modal-label">Experiment ID</div><div class="modal-value" style="font-family:monospace;font-size:.65rem">${esc(e.experiment_id)}</div></div>`;
+  }
+  html += `</div>`;
+  document.getElementById('task-modal-content').innerHTML = html;
+  m.classList.add('open');
+  document.body.style.overflow = 'hidden';
+};
+
+// ── Variant (Genealogy) Detail Modal ─────────────────────────────────────────
+window.openVariantModal = function(idx) {
+  const v = (window._variantData || {})[idx];
+  if (!v) return;
+  const m = document.getElementById('task-modal');
+  const stateColor = v.status === 'keep' ? 'green' : v.status === 'discard' ? 'red' : 'yellow';
+  const delta = v.delta !== undefined ? (v.delta >= 0 ? '+' : '') + v.delta.toFixed(4) : '—';
+  const deltaColor = v.delta > 0 ? 'green' : v.delta < 0 ? 'red' : 'muted';
+  const ts = v.timestamp ? new Date(v.timestamp).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+
+  let html = `
+    <div class="modal-head">
+      <h3>🧬 <span>Variant G${v.generation||0}</span> <span class="badge ${v.status||''}" style="margin-left:4px">${(v.status||'?').toUpperCase()}</span></h3>
+      <button class="modal-close" onclick="closeTaskModal()" title="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-section">
+        <div class="modal-label">Hypothesis</div>
+        <div class="modal-task-text">${esc(v.hypothesis||'—')}</div>
+      </div>
+      <div class="modal-grid">
+        <div class="modal-stat"><div class="val ${stateColor}">${(v.status||'?').toUpperCase()}</div><div class="lbl">Verdict</div></div>
+        <div class="modal-stat"><div class="val ${deltaColor}">${delta}</div><div class="lbl">Fitness Δ</div></div>
+        <div class="modal-stat"><div class="val blue">G${v.generation||0}</div><div class="lbl">Generation</div></div>
+        <div class="modal-stat"><div class="val cyan">${v.fitness_after !== undefined ? v.fitness_after.toFixed(4) : '—'}</div><div class="lbl">Fitness</div></div>
+      </div>
+      <div class="modal-section" style="margin-top:10px">
+        <div class="modal-grid">
+          <div><div class="modal-label">Type</div><div class="modal-value">${esc(v.change_type||v.type||'—')}</div></div>
+          <div><div class="modal-label">Timestamp</div><div class="modal-value">${ts}</div></div>
+        </div>
+      </div>`;
+  if (v.parent_id && v.parent_id !== 'root') {
+    html += `<div class="modal-section"><div class="modal-label">Parent</div><div class="modal-value" style="font-family:monospace;font-size:.65rem">${esc(v.parent_id)}</div></div>`;
+  }
+  if (v.variant_id || v.experiment_id) {
+    html += `<div class="modal-section"><div class="modal-label">Variant ID</div><div class="modal-value" style="font-family:monospace;font-size:.65rem">${esc(v.variant_id||v.experiment_id||'—')}</div></div>`;
+  }
+  html += `</div>`;
+  document.getElementById('task-modal-content').innerHTML = html;
+  m.classList.add('open');
+  document.body.style.overflow = 'hidden';
+};
 </script>
 <script>
 // ── Chat Section Logic (inline, not floating) ───────────────────
