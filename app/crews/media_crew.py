@@ -4,6 +4,7 @@ from crewai import Task, Crew, Process
 from app.agents.media_analyst import create_media_analyst
 from app.sanitize import wrap_user_input
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
+from app.rate_throttle import start_request_tracking, stop_request_tracking
 from app.self_heal import diagnose_and_fix
 from app.memory.belief_state import update_belief
 from app.benchmarks import record_metric
@@ -55,6 +56,7 @@ class MediaCrew:
             "media", f"Media: {task_description[:100]}",
             eta_seconds=estimate_eta("media"), parent_task_id=parent_task_id,
         )
+        start_request_tracking(task_id)
         update_belief("media_analyst", "working", current_task=task_description[:100])
         from app.llm_mode import get_mode
         force_tier = difficulty_to_tier(difficulty, get_mode())
@@ -78,11 +80,17 @@ class MediaCrew:
             result = crew.kickoff()
             result_str = str(result)
 
+            tracker = stop_request_tracking()
+            _tokens = tracker.total_tokens if tracker else 0
+            _model = ", ".join(sorted(tracker.models_used)) if tracker and tracker.models_used else ""
+            _cost = tracker.total_cost_usd if tracker else 0.0
             update_belief("media_analyst", "completed", current_task=task_description[:100])
             record_metric("task_completion_time", _time.monotonic() - _start, {"crew": "media"})
-            crew_completed("media", task_id, result_str[:200])
+            crew_completed("media", task_id, result_str[:200],
+                           tokens_used=_tokens, model=_model, cost_usd=_cost)
             return result_str
         except Exception as exc:
+            stop_request_tracking()
             update_belief("media_analyst", "failed", current_task=task_description[:100])
             crew_failed("media", task_id, str(exc)[:200])
             diagnose_and_fix("media", task_description, exc)

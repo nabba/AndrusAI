@@ -13,6 +13,7 @@ import re
 from crewai import Task, Crew, Process
 from app.agents.introspector import create_introspector
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
+from app.rate_throttle import start_request_tracking, stop_request_tracking
 from app.memory.chromadb_manager import retrieve_with_metadata
 from app.policies.policy_loader import store_policy
 
@@ -27,11 +28,13 @@ class RetrospectiveCrew:
             "self_improvement", "Retrospective analysis",
             eta_seconds=estimate_eta("retrospective"),
         )
+        start_request_tracking(task_id)
 
         try:
             # Gather execution traces
             traces = self._gather_traces()
             if not traces:
+                stop_request_tracking()
                 crew_completed(
                     "self_improvement", task_id, "No traces to analyze"
                 )
@@ -71,11 +74,17 @@ class RetrospectiveCrew:
             # Parse and store policies
             policies_stored = self._parse_and_store_policies(raw)
 
+            tracker = stop_request_tracking()
+            _tokens = tracker.total_tokens if tracker else 0
+            _model = ", ".join(sorted(tracker.models_used)) if tracker and tracker.models_used else ""
+            _cost = tracker.total_cost_usd if tracker else 0.0
             summary = f"Retrospective complete: {policies_stored} new policies generated."
-            crew_completed("self_improvement", task_id, summary)
+            crew_completed("self_improvement", task_id, summary,
+                           tokens_used=_tokens, model=_model, cost_usd=_cost)
             return summary
 
         except Exception as exc:
+            stop_request_tracking()
             crew_failed("self_improvement", task_id, str(exc)[:200])
             logger.error(f"Retrospective failed: {exc}")
             return f"Retrospective analysis failed: {str(exc)[:200]}"

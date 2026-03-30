@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 
 from app.llm_factory import create_specialist_llm
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
+from app.rate_throttle import start_request_tracking, stop_request_tracking
 from app.memory.scoped_memory import store_scoped, retrieve_operational
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ def run_tech_scan() -> str:
     Returns a summary string.
     """
     task_id = crew_started("self_improvement", "Tech Radar scan", eta_seconds=120)
+    start_request_tracking(task_id)
 
     try:
         from app.tools.web_search import web_search
@@ -64,6 +66,7 @@ def run_tech_scan() -> str:
                 continue
 
         if not search_results:
+            stop_request_tracking()
             crew_completed("self_improvement", task_id, "No search results")
             return "Tech radar: no results from web searches."
 
@@ -96,6 +99,7 @@ def run_tech_scan() -> str:
         from app.utils import safe_json_parse
         discoveries, err = safe_json_parse(raw)
         if not discoveries or not isinstance(discoveries, list):
+            stop_request_tracking()
             crew_completed("self_improvement", task_id, "No new discoveries")
             return "Tech radar: no new discoveries."
 
@@ -149,11 +153,17 @@ def run_tech_scan() -> str:
             except Exception:
                 logger.debug("Failed to notify user of tech discoveries", exc_info=True)
 
+        tracker = stop_request_tracking()
+        _tokens = tracker.total_tokens if tracker else 0
+        _model = ", ".join(sorted(tracker.models_used)) if tracker and tracker.models_used else ""
+        _cost = tracker.total_cost_usd if tracker else 0.0
         summary_msg = f"Tech radar: {stored} discoveries ({len(high_relevance)} high-relevance)"
-        crew_completed("self_improvement", task_id, summary_msg)
+        crew_completed("self_improvement", task_id, summary_msg,
+                       tokens_used=_tokens, model=_model, cost_usd=_cost)
         return summary_msg
 
     except Exception as exc:
+        stop_request_tracking()
         crew_failed("self_improvement", task_id, str(exc)[:200])
         logger.error(f"Tech radar scan failed: {exc}")
         return f"Tech radar failed: {str(exc)[:200]}"

@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.llm_factory import create_specialist_llm
 from app.sanitize import sanitize_input
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
+from app.rate_throttle import start_request_tracking, stop_request_tracking
 from app.conversation_store import estimate_eta
 from app.tools.web_search import web_search
 from app.tools.web_fetch import web_fetch
@@ -84,6 +85,7 @@ class SelfImprovementCrew:
                 logger.warning(f"Skipping topic with unsafe filename: {sanitized_topic[:50]!r}")
                 continue
             task_id = crew_started("self_improvement", f"Learn: {sanitized_topic[:100]}", eta_seconds=estimate_eta("self_improvement"))
+            start_request_tracking(task_id)
 
             # NOTE: path is now "skills/{filename}.md" (not "workspace/skills/...")
             # because file_manager is rooted at /app/workspace/
@@ -106,9 +108,15 @@ class SelfImprovementCrew:
             crew = Crew(agents=[learner], tasks=[task], process=Process.sequential)
             try:
                 crew.kickoff()
-                crew_completed("self_improvement", task_id, f"Learned: {sanitized_topic[:100]}")
+                tracker = stop_request_tracking()
+                _tokens = tracker.total_tokens if tracker else 0
+                _model = ", ".join(sorted(tracker.models_used)) if tracker and tracker.models_used else ""
+                _cost = tracker.total_cost_usd if tracker else 0.0
+                crew_completed("self_improvement", task_id, f"Learned: {sanitized_topic[:100]}",
+                               tokens_used=_tokens, model=_model, cost_usd=_cost)
                 logger.info(f'Self-improvement: completed topic "{topic}"')
             except Exception as exc:
+                stop_request_tracking()
                 crew_failed("self_improvement", task_id, str(exc)[:200])
                 logger.error(f'Self-improvement: failed topic "{topic}": {exc}')
 
@@ -122,6 +130,7 @@ class SelfImprovementCrew:
     def learn_from_youtube(self, url: str) -> str:
         """Extract a YouTube transcript, distill into a skill file and team memory."""
         task_id = crew_started("self_improvement", f"YouTube: {url[:60]}", eta_seconds=estimate_eta("self_improvement"))
+        start_request_tracking(task_id)
 
         try:
             # Step 1: Extract transcript
@@ -178,11 +187,17 @@ class SelfImprovementCrew:
             crew = Crew(agents=[learner], tasks=[task], process=Process.sequential, verbose=True)
             result = str(crew.kickoff())
 
-            crew_completed("self_improvement", task_id, result[:200])
+            tracker = stop_request_tracking()
+            _tokens = tracker.total_tokens if tracker else 0
+            _model = ", ".join(sorted(tracker.models_used)) if tracker and tracker.models_used else ""
+            _cost = tracker.total_cost_usd if tracker else 0.0
+            crew_completed("self_improvement", task_id, result[:200],
+                           tokens_used=_tokens, model=_model, cost_usd=_cost)
             logger.info(f"YouTube learning completed: {url}")
             return f"Watched and learned from video. Skill saved to skills/{skill_filename}.md\n\nKey takeaways:\n{result[:1000]}"
 
         except Exception as exc:
+            stop_request_tracking()
             crew_failed("self_improvement", task_id, str(exc)[:200])
             logger.error(f"YouTube learning failed: {exc}")
             return f"Failed to learn from video: {str(exc)[:200]}"
@@ -192,13 +207,20 @@ class SelfImprovementCrew:
     def run_improvement_scan(self):
         """Analyze system capabilities and create improvement proposals."""
         task_id = crew_started("self_improvement", "Improvement scan", eta_seconds=estimate_eta("self_improvement"))
+        start_request_tracking(task_id)
 
         try:
             proposals = self._analyze_and_propose()
+            tracker = stop_request_tracking()
+            _tokens = tracker.total_tokens if tracker else 0
+            _model = ", ".join(sorted(tracker.models_used)) if tracker and tracker.models_used else ""
+            _cost = tracker.total_cost_usd if tracker else 0.0
             crew_completed("self_improvement", task_id,
-                           f"Created {len(proposals)} proposals")
+                           f"Created {len(proposals)} proposals",
+                           tokens_used=_tokens, model=_model, cost_usd=_cost)
             logger.info(f"Improvement scan: created {len(proposals)} proposals")
         except Exception as exc:
+            stop_request_tracking()
             crew_failed("self_improvement", task_id, str(exc)[:200])
             logger.error(f"Improvement scan failed: {exc}")
 

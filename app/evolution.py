@@ -42,6 +42,7 @@ from app.tools.web_search import web_search
 from app.tools.memory_tool import create_memory_tools
 from app.tools.file_manager import file_manager
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
+from app.rate_throttle import start_request_tracking, stop_request_tracking
 from app.self_heal import get_error_patterns, get_recent_errors
 
 logger = logging.getLogger(__name__)
@@ -394,6 +395,7 @@ def run_evolution_session(max_iterations: int = 5) -> str:
         f"Evolution session ({max_iterations} iterations)",
         eta_seconds=max_iterations * 120,
     )
+    start_request_tracking(task_id)
 
     runner = ExperimentRunner()
     tried_hashes = _get_tried_hypotheses()
@@ -501,10 +503,16 @@ def run_evolution_session(max_iterations: int = 5) -> str:
             + "\n".join(results_summary)
         )
 
-        crew_completed("self_improvement", task_id, summary[:200])
+        tracker = stop_request_tracking()
+        _tokens = tracker.total_tokens if tracker else 0
+        _model = ", ".join(sorted(tracker.models_used)) if tracker and tracker.models_used else ""
+        _cost = tracker.total_cost_usd if tracker else 0.0
+        crew_completed("self_improvement", task_id, summary[:200],
+                       tokens_used=_tokens, model=_model, cost_usd=_cost)
         return summary
 
     except Exception as exc:
+        stop_request_tracking()
         crew_failed("self_improvement", task_id, str(exc)[:200])
         logger.error(f"Evolution session failed: {exc}")
         return f"Evolution session failed: {str(exc)[:200]}"
