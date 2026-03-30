@@ -746,16 +746,36 @@ class Commander:
 
         # Direct LLM call — no Agent/Task/Crew overhead for simple classification
         # Retry on transient errors (529 overloaded, timeouts)
+        # Switch to fallback LLM on credit exhaustion or auth errors.
         last_exc = None
-        for attempt in range(1, 4):
+        active_llm = self.llm
+        for attempt in range(1, 5):
             try:
-                raw = str(self.llm.call(prompt)).strip()
+                raw = str(active_llm.call(prompt)).strip()
                 break
             except Exception as exc:
                 last_exc = exc
                 err_str = str(exc).lower()
+                is_credit_error = any(k in err_str for k in ("credit balance", "insufficient_credits", "payment", "billing", "quota"))
+                is_auth_error = any(k in err_str for k in ("authentication", "invalid_api_key", "unauthorized", "403"))
                 is_transient = any(k in err_str for k in ("overloaded", "529", "timeout", "connection", "503", "502"))
-                if is_transient and attempt < 3:
+
+                if (is_credit_error or is_auth_error) and attempt == 1:
+                    # Primary LLM (Claude) has no credits — switch to OpenRouter fallback
+                    logger.warning(f"Commander routing: primary LLM failed ({exc.__class__.__name__}: credit/auth), switching to OpenRouter fallback")
+                    try:
+                        from app.llm_factory import _cached_llm, get_model
+                        from app.config import get_openrouter_api_key
+                        fallback = get_model("deepseek-v3.2")
+                        if fallback:
+                            active_llm = _cached_llm(fallback["model_id"], max_tokens=512, api_key=get_openrouter_api_key())
+                        else:
+                            active_llm = _cached_llm("openrouter/deepseek/deepseek-chat", max_tokens=512, api_key=get_openrouter_api_key())
+                    except Exception as fallback_exc:
+                        logger.error(f"Commander routing: fallback LLM setup failed: {fallback_exc}")
+                        raise exc
+                    continue
+                elif is_transient and attempt < 3:
                     wait = 2 * attempt
                     logger.warning(f"Commander routing attempt {attempt} failed (transient): {exc}, retrying in {wait}s")
                     import time as _time

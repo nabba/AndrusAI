@@ -66,14 +66,38 @@ def _set_last(model: str | None, tier: str | None) -> None:
 
 
 def create_commander_llm() -> LLM:
-    """Commander always uses Claude for maximum routing intelligence."""
+    """Create the Commander routing LLM.
+
+    Prefers Claude (Anthropic) for maximum routing quality.
+    Falls back to the best available OpenRouter model when Anthropic
+    credits are exhausted or the API key is missing/invalid.
+    """
+    from app.config import get_openrouter_api_key
+
     settings = get_settings()
-    model_name = get_default_for_role("commander", settings.cost_mode)
-    entry = get_model(model_name)
-    if not entry or entry["provider"] != "anthropic":
-        model_name = "claude-opus-4.6"
-        entry = get_model(model_name)
-    return _cached_llm(entry["model_id"], max_tokens=512, api_key=get_anthropic_api_key())
+
+    # Try Anthropic (Claude) first
+    try:
+        anthropic_key = get_anthropic_api_key()
+        if anthropic_key:
+            model_name = get_default_for_role("commander", settings.cost_mode)
+            entry = get_model(model_name)
+            if not entry or entry["provider"] != "anthropic":
+                entry = get_model("claude-sonnet-4.6")
+            if entry:
+                return _cached_llm(entry["model_id"], max_tokens=512, api_key=anthropic_key)
+    except Exception:
+        pass
+
+    # Fallback: use best OpenRouter model for routing
+    logger.warning("Commander: Anthropic unavailable, falling back to OpenRouter for routing")
+    openrouter_key = get_openrouter_api_key()
+    # Use deepseek-v3.2 — strong at JSON routing tasks, very cheap
+    fallback_entry = get_model("deepseek-v3.2")
+    if fallback_entry:
+        return _cached_llm(fallback_entry["model_id"], max_tokens=512, api_key=openrouter_key)
+    # Last resort: any available model
+    return _cached_llm("openrouter/deepseek/deepseek-chat", max_tokens=512, api_key=openrouter_key)
 
 
 def create_specialist_llm(
@@ -172,13 +196,21 @@ def create_specialist_llm(
 
 
 def create_vetting_llm() -> LLM:
-    """Vetting gate — Sonnet 4.6 by default (#1 GDPval-AA, 5x cheaper than Opus)."""
+    """Vetting gate — Sonnet 4.6 preferred, falls back to OpenRouter if Anthropic unavailable."""
+    from app.config import get_openrouter_api_key
     settings = get_settings()
     model_name = settings.vetting_model
     entry = get_model(model_name)
-    if entry and entry["provider"] == "anthropic":
-        return _cached_llm(entry["model_id"], max_tokens=4096, api_key=get_anthropic_api_key())
-    return _cached_llm("anthropic/claude-sonnet-4-6", max_tokens=4096, api_key=get_anthropic_api_key())
+    anthropic_key = get_anthropic_api_key()
+    if entry and entry["provider"] == "anthropic" and anthropic_key:
+        return _cached_llm(entry["model_id"], max_tokens=4096, api_key=anthropic_key)
+    if anthropic_key:
+        return _cached_llm("anthropic/claude-sonnet-4-6", max_tokens=4096, api_key=anthropic_key)
+    # Fallback to best OpenRouter model for vetting
+    logger.warning("create_vetting_llm: Anthropic unavailable, using deepseek-v3.2 for vetting")
+    fallback = get_model("deepseek-v3.2")
+    model_id = fallback["model_id"] if fallback else "openrouter/deepseek/deepseek-chat"
+    return _cached_llm(model_id, max_tokens=4096, api_key=get_openrouter_api_key())
 
 
 def create_cheap_vetting_llm() -> LLM:
@@ -312,7 +344,14 @@ def _create_anthropic(model_name: str, entry: dict, max_tokens: int, role: str) 
 
 
 def _claude_fallback(role: str, max_tokens: int) -> LLM:
-    # Q7: thread-local last model/tier tracking
-    _set_last("claude-sonnet-4.6", "premium")
-    logger.info(f"llm_factory: role={role} → FALLBACK Claude Sonnet 4.6")
-    return _cached_llm("anthropic/claude-sonnet-4-6", max_tokens=max_tokens, api_key=get_anthropic_api_key())
+    """Final fallback: Claude Sonnet if Anthropic is available, else best OpenRouter model."""
+    from app.config import get_openrouter_api_key
+    anthropic_key = get_anthropic_api_key()
+    if anthropic_key:
+        _set_last("claude-sonnet-4.6", "premium")
+        logger.info(f"llm_factory: role={role} → FALLBACK Claude Sonnet 4.6")
+        return _cached_llm("anthropic/claude-sonnet-4-6", max_tokens=max_tokens, api_key=anthropic_key)
+    # Anthropic key missing — use OpenRouter deepseek as ultimate fallback
+    _set_last("deepseek-v3.2", "budget")
+    logger.warning(f"llm_factory: role={role} → FALLBACK deepseek-v3.2 (Anthropic key missing)")
+    return _cached_llm("openrouter/deepseek/deepseek-chat", max_tokens=max_tokens, api_key=get_openrouter_api_key())
