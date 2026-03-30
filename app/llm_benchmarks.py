@@ -243,6 +243,7 @@ def get_tokens_since(since_iso: str) -> dict:
     the first record per (second-level timestamp, total_tokens) pair.
     """
     try:
+        _flush_writes()  # ensure buffered token records are committed before querying
         conn = _get_conn()
         # Deduplicate: group by second + token count to avoid counting same
         # LLM call twice (litellm path + BaseLLM path both record it).
