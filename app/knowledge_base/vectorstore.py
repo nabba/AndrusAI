@@ -90,10 +90,21 @@ class KnowledgeStore:
                     pass
 
         self._collection = col
+        self._collection_name = collection_name
         logger.info(
             f"KnowledgeStore initialized: {self._collection.count()} chunks "
             f"in collection '{collection_name}' at '{persist_dir}'"
         )
+
+    def _ensure_collection(self):
+        """Re-fetch collection if the cached reference points to a stale UUID."""
+        try:
+            self._collection.count()
+        except Exception:
+            self._collection = self._client.get_or_create_collection(
+                name=self._collection_name,
+                metadata={"hnsw:space": "cosine"},
+            )
 
     # ─────────────────────────────────────────────
     # Document Management
@@ -108,6 +119,7 @@ class KnowledgeStore:
         chunk_overlap: int = config.CHUNK_OVERLAP,
     ) -> IngestionResult:
         """Ingest a document and add its chunks to the knowledge base."""
+        self._ensure_collection()
         chunks, result = ingest_document(
             source=source,
             category=category,
@@ -270,6 +282,7 @@ class KnowledgeStore:
 
     def list_documents(self) -> list[dict]:
         """List all unique documents in the knowledge base."""
+        self._ensure_collection()
         all_data = self._collection.get(include=["metadatas"])
         if not all_data["metadatas"]:
             return []
@@ -292,6 +305,7 @@ class KnowledgeStore:
 
     def stats(self) -> dict:
         """Return knowledge base statistics."""
+        self._ensure_collection()
         docs = self.list_documents()
         all_data = self._collection.get(include=["metadatas"])
 
@@ -313,10 +327,10 @@ class KnowledgeStore:
 
     def reset(self) -> None:
         """Delete all data from the knowledge base."""
+        self._ensure_collection()
         self._client.delete_collection(self._collection.name)
         self._collection = self._client.get_or_create_collection(
-            name=self._collection.name,
-            embedding_function=self._embedding_fn,
+            name=self._collection_name,
             metadata={"hnsw:space": "cosine"},
         )
         logger.warning("Knowledge base has been reset.")
