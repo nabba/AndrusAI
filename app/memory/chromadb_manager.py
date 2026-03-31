@@ -259,9 +259,23 @@ def retrieve(collection_name: str, query: str, n: int = 5) -> list[str]:
     if cnt == 0:
         return []
     embedding = embed(query)
-    results = col.query(
-        query_embeddings=[embedding], n_results=min(n, cnt)
-    )
+    try:
+        results = col.query(
+            query_embeddings=[embedding], n_results=min(n, cnt)
+        )
+    except Exception as e:
+        if "dimension" in str(e).lower():
+            logger.warning(
+                f"Dimension mismatch in '{collection_name}' during retrieve — "
+                f"recreating collection (old data lost): {e}"
+            )
+            _collections.pop(collection_name, None)
+            _count_cache.pop(collection_name, None)
+            client = get_client()
+            client.delete_collection(collection_name)
+            client.get_or_create_collection(collection_name)
+            return []
+        raise
     return results["documents"][0]
 
 
@@ -285,11 +299,25 @@ def retrieve_with_metadata(
     if cnt == 0:
         return []
     embedding = embed(query)
-    results = col.query(
-        query_embeddings=[embedding],
-        n_results=min(n, cnt),
-        include=["documents", "metadatas", "distances"],
-    )
+    try:
+        results = col.query(
+            query_embeddings=[embedding],
+            n_results=min(n, cnt),
+            include=["documents", "metadatas", "distances"],
+        )
+    except Exception as e:
+        if "dimension" in str(e).lower():
+            logger.warning(
+                f"Dimension mismatch in '{collection_name}' during retrieve — "
+                f"recreating collection (old data lost): {e}"
+            )
+            _collections.pop(collection_name, None)
+            _count_cache.pop(collection_name, None)
+            client = get_client()
+            client.delete_collection(collection_name)
+            client.get_or_create_collection(collection_name)
+            return []
+        raise
     items = []
     docs = results.get("documents", [[]])[0]
     metas = results.get("metadatas", [[]])[0]
