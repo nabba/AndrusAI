@@ -84,10 +84,35 @@ class ExperimentRunner:
         except Exception:
             baseline = 0.5  # fallback if metrics fail
 
-        # 2. Backup existing files
+        # 2. Pre-validate (AST + safety checks before touching filesystem)
+        pre_ok, pre_msg = self._pre_validate(mutation)
+        if not pre_ok:
+            result = ExperimentResult(
+                experiment_id=mutation.experiment_id,
+                hypothesis=mutation.hypothesis,
+                change_type=mutation.change_type,
+                metric_before=baseline,
+                metric_after=0.0,
+                delta=0.0,
+                status="crash",
+                detail=f"Pre-validation failed: {pre_msg}",
+            )
+            record_experiment(
+                experiment_id=result.experiment_id,
+                hypothesis=result.hypothesis,
+                change_type=result.change_type,
+                metric_before=baseline,
+                metric_after=0.0,
+                status="crash",
+                files_changed=[],
+                detail=result.detail,
+            )
+            return result
+
+        # 3. Backup existing files
         backed_up = self._backup_files(mutation)
 
-        # 3. Apply mutation
+        # 4. Apply mutation
         try:
             applied_files = self._apply_mutation(mutation)
         except Exception as exc:
@@ -225,6 +250,40 @@ class ExperimentRunner:
             applied.append(rel_path)
             logger.info(f"Applied: {rel_path}")
         return applied
+
+    def _pre_validate(self, mutation: MutationSpec) -> tuple[bool, str]:
+        """Pre-validate mutation BEFORE applying to filesystem.
+
+        Runs static analysis and safety checks on the file contents in memory.
+        This catches bad mutations early without wasting time on backup/apply/measure.
+        """
+        import ast as _ast
+        try:
+            from app.auto_deployer import (
+                _check_dangerous_imports,
+                validate_proposal_paths,
+            )
+        except ImportError:
+            return True, "ok"  # auto_deployer not available, skip pre-validation
+
+        # Check for protected file / path traversal violations
+        violations = validate_proposal_paths(mutation.files)
+        if violations:
+            return False, "; ".join(violations)
+
+        # Check Python files for dangerous imports and syntax
+        for fpath, content in mutation.files.items():
+            if fpath.endswith(".py"):
+                try:
+                    tree = _ast.parse(content)
+                except SyntaxError as e:
+                    return False, f"Syntax error in {fpath}: {e}"
+
+                import_violations = _check_dangerous_imports(tree)
+                if import_violations:
+                    return False, f"{fpath}: {'; '.join(import_violations)}"
+
+        return True, "ok"
 
     def _validate_mutation(
         self, mutation: MutationSpec, applied_files: list[str]

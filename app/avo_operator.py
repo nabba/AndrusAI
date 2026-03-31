@@ -1,0 +1,398 @@
+"""
+avo_operator.py — AVO (Agentic Variation Operator) multi-phase pipeline.
+
+Implements the 5-phase AVO loop from NVIDIA's arXiv:2603.24517:
+  Phase 1: PLANNING — Premium LLM forms hypothesis from context + memory
+  Phase 2: IMPLEMENTATION — Fast LLM generates code/skill changes
+  Phase 3: LOCAL TESTING — No LLM; AST + safety checks catch bad mutations
+  Phase 2↔3 REPAIR LOOP — Bounded to 3 attempts
+  Phase 4: SELF-CRITIQUE — Mid LLM evaluates quality before submission
+  Phase 5: SUBMISSION — Construct MutationSpec for experiment_runner
+
+Uses direct llm.call() (not CrewAI Agent/Crew) for tight control over the
+multi-phase pipeline. This pattern is established in idle_scheduler.py:308.
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import logging
+import hashlib
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional, Callable
+
+from app.experiment_runner import MutationSpec, generate_experiment_id
+from app.llm_factory import create_specialist_llm
+from app.evo_memory import format_memory_context, recall_similar_failures
+
+logger = logging.getLogger(__name__)
+
+_MAX_REPAIR_ATTEMPTS = 3
+
+
+@dataclass
+class AVOResult:
+    """Result of an AVO variation pipeline run."""
+    mutation: Optional[MutationSpec] = None
+    phases_completed: int = 0
+    repair_attempts: int = 0
+    critique_notes: str = ""
+    abandoned_reason: str = ""
+
+
+# ── Phase 1: Planning ────────────────────────────────────────────────────────
+
+def _phase_planning(
+    context: str,
+    memory_context: str,
+    lineage_context: str,
+    tried_hashes: set[str],
+) -> dict | None:
+    """Premium LLM forms a hypothesis and approach.
+
+    Returns dict with keys: hypothesis, approach, change_type, target_files.
+    Returns None if planning fails.
+    """
+    llm = create_specialist_llm(max_tokens=2048, role="architecture")
+
+    prompt = (
+        "You are the PLANNING phase of an autonomous evolution engine.\n"
+        "Analyze the system state and propose ONE improvement hypothesis.\n\n"
+        f"## System State\n{context}\n\n"
+    )
+    if memory_context:
+        prompt += f"## Evolutionary Memory\n{memory_context}\n\n"
+    if lineage_context:
+        prompt += f"## Variant Lineage\n{lineage_context}\n\n"
+
+    prompt += (
+        "## Your Task\n"
+        "1. Identify the HIGHEST-IMPACT improvement opportunity:\n"
+        "   - Recurring errors → CODE fix (highest priority)\n"
+        "   - Missing domain knowledge → SKILL file\n"
+        "   - Capability gaps → CODE for new tools/features\n"
+        "2. Form a specific, testable hypothesis\n"
+        "3. Check evolutionary memory — do NOT repeat past failures\n"
+        "4. Prefer SIMPLICITY — removing complexity IS an improvement\n\n"
+        "Respond with ONLY this JSON:\n"
+        '{"hypothesis": "what to improve and why",\n'
+        ' "approach": "specific technical approach",\n'
+        ' "change_type": "skill" or "code",\n'
+        ' "target_files": ["path/to/file"]}\n'
+    )
+
+    try:
+        raw = str(llm.call(prompt)).strip()
+    except Exception as e:
+        logger.warning(f"AVO Phase 1 (planning) failed: {e}")
+        return None
+
+    from app.utils import safe_json_parse
+    plan, err = safe_json_parse(raw)
+    if plan is None:
+        logger.warning(f"AVO Phase 1: unparseable response: {err}")
+        return None
+
+    # Dedup check
+    hypothesis = plan.get("hypothesis", "")
+    h = hashlib.sha256(hypothesis.lower().strip().encode()).hexdigest()[:8]
+    if h in tried_hashes:
+        logger.info(f"AVO Phase 1: duplicate hypothesis, skipping")
+        return None
+
+    # Check against known failures
+    similar_failures = recall_similar_failures(hypothesis, n=3)
+    for sf in similar_failures:
+        dist = sf.get("distance", 1.0)
+        if dist < 0.15:  # Very similar to a past failure
+            logger.info(f"AVO Phase 1: hypothesis too similar to past failure (dist={dist:.3f})")
+            return None
+
+    return plan
+
+
+# ── Phase 2: Implementation ──────────────────────────────────────────────────
+
+def _phase_implementation(plan: dict, repair_errors: Optional[list] = None) -> Optional[dict]:
+    """Fast LLM generates file contents based on the plan.
+
+    Returns dict {file_path: content} or None on failure.
+    """
+    llm = create_specialist_llm(max_tokens=4096, role="coding")
+
+    change_type = plan.get("change_type", "skill")
+    hypothesis = plan.get("hypothesis", "")
+    approach = plan.get("approach", "")
+    target_files = plan.get("target_files", [])
+
+    if change_type == "skill":
+        prompt = (
+            "You are generating a SKILL FILE for an autonomous AI agent team.\n"
+            "Skill files teach domain knowledge that helps agents perform better.\n\n"
+            f"## Hypothesis\n{hypothesis}\n\n"
+            f"## Approach\n{approach}\n\n"
+            "## Requirements\n"
+            "- Write practical, actionable knowledge (NOT vague advice)\n"
+            "- Include specific examples, patterns, and techniques\n"
+            "- Minimum 200 characters of useful content\n"
+            "- Format as Markdown with clear headings\n"
+        )
+        if target_files:
+            fname = target_files[0] if target_files[0].startswith("skills/") else f"skills/{target_files[0]}"
+        else:
+            # Generate filename from hypothesis
+            slug = hypothesis[:40].lower().replace(" ", "_")
+            slug = "".join(c for c in slug if c.isalnum() or c == "_")
+            fname = f"skills/{slug}.md"
+        prompt += f"\nFile path: {fname}\n"
+    else:
+        prompt = (
+            "You are generating a CODE CHANGE for an autonomous AI agent team.\n\n"
+            f"## Hypothesis\n{hypothesis}\n\n"
+            f"## Approach\n{approach}\n\n"
+            f"## Target files\n{', '.join(target_files)}\n\n"
+            "## Requirements\n"
+            "- Write clean, working Python code\n"
+            "- Do NOT use dangerous imports (subprocess, os, sys, etc.)\n"
+            "- Do NOT modify protected files\n"
+            "- Include only necessary changes\n"
+        )
+
+    if repair_errors:
+        prompt += (
+            "\n## REPAIR — Previous attempt had these errors:\n"
+            + "\n".join(f"  - {e}" for e in repair_errors[:5])
+            + "\n\nFix these errors in your output.\n"
+        )
+
+    prompt += (
+        "\n\nRespond with ONLY this JSON (no markdown fences):\n"
+        '{"files": {"path/to/file.ext": "file content here"}}\n'
+    )
+
+    try:
+        raw = str(llm.call(prompt)).strip()
+    except Exception as e:
+        logger.warning(f"AVO Phase 2 (implementation) failed: {e}")
+        return None
+
+    from app.utils import safe_json_parse
+    result, err = safe_json_parse(raw)
+    if result is None:
+        logger.warning(f"AVO Phase 2: unparseable response: {err}")
+        return None
+
+    files = result.get("files")
+    if not isinstance(files, dict) or not files:
+        logger.warning(f"AVO Phase 2: no files in response")
+        return None
+
+    return files
+
+
+# ── Phase 3: Local Testing ───────────────────────────────────────────────────
+
+def _phase_local_testing(files: dict[str, str]) -> tuple[bool, list[str]]:
+    """Validate mutation locally without LLM. Returns (ok, errors)."""
+    from app.auto_deployer import (
+        _check_dangerous_imports,
+        validate_proposal_paths,
+        PROTECTED_FILES,
+    )
+
+    errors = []
+
+    # Check for protected file violations
+    path_violations = validate_proposal_paths(files)
+    if path_violations:
+        errors.extend(path_violations)
+
+    for fpath, content in files.items():
+        # Python files: AST parse + safety scan
+        if fpath.endswith(".py"):
+            try:
+                tree = ast.parse(content)
+            except SyntaxError as e:
+                errors.append(f"Syntax error in {fpath}: {e}")
+                continue
+
+            import_violations = _check_dangerous_imports(tree)
+            if import_violations:
+                errors.extend(f"{fpath}: {v}" for v in import_violations)
+
+        # Skill files: minimum size
+        elif fpath.endswith(".md"):
+            if len(content.strip()) < 50:
+                errors.append(f"Skill file too short ({len(content)} chars): {fpath}")
+
+        # All files: non-empty
+        if not content.strip():
+            errors.append(f"Empty file: {fpath}")
+
+    return (len(errors) == 0, errors)
+
+
+# ── Phase 4: Self-Critique ───────────────────────────────────────────────────
+
+def _phase_self_critique(
+    plan: dict,
+    files: dict[str, str],
+    memory_context: str,
+) -> tuple[bool, str]:
+    """Mid-tier LLM evaluates the mutation quality.
+
+    Returns (approved: bool, notes: str).
+    """
+    llm = create_specialist_llm(max_tokens=1024, role="evo_critic")
+
+    hypothesis = plan.get("hypothesis", "")
+    change_type = plan.get("change_type", "skill")
+
+    file_summary = []
+    for fpath, content in files.items():
+        file_summary.append(f"### {fpath} ({len(content)} chars)\n{content[:500]}")
+
+    prompt = (
+        "You are the SELF-CRITIQUE phase of an evolution engine.\n"
+        "Review this proposed mutation and decide: APPROVE or REJECT.\n\n"
+        f"## Hypothesis\n{hypothesis}\n\n"
+        f"## Change Type: {change_type}\n\n"
+        f"## Files\n" + "\n\n".join(file_summary) + "\n\n"
+    )
+    if memory_context:
+        prompt += f"## Evolutionary Memory\n{memory_context}\n\n"
+
+    prompt += (
+        "## Evaluation Criteria\n"
+        "1. Does the implementation match the hypothesis?\n"
+        "2. Is the scope reasonable (not too many changes)?\n"
+        "3. For skills: is the content practical and actionable (not generic)?\n"
+        "4. For code: is it clean, safe, and focused?\n"
+        "5. Is this NOT a repeat of a known failed pattern?\n\n"
+        'Respond with ONLY: {"approve": true/false, "concerns": ["..."]}\n'
+    )
+
+    try:
+        raw = str(llm.call(prompt)).strip()
+    except Exception as e:
+        logger.warning(f"AVO Phase 4 (self-critique) failed: {e}")
+        return True, "Critique unavailable — proceeding"
+
+    from app.utils import safe_json_parse
+    result, err = safe_json_parse(raw)
+    if result is None:
+        return True, f"Critique unparseable: {err}"
+
+    approved = result.get("approve", True)
+    concerns = result.get("concerns", [])
+    notes = "; ".join(concerns) if concerns else "No concerns"
+
+    return approved, notes
+
+
+# ── Main Pipeline ────────────────────────────────────────────────────────────
+
+def run_avo_pipeline(
+    context: str,
+    tried_hashes: set[str],
+    memory_context: str,
+    lineage_context: str,
+    yield_check: Optional[Callable] = None,
+) -> AVOResult:
+    """Execute the full AVO 5-phase variation pipeline.
+
+    Args:
+        context: System state context from _build_evolution_context()
+        tried_hashes: Set of hypothesis hashes to avoid repeating
+        memory_context: Formatted evolutionary memory string
+        lineage_context: Variant archive genealogy string
+        yield_check: Callable that returns True if we should abort (user task arrived)
+
+    Returns:
+        AVOResult with mutation (if successful) or abandoned_reason (if not)
+    """
+    result = AVOResult()
+
+    def _should_yield() -> bool:
+        if yield_check and yield_check():
+            result.abandoned_reason = "Yielded to user task"
+            return True
+        return False
+
+    # Phase 1: Planning
+    if _should_yield():
+        return result
+
+    plan = _phase_planning(context, memory_context, lineage_context, tried_hashes)
+    if plan is None:
+        result.abandoned_reason = "Planning produced no viable hypothesis"
+        return result
+    result.phases_completed = 1
+
+    logger.info(f"AVO Phase 1: {plan.get('hypothesis', '?')[:80]}")
+
+    # Phase 2→3: Implementation + Local Testing (with repair loop)
+    if _should_yield():
+        return result
+
+    repair_errors = None
+    files = None
+
+    for attempt in range(_MAX_REPAIR_ATTEMPTS):
+        result.repair_attempts = attempt + 1
+
+        # Phase 2: Implementation
+        files = _phase_implementation(plan, repair_errors)
+        if files is None:
+            result.abandoned_reason = f"Implementation failed on attempt {attempt + 1}"
+            return result
+        result.phases_completed = 2
+
+        # Phase 3: Local Testing
+        ok, errors = _phase_local_testing(files)
+        if ok:
+            result.phases_completed = 3
+            break
+
+        logger.info(f"AVO Phase 3: {len(errors)} errors on attempt {attempt + 1}: {errors[:3]}")
+        repair_errors = errors
+
+    else:
+        # All repair attempts exhausted
+        result.abandoned_reason = f"Local testing failed after {_MAX_REPAIR_ATTEMPTS} repair attempts: {repair_errors}"
+        return result
+
+    # Phase 4: Self-Critique
+    if _should_yield():
+        return result
+
+    approved, notes = _phase_self_critique(plan, files, memory_context)
+    result.critique_notes = notes
+    result.phases_completed = 4
+
+    if not approved:
+        result.abandoned_reason = f"Self-critique rejected: {notes}"
+        logger.info(f"AVO Phase 4: rejected — {notes}")
+        return result
+
+    # Phase 5: Submission
+    hypothesis = plan.get("hypothesis", "unknown")
+    change_type = plan.get("change_type", "skill")
+    exp_id = generate_experiment_id(hypothesis)
+
+    result.mutation = MutationSpec(
+        experiment_id=exp_id,
+        hypothesis=hypothesis,
+        change_type=change_type,
+        files=files,
+    )
+    result.phases_completed = 5
+
+    logger.info(
+        f"AVO complete: {change_type} mutation with {len(files)} file(s) "
+        f"({result.repair_attempts} repair attempts, critique: {notes[:60]})"
+    )
+    return result

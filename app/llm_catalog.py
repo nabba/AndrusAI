@@ -388,6 +388,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "vetting":      "deepseek-v3.2",
         "synthesis":    "deepseek-v3.2",
         "planner":      "deepseek-v3.2",
+        "evo_critic":   "deepseek-v3.2",
         "default":      "deepseek-v3.2",
     },
     "balanced": {
@@ -402,6 +403,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "vetting":      "claude-sonnet-4.6",
         "synthesis":    "claude-sonnet-4.6",
         "planner":      "deepseek-v3.2",
+        "evo_critic":   "deepseek-v3.2",
         "default":      "deepseek-v3.2",
     },
     "quality": {
@@ -416,6 +418,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "vetting":      "claude-opus-4.6",
         "synthesis":    "claude-sonnet-4.6",
         "planner":      "mimo-v2-pro",
+        "evo_critic":   "claude-sonnet-4.6",
         "default":      "mimo-v2-pro",
     },
 }

@@ -258,6 +258,7 @@ _INSANE_ROLE_MAP = {
     "synthesis":    "claude-sonnet-4.6",
     "introspector": "claude-sonnet-4.6",
     "self_improve": "claude-sonnet-4.6",
+    "evo_critic":   "claude-sonnet-4.6",
     "default":      "claude-sonnet-4.6",
 }
 

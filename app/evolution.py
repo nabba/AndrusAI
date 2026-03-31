@@ -174,10 +174,119 @@ def _build_evolution_context() -> str:
     )
 
 
-# ── Evolution agent ──────────────────────────────────────────────────────────
+# ── Self-supervision ─────────────────────────────────────────────────────────
+
+def _detect_stagnation(n: int = 5) -> tuple[bool, str]:
+    """Check if last N experiments all failed to improve.
+
+    Returns (stagnant, redirect_suggestion).
+    """
+    recent = get_recent_results(n)
+    if len(recent) < n:
+        return False, ""
+
+    all_failed = all(r.get("status") in ("discard", "crash") for r in recent)
+    if not all_failed:
+        return False, ""
+
+    # Use premium LLM to suggest a new direction
+    hypotheses = [r.get("hypothesis", "?")[:80] for r in recent]
+    try:
+        llm = create_specialist_llm(max_tokens=1024, role="architecture")
+        prompt = (
+            "The evolution engine has stagnated — the last 5 experiments all failed.\n\n"
+            "Recent failed hypotheses:\n"
+            + "\n".join(f"  - {h}" for h in hypotheses)
+            + "\n\nSuggest 2-3 fundamentally DIFFERENT improvement directions "
+            "that avoid these patterns. Be specific and actionable. Keep it brief."
+        )
+        suggestion = str(llm.call(prompt)).strip()
+        return True, suggestion
+    except Exception:
+        return True, "Consider focusing on a completely different area of the system."
+
+
+def _detect_cycle(n: int = 8) -> tuple[bool, str]:
+    """Check if recent failures repeat similar patterns.
+
+    Returns (cycling, pattern_description).
+    """
+    from app.evo_memory import recall_similar_failures
+
+    recent = get_recent_results(n)
+    failures = [r for r in recent if r.get("status") in ("discard", "crash")]
+    if len(failures) < 3:
+        return False, ""
+
+    # Check if the most recent failure is very similar to stored failures
+    latest_hypothesis = failures[0].get("hypothesis", "")
+    if not latest_hypothesis:
+        return False, ""
+
+    similar = recall_similar_failures(latest_hypothesis, n=3)
+    for s in similar:
+        dist = s.get("distance", 1.0)
+        if dist < 0.15:
+            return True, f"Repeating pattern: {s.get('document', '')[:100]}"
+
+    return False, ""
+
+
+# ── AVO-powered mutation proposal ───────────────────────────────────────────
 
 def _propose_mutation(context: str, tried_hashes: set[str]) -> MutationSpec | None:
-    """Ask the evolution agent to propose ONE mutation."""
+    """Propose a mutation using AVO pipeline (with legacy fallback).
+
+    If EVOLUTION_USE_AVO=true (default), runs the 5-phase AVO pipeline.
+    Falls back to legacy single-shot CrewAI agent if AVO fails.
+    """
+    use_avo = os.environ.get("EVOLUTION_USE_AVO", "true").lower() == "true"
+
+    if use_avo:
+        try:
+            from app.avo_operator import run_avo_pipeline
+            from app.evo_memory import format_memory_context
+
+            # Build memory and lineage context
+            memory_ctx = format_memory_context(context[:200])
+            try:
+                from app.variant_archive import format_archive_context
+                lineage_ctx = format_archive_context()
+            except Exception:
+                lineage_ctx = ""
+
+            # Get yield check function
+            try:
+                from app.idle_scheduler import should_yield
+                yield_fn = should_yield
+            except ImportError:
+                yield_fn = None
+
+            result = run_avo_pipeline(
+                context=context,
+                tried_hashes=tried_hashes,
+                memory_context=memory_ctx,
+                lineage_context=lineage_ctx,
+                yield_check=yield_fn,
+            )
+
+            if result.mutation:
+                logger.info(
+                    f"AVO produced mutation: {result.mutation.hypothesis[:60]} "
+                    f"(phases={result.phases_completed}, repairs={result.repair_attempts})"
+                )
+                return result.mutation
+            else:
+                logger.info(f"AVO abandoned: {result.abandoned_reason[:100]}")
+                # Fall through to legacy
+        except Exception as e:
+            logger.warning(f"AVO pipeline failed, falling back to legacy: {e}")
+
+    return _propose_mutation_legacy(context, tried_hashes)
+
+
+def _propose_mutation_legacy(context: str, tried_hashes: set[str]) -> MutationSpec | None:
+    """Legacy single-shot CrewAI agent mutation proposal (pre-AVO)."""
     llm = create_specialist_llm(max_tokens=4096, role="architecture")
     memory_tools = create_memory_tools(collection="skills")
 
@@ -486,6 +595,50 @@ def run_evolution_session(max_iterations: int = 5) -> str:
                         pass
             except Exception:
                 logger.debug("Failed to store variant", exc_info=True)
+
+            # Store in evolutionary memory for AVO planning phase
+            try:
+                from app.evo_memory import store_success, store_failure
+                if result.status == "keep":
+                    store_success(
+                        result.hypothesis, result.change_type,
+                        result.delta, result.files_changed, result.detail,
+                    )
+                elif result.status in ("discard", "crash"):
+                    store_failure(
+                        result.hypothesis, result.change_type, result.detail,
+                    )
+            except Exception:
+                logger.debug("Failed to store evo_memory", exc_info=True)
+
+            # Self-supervision: check for stagnation and cycles every 3 iterations
+            if i > 0 and (i + 1) % 3 == 0:
+                try:
+                    stagnant, redirect = _detect_stagnation()
+                    if stagnant:
+                        logger.warning(f"Evolution stagnation detected — redirect: {redirect[:100]}")
+                        try:
+                            from app.evo_memory import store_failure
+                            store_failure(
+                                "STAGNATION_REDIRECT", "meta",
+                                f"Stagnation after {i+1} iters. New direction: {redirect[:200]}",
+                            )
+                        except Exception:
+                            pass
+
+                    cycling, pattern = _detect_cycle()
+                    if cycling:
+                        logger.warning(f"Evolution cycle detected: {pattern[:100]}")
+                        try:
+                            from app.evo_memory import store_failure
+                            store_failure(
+                                f"CYCLE_DETECTED: {pattern[:100]}", "meta",
+                                f"Cycling pattern — avoid: {pattern[:200]}",
+                            )
+                        except Exception:
+                            pass
+                except Exception:
+                    logger.debug("Self-supervision check failed", exc_info=True)
 
             results_summary.append(
                 f"  [{i + 1}] {result.status:7s} {result.delta:+.4f} | "
