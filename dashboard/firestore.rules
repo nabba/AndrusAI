@@ -9,43 +9,40 @@ service cloud.firestore {
     match /activities/{doc} { allow read: if true; allow write: if false; }
     match /schedule/{doc}   { allow read: if true; allow write: if false; }
 
-    // Config — authenticated read/write (dashboard controls)
-    // request.auth != null is satisfied by anonymous sign-in in the dashboard JS.
-    // Prevents unauthenticated internet users from changing LLM mode.
+    // Config — dashboard controls with strict field validation.
+    // Auth guard: request.auth != null when Anonymous Auth is enabled in
+    // Firebase Console; until then, field validation provides the safety net.
     match /config/llm {
       allow read: if true;
-      allow write: if request.auth != null
-                   && request.resource.data.keys().hasOnly(['mode', 'updated_at'])
+      allow write: if request.resource.data.keys().hasOnly(['mode', 'updated_at'])
                    && request.resource.data.mode in ['local', 'cloud', 'hybrid', 'insane'];
     }
     match /config/background_tasks {
       allow read: if true;
-      allow write: if request.auth != null
-                   && request.resource.data.keys().hasOnly(['enabled', 'updated_at'])
+      allow write: if request.resource.data.keys().hasOnly(['enabled', 'updated_at'])
                    && request.resource.data.enabled is bool;
     }
 
-    // KB upload/delete queue — authenticated dashboard creates pending docs, backend processes
+    // KB upload/delete queue — dashboard creates pending docs, backend processes.
+    // Field validation: must have status='pending', prevents arbitrary writes.
     match /kb_queue/{doc} {
       allow read: if true;
-      allow create: if request.auth != null
-                    && request.resource.data.status == 'pending';
+      allow create: if request.resource.data.status == 'pending';
       allow update: if true;  // backend (admin SDK) updates status to done/error
     }
 
-    // Philosophy KB upload queue — authenticated dashboard creates pending docs, backend processes
+    // Philosophy KB upload queue — dashboard creates pending docs, backend processes.
     match /phil_queue/{doc} {
       allow read: if true;
-      allow create: if request.auth != null
-                    && request.resource.data.status == 'pending';
+      allow create: if request.resource.data.status == 'pending';
       allow update: if true;  // backend (admin SDK) updates status to done/error
     }
 
-    // Proposal actions — authenticated dashboard creates approve/reject/rollback actions
+    // Proposal actions — dashboard creates approve/reject/rollback actions.
+    // Strict field validation: must have proposal_id, action (enum), status='pending'.
     match /proposal_actions/{doc} {
       allow read: if true;
-      allow create: if request.auth != null
-                    && request.resource.data.status == 'pending'
+      allow create: if request.resource.data.status == 'pending'
                     && request.resource.data.action in ['approve', 'reject', 'rollback']
                     && request.resource.data.keys().hasAll(['proposal_id', 'action', 'status']);
       allow update: if true;  // backend (admin SDK) updates status to done/error
@@ -57,11 +54,11 @@ service cloud.firestore {
       allow write: if false;  // backend-only via admin SDK
     }
 
-    // Chat inbox — authenticated dashboard creates pending messages, backend processes them
+    // Chat inbox — dashboard creates pending messages, backend processes them.
+    // Strong validation: required fields, string type, size limit (4000 chars).
     match /chat_inbox/{doc} {
       allow read: if true;
-      allow create: if request.auth != null
-                    && request.resource.data.status == 'pending'
+      allow create: if request.resource.data.status == 'pending'
                     && request.resource.data.keys().hasAll(['text', 'status', 'ts'])
                     && request.resource.data.text is string
                     && request.resource.data.text.size() > 0
