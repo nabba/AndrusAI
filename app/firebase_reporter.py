@@ -981,31 +981,8 @@ def report_philosophy_kb() -> None:
         store = get_store()
         stats = store.get_stats()
 
-        # Build texts list for dashboard table
-        texts_list = []
-        try:
-            from pathlib import Path
-            from app.philosophy.ingestion import extract_frontmatter
-            from app.philosophy import config as phil_config
-            texts_dir = Path(phil_config.TEXTS_DIR)
-            if texts_dir.exists():
-                for f in sorted(texts_dir.glob("*.md")):
-                    if f.name.upper() == "README.MD":
-                        continue
-                    try:
-                        content = f.read_text(encoding="utf-8")
-                        meta, _ = extract_frontmatter(content)
-                        texts_list.append({
-                            "filename": f.name,
-                            "author": meta.get("author", "Unknown"),
-                            "tradition": meta.get("tradition", "Unknown"),
-                            "era": meta.get("era", "Unknown"),
-                            "title": meta.get("title", f.stem),
-                        })
-                    except Exception:
-                        texts_list.append({"filename": f.name, "author": "?", "tradition": "?", "era": "?", "title": f.stem})
-        except Exception:
-            pass
+        # Build texts list from ChromaDB metadata (source of truth)
+        texts_list = store.list_texts()
 
         db.collection("status").document("philosophy_kb").set({
             "total_chunks": stats.get("total_chunks", 0),

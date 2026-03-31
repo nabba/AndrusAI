@@ -232,6 +232,36 @@ class PhilosophyStore:
             "persist_dir": str(self.persist_dir),
         }
 
+    def list_texts(self) -> list[dict]:
+        """Return per-document metadata extracted from stored chunks."""
+        count = self._collection.count()
+        if count == 0:
+            return []
+
+        all_data = self._collection.get(include=["metadatas"])
+        if not all_data or not all_data["metadatas"]:
+            return []
+
+        # Group chunks by source_file, take first chunk's metadata as representative
+        by_source: dict[str, dict] = {}
+        chunk_counts: dict[str, int] = {}
+        for meta in all_data["metadatas"]:
+            sf = meta.get("source_file", "Unknown")
+            chunk_counts[sf] = chunk_counts.get(sf, 0) + 1
+            if sf not in by_source:
+                by_source[sf] = {
+                    "filename": sf,
+                    "title": meta.get("title", sf),
+                    "author": meta.get("author", "Unknown"),
+                    "tradition": meta.get("tradition", "Unknown"),
+                    "era": meta.get("era", "Unknown"),
+                }
+
+        for sf, info in by_source.items():
+            info["chunks"] = chunk_counts.get(sf, 0)
+
+        return sorted(by_source.values(), key=lambda d: d["title"])
+
 
 # ── Singleton accessor ────────────────────────────────────────────────────────
 _store: Optional[PhilosophyStore] = None
