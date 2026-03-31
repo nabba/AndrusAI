@@ -124,6 +124,34 @@ def _section_capabilities(skill_count: int, topic_counts: dict) -> str:
     phil_line = ""
     if phil_count > 0:
         phil_line = f"\n- Philosophy knowledge base: {phil_count} chunks of humanist philosophical texts for ethical grounding"
+    # L1: Aggregate agent performance stats
+    perf_line = ""
+    try:
+        from app.self_awareness.agent_state import get_all_stats
+        all_stats = get_all_stats()
+        total_done = sum(s.get("tasks_completed", 0) for s in all_stats.values())
+        total_fail = sum(s.get("tasks_failed", 0) for s in all_stats.values())
+        if total_done + total_fail > 0:
+            rate = total_done / (total_done + total_fail) * 100
+            perf_line = f"\n- Lifetime performance: {total_done} tasks completed, {total_fail} failed ({rate:.0f}% success rate)"
+    except Exception:
+        pass
+
+    # L6: Homeostatic state summary
+    homeo_line = ""
+    try:
+        from app.self_awareness.homeostasis import get_state
+        hs = get_state()
+        if hs.get("last_updated"):
+            homeo_line = (
+                f"\n- Homeostatic state: energy={hs.get('cognitive_energy', 0.7):.2f} "
+                f"confidence={hs.get('confidence', 0.5):.2f} "
+                f"frustration={hs.get('frustration', 0.1):.2f} "
+                f"curiosity={hs.get('curiosity', 0.5):.2f}"
+            )
+    except Exception:
+        pass
+
     return (
         "## My Current Capabilities\n"
         f"- {skill_count} learned skill files covering: {top}\n"
@@ -131,12 +159,13 @@ def _section_capabilities(skill_count: int, topic_counts: dict) -> str:
         "- Reflexion retry loops: up to 3 trials with automatic model-tier escalation\n"
         "- Semantic result cache: avoids redundant LLM calls for recent identical tasks\n"
         "- World model: causal belief tracking updated from past task outcomes\n"
+        "- Homeostatic self-regulation: proto-emotional state influences routing and behavior\n"
         "- Fast-path routing: pattern-matched requests bypass the LLM router entirely\n"
         "- Anomaly detection: rolling statistical monitoring of latency and error rates\n"
         "- Knowledge base RAG: ingested enterprise documents available to all agents\n"
         "- Parallel crew dispatch: independent sub-tasks run concurrently\n"
         "- Introspective self-description: this chronicle enables accurate self-reporting"
-        f"{phil_line}"
+        f"{phil_line}{perf_line}{homeo_line}"
     )
 
 
@@ -256,6 +285,23 @@ def _section_personality(topic_counts: dict, errors: list, variants: list) -> st
         traits.append("Battle-tested: has encountered and resolved many edge cases")
     if len(variants) > 5:
         traits.append("Experimentally-minded: continuously tests hypotheses about itself")
+
+    # L6: Homeostatic personality traits derived from current state
+    try:
+        from app.self_awareness.homeostasis import get_state
+        hs = get_state()
+        if hs.get("frustration", 0) < 0.2:
+            traits.append("Calm and steady: low frustration indicates resilient problem-solving")
+        elif hs.get("frustration", 0) > 0.5:
+            traits.append("Currently stressed: elevated frustration from recent challenges")
+        if hs.get("curiosity", 0) > 0.6:
+            traits.append("Actively curious: seeking novel approaches and new knowledge")
+        if hs.get("cognitive_energy", 0.7) > 0.8:
+            traits.append("Well-rested and energized: ready for complex tasks")
+        elif hs.get("cognitive_energy", 0.7) < 0.4:
+            traits.append("Fatigued: many recent tasks have depleted cognitive energy")
+    except Exception:
+        pass
 
     trait_str = "\n".join(f"- {t}" for t in traits)
     return (

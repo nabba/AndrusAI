@@ -371,4 +371,30 @@ def format_self_model_block(role: str) -> str:
         items = "\n".join(f"  - {t}" for t in model["metacognitive_triggers"])
         sections.append(f"### My Metacognitive Triggers\n{items}")
 
+    # L1: Inject live runtime stats from agent_state
+    # Crew names differ from role names: research→researcher, coding→coder, etc.
+    _role_to_crew = {
+        "researcher": "research", "coder": "coding", "writer": "writing",
+        "media_analyst": "media", "commander": "commander",
+        "self_improver": "self_improvement", "critic": "critic",
+        "introspector": "introspector",
+    }
+    try:
+        from app.self_awareness.agent_state import get_agent_stats
+        crew_key = _role_to_crew.get(role, role)
+        stats = get_agent_stats(crew_key)
+        if stats and stats.get("tasks_completed", 0) > 0:
+            total = stats["tasks_completed"] + stats.get("tasks_failed", 0)
+            rate = stats["tasks_completed"] / total * 100 if total else 0
+            sections.append(
+                f"### My Runtime Statistics\n"
+                f"  - Tasks completed: {stats['tasks_completed']}\n"
+                f"  - Tasks failed: {stats.get('tasks_failed', 0)}\n"
+                f"  - Success rate: {rate:.0f}%\n"
+                f"  - Average confidence: {stats.get('avg_confidence', 0.5):.2f}\n"
+                f"  - Current streak: {stats.get('streak', 0)} consecutive successes"
+            )
+    except Exception:
+        pass
+
     return "\n\n".join(sections)

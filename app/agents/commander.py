@@ -144,6 +144,19 @@ def _extract_chronicle_section(chronicle: str, header: str) -> str:
     return chronicle[idx:end].strip()
 
 
+def _load_homeostatic_context() -> str:
+    """Load system homeostatic state for crew context injection (L6+L9).
+
+    Returns a brief one-line summary (~20 tokens). No network call — reads
+    a local JSON file. Negligible cost.
+    """
+    try:
+        from app.self_awareness.homeostasis import get_state_summary
+        return get_state_summary()
+    except Exception:
+        return ""
+
+
 def _recover_truncated_routing(raw: str) -> list[dict] | None:
     """Try to extract usable routing decisions from truncated JSON.
 
@@ -976,6 +989,18 @@ class Commander:
             else:
                 d["difficulty"] = int(diff)
 
+        # L6+L9: Apply homeostatic behavioral modifiers to routing decisions
+        try:
+            from app.self_awareness.homeostasis import get_behavioral_modifiers
+            modifiers = get_behavioral_modifiers()
+            tier_boost = modifiers.get("tier_boost", 0)
+            if tier_boost:
+                for d in decisions:
+                    d["difficulty"] = min(10, d["difficulty"] + tier_boost)
+                logger.info(f"Homeostasis: tier_boost={tier_boost}, adjusted difficulties")
+        except Exception:
+            pass
+
         return decisions
 
     def _run_crew(self, crew_name: str, crew_task: str,
@@ -1018,12 +1043,14 @@ class Commander:
             f_kb = _ctx_pool.submit(_load_knowledge_base_context, crew_task)
             f_policies = _ctx_pool.submit(_load_policies_for_crew, crew_task, crew_name)
             f_world = _ctx_pool.submit(_load_world_model_context, crew_task)
+            f_state = _ctx_pool.submit(_load_homeostatic_context)  # L6: ~0ms, reads JSON
             context = (
                 f_skills.result(timeout=5)
                 + f_memory.result(timeout=5)
                 + f_kb.result(timeout=5)
                 + f_policies.result(timeout=5)
                 + f_world.result(timeout=5)
+                + f_state.result(timeout=1)
             )
 
         # Inject conversation history so specialist crews understand follow-ups (Q2)
@@ -1141,6 +1168,16 @@ class Commander:
                 if went_wrong:
                     obs += f" — issue: {went_wrong}"
                 revise_beliefs(obs, crew_name)
+
+                # L1+L5: Update per-agent runtime statistics
+                from app.self_awareness.agent_state import record_task
+                result_ok = has_result and not is_failure_pattern
+                record_task(crew_name, success=result_ok, confidence=confidence,
+                            difficulty=difficulty, duration_s=duration_s)
+
+                # L6: Update homeostatic state (proto-emotions)
+                from app.self_awareness.homeostasis import update_state
+                update_state("task_complete", crew_name, success=result_ok, difficulty=difficulty)
 
             except Exception:
                 logger.debug("Post-crew telemetry failed", exc_info=True)

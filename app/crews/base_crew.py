@@ -97,6 +97,22 @@ def run_single_agent_crew(
         update_belief(agent_role, "completed", current_task=task_description[:100])
         record_metric("task_completion_time", duration, {"crew": crew_name})
 
+        # L4: Autobiographical journal entry (append-only, ~100 bytes)
+        try:
+            import json as _json
+            from datetime import datetime as _dt, timezone as _tz
+            _journal = Path("/app/workspace/journal.jsonl")
+            with open(_journal, "a") as _jf:
+                _jf.write(_json.dumps({
+                    "ts": _dt.now(_tz.utc).isoformat(),
+                    "crew": crew_name,
+                    "task": task_description[:200],
+                    "result": "success",
+                    "duration_s": round(duration, 1),
+                }) + "\n")
+        except Exception:
+            pass
+
         # Capture token usage from active request tracker
         _tokens = 0; _model = ""; _cost = 0.0
         try:
@@ -114,5 +130,23 @@ def run_single_agent_crew(
     except Exception as exc:
         update_belief(agent_role, "failed", current_task=task_description[:100])
         crew_failed(crew_name, task_id, str(exc)[:200])
+
+        # L4: Journal failure entry
+        try:
+            import json as _json
+            from datetime import datetime as _dt, timezone as _tz
+            _journal = Path("/app/workspace/journal.jsonl")
+            with open(_journal, "a") as _jf:
+                _jf.write(_json.dumps({
+                    "ts": _dt.now(_tz.utc).isoformat(),
+                    "crew": crew_name,
+                    "task": task_description[:200],
+                    "result": "failed",
+                    "error": str(exc)[:100],
+                    "duration_s": round(_time.monotonic() - start, 1),
+                }) + "\n")
+        except Exception:
+            pass
+
         diagnose_and_fix(crew_name, task_description, exc, task_id=task_id)
         raise
