@@ -55,8 +55,8 @@ def _receive_messages(number: str) -> list:
     try:
         resp = _signal_session.get(
             SIGNAL_CLI_URL.rstrip("/") + f"/v1/receive/{number}",
-            params={"timeout": int(POLL_INTERVAL) + 1},
-            timeout=POLL_INTERVAL + 5,
+            params={"timeout": 5},
+            timeout=15,
         )
         if resp.status_code == 200:
             return resp.json() or []

@@ -132,7 +132,8 @@ services:
     volumes:
       - signal-data:/home/.local/share/signal-cli
     networks:
-      - internal
+      - external   # Needs internet to connect to Signal servers
+      - internal   # Forwarder connects via internal network
     security_opt:
       - no-new-privileges:true
     healthcheck:
