@@ -128,9 +128,17 @@ def _run_idle_loop(jobs: list[tuple[str, Callable[[], None]]]) -> None:
             fn()
             logger.info(f"idle_scheduler: '{name}' completed")
             _report_background_activity(name, "completed")
-        except Exception:
+        except Exception as exc:
             logger.warning(f"idle_scheduler: '{name}' failed", exc_info=True)
             _report_background_activity(name, "failed")
+            # Detect credit exhaustion from any background job failure
+            try:
+                from app.firebase_reporter import detect_credit_error, report_credit_alert
+                provider = detect_credit_error(exc)
+                if provider:
+                    report_credit_alert(provider, str(exc)[:300])
+            except Exception:
+                pass
 
         # Pause between jobs — also check for user activity
         for _ in range(INTER_JOB_PAUSE_SECONDS):
