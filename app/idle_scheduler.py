@@ -317,6 +317,20 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: version snapshot failed", exc_info=True)
     jobs.append(("version-snapshot", _version_snapshot))
 
+    # ── MAP-Elites: quality-diversity maintenance + migration ──────────
+    def _map_elites_maintain():
+        try:
+            from app.map_elites import get_db
+            roles = ["coder", "researcher", "writer", "commander"]
+            for role in roles:
+                db = get_db(role)
+                if db.generation > 0 and db.generation % 15 == 0:
+                    db.migrate()
+                db.persist()
+        except Exception:
+            logger.debug("idle_scheduler: MAP-Elites maintenance failed", exc_info=True)
+    jobs.append(("map-elites-maintain", _map_elites_maintain))
+
     # ── Island evolution: population-based prompt optimization ─────────
     def _island_evolution():
         try:
