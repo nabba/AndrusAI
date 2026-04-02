@@ -317,6 +317,21 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: version snapshot failed", exc_info=True)
     jobs.append(("version-snapshot", _version_snapshot))
 
+    # ── Island evolution: population-based prompt optimization ─────────
+    def _island_evolution():
+        try:
+            from app.island_evolution import run_island_evolution_cycle
+            # Rotate through roles each cycle
+            roles = ["coder", "researcher", "writer", "commander"]
+            role = roles[hash(str(time.monotonic())) % len(roles)]
+            result = run_island_evolution_cycle(target_role=role)
+            if result.get("best"):
+                logger.info(f"idle_scheduler: island evolution for '{role}' — "
+                            f"best fitness={result['best'].get('fitness', 0):.3f}")
+        except Exception:
+            logger.debug("idle_scheduler: island evolution failed", exc_info=True)
+    jobs.append(("island-evolution", _island_evolution))
+
     # ── Parallel evolution: diverse archive exploration ────────────────
     def _parallel_evolution():
         try:
