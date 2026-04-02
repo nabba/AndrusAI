@@ -167,6 +167,16 @@
     .kb-upload-status { font-size: .72rem; margin-top: 6px; }
     #kb-category { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; font-size: .72rem; margin-left: 8px; }
 
+    /* ── Fiction Inspiration Library ──────────────────────────── */
+    .fiction-upload { border: 2px dashed var(--border); border-radius: var(--radius); padding: 16px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 10px; }
+    .fiction-upload:hover, .fiction-upload.dragover { border-color: var(--orange); background: rgba(251,146,60,.05); }
+    .fiction-upload input[type=file] { display: none; }
+    .fiction-upload-label { font-size: .78rem; color: var(--muted); }
+    .fiction-upload-label strong { color: var(--orange); }
+    .fiction-meta-row { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+    .fiction-meta-row input, .fiction-meta-row select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 4px 8px; font-size: .68rem; flex: 1; min-width: 80px; }
+    .fiction-warning { font-size: .58rem; color: var(--orange); background: rgba(251,146,60,.08); border: 1px solid rgba(251,146,60,.2); border-radius: var(--radius); padding: 4px 8px; margin-bottom: 8px; }
+
     /* ── Philosophy KB ────────────────────────────────────────── */
     .phil-upload { border: 2px dashed var(--border); border-radius: var(--radius); padding: 16px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 10px; }
     .phil-upload:hover, .phil-upload.dragover { border-color: var(--purple); background: rgba(192,132,252,.05); }
@@ -661,6 +671,45 @@
   <div class="cmd-bar">
     <button class="cmd-btn" onclick="loadPhilStatus()">Refresh</button>
     <button class="cmd-btn warn" onclick="if(confirm('Re-ingest all philosophy texts?'))reingestPhil()">Re-ingest All</button>
+  </div>
+</div>
+
+<!-- ── Fiction Inspiration Library ─────────────────────────────── -->
+<div class="card">
+  <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>📚 Fiction Inspiration</span>
+    <span id="fiction-chunk-count" style="font-size:.68rem;color:var(--orange)"></span>
+  </div>
+  <div class="fiction-warning">⚠️ All fiction content is treated as <strong>writers' hallucinations</strong> — creative fuel only, never factual knowledge. Agents use this for brainstorming, analogies, and thought experiments.</div>
+  <div class="fiction-meta-row">
+    <input type="text" id="fiction-author" placeholder="Author" />
+    <input type="text" id="fiction-title" placeholder="Title" />
+    <select id="fiction-themes">
+      <option value="">Theme</option>
+      <option value="artificial_intelligence">Artificial Intelligence</option>
+      <option value="consciousness">Consciousness</option>
+      <option value="cyberpunk">Cyberpunk</option>
+      <option value="space_exploration">Space Exploration</option>
+      <option value="post_scarcity">Post-Scarcity</option>
+      <option value="governance">Governance</option>
+      <option value="virtual_reality">Virtual Reality</option>
+      <option value="transhumanism">Transhumanism</option>
+      <option value="dystopia">Dystopia</option>
+      <option value="first_contact">First Contact</option>
+    </select>
+  </div>
+  <div id="fiction-upload-zone" class="fiction-upload">
+    <input type="file" id="fiction-file" accept=".md,.txt" multiple />
+    <div class="fiction-upload-label">Drop .md/.txt fiction files here or <strong>click to upload</strong></div>
+    <div class="fiction-status" id="fiction-upload-status"></div>
+  </div>
+  <div id="fiction-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin-bottom:10px">
+    <div class="empty">No fiction books yet — drop .md files above</div>
+  </div>
+  <div id="fiction-books" style="max-height:140px;overflow-y:auto"></div>
+  <div class="cmd-bar">
+    <button class="cmd-btn" onclick="loadFictionStatus()">Refresh</button>
+    <button class="cmd-btn warn" onclick="if(confirm('Re-ingest all fiction books?'))reingestFiction()">Re-ingest All</button>
   </div>
 </div>
 
@@ -1691,6 +1740,127 @@ window.reingestPhil = function() {
     philStatus.innerHTML = `<span style="color:var(--red)">Failed: ${e.message}</span>`;
   });
 };
+
+// ── Fiction Inspiration Library ──────────────────────────────────────────────
+// Uses Firestore queue (same pattern as Philosophy KB) — dashboard writes to
+// fiction_queue collection, gateway poller picks up and ingests into ChromaDB.
+const fictionZone = document.getElementById("fiction-upload-zone");
+const fictionFile = document.getElementById("fiction-file");
+const fictionStatus = document.getElementById("fiction-upload-status");
+
+fictionZone.addEventListener("click", () => fictionFile.click());
+fictionZone.addEventListener("dragover", e => { e.preventDefault(); fictionZone.classList.add("dragover"); });
+fictionZone.addEventListener("dragleave", () => fictionZone.classList.remove("dragover"));
+fictionZone.addEventListener("drop", e => {
+  e.preventDefault();
+  fictionZone.classList.remove("dragover");
+  if (e.dataTransfer.files.length) uploadFictionFiles(e.dataTransfer.files);
+});
+fictionFile.addEventListener("change", () => { if (fictionFile.files.length) uploadFictionFiles(fictionFile.files); });
+
+async function uploadFictionFiles(files) {
+  const MAX_SIZE = 2 * 1024 * 1024; // 2MB Firestore doc limit
+  const author = document.getElementById("fiction-author").value.trim();
+  const title = document.getElementById("fiction-title").value.trim();
+  const theme = document.getElementById("fiction-themes").value;
+  fictionStatus.innerHTML = `<span style="color:var(--orange)">Uploading ${files.length} file(s)…</span>`;
+  let success = 0, failed = 0, lastErr = "";
+  for (const file of files) {
+    try {
+      if (file.size > MAX_SIZE) { lastErr = `${file.name} exceeds 2MB limit`; failed++; continue; }
+      const text = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = rej;
+        r.readAsText(file);
+      });
+      await addDoc(collection(db, "fiction_queue"), {
+        filename: file.name,
+        content: text,
+        author: author || "",
+        title: title || "",
+        themes: theme ? [theme] : [],
+        status: "pending",
+        created_at: serverTimestamp(),
+      });
+      success++;
+    } catch (e) {
+      lastErr = e.message || "Upload error";
+      failed++;
+    }
+  }
+  const msg = [];
+  if (success) msg.push(`<span style="color:var(--green)">${success} queued for ingestion</span>`);
+  if (failed) msg.push(`<span style="color:var(--red)">${failed} failed: ${esc(lastErr.slice(0,80))}</span>`);
+  fictionStatus.innerHTML = msg.join(" · ");
+  fictionFile.value = "";
+  if (success) setTimeout(() => { fictionStatus.innerHTML = ""; }, 8000);
+}
+
+window.deleteFictionBook = function(filename) {
+  if (!confirm(`Delete "${filename}" from fiction library?`)) return;
+  addDoc(collection(db, "fiction_queue"), {
+    action: "delete",
+    filename: filename,
+    status: "pending",
+    created_at: serverTimestamp(),
+  }).catch(e => console.error("Fiction delete request failed:", e));
+};
+
+window.reingestFiction = function() {
+  fictionStatus.innerHTML = `<span style="color:var(--orange)">Re-ingest queued…</span>`;
+  addDoc(collection(db, "fiction_queue"), {
+    action: "reingest",
+    status: "pending",
+    created_at: serverTimestamp(),
+  }).then(() => {
+    fictionStatus.innerHTML = `<span style="color:var(--orange)">Re-ingesting… (check back in a moment)</span>`;
+    setTimeout(() => { fictionStatus.innerHTML = ""; }, 15000);
+  }).catch(e => { fictionStatus.innerHTML = `<span style="color:var(--red)">Failed: ${esc(String(e).slice(0,60))}</span>`; });
+};
+
+window.loadFictionStatus = function() {
+  // Trigger a refresh via chat command
+  sendCmd("fiction status");
+};
+
+// Real-time fiction library stats from Firestore
+onSnapshot(doc(db, "status", "fiction_library"), s => {
+  const statsEl = document.getElementById("fiction-stats");
+  const booksEl = document.getElementById("fiction-books");
+  const countEl = document.getElementById("fiction-chunk-count");
+  if (!s.exists()) { statsEl.innerHTML = '<div class="empty">No fiction books yet — drop .md files above</div>'; booksEl.innerHTML = ''; countEl.textContent = ''; return; }
+  const d = s.data();
+
+  if (d.total_chunks > 0) {
+    countEl.textContent = `${d.total_chunks} chunks · ${d.total_books || 0} books`;
+    statsEl.innerHTML = [
+      { label: "Books", value: d.total_books || 0 },
+      { label: "Chunks", value: d.total_chunks || 0 },
+      { label: "Authors", value: (d.authors || []).length },
+      { label: "Themes", value: (d.themes || []).length },
+    ].map(s => `<div class="stat-card"><div class="stat-value">${s.value}</div><div class="stat-label">${s.label}</div></div>`).join("");
+  } else {
+    countEl.textContent = "";
+    statsEl.innerHTML = '<div class="empty">No fiction books yet — drop .md files above</div>';
+  }
+
+  const books = d.books || [];
+  if (books.length > 0) {
+    booksEl.innerHTML = `<div style="overflow-x:auto"><table class="task-table"><thead><tr>
+      <th>Title</th><th>Author</th><th>Themes</th><th>Chunks</th><th></th>
+    </tr></thead><tbody>` + books.map(b => `<tr>
+      <td style="font-weight:600">${esc(b.title || b.filename)}</td>
+      <td style="color:var(--muted)">${esc(b.author || "—")}</td>
+      <td><span class="badge" style="background:rgba(251,146,60,.12);color:var(--orange)">${esc((b.themes || []).join(", ") || "—")}</span></td>
+      <td style="color:var(--muted)">${b.chunks || 0}</td>
+      <td><button class="cmd-btn danger" style="font-size:.58rem;padding:1px 6px" onclick="deleteFictionBook('${esc(b.filename)}')">Del</button></td>
+    </tr>`).join("") + `</tbody></table></div>`;
+  } else {
+    booksEl.innerHTML = "";
+  }
+  touch();
+});
 
 // ── Evolution (DGM-DB) real-time updates ──────────────────────────────────────
 onSnapshot(doc(db, "status", "evolution"), s => {

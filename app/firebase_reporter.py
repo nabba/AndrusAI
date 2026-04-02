@@ -1180,6 +1180,190 @@ def start_phil_queue_poller() -> None:
     logger.info("firebase_reporter: Philosophy queue poller started (10s interval)")
 
 
+# ── Fiction Inspiration Library ────────────────────────────────────────────────
+
+def report_fiction_library() -> None:
+    """Push fiction library stats to Firestore for the dashboard."""
+    db = _get_db()
+    if not db:
+        return
+    try:
+        from app.fiction_inspiration import _get_collection, FICTION_LIBRARY_DIR
+        import json as _json
+
+        collection_obj = _get_collection()
+        total = collection_obj.count()
+
+        # Build books list from ChromaDB metadata
+        books_map = {}
+        if total > 0:
+            all_meta = collection_obj.get(limit=min(total, 5000), include=["metadatas"])
+            for meta in all_meta.get("metadatas", []):
+                title = meta.get("book_title", "Unknown")
+                if title not in books_map:
+                    themes_raw = meta.get("themes", "[]")
+                    try:
+                        themes = _json.loads(themes_raw)
+                    except (ValueError, TypeError):
+                        themes = []
+                    books_map[title] = {
+                        "title": title,
+                        "author": meta.get("author", "Unknown"),
+                        "themes": themes,
+                        "filename": meta.get("source_file", ""),
+                        "chunks": 0,
+                    }
+                books_map[title]["chunks"] += 1
+
+        all_authors = list(set(b["author"] for b in books_map.values()))
+        all_themes = list(set(t for b in books_map.values() for t in b["themes"]))
+
+        db.collection("status").document("fiction_library").set({
+            "total_chunks": total,
+            "total_books": len(books_map),
+            "authors": all_authors,
+            "themes": all_themes,
+            "books": list(books_map.values()),
+            "updated_at": _now_iso(),
+        })
+    except Exception:
+        logger.debug("firebase_reporter: fiction_library write failed", exc_info=True)
+
+
+_fiction_poll_stop = threading.Event()
+
+
+def start_fiction_queue_poller() -> None:
+    """Poll Firestore fiction_queue for pending uploads/actions."""
+
+    def _poll_fiction():
+        while not _fiction_poll_stop.wait(10):
+            db = _get_db()
+            if not db:
+                continue
+            try:
+                docs = (
+                    db.collection("fiction_queue")
+                    .where("status", "==", "pending")
+                    .limit(5)
+                    .get()
+                )
+                if not docs:
+                    continue
+
+                for snap in docs:
+                    data = snap.to_dict()
+                    action = data.get("action", "upload")
+
+                    try:
+                        if action == "delete":
+                            fname = data.get("filename", "")
+                            if fname:
+                                from app.fiction_inspiration import _get_collection as _fc
+                                coll = _fc()
+                                # Find and delete chunks by filename
+                                results = coll.get(
+                                    where={"source_file": fname},
+                                    include=["metadatas"],
+                                )
+                                if results["ids"]:
+                                    coll.delete(ids=results["ids"])
+                                    removed = len(results["ids"])
+                                else:
+                                    removed = 0
+                                # Remove file from disk
+                                from pathlib import Path
+                                from app.fiction_inspiration import FICTION_LIBRARY_DIR
+                                fpath = FICTION_LIBRARY_DIR / fname
+                                if fpath.exists():
+                                    fpath.unlink()
+                                snap.reference.update({
+                                    "status": "done",
+                                    "chunks_removed": removed,
+                                    "processed_at": _now_iso(),
+                                })
+                                logger.info(f"firebase_reporter: fiction deleted '{fname}' ({removed} chunks)")
+                            else:
+                                snap.reference.update({"status": "error", "error": "No filename"})
+
+                        elif action == "reingest":
+                            from app.fiction_inspiration import ingest_library
+                            result = ingest_library()
+                            snap.reference.update({
+                                "status": "done",
+                                "books_ingested": result.get("books_ingested", 0),
+                                "total_chunks": result.get("total_chunks", 0),
+                                "processed_at": _now_iso(),
+                            })
+                            logger.info(f"firebase_reporter: fiction reingest complete: {result}")
+
+                        else:
+                            # Default: upload/ingest a new fiction book
+                            content = data.get("content", "")
+                            fname = data.get("filename", "upload.md")
+                            author = data.get("author", "")
+                            title_val = data.get("title", "")
+                            themes = data.get("themes", [])
+
+                            if not content:
+                                snap.reference.update({"status": "error", "error": "Empty content"})
+                                continue
+
+                            import re as _re
+                            safe_name = _re.sub(r"[^\w\-.]", "_", fname)
+                            if not safe_name.endswith((".md", ".txt")):
+                                safe_name += ".md"
+
+                            # Prepend frontmatter if metadata provided
+                            if not content.lstrip().startswith("---") and any([author, title_val, themes]):
+                                import json as _json2
+                                fm = ["---"]
+                                if title_val: fm.append(f"title: \"{title_val}\"")
+                                if author: fm.append(f"author: \"{author}\"")
+                                if themes:
+                                    fm.append("themes:")
+                                    for t in themes:
+                                        fm.append(f"  - {t}")
+                                fm.append("---\n")
+                                content = "\n".join(fm) + content
+
+                            # Save to fiction library directory
+                            from pathlib import Path
+                            from app.fiction_inspiration import FICTION_LIBRARY_DIR
+                            FICTION_LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+                            dest = FICTION_LIBRARY_DIR / safe_name
+                            dest.write_text(content, encoding="utf-8")
+
+                            # Ingest into ChromaDB
+                            from app.fiction_inspiration import ingest_book
+                            result = ingest_book(dest)
+
+                            snap.reference.update({
+                                "status": "done",
+                                "chunks_created": result.get("ingested", 0),
+                                "processed_at": _now_iso(),
+                            })
+                            logger.info(f"firebase_reporter: fiction ingested '{safe_name}' -> {result.get('ingested', 0)} chunks")
+
+                    except Exception as e:
+                        snap.reference.update({
+                            "status": "error",
+                            "error": str(e)[:200],
+                            "processed_at": _now_iso(),
+                        })
+                        logger.warning(f"firebase_reporter: fiction queue error: {e}")
+
+                report_fiction_library()
+
+            except Exception:
+                pass
+        logger.debug("firebase_reporter: fiction poll stopped")
+
+    t = threading.Thread(target=_poll_fiction, daemon=True, name="firebase-fiction-poll")
+    t.start()
+    logger.info("firebase_reporter: Fiction queue poller started (10s interval)")
+
+
 # ── L5: Ecological awareness stats ────────────────────────────────────────────
 
 def report_ecological_stats() -> None:
