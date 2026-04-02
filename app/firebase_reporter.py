@@ -1779,6 +1779,303 @@ def report_chat_message(role: str, text: str, source: str = "signal") -> None:
     _fire(_write)
 
 
+def report_system_monitor() -> None:
+    """Report comprehensive system architecture status to Firestore.
+
+    Aggregates status from ALL subsystems into a single document
+    for the dashboard System Architecture Monitor section.
+    """
+    def _write():
+        db = _get_db()
+        if not db:
+            return
+
+        monitor = {"updated_at": _now_iso(), "subsystems": {}, "summary": {}}
+
+        # ── 1. Core Infrastructure ──────────────────────────────────
+        try:
+            from app.config import get_settings
+            s = get_settings()
+            monitor["subsystems"]["core"] = {
+                "status": "ok", "label": "Core Infrastructure",
+                "modules": ["config", "main", "commander", "conversation_store",
+                             "llm_factory", "signal_client", "security"],
+                "details": {
+                    "llm_mode": s.llm_mode, "cost_mode": s.cost_mode,
+                    "vetting": s.vetting_enabled,
+                },
+            }
+        except Exception as e:
+            monitor["subsystems"]["core"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 2. Self-Awareness ───────────────────────────────────────
+        try:
+            from app.self_awareness.inspect_tools import inspect_self_model, inspect_runtime
+            sm = inspect_self_model()
+            rt = inspect_runtime(section="process")
+            from app.self_awareness.journal import get_journal
+            j = get_journal()
+            journal_count = j.count()
+            monitor["subsystems"]["self_awareness"] = {
+                "status": "ok", "label": "Self-Awareness",
+                "modules": ["inspect_tools", "query_router", "grounding",
+                             "knowledge_ingestion", "cogito", "journal",
+                             "homeostasis", "self_model", "world_model"],
+                "details": {
+                    "chronicle_age_hours": sm.get("age_hours", "?"),
+                    "chronicle_stale": sm.get("stale", True),
+                    "uptime_seconds": rt.get("uptime_seconds", 0),
+                    "journal_entries": sum(journal_count.values()),
+                    "journal_breakdown": journal_count,
+                },
+            }
+        except Exception as e:
+            monitor["subsystems"]["self_awareness"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 3. Feedback Loop ────────────────────────────────────────
+        try:
+            from app.prompt_registry import get_prompt_versions_map
+            versions = get_prompt_versions_map()
+            monitor["subsystems"]["feedback_loop"] = {
+                "status": "ok", "label": "Feedback Loop",
+                "modules": ["feedback_pipeline", "modification_engine", "eval_sandbox",
+                             "safety_guardian", "implicit_feedback", "meta_learning",
+                             "prompt_registry"],
+                "details": {
+                    "prompt_versions": {k: f"v{v:03d}" for k, v in versions.items()},
+                    "roles_tracked": len(versions),
+                    "feedback_enabled": s.feedback_enabled if 's' in dir() else True,
+                    "modification_enabled": s.modification_enabled if 's' in dir() else True,
+                },
+            }
+        except Exception as e:
+            monitor["subsystems"]["feedback_loop"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 4. ATLAS ────────────────────────────────────────────────
+        try:
+            from app.atlas.skill_library import get_library
+            from app.atlas.competence_tracker import get_tracker
+            from app.atlas.api_scout import get_scout
+            lib = get_library()
+            tracker = get_tracker()
+            scout = get_scout()
+            skill_summary = lib.get_competence_summary()
+            monitor["subsystems"]["atlas"] = {
+                "status": "ok", "label": "ATLAS",
+                "modules": ["skill_library", "auth_patterns", "api_scout",
+                             "code_forge", "competence_tracker", "video_learner",
+                             "learning_planner", "audit_log"],
+                "details": {
+                    "total_skills": skill_summary.get("total_skills", 0),
+                    "high_confidence": skill_summary.get("high_confidence", 0),
+                    "stale_skills": skill_summary.get("stale", 0),
+                    "known_apis": len(scout.get_known_apis()),
+                    "competence_strengths": len(tracker.get_strengths()),
+                    "competence_gaps": len(tracker.get_gaps()),
+                },
+            }
+        except Exception as e:
+            monitor["subsystems"]["atlas"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 5. Evolution ────────────────────────────────────────────
+        try:
+            from app.adaptive_ensemble import get_controller
+            ctrl = get_controller()
+            stats = ctrl.get_stats()
+            from app.auto_deployer import PROTECTED_FILES
+            monitor["subsystems"]["evolution"] = {
+                "status": "ok", "label": "Evolution",
+                "modules": ["evolution", "island_evolution", "parallel_evolution",
+                             "evolve_blocks", "adaptive_ensemble", "map_elites",
+                             "cascade_evaluator"],
+                "details": {
+                    "ensemble_phase": stats["ensemble"]["phase"],
+                    "exploration_rate": round(stats["exploration_rate"], 2),
+                    "epoch": stats["epoch"],
+                },
+            }
+        except Exception as e:
+            monitor["subsystems"]["evolution"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 6. Agent Zero Amendments ────────────────────────────────
+        try:
+            from app.lifecycle_hooks import get_registry
+            hooks = get_registry().list_hooks()
+            immutable_count = sum(1 for h in hooks if h["immutable"])
+            from app.project_isolation import get_manager
+            pm = get_manager()
+            active_project = pm.active
+            monitor["subsystems"]["amendments"] = {
+                "status": "ok", "label": "Agent Zero Amendments",
+                "modules": ["history_compression", "lifecycle_hooks",
+                             "tool_executor", "project_isolation"],
+                "details": {
+                    "hooks_total": len(hooks),
+                    "hooks_immutable": immutable_count,
+                    "hooks_list": [{"name": h["name"], "point": h["hook_point"],
+                                    "priority": h["priority"], "immutable": h["immutable"]}
+                                   for h in hooks],
+                    "active_project": active_project.name if active_project else None,
+                    "projects": [p["name"] for p in pm.list_projects()],
+                },
+            }
+        except Exception as e:
+            monitor["subsystems"]["amendments"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 7. Fast Deploy ──────────────────────────────────────────
+        try:
+            from app.version_manifest import get_current_manifest, list_manifests
+            from app.health_monitor import get_monitor
+            manifest = get_current_manifest()
+            health = get_monitor().get_health_state()
+            monitor["subsystems"]["fast_deploy"] = {
+                "status": "ok", "label": "Fast Deploy",
+                "modules": ["version_manifest", "health_monitor", "self_healer",
+                             "reference_tasks", "sandbox_runner"],
+                "details": {
+                    "current_version": manifest.get("version", "?") if manifest else "none",
+                    "manifests_count": len(list_manifests()),
+                    "health_sample_size": health.sample_size,
+                    "error_rate": round(health.error_rate, 3),
+                },
+            }
+        except Exception as e:
+            monitor["subsystems"]["fast_deploy"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 8. Training Pipeline ────────────────────────────────────
+        try:
+            monitor["subsystems"]["training"] = {
+                "status": "ok", "label": "Self-Training LLM",
+                "modules": ["training_collector", "training_pipeline"],
+                "details": {},
+            }
+            # Try to get stats from DB
+            try:
+                from app.config import get_settings as _gs
+                _s = _gs()
+                if _s.mem0_postgres_url:
+                    import psycopg2
+                    conn = psycopg2.connect(_s.mem0_postgres_url)
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT count(*) FROM training.interactions")
+                        count = cur.fetchone()[0]
+                        cur.execute("SELECT count(*) FROM training.runs")
+                        runs = cur.fetchone()[0]
+                    conn.close()
+                    monitor["subsystems"]["training"]["details"] = {
+                        "interactions_collected": count,
+                        "training_runs": runs,
+                    }
+            except Exception:
+                pass
+        except Exception as e:
+            monitor["subsystems"]["training"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 9. Host Bridge ──────────────────────────────────────────
+        try:
+            bridge_available = False
+            try:
+                import httpx
+                resp = httpx.get("http://host.docker.internal:9100/health", timeout=3)
+                if resp.status_code == 200:
+                    bridge_data = resp.json()
+                    bridge_available = bridge_data.get("status") == "ok"
+            except Exception:
+                pass
+            monitor["subsystems"]["bridge"] = {
+                "status": "ok" if bridge_available else "offline",
+                "label": "Host Bridge",
+                "modules": ["bridge_client", "bridge_tools"],
+                "details": {"bridge_reachable": bridge_available},
+            }
+        except Exception as e:
+            monitor["subsystems"]["bridge"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 10. Knowledge Stores ────────────────────────────────────
+        try:
+            monitor["subsystems"]["knowledge"] = {
+                "status": "ok", "label": "Knowledge Stores",
+                "modules": ["philosophy_vectorstore", "fiction_inspiration"],
+                "details": {},
+            }
+        except Exception:
+            pass
+
+        # ── 11. Safety & Vetting ────────────────────────────────────
+        try:
+            from app.auto_deployer import PROTECTED_FILES
+            monitor["subsystems"]["safety"] = {
+                "status": "ok", "label": "Safety & Vetting",
+                "modules": ["vetting", "auto_deployer", "security", "rate_throttle"],
+                "details": {
+                    "protected_files": len(PROTECTED_FILES),
+                    "protected_list": sorted(list(PROTECTED_FILES))[:20],
+                },
+            }
+        except Exception as e:
+            monitor["subsystems"]["safety"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 12. Idle Scheduler ──────────────────────────────────────
+        try:
+            from app.idle_scheduler import _default_jobs, is_enabled, is_idle
+            jobs = _default_jobs()
+            monitor["subsystems"]["scheduler"] = {
+                "status": "ok", "label": "Idle Scheduler",
+                "modules": ["idle_scheduler"],
+                "details": {
+                    "total_jobs": len(jobs),
+                    "enabled": is_enabled(),
+                    "idle": is_idle(),
+                    "job_names": [j[0] for j in jobs],
+                },
+            }
+        except Exception as e:
+            monitor["subsystems"]["scheduler"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── 13. Database ────────────────────────────────────────────
+        try:
+            from app.config import get_settings as _gs2
+            _s2 = _gs2()
+            if _s2.mem0_postgres_url:
+                import psycopg2
+                conn = psycopg2.connect(_s2.mem0_postgres_url)
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT schemaname, count(tablename)
+                        FROM pg_tables
+                        WHERE schemaname NOT IN ('pg_catalog','information_schema','pg_toast','public')
+                        GROUP BY schemaname
+                    """)
+                    schemas = {r[0]: r[1] for r in cur.fetchall()}
+                conn.close()
+                monitor["subsystems"]["database"] = {
+                    "status": "ok", "label": "Database",
+                    "modules": ["postgresql", "chromadb", "neo4j"],
+                    "details": {"schemas": schemas},
+                }
+        except Exception as e:
+            monitor["subsystems"]["database"] = {"status": "error", "error": str(e)[:100]}
+
+        # ── Summary ─────────────────────────────────────────────────
+        total = len(monitor["subsystems"])
+        ok = sum(1 for s in monitor["subsystems"].values() if s.get("status") == "ok")
+        errors = sum(1 for s in monitor["subsystems"].values() if s.get("status") == "error")
+        offline = sum(1 for s in monitor["subsystems"].values() if s.get("status") == "offline")
+        all_modules = []
+        for ss in monitor["subsystems"].values():
+            all_modules.extend(ss.get("modules", []))
+        monitor["summary"] = {
+            "subsystems_total": total, "subsystems_ok": ok,
+            "subsystems_error": errors, "subsystems_offline": offline,
+            "total_modules": len(all_modules),
+        }
+
+        db.collection("status").document("system_monitor").set(monitor)
+        logger.debug(f"firebase_reporter: system_monitor updated ({ok}/{total} subsystems ok, {len(all_modules)} modules)")
+
+    _fire(_write)
+
+
 def _trim_chat_messages(db, max_messages: int = 100) -> None:
     """Keep only the most recent max_messages in chat_messages."""
     try:

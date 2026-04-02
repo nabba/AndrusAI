@@ -443,6 +443,14 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("System chronicle generation failed (non-fatal)", exc_info=True)
 
+    # Report comprehensive system monitor status to dashboard
+    try:
+        from app.firebase_reporter import report_system_monitor
+        await asyncio.to_thread(report_system_monitor)
+        logger.info("System monitor reported to dashboard")
+    except Exception:
+        logger.debug("System monitor report failed (non-fatal)", exc_info=True)
+
     logger.info("CrewAI Agent Team started")
     yield
     # Final sync on clean shutdown

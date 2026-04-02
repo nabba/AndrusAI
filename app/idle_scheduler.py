@@ -431,6 +431,15 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: ATLAS stale check failed", exc_info=True)
     jobs.append(("atlas-stale-check", _atlas_stale_check))
 
+    # ── System monitor: report all subsystem status to dashboard ────
+    def _system_monitor():
+        try:
+            from app.firebase_reporter import report_system_monitor
+            report_system_monitor()
+        except Exception:
+            logger.debug("idle_scheduler: system monitor report failed", exc_info=True)
+    jobs.append(("system-monitor", _system_monitor))
+
     # ── Tech radar: scan internet for new technologies ────────────────
     def _tech_radar():
         from app.crews.tech_radar_crew import run_tech_scan

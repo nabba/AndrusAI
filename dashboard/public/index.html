@@ -713,6 +713,74 @@
   </div>
 </div>
 
+<!-- ── System Architecture Monitor ──────────────────────────────── -->
+<div class="card" style="border:1px solid rgba(139,92,246,.25)">
+  <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>🏗️ System Architecture Monitor</span>
+    <span id="sysmon-summary" style="font-size:.68rem;color:var(--purple)"></span>
+  </div>
+
+  <!-- Subsystem Status Grid -->
+  <div id="sysmon-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;margin-bottom:10px">
+    <div class="empty">Loading system status…</div>
+  </div>
+
+  <!-- Module Count Summary -->
+  <div id="sysmon-stats" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px;margin-bottom:10px"></div>
+
+  <!-- Lifecycle Hooks -->
+  <details style="margin-bottom:8px">
+    <summary style="cursor:pointer;font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">
+      🪝 Lifecycle Hooks <span id="sysmon-hooks-count" style="color:var(--purple)"></span>
+    </summary>
+    <div id="sysmon-hooks" style="max-height:180px;overflow-y:auto;margin-top:4px"></div>
+  </details>
+
+  <!-- Idle Scheduler Jobs -->
+  <details style="margin-bottom:8px">
+    <summary style="cursor:pointer;font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">
+      ⏰ Background Jobs <span id="sysmon-jobs-count" style="color:var(--purple)"></span>
+    </summary>
+    <div id="sysmon-jobs" style="max-height:180px;overflow-y:auto;margin-top:4px"></div>
+  </details>
+
+  <!-- Protected Files -->
+  <details style="margin-bottom:8px">
+    <summary style="cursor:pointer;font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">
+      🔒 Protected Files (Tier 3) <span id="sysmon-protected-count" style="color:var(--red)"></span>
+    </summary>
+    <div id="sysmon-protected" style="max-height:180px;overflow-y:auto;margin-top:4px"></div>
+  </details>
+
+  <!-- Database Schemas -->
+  <details style="margin-bottom:8px">
+    <summary style="cursor:pointer;font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">
+      🗄️ Database Schemas <span id="sysmon-db-count" style="color:var(--cyan)"></span>
+    </summary>
+    <div id="sysmon-db" style="margin-top:4px"></div>
+  </details>
+
+  <!-- Prompt Versions -->
+  <details style="margin-bottom:8px">
+    <summary style="cursor:pointer;font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">
+      📝 Prompt Versions <span id="sysmon-prompts-count" style="color:var(--green)"></span>
+    </summary>
+    <div id="sysmon-prompts" style="margin-top:4px"></div>
+  </details>
+
+  <!-- ATLAS Competence -->
+  <details>
+    <summary style="cursor:pointer;font-size:.65rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">
+      🧠 ATLAS Competence <span id="sysmon-atlas-count" style="color:var(--orange)"></span>
+    </summary>
+    <div id="sysmon-atlas" style="margin-top:4px"></div>
+  </details>
+
+  <div class="cmd-bar" style="margin-top:8px">
+    <button class="cmd-btn" onclick="sendCmd('system status')">Refresh Status</button>
+  </div>
+</div>
+
 <!-- ── Evolution (DGM-DB) ────────────────────────────────────────── -->
 <div class="card">
   <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -1859,6 +1927,163 @@ onSnapshot(doc(db, "status", "fiction_library"), s => {
   } else {
     booksEl.innerHTML = "";
   }
+  touch();
+});
+
+// ── System Architecture Monitor ──────────────────────────────────────────────
+onSnapshot(doc(db, "status", "system_monitor"), s => {
+  const grid = document.getElementById("sysmon-grid");
+  const stats = document.getElementById("sysmon-stats");
+  const summary = document.getElementById("sysmon-summary");
+  const hooksEl = document.getElementById("sysmon-hooks");
+  const hooksCount = document.getElementById("sysmon-hooks-count");
+  const jobsEl = document.getElementById("sysmon-jobs");
+  const jobsCount = document.getElementById("sysmon-jobs-count");
+  const protectedEl = document.getElementById("sysmon-protected");
+  const protectedCount = document.getElementById("sysmon-protected-count");
+  const dbEl = document.getElementById("sysmon-db");
+  const dbCount = document.getElementById("sysmon-db-count");
+  const promptsEl = document.getElementById("sysmon-prompts");
+  const promptsCount = document.getElementById("sysmon-prompts-count");
+  const atlasEl = document.getElementById("sysmon-atlas");
+  const atlasCount = document.getElementById("sysmon-atlas-count");
+
+  if (!s.exists()) { grid.innerHTML = '<div class="empty">Waiting for system monitor data…</div>'; return; }
+  const d = s.data();
+  const sub = d.subsystems || {};
+  const sum = d.summary || {};
+
+  // Summary badge
+  summary.textContent = `${sum.subsystems_ok || 0}/${sum.subsystems_total || 0} subsystems · ${sum.total_modules || 0} modules`;
+
+  // Stats row
+  stats.innerHTML = [
+    { label: "Subsystems", value: sum.subsystems_total || 0, color: "--purple" },
+    { label: "Healthy", value: sum.subsystems_ok || 0, color: "--green" },
+    { label: "Errors", value: sum.subsystems_error || 0, color: sum.subsystems_error > 0 ? "--red" : "--muted" },
+    { label: "Offline", value: sum.subsystems_offline || 0, color: sum.subsystems_offline > 0 ? "--yellow" : "--muted" },
+    { label: "Modules", value: sum.total_modules || 0, color: "--cyan" },
+  ].map(s => `<div class="stat-card"><div class="stat-value" style="color:var(${s.color})">${s.value}</div><div class="stat-label">${s.label}</div></div>`).join("");
+
+  // Subsystem grid
+  const statusIcon = st => st === "ok" ? "🟢" : st === "error" ? "🔴" : st === "offline" ? "🟡" : "⚪";
+  const subsystemOrder = ["core","self_awareness","feedback_loop","atlas","evolution","amendments","fast_deploy","training","bridge","knowledge","safety","scheduler","database"];
+
+  grid.innerHTML = subsystemOrder.filter(k => sub[k]).map(key => {
+    const ss = sub[key];
+    const modules = (ss.modules || []);
+    const det = ss.details || {};
+    let detailHtml = "";
+
+    // Render key details per subsystem
+    if (key === "self_awareness") {
+      detailHtml = `Chronicle: ${det.chronicle_stale ? '<span style="color:var(--yellow)">stale</span>' : '<span style="color:var(--green)">fresh</span>'} · Journal: ${det.journal_entries || 0}`;
+    } else if (key === "feedback_loop") {
+      detailHtml = `${det.roles_tracked || 0} roles tracked`;
+    } else if (key === "atlas") {
+      detailHtml = `${det.total_skills || 0} skills · ${det.known_apis || 0} APIs · ${det.competence_gaps || 0} gaps`;
+    } else if (key === "evolution") {
+      detailHtml = `Phase: ${det.ensemble_phase || "?"} · Explore: ${((det.exploration_rate || 0) * 100).toFixed(0)}%`;
+    } else if (key === "amendments") {
+      detailHtml = `${det.hooks_total || 0} hooks (${det.hooks_immutable || 0} immutable) · Project: ${det.active_project || "none"}`;
+    } else if (key === "fast_deploy") {
+      detailHtml = `v${det.current_version || "?"} · ${det.manifests_count || 0} snapshots · err: ${((det.error_rate || 0) * 100).toFixed(1)}%`;
+    } else if (key === "training") {
+      detailHtml = `${det.interactions_collected || 0} collected · ${det.training_runs || 0} runs`;
+    } else if (key === "bridge") {
+      detailHtml = det.bridge_reachable ? '<span style="color:var(--green)">reachable</span>' : '<span style="color:var(--red)">offline</span>';
+    } else if (key === "safety") {
+      detailHtml = `${det.protected_files || 0} protected files`;
+    } else if (key === "scheduler") {
+      detailHtml = `${det.total_jobs || 0} jobs · ${det.enabled ? '<span style="color:var(--green)">enabled</span>' : '<span style="color:var(--red)">disabled</span>'}`;
+    } else if (key === "database") {
+      const schemas = det.schemas || {};
+      detailHtml = Object.entries(schemas).map(([k,v]) => `${k}:${v}`).join(" · ");
+    } else if (key === "core") {
+      detailHtml = `Mode: ${det.llm_mode || "?"} · Cost: ${det.cost_mode || "?"}`;
+    }
+
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+        <span style="font-weight:600;font-size:.7rem">${statusIcon(ss.status)} ${esc(ss.label || key)}</span>
+        <span style="font-size:.55rem;color:var(--dim)">${modules.length} mod</span>
+      </div>
+      <div style="font-size:.58rem;color:var(--muted);line-height:1.3">${detailHtml}</div>
+      <div style="font-size:.5rem;color:var(--dim);margin-top:2px;word-break:break-all">${modules.join(" · ")}</div>
+    </div>`;
+  }).join("");
+
+  // Lifecycle Hooks
+  const amendments = sub.amendments || {};
+  const hooksList = (amendments.details || {}).hooks_list || [];
+  hooksCount.textContent = `(${hooksList.length})`;
+  if (hooksList.length > 0) {
+    hooksEl.innerHTML = `<table class="task-table" style="font-size:.6rem"><thead><tr>
+      <th>Name</th><th>Hook Point</th><th>Priority</th><th>Immutable</th>
+    </tr></thead><tbody>` + hooksList.map(h => `<tr>
+      <td style="font-weight:600">${esc(h.name)}</td>
+      <td style="color:var(--muted)">${esc(h.point)}</td>
+      <td style="text-align:center">${h.priority}</td>
+      <td style="text-align:center">${h.immutable ? '<span style="color:var(--red)">🔒</span>' : '—'}</td>
+    </tr>`).join("") + `</tbody></table>`;
+  }
+
+  // Background Jobs
+  const scheduler = sub.scheduler || {};
+  const jobNames = (scheduler.details || {}).job_names || [];
+  jobsCount.textContent = `(${jobNames.length})`;
+  if (jobNames.length > 0) {
+    jobsEl.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:3px">` +
+      jobNames.map(j => `<span style="font-size:.55rem;padding:1px 5px;border-radius:3px;background:var(--surface2);color:var(--muted)">${esc(j)}</span>`).join("") +
+      `</div>`;
+  }
+
+  // Protected Files
+  const safety = sub.safety || {};
+  const protectedList = (safety.details || {}).protected_list || [];
+  protectedCount.textContent = `(${(safety.details || {}).protected_files || 0})`;
+  if (protectedList.length > 0) {
+    protectedEl.innerHTML = `<div style="font-size:.52rem;color:var(--dim);font-family:monospace;line-height:1.6">` +
+      protectedList.map(f => `<div>${esc(f)}</div>`).join("") + `</div>`;
+  }
+
+  // Database Schemas
+  const database = sub.database || {};
+  const schemas = (database.details || {}).schemas || {};
+  const schemaEntries = Object.entries(schemas);
+  dbCount.textContent = `(${schemaEntries.length} schemas)`;
+  if (schemaEntries.length > 0) {
+    dbEl.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px">` +
+      schemaEntries.map(([name, count]) =>
+        `<div class="stat-card" style="padding:4px 8px;min-width:80px"><div class="stat-value" style="font-size:.72rem">${count}</div><div class="stat-label">${esc(name)}</div></div>`
+      ).join("") + `</div>`;
+  }
+
+  // Prompt Versions
+  const feedback = sub.feedback_loop || {};
+  const promptVersions = (feedback.details || {}).prompt_versions || {};
+  const pvEntries = Object.entries(promptVersions);
+  promptsCount.textContent = `(${pvEntries.length} roles)`;
+  if (pvEntries.length > 0) {
+    promptsEl.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:4px">` +
+      pvEntries.map(([role, ver]) =>
+        `<span style="font-size:.58rem;padding:2px 6px;border-radius:3px;background:rgba(74,222,128,.1);color:var(--green)">${esc(role)}: ${esc(ver)}</span>`
+      ).join("") + `</div>`;
+  }
+
+  // ATLAS Competence
+  const atlas = sub.atlas || {};
+  const atlasDet = atlas.details || {};
+  atlasCount.textContent = atlasDet.total_skills ? `(${atlasDet.total_skills} skills)` : "";
+  atlasEl.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:6px;font-size:.6rem">` + [
+    { label: "Skills", value: atlasDet.total_skills || 0, color: "--green" },
+    { label: "High Conf", value: atlasDet.high_confidence || 0, color: "--green" },
+    { label: "Stale", value: atlasDet.stale_skills || 0, color: atlasDet.stale_skills > 0 ? "--yellow" : "--muted" },
+    { label: "Known APIs", value: atlasDet.known_apis || 0, color: "--blue" },
+    { label: "Strengths", value: atlasDet.competence_strengths || 0, color: "--green" },
+    { label: "Gaps", value: atlasDet.competence_gaps || 0, color: atlasDet.competence_gaps > 0 ? "--orange" : "--muted" },
+  ].map(s => `<div class="stat-card" style="padding:3px 6px"><div class="stat-value" style="font-size:.68rem;color:var(${s.color})">${s.value}</div><div class="stat-label">${s.label}</div></div>`).join("") + `</div>`;
+
   touch();
 });
 
