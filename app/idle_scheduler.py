@@ -317,6 +317,21 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: version snapshot failed", exc_info=True)
     jobs.append(("version-snapshot", _version_snapshot))
 
+    # ── Self-training: curate collected data + trigger training ─────────
+    def _training_curate():
+        try:
+            from app.training_collector import get_pipeline
+            pipeline = get_pipeline()
+            stats = pipeline.get_stats()
+            if stats.get("total_interactions", 0) > 0:
+                result = pipeline.run_curation()
+                if result.get("exported_train", 0) > 0:
+                    logger.info(f"idle_scheduler: training data curated — "
+                                f"{result.get('exported_train', 0)} examples exported")
+        except Exception:
+            logger.debug("idle_scheduler: training curation failed", exc_info=True)
+    jobs.append(("training-curate", _training_curate))
+
     # ── Fiction library: re-ingest new books periodically ───────────────
     def _fiction_ingest():
         try:

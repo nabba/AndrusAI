@@ -406,6 +406,18 @@ def _register_defaults(registry: HookRegistry) -> None:
         description="Store successful tool results in Mem0",
     )
 
+    # Priority 55: Training data collection (knowledge distillation)
+    try:
+        from app.training_collector import create_training_data_hook
+        registry.register(
+            "training_data", HookPoint.POST_LLM_CALL,
+            create_training_data_hook(),
+            priority=55,
+            description="Capture LLM interactions for self-training pipeline",
+        )
+    except Exception:
+        logger.debug("lifecycle_hooks: training collector hook not available", exc_info=True)
+
     # Priority 60: Health metrics recording
     registry.register(
         "health_metrics", HookPoint.ON_COMPLETE,

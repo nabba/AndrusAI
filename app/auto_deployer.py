@@ -127,6 +127,9 @@ PROTECTED_FILES = frozenset({
     "app/adaptive_ensemble.py",
     "app/map_elites.py",
     "app/cascade_evaluator.py",
+    # Self-training LLM — knowledge distillation pipeline
+    "app/training_collector.py",
+    "app/training_pipeline.py",
     # Host Bridge — controlled external resource access
     "app/bridge_client.py",
     "app/tools/bridge_tools.py",
