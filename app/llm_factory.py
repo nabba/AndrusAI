@@ -1,5 +1,7 @@
 """
 llm_factory.py — Multi-tier LLM provider with cascade routing.
+NOTE: `from __future__ import annotations` makes all type hints strings,
+avoiding the need to import crewai.LLM at module load time (~2s saving).
 
 Architecture:
   Commander:     always Claude Opus 4.6 (routing reliability, tiny token volume)
@@ -10,11 +12,14 @@ Architecture:
   Vetting:       Claude Sonnet 4.6 by default (near-Opus quality, 5x cheaper)
                  Only applied to local Ollama output (API-tier models are frontier quality)
 """
+from __future__ import annotations
 
 import logging
 import threading
 import time
-from crewai import LLM
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from crewai import LLM  # type hints only — no runtime import cost
 from app.config import get_settings, get_anthropic_api_key
 from app.llm_catalog import (
     get_model, get_model_id, get_provider, get_tier,
@@ -31,11 +36,25 @@ _tls = threading.local()
 # B2: Cache LLM objects by (model_id, max_tokens) to avoid re-creating per request.
 # LLM objects are stateless — they just wrap a model_id + api_key + params.
 # Thread-safe because dict reads are atomic in CPython and LLM() is immutable.
-_llm_cache: dict[tuple, LLM] = {}
+_llm_cache: dict[tuple, "LLM"] = {}
 _llm_cache_lock = threading.Lock()
 
+# Lazy-loaded crewai.LLM class — avoids 1.9s import at module load time.
+# crewai's import chain pulls in its entire framework including litellm,
+# pydantic models, tool registries, etc. Deferring to first use saves ~2s
+# on cold boot and makes the module importable in <10ms.
+_LLM_class = None
 
-def _cached_llm(model_id: str, max_tokens: int = 4096, **kwargs) -> LLM:
+def _get_LLM_class():
+    """Lazy-load crewai.LLM on first use."""
+    global _LLM_class
+    if _LLM_class is None:
+        from crewai import LLM as _cls
+        _LLM_class = _cls
+    return _LLM_class
+
+
+def _cached_llm(model_id: str, max_tokens: int = 4096, **kwargs) -> "LLM":
     """Get or create an LLM object, caching by (model_id, max_tokens).
 
     LLM objects are stateless wrappers — safe to share across requests.
@@ -50,6 +69,7 @@ def _cached_llm(model_id: str, max_tokens: int = 4096, **kwargs) -> LLM:
         cached = _llm_cache.get(key)
         if cached is not None:
             return cached
+        LLM = _get_LLM_class()
         llm = LLM(model=model_id, max_tokens=max_tokens, **kwargs)
         _llm_cache[key] = llm
         logger.debug(f"llm_cache: new entry for {model_id} max={max_tokens} (cache size: {len(_llm_cache)})")
