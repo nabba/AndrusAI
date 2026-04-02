@@ -374,7 +374,7 @@ def crew_started(crew: str, task_summary: str, eta_seconds: Optional[int] = None
             db.collection("tasks").document(task_id).set({
                 "id": task_id,
                 "crew": crew,
-                "summary": task_summary[:800],
+                "summary": task_summary[:4000],
                 "state": "running",
                 "started_at": now,
                 "eta": eta_iso,
@@ -483,7 +483,7 @@ def crew_completed(crew: str, task_id: str, result_preview: str = "",
             update_data = {
                 "state": "completed",
                 "completed_at": now,
-                "result_preview": result_preview[:800],
+                "result_preview": result_preview[:4000],
             }
             if tokens_used > 0:
                 update_data["tokens_used"] = tokens_used
