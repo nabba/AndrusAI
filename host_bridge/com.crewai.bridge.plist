@@ -6,7 +6,7 @@
     <string>com.crewai.bridge</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/python3</string>
+        <string>/usr/bin/python3</string>
         <string>/Users/andrus/BotArmy/crewai-team/host_bridge/main.py</string>
     </array>
     <key>RunAtLoad</key>
@@ -17,10 +17,16 @@
     <dict>
         <key>BRIDGE_PORT</key>
         <string>9100</string>
+        <key>SIGNAL_BOT_NUMBER</key>
+        <string>+46731727774</string>
         <key>SIGNAL_OWNER_NUMBER</key>
-        <string>+372XXXXXXXX</string>
+        <string>+3725100500</string>
+        <key>SIGNAL_HTTP_URL</key>
+        <string>http://localhost:7583</string>
+        <key>OLLAMA_BASE_URL</key>
+        <string>http://localhost:11434</string>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
     </dict>
     <key>StandardOutPath</key>
     <string>/Users/andrus/.crewai-bridge/bridge.log</string>
