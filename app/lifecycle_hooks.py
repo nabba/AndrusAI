@@ -133,6 +133,13 @@ class HookRegistry:
         description: str = "",
     ) -> RegisteredHook:
         """Register a hook function at a specific hook point."""
+        # SECURITY: Prevent overriding immutable hooks by registering with same name
+        with self._lock:
+            for existing in self._hooks[hook_point]:
+                if existing.name == name and existing.immutable:
+                    logger.warning(f"Cannot override immutable hook '{name}' at {hook_point.value}")
+                    return existing  # Return existing immutable hook, refuse override
+
         hook = RegisteredHook(
             name=name, hook_point=hook_point, fn=fn, priority=priority,
             immutable=immutable, agent_filter=agent_filter, description=description,

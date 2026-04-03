@@ -508,9 +508,14 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        f"http://127.0.0.1:{settings.gateway_port}",
+        f"http://localhost:{settings.gateway_port}",
+        "https://botarmy-ba0c9.web.app",     # Firebase hosted dashboard
+        "https://botarmy-ba0c9.firebaseapp.com",
+    ],
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type"],
     allow_credentials=False,
     max_age=3600,
 )
@@ -967,7 +972,7 @@ async def kb_upload(
         raise
     except Exception as exc:
         logger.exception("KB upload failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Endpoint error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         if tmp_path:
             try:
@@ -985,7 +990,7 @@ async def kb_status():
         return {"status": "ok", **stats}
     except Exception as exc:
         logger.exception("KB status failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Endpoint error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/kb/remove")
@@ -1009,7 +1014,7 @@ async def kb_remove(request: Request):
         raise
     except Exception as exc:
         logger.exception("KB remove failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Endpoint error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/kb/reset")
@@ -1026,7 +1031,7 @@ async def kb_reset_endpoint():
         return {"status": "ok", "message": "Knowledge base has been reset"}
     except Exception as exc:
         logger.exception("KB reset failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"Endpoint error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/health")
@@ -1047,4 +1052,4 @@ async def serve_dashboard():
             return FileResponse(_DASHBOARD_PATH, media_type="text/html")
         return HTMLResponse("<h1>Dashboard not found</h1><p>Place index.html at /app/dashboard/</p>", status_code=404)
     except Exception as exc:
-        return HTMLResponse(f"<h1>Error</h1><pre>{exc}</pre>", status_code=500)
+        logger.error(f"Dashboard error: {exc}", exc_info=True); return HTMLResponse("<h1>Error</h1><p>An internal error occurred.</p>", status_code=500)

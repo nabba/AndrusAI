@@ -128,21 +128,34 @@ def check_risk_tier(cap: Capability, required_tier: str):
 
 
 def check_path(cap: Capability, target_path: str):
-    """Validate path against allowed_paths and blocked_paths."""
-    resolved = str(Path(target_path).resolve())
+    """Validate path against allowed_paths and blocked_paths.
+
+    SECURITY: Uses Path.relative_to() instead of startswith() to prevent
+    symlink-based path traversal. resolve() follows symlinks, then
+    relative_to() verifies the resolved path is actually under the allowed dir.
+    """
+    resolved = Path(target_path).resolve()
 
     # Blocked paths always win (safety-critical)
     for blocked in cap.blocked_paths:
-        if resolved.startswith(blocked.rstrip("*")) or Path(resolved).match(blocked):
-            raise HTTPException(status_code=403, detail=f"Path explicitly blocked for agent '{cap.agent_id}'")
+        blocked_dir = Path(blocked.rstrip("*"))
+        try:
+            resolved.relative_to(blocked_dir)
+            raise HTTPException(status_code=403, detail=f"Path blocked for agent '{cap.agent_id}'")
+        except ValueError:
+            pass  # Not under this blocked path — good
 
     # Check allowed paths
     if not cap.allowed_paths:
         raise HTTPException(status_code=403, detail="No filesystem paths allowed")
 
     for allowed in cap.allowed_paths:
-        if resolved.startswith(allowed.rstrip("*")) or Path(resolved).match(allowed):
-            return
+        allowed_dir = Path(allowed.rstrip("*"))
+        try:
+            resolved.relative_to(allowed_dir)
+            return  # Path is under an allowed directory
+        except ValueError:
+            continue  # Not under this allowed path
 
     raise HTTPException(status_code=403, detail=f"Path not in allowed paths for agent '{cap.agent_id}'")
 

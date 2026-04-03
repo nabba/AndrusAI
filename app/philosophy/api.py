@@ -102,7 +102,7 @@ async def upload_philosophy_text(
         )
     except Exception as exc:
         logger.exception("Philosophy ingestion failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"API error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
 
     # Report stats to Firebase
     try:
@@ -154,7 +154,7 @@ async def upload_philosophy_raw_text(
         )
     except Exception as exc:
         logger.exception("Philosophy text ingestion failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"API error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
 
     try:
         _report_stats_async()
@@ -178,7 +178,7 @@ async def philosophy_status():
         return {"status": "ok", **stats}
     except Exception as exc:
         logger.exception("Philosophy status failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"API error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @philosophy_router.get("/texts")
@@ -220,7 +220,7 @@ async def delete_philosophy_text(filename: str):
         removed = await asyncio.to_thread(store.remove_by_source, safe_name)
     except Exception as exc:
         logger.exception("Philosophy chunk removal failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"API error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
 
     # Remove file
     if filepath.exists():
@@ -248,7 +248,7 @@ async def reingest_all():
         summary = await asyncio.to_thread(ingest_directory, _texts_dir(), store)
     except Exception as exc:
         logger.exception("Philosophy re-ingestion failed")
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error(f"API error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
 
     try:
         _report_stats_async()

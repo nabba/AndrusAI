@@ -133,25 +133,39 @@ class BridgeClient:
 
 
 # ── Agent token loading ───────────────────────────────────────────────────────
+# SECURITY: Each agent reads ONLY its own token from a per-agent env var.
+# This prevents privilege escalation where one agent reads another's token.
+# Pattern: BRIDGE_TOKEN_{AGENT_ID_UPPER} → per-agent isolation
 
-_agent_tokens: dict[str, str] = {}
 
+def _get_agent_token(agent_id: str) -> Optional[str]:
+    """Get capability token for a specific agent from per-agent env var.
 
-def _load_tokens():
-    """Load agent tokens from AGENT_TOKENS env var."""
-    global _agent_tokens
-    raw = os.getenv("AGENT_TOKENS", "{}")
-    try:
-        _agent_tokens = json.loads(raw)
-    except json.JSONDecodeError:
-        _agent_tokens = {}
+    Reads BRIDGE_TOKEN_{AGENT_ID} (e.g., BRIDGE_TOKEN_COMMANDER).
+    Falls back to AGENT_TOKENS JSON for backward compatibility, but
+    only returns the requesting agent's own token — never exposes others.
+    """
+    # Primary: per-agent env var (most secure — no cross-agent exposure)
+    env_key = f"BRIDGE_TOKEN_{agent_id.upper()}"
+    token = os.getenv(env_key)
+    if token:
+        return token
+
+    # Fallback: legacy AGENT_TOKENS JSON — extract ONLY this agent's token
+    raw = os.getenv("AGENT_TOKENS", "")
+    if raw:
+        try:
+            all_tokens = json.loads(raw)
+            return all_tokens.get(agent_id)
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    return None
 
 
 def get_bridge(agent_id: str) -> Optional[BridgeClient]:
     """Get a BridgeClient for an agent. Returns None if no token configured."""
-    if not _agent_tokens:
-        _load_tokens()
-    token = _agent_tokens.get(agent_id)
+    token = _get_agent_token(agent_id)
     if not token:
         return None
     return BridgeClient(agent_id=agent_id, token=token)
