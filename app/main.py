@@ -14,8 +14,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 from app.rate_throttle import install_throttle
 install_throttle()
 
-from fastapi import FastAPI, File, Form, Request, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request, HTTPException
 from contextlib import asynccontextmanager
 from app.config import get_settings, get_gateway_secret
 from app.security import is_authorized_sender, is_within_rate_limit, _redact_number
@@ -87,88 +86,11 @@ def _configure_audit_log() -> None:
 MAX_MESSAGE_LENGTH = 4000  # Prevent abuse / token bombing
 
 
-_RESPONSE_OUTPUT_DIR = os.path.join(_WORKSPACE_ROOT, "output", "responses")
-_MAX_RESPONSE_FILES = 50  # keep last 50 response files
+# ── Extracted to app/response_utils.py ────────────────────────────────────────
+from app.response_utils import write_response_md as _write_response_md_impl, extract_to_mem0 as _extract_to_mem0
 
-
-def _write_response_md(full_text: str, user_question: str) -> str | None:
-    """Write the full response as a .md file and return the HOST path for signal-cli.
-
-    Returns None if writing fails or host path is not configured.
-    """
-    try:
-        os.makedirs(_RESPONSE_OUTPUT_DIR, exist_ok=True)
-
-        # Generate filename from timestamp
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        filename = f"response_{ts}.md"
-        docker_path = os.path.join(_RESPONSE_OUTPUT_DIR, filename)
-
-        # Write the markdown document
-        question_preview = user_question[:200] if user_question else "N/A"
-        content = (
-            f"# Response\n\n"
-            f"**Question:** {question_preview}\n\n"
-            f"---\n\n"
-            f"{full_text}\n"
-        )
-        with open(docker_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        # Translate to host path for signal-cli
-        host_workspace = settings.workspace_host_path
-        if not host_workspace:
-            logger.warning("WORKSPACE_HOST_PATH not set — cannot attach .md to Signal")
-            return None
-
-        host_path = docker_path.replace(_WORKSPACE_ROOT, host_workspace)
-        logger.info(f"Response .md written: {docker_path} → {host_path}")
-
-        # Prune old response files (keep last N)
-        _prune_response_files()
-
-        return host_path
-    except Exception:
-        logger.warning("Failed to write response .md", exc_info=True)
-        return None
-
-
-def _prune_response_files() -> None:
-    """Delete old response files beyond _MAX_RESPONSE_FILES."""
-    try:
-        files = sorted(
-            [f for f in os.listdir(_RESPONSE_OUTPUT_DIR) if f.startswith("response_")],
-            reverse=True,
-        )
-        for old_file in files[_MAX_RESPONSE_FILES:]:
-            os.unlink(os.path.join(_RESPONSE_OUTPUT_DIR, old_file))
-    except Exception:
-        pass
-
-
-def _extract_to_mem0(user_text: str, assistant_result: str) -> None:
-    """Background: extract facts from the conversation into Mem0 persistent memory.
-
-    Non-fatal — if Mem0 is unavailable the system continues without it.
-    Validates inputs before sending to prevent corrupt/oversized data.
-    """
-    if not user_text or not isinstance(user_text, str):
-        return
-    if not assistant_result or not isinstance(assistant_result, str):
-        return
-    # Skip very short or empty responses (no useful facts to extract)
-    if len(assistant_result.strip()) < 20:
-        return
-    try:
-        from app.memory.mem0_manager import store_conversation
-        store_conversation(
-            messages=[
-                {"role": "user", "content": user_text[:2000]},
-                {"role": "assistant", "content": assistant_result[:4000]},
-            ],
-        )
-    except Exception:
-        logger.debug("mem0: conversation extraction failed", exc_info=True)
+def _write_response_md(full_text, user_question):
+    return _write_response_md_impl(full_text, user_question, settings)
 
 
 @asynccontextmanager
@@ -489,36 +411,9 @@ app = FastAPI(title="CrewAI Agent Gateway", lifespan=lifespan)
 from app.philosophy.api import philosophy_router
 app.include_router(philosophy_router)
 
-# Security headers middleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        response: Response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
-        return response
-
-app.add_middleware(SecurityHeadersMiddleware)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        f"http://127.0.0.1:{settings.gateway_port}",
-        f"http://localhost:{settings.gateway_port}",
-        "https://botarmy-ba0c9.web.app",     # Firebase hosted dashboard
-        "https://botarmy-ba0c9.firebaseapp.com",
-    ],
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-    allow_credentials=False,
-    max_age=3600,
-)
+# ── Middleware (extracted to app/middleware.py) ────────────────────────────────
+from app.middleware import add_middleware
+add_middleware(app, settings)
 
 signal_client = SignalClient()
 commander = Commander()
@@ -857,199 +752,16 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         idle_scheduler.notify_task_end()
 
 
-# Rate limiter for config endpoints — max 5 changes per minute
-_config_rate_bucket: list = []
-_config_rate_lock = threading.Lock()
-
-def _config_rate_check() -> bool:
-    """Return True if within rate limit for config changes."""
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(minutes=1)
-    with _config_rate_lock:
-        _config_rate_bucket[:] = [t for t in _config_rate_bucket if t > cutoff]
-        if len(_config_rate_bucket) >= 5:
-            return False
-        _config_rate_bucket.append(now)
-        return True
+# ── API routers (extracted from main.py to app/api/) ──────────────────────────
+from app.api.config_api import router as config_router
+app.include_router(config_router, prefix="/config")
 
 
-@app.post("/config/llm_mode")
-async def set_llm_mode_endpoint(request: Request):
-    """Dashboard endpoint to switch LLM mode (local/cloud/hybrid)."""
-    if not _verify_gateway_secret(request):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    if not _config_rate_check():
-        raise HTTPException(status_code=429, detail="Too many config changes. Try again later.")
-    payload = await request.json()
-    mode = payload.get("mode", "").strip().lower()
-    if mode not in ("local", "cloud", "hybrid", "insane"):
-        raise HTTPException(status_code=400, detail="Invalid mode. Use: local, cloud, hybrid")
-    from app.llm_mode import set_mode
-    set_mode(mode)
-    report_llm_mode(mode)
-    return {"status": "ok", "mode": mode}
+# ── Knowledge Base router (extracted to app/api/kb.py) ────────────────────────
+from app.api.kb import router as kb_router
+app.include_router(kb_router, prefix="/kb")
 
 
-# ── Knowledge Base endpoints (dashboard, no auth) ────────────────────────────
-
-# Lazy singleton for KnowledgeStore (heavy init — loads embedding model)
-_kb_store = None
-_kb_store_lock = threading.Lock()
-
-
-def _get_kb_store():
-    global _kb_store
-    if _kb_store is None:
-        with _kb_store_lock:
-            if _kb_store is None:
-                from app.knowledge_base.vectorstore import KnowledgeStore
-                _kb_store = KnowledgeStore()
-    return _kb_store
-
-
-# Allowed extensions for upload (must match ingestion.py EXTRACTORS)
-_ALLOWED_EXTENSIONS = {
-    ".pdf", ".docx", ".pptx", ".xlsx", ".csv",
-    ".txt", ".md", ".html", ".htm", ".json",
-}
-_MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
-
-
-@app.post("/kb/upload")
-async def kb_upload(
-    file: UploadFile = File(...),
-    category: str = Form("general"),
-):
-    """Ingest an uploaded file into the knowledge base."""
-    import tempfile
-
-    # Validate filename / extension
-    filename = file.filename or "upload"
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in _ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type '{ext}'. Allowed: {sorted(_ALLOWED_EXTENSIONS)}",
-        )
-
-    # Sanitise category
-    category = re.sub(r"[^a-zA-Z0-9_\-]", "", category or "general") or "general"
-
-    # Save to a temp file
-    tmp_path = None
-    try:
-        contents = await file.read()
-        if len(contents) > _MAX_UPLOAD_SIZE:
-            raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
-        if len(contents) == 0:
-            raise HTTPException(status_code=400, detail="Empty file")
-
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=ext, prefix="kb_upload_"
-        ) as tmp:
-            tmp.write(contents)
-            tmp_path = tmp.name
-
-        # Ingest via KnowledgeStore
-        store = await asyncio.to_thread(_get_kb_store)
-        result = await asyncio.to_thread(
-            store.add_document, tmp_path, category=category
-        )
-
-        if not result.success:
-            raise HTTPException(status_code=422, detail=result.error or "Ingestion failed")
-
-        return {
-            "status": "ok",
-            "source": result.source,
-            "format": result.format,
-            "chunks_created": result.chunks_created,
-            "total_characters": result.total_characters,
-            "document_id": result.document_id,
-            "category": category,
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("KB upload failed")
-        logger.error(f"Endpoint error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-
-@app.get("/kb/status")
-async def kb_status():
-    """Return knowledge base statistics for the dashboard."""
-    try:
-        store = await asyncio.to_thread(_get_kb_store)
-        stats = await asyncio.to_thread(store.stats)
-        return {"status": "ok", **stats}
-    except Exception as exc:
-        logger.exception("KB status failed")
-        logger.error(f"Endpoint error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.post("/kb/remove")
-async def kb_remove(request: Request):
-    """Remove a document from the knowledge base by source_path."""
-    try:
-        body = await request.json()
-        source_path = body.get("source_path", "")
-        if not source_path:
-            raise HTTPException(status_code=400, detail="source_path required")
-        store = await asyncio.to_thread(_get_kb_store)
-        count = await asyncio.to_thread(store.remove_document, source_path)
-        # Refresh dashboard stats (fire-and-forget)
-        try:
-            from app.firebase_reporter import report_knowledge_base
-            report_knowledge_base()
-        except Exception:
-            pass
-        return {"status": "ok", "removed": count, "source_path": source_path}
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("KB remove failed")
-        logger.error(f"Endpoint error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.post("/kb/reset")
-async def kb_reset_endpoint():
-    """Reset the entire knowledge base."""
-    try:
-        store = await asyncio.to_thread(_get_kb_store)
-        await asyncio.to_thread(store.reset)
-        try:
-            from app.firebase_reporter import report_knowledge_base
-            report_knowledge_base()
-        except Exception:
-            pass
-        return {"status": "ok", "message": "Knowledge base has been reset"}
-    except Exception as exc:
-        logger.exception("KB reset failed")
-        logger.error(f"Endpoint error: {exc}", exc_info=True); raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-# ── Serve dashboard from container (same-origin for KB uploads) ───────────────
-from fastapi.responses import FileResponse, HTMLResponse
-_DASHBOARD_PATH = "/app/dashboard/index.html"
-
-
-@app.get("/dashboard")
-async def serve_dashboard():
-    """Serve the dashboard HTML from the container — avoids mixed-content blocks."""
-    try:
-        if os.path.exists(_DASHBOARD_PATH):
-            return FileResponse(_DASHBOARD_PATH, media_type="text/html")
-        return HTMLResponse("<h1>Dashboard not found</h1><p>Place index.html at /app/dashboard/</p>", status_code=404)
-    except Exception as exc:
-        logger.error(f"Dashboard error: {exc}", exc_info=True); return HTMLResponse("<h1>Error</h1><p>An internal error occurred.</p>", status_code=500)
+# ── Health + Dashboard router (extracted to app/api/health.py) ─────────────────
+from app.api.health import router as health_router
+app.include_router(health_router)
