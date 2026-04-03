@@ -504,7 +504,12 @@ async def receive_signal(request: Request):
 
     log_request_received(_redact_number(sender), len(text))
 
-    # Track Signal connection health for dashboard
+    # Send 👀 reaction immediately — before any other processing.
+    # Fire-and-forget: don't await the Signal API roundtrip (~3s).
+    if timestamp:
+        asyncio.ensure_future(_safe_react(sender, timestamp))
+
+    # Track Signal connection health for dashboard (fire-and-forget)
     global _signal_msg_count
     _signal_msg_count += 1
     from app.firebase_reporter import report_signal_status
@@ -551,10 +556,7 @@ async def handle_task(sender: str, text: str, attachments: list = None,
     # Start task tracking for metrics
     task_row_id = start_task(sender)
 
-    # React with 👀 to acknowledge we're working on it — fire-and-forget
-    # (don't await; Signal API roundtrip takes 3-5s and blocks the handler)
-    if msg_timestamp:
-        asyncio.ensure_future(_safe_react(sender, msg_timestamp))
+    # 👀 reaction is already sent in receive_signal() — no need to send again here
 
     # Track activity for idle scheduler
     idle_scheduler.notify_task_start()

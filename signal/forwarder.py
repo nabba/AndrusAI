@@ -37,9 +37,9 @@ def _receive_messages() -> list:
                 "jsonrpc": "2.0",
                 "id": 1,
                 "method": "receive",
-                "params": {"timeout": 5},
+                "params": {"timeout": 1},
             },
-            timeout=15,
+            timeout=10,
         )
         data = resp.json()
         if "error" in data:
@@ -150,8 +150,8 @@ def poll_loop():
                     _process_envelope(envelope)
                 except Exception as e:
                     log(f"Error processing envelope: {e}")
-        # Gap between polls — signal-cli needs ~2s to release the receive lock
-        time.sleep(2)
+        # Gap between polls — signal-cli needs a brief pause to release the lock
+        time.sleep(0.5)
 
 
 def main():
