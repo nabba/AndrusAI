@@ -4,12 +4,8 @@ firebase_reporter.py — Real-time status reporting to Firestore.
 Writes agent activity, task state, and system health to Firebase so the
 monitoring dashboard can display live status without polling the server.
 
-Firestore schema:
-  status/system          — overall health, uptime, last-seen
-  crews/{name}           — per-crew status, current task, eta
-  tasks/{id}             — individual task records with ETA tracking
-  activities/{id}        — rolling activity feed (last 50 entries)
-  schedule/jobs          — upcoming cron-scheduled work
+Infrastructure (_get_db, _fire, _now_iso, _add_activity) extracted to
+firebase_infra.py. This module re-exports them for backward compatibility.
 
 All writes are fire-and-forget (non-blocking) so a Firestore outage
 never degrades agent performance.
@@ -19,73 +15,18 @@ import logging
 import os
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
+# ── Shared infrastructure (extracted to firebase_infra.py) ────────────────────
+from app.firebase_infra import _get_db, _fire, _now_iso
+
 logger = logging.getLogger(__name__)
 
-_db = None
-_db_lock = threading.Lock()
-
 # Track task start times so crew_completed can query llm_benchmarks for tokens
-# Used as a fallback when the ContextVar tracker doesn't capture data (thread pool issue).
-_task_start_times: dict[str, str] = {}  # task_id -> ISO start timestamp
+_task_start_times: dict[str, str] = {}
 _task_start_lock = threading.Lock()
-_PROJECT_ID = "botarmy-ba0c9"
-
-# Bounded thread pool prevents unbounded thread accumulation when Firestore is slow.
-# 4 workers is enough for fire-and-forget writes; excess tasks queue instead of spawning threads.
-_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="firebase")
-
-
-def _get_db():
-    """Lazy-initialise the Firestore client once per process."""
-    global _db
-    if _db is not None:
-        return _db
-    with _db_lock:
-        if _db is not None:
-            return _db
-        try:
-            import firebase_admin
-            from firebase_admin import credentials, firestore
-
-            # Prefer a service-account JSON file; fall back to Application Default Credentials
-            sa_path = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "")
-            if sa_path and os.path.exists(sa_path):
-                cred = credentials.Certificate(sa_path)
-            else:
-                cred = credentials.ApplicationDefault()
-
-            if not firebase_admin._apps:
-                firebase_admin.initialize_app(cred, {"projectId": _PROJECT_ID})
-
-            _db = firestore.client()
-            logger.info("firebase_reporter: Firestore client initialised")
-        except Exception:
-            logger.warning("firebase_reporter: Firestore unavailable — monitoring disabled", exc_info=True)
-            _db = False   # sentinel: skip all future attempts
-    return _db
-
-
-def _now_iso() -> str:
-    from app.utils import now_iso
-    return now_iso()
-
-
-def _fire(fn):
-    """Run fn in the bounded thread pool so Firestore latency never blocks agents.
-
-    Uses a ThreadPoolExecutor(max_workers=4) instead of spawning unbounded
-    daemon threads — prevents thread accumulation when Firestore is slow.
-    """
-    try:
-        _executor.submit(fn)
-    except RuntimeError:
-        # Pool is shut down (e.g., during interpreter teardown)
-        pass
 
 
 # ── System status ─────────────────────────────────────────────────────────────
