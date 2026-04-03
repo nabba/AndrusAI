@@ -244,14 +244,23 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
     jobs.append(("improvement-scan", _improvement_scan))
 
     # ── Feedback aggregation: detect patterns in user feedback ──────────
-    def _feedback_aggregate():
-        try:
+    # Shared singleton for feedback pipeline (avoids creating new DB engine per job)
+    _feedback_pipeline_cache = [None]
+    def _get_feedback_pipeline():
+        if _feedback_pipeline_cache[0] is None:
             from app.config import get_settings
             s = get_settings()
             if not s.mem0_postgres_url:
-                return
+                return None
             from app.feedback_pipeline import FeedbackPipeline
-            pipeline = FeedbackPipeline(s.mem0_postgres_url)
+            _feedback_pipeline_cache[0] = FeedbackPipeline(s.mem0_postgres_url)
+        return _feedback_pipeline_cache[0]
+
+    def _feedback_aggregate():
+        try:
+            pipeline = _get_feedback_pipeline()
+            if not pipeline:
+                return
             patterns = pipeline.aggregate_patterns()
             if patterns:
                 logger.info(f"idle_scheduler: feedback aggregation found {len(patterns)} patterns")
@@ -287,10 +296,11 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             s = get_settings()
             if not s.mem0_postgres_url:
                 return
-            from app.feedback_pipeline import FeedbackPipeline
             from app.modification_engine import ModificationEngine
             import app.prompt_registry as registry
-            pipeline = FeedbackPipeline(s.mem0_postgres_url)
+            pipeline = _get_feedback_pipeline()  # Reuse singleton
+            if not pipeline:
+                return
             try:
                 from app.eval_sandbox import EvalSandbox
                 sandbox = EvalSandbox(s.mem0_postgres_url, registry)

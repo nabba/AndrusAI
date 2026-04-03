@@ -28,7 +28,8 @@ import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from crewai import Agent, Task, Crew, Process
+# crewai imported lazily in _propose_mutation_legacy() to avoid 2s startup cost
+# from crewai import Agent, Task, Crew, Process
 from app.config import get_settings
 from app.llm_factory import create_specialist_llm
 from app.metrics import compute_metrics, composite_score, format_metrics
@@ -373,6 +374,8 @@ def _propose_mutation_legacy(context: str, tried_hashes: set[str]) -> MutationSp
     memory_tools = create_memory_tools(collection="skills")
 
     tried_list = ", ".join(sorted(tried_hashes)[:20])
+
+    from crewai import Agent, Task, Crew, Process  # lazy import (~2s first call)
 
     agent = Agent(
         role="Evolution Engineer",

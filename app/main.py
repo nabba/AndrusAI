@@ -307,15 +307,14 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(_heartbeat_with_anomaly, "interval", seconds=60, id="heartbeat")
     scheduler.start()
 
-    # Clean up zombie tasks from previous container, then report online
-    await asyncio.to_thread(cleanup_stale_tasks)
-    report_system_online()
-    _publish_schedule()
-
-    # Initialize LLM mode: prefer Firestore (dashboard-set) over config default
+    # ── PARALLELIZED: cleanup + mode read are independent I/O operations ──
     from app.llm_mode import set_mode
     from app.firebase_reporter import read_llm_mode_from_firestore
-    firestore_mode = await asyncio.to_thread(read_llm_mode_from_firestore)
+    _cleanup_task = asyncio.to_thread(cleanup_stale_tasks)
+    _mode_task = asyncio.to_thread(read_llm_mode_from_firestore)
+    _, firestore_mode = await asyncio.gather(_cleanup_task, _mode_task)
+    report_system_online()
+    _publish_schedule()
     initial_mode = firestore_mode or settings.llm_mode
     set_mode(initial_mode)
     if firestore_mode:
@@ -428,28 +427,33 @@ async def lifespan(app: FastAPI):
     # Create philosophy KB directories
     os.makedirs("/app/workspace/philosophy/texts", exist_ok=True)
 
-    # Push philosophy KB stats to dashboard on startup
-    try:
-        from app.firebase_reporter import report_philosophy_kb
-        await asyncio.to_thread(report_philosophy_kb)
-    except Exception:
-        pass
+    # ── PARALLELIZED STARTUP: run independent I/O tasks concurrently ──
+    # These three operations are independent and previously ran sequentially
+    # (~2-3s total). Running in parallel saves ~1-2s on cold boot.
+    async def _report_phil():
+        try:
+            from app.firebase_reporter import report_philosophy_kb
+            await asyncio.to_thread(report_philosophy_kb)
+        except Exception:
+            pass
 
-    # Generate system chronicle at startup — gives agents accurate self-knowledge
-    try:
-        from app.memory.system_chronicle import generate_and_save
-        await asyncio.to_thread(generate_and_save)
-        logger.info("System chronicle generated.")
-    except Exception:
-        logger.warning("System chronicle generation failed (non-fatal)", exc_info=True)
+    async def _gen_chronicle():
+        try:
+            from app.memory.system_chronicle import generate_and_save
+            await asyncio.to_thread(generate_and_save)
+            logger.info("System chronicle generated.")
+        except Exception:
+            logger.warning("System chronicle generation failed (non-fatal)", exc_info=True)
 
-    # Report comprehensive system monitor status to dashboard
-    try:
-        from app.firebase_reporter import report_system_monitor
-        await asyncio.to_thread(report_system_monitor)
-        logger.info("System monitor reported to dashboard")
-    except Exception:
-        logger.debug("System monitor report failed (non-fatal)", exc_info=True)
+    async def _report_monitor():
+        try:
+            from app.firebase_reporter import report_system_monitor
+            await asyncio.to_thread(report_system_monitor)
+            logger.info("System monitor reported to dashboard")
+        except Exception:
+            logger.debug("System monitor report failed (non-fatal)", exc_info=True)
+
+    await asyncio.gather(_report_phil(), _gen_chronicle(), _report_monitor())
 
     logger.info("CrewAI Agent Team started")
     yield

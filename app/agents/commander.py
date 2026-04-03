@@ -481,8 +481,7 @@ def _load_knowledge_base_context(task: str, n: int = 4) -> str:
     try:
         from app.knowledge_base.tools import get_store
         store = get_store()
-        if store._collection.count() == 0:
-            return ""
+        # Removed redundant count() check — query() returns empty naturally
         results = store.query(question=task, top_k=n, min_score=0.35)
         if not results:
             return ""

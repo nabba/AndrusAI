@@ -37,7 +37,7 @@ _PROJECT_ID = "botarmy-ba0c9"
 
 # Bounded thread pool prevents unbounded thread accumulation when Firestore is slow.
 # 4 workers is enough for fire-and-forget writes; excess tasks queue instead of spawning threads.
-_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="firebase")
+_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="firebase")
 
 
 def _get_db():

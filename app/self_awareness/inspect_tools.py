@@ -32,6 +32,11 @@ WORKSPACE = Path("/app/workspace")
 SOULS_DIR = APP_DIR / "souls"
 _startup_time = time.monotonic()
 
+# TTL cache for inspect_codebase (avoids re-parsing 100+ files every call)
+_codebase_cache: dict = {}
+_codebase_cache_time: float = 0.0
+_CODEBASE_CACHE_TTL = 300  # 5 minutes
+
 
 # ── Tool 1: Codebase Inspection ──────────────────────────────────────────────
 
@@ -39,7 +44,13 @@ def inspect_codebase(scope: str = "summary") -> dict:
     """AST-based project structure analysis.
 
     scope: "summary" (module list) or "full" (with classes/functions per module)
+    Results cached for 5 minutes to avoid re-parsing 100+ files on repeated calls.
     """
+    global _codebase_cache, _codebase_cache_time
+    cache_key = scope
+    if cache_key in _codebase_cache and (time.monotonic() - _codebase_cache_time) < _CODEBASE_CACHE_TTL:
+        return _codebase_cache[cache_key]
+
     if not APP_DIR.exists():
         return {"error": "App directory not found"}
 
@@ -85,7 +96,7 @@ def inspect_codebase(scope: str = "summary") -> dict:
         if len(parts) > 2:
             packages.add(parts[1])
 
-    return {
+    result = {
         "total_modules": len(modules),
         "total_lines": total_lines,
         "total_classes": total_classes,
@@ -93,6 +104,11 @@ def inspect_codebase(scope: str = "summary") -> dict:
         "packages": sorted(packages),
         "modules": modules if scope == "full" else [m["path"] for m in modules],
     }
+
+    # Cache result
+    _codebase_cache[cache_key] = result
+    _codebase_cache_time = time.monotonic()
+    return result
 
 
 # ── Tool 2: Agent Discovery ──────────────────────────────────────────────────
