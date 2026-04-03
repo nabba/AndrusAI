@@ -335,6 +335,94 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: version snapshot failed", exc_info=True)
     jobs.append(("version-snapshot", _version_snapshot))
 
+    # ── PDS: personality development assessment session ──────────────────
+    def _personality_session():
+        try:
+            from app.personality.assessment import AssessmentBatteryModule
+            from app.personality.evaluation import EvaluationEngine
+            from app.personality.feedback import DevelopmentalFeedbackLoop
+            from app.personality.validation import get_bvl
+            from app.personality.state import get_personality, save_personality
+
+            abm = AssessmentBatteryModule()
+            ee = EvaluationEngine()
+            dfl = DevelopmentalFeedbackLoop()
+            bvl = get_bvl()
+
+            # Rotate through agent roles
+            roles = ["commander", "researcher", "coder", "writer"]
+            role = roles[hash(str(time.monotonic())) % len(roles)]
+            state = get_personality(role)
+
+            # Select and deliver assessment
+            flags = bvl.get_inconsistency_flags(role)
+            session = abm.select_assessment(role, behavioral_flags=flags,
+                                              stage=state.developmental_stage)
+
+            # Get agent response via LLM (simulate the agent's reasoning)
+            from app.llm_factory import create_specialist_llm
+            llm = create_specialist_llm(max_tokens=1000, role=role)
+            from app.prompt_registry import get_active_prompt
+            agent_prompt = get_active_prompt(role)
+
+            response = str(llm.call(
+                f"{agent_prompt[:2000]}\n\n{session.as_prompt()}"
+            )).strip()
+
+            if not response or len(response) < 20:
+                return
+
+            # Evaluate
+            behavioral_history = bvl.get_behavioral_summary(role)
+            personality_summary = state.get_profile_summary()
+            result = ee.evaluate(role, session.dimension, session.scenario_text,
+                                  response, behavioral_history, personality_summary)
+
+            # Update personality state
+            state.update_trait("strengths" if session.dimension in state.strengths
+                              else "temperament" if session.dimension in state.temperament
+                              else "personality_factors",
+                              session.dimension,
+                              result.composite_score)
+            state.say_do_alignment[session.dimension] = round(1.0 - result.say_do_gap, 3)
+            state.overall_coherence = result.personality_coherence
+            state.gaming_risk_score = result.gaming_risk
+            state.assessment_count += 1
+            state.last_assessment = datetime.now(timezone.utc).isoformat()
+
+            # Check proto-sentience markers
+            if result.proto_sentience_notes:
+                state.novel_value_reasoning_count += 1
+            state.metacognitive_accuracy = result.behavioral_consistency
+            bvl.check_proto_sentience(role)
+
+            # Stage progression
+            state.stage_progress = min(1.0, state.stage_progress + 0.05)
+            state.advance_stage()
+
+            save_personality(state)
+
+            # Generate Socratic feedback (if needed)
+            feedback = dfl.generate_feedback(role, result, session)
+            if feedback:
+                followup = str(llm.call(
+                    f"{agent_prompt[:1000]}\n\n{feedback.as_prompt()}"
+                )).strip()
+                if followup:
+                    followup_eval = dfl.evaluate_followup(role, feedback, followup)
+                    if followup_eval.get("proto_sentience_marker"):
+                        state.self_referential_frequency = min(1.0,
+                            state.self_referential_frequency + 0.05)
+                        save_personality(state)
+
+            logger.info(f"idle_scheduler: PDS session for '{role}' — "
+                        f"composite={result.composite_score:.2f}, "
+                        f"say-do gap={result.say_do_gap:.2f}, "
+                        f"stage={state.developmental_stage}")
+        except Exception:
+            logger.debug("idle_scheduler: PDS session failed", exc_info=True)
+    jobs.append(("personality-development", _personality_session))
+
     # ── Cogito: metacognitive self-reflection cycle ─────────────────────
     def _cogito_cycle():
         try:

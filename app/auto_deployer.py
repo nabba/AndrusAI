@@ -137,6 +137,13 @@ PROTECTED_FILES = frozenset({
     # Self-training LLM — knowledge distillation pipeline
     "app/training_collector.py",
     "app/training_pipeline.py",
+    # Personality Development Subsystem — BVL and evaluation at Tier 1 (immutable)
+    "app/personality/validation.py",
+    "app/personality/evaluation.py",
+    "app/personality/feedback.py",
+    "app/personality/probes.py",
+    "app/personality/state.py",
+    "app/personality/assessment.py",
     # Host Bridge — controlled external resource access
     "app/bridge_client.py",
     "app/tools/bridge_tools.py",
