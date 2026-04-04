@@ -1,0 +1,253 @@
+import { useState } from 'react';
+import { useApi } from '../hooks/useApi';
+import { useProject } from '../context/ProjectContext';
+import type { Budget } from '../types/index.ts';
+import { api } from '../api/client';
+
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse bg-[#1e2738] rounded ${className}`} />;
+}
+
+function OverrideModal({
+  budget,
+  onClose,
+  onDone,
+}: {
+  budget: Budget;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [newLimit, setNewLimit] = useState(budget.limit.toString());
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async () => {
+    const limit = parseFloat(newLimit);
+    if (isNaN(limit) || limit <= 0) {
+      setError('Please enter a valid limit greater than 0.');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      await api('/budgets/override', {
+        method: 'POST',
+        body: JSON.stringify({
+          budget_id: budget.id,
+          new_limit: limit,
+          reason: reason || undefined,
+        }),
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Override failed');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-[#111820] border border-[#1e2738] rounded-xl w-full max-w-sm"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-[#1e2738]">
+          <h2 className="text-base font-semibold text-[#e2e8f0]">Override Budget</h2>
+          <button onClick={onClose} className="text-[#7a8599] hover:text-[#e2e8f0]">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="p-4 space-y-4">
+          <div>
+            <p className="text-sm text-[#7a8599] mb-1">Agent</p>
+            <p className="text-sm text-[#e2e8f0] font-medium">{budget.agent}</p>
+          </div>
+          <div>
+            <label className="text-sm text-[#7a8599] block mb-1">New Limit ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={newLimit}
+              onChange={(e) => setNewLimit(e.target.value)}
+              className="w-full bg-[#0a0e14] border border-[#1e2738] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] focus:outline-none focus:border-[#60a5fa]"
+            />
+          </div>
+          <div>
+            <label className="text-sm text-[#7a8599] block mb-1">Reason (optional)</label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={2}
+              className="w-full bg-[#0a0e14] border border-[#1e2738] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] placeholder-[#7a8599] focus:outline-none focus:border-[#60a5fa] resize-none"
+              placeholder="Why are you overriding this limit?"
+            />
+          </div>
+          {error && <p className="text-sm text-[#f87171]">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2 border border-[#1e2738] text-[#7a8599] text-sm rounded-lg hover:bg-[#1e2738] transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="flex-1 px-4 py-2 bg-[#60a5fa]/20 border border-[#60a5fa]/30 text-[#60a5fa] text-sm rounded-lg hover:bg-[#60a5fa]/30 disabled:opacity-50 transition-colors"
+            >
+              {submitting ? 'Saving...' : 'Apply Override'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function BudgetDashboard() {
+  const { activeProject } = useProject();
+  const [overrideBudget, setOverrideBudget] = useState<Budget | null>(null);
+
+  const projectParam = activeProject ? `?project_id=${activeProject.id}` : '';
+  const { data: budgets, loading, refetch } = useApi<Budget[]>(
+    `/budgets${projectParam}`,
+    15000
+  );
+
+  const totalSpent = budgets?.reduce((s, b) => s + b.spent, 0) ?? 0;
+  const totalLimit = budgets?.reduce((s, b) => s + b.limit, 0) ?? 0;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-[#e2e8f0]">Budgets</h1>
+        <p className="text-sm text-[#7a8599] mt-1">
+          {activeProject ? activeProject.name : 'All projects'}
+        </p>
+      </div>
+
+      {/* Monthly total */}
+      <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-medium text-[#7a8599]">Monthly Total</h2>
+          <span className="text-sm text-[#e2e8f0]">
+            ${totalSpent.toFixed(4)} / ${totalLimit.toFixed(4)}
+          </span>
+        </div>
+        <div className="w-full bg-[#1e2738] rounded-full h-3">
+          <div
+            className={`h-3 rounded-full transition-all ${
+              totalLimit > 0 && (totalSpent / totalLimit) > 0.85
+                ? 'bg-[#f87171]'
+                : totalLimit > 0 && (totalSpent / totalLimit) > 0.6
+                ? 'bg-[#fbbf24]'
+                : 'bg-[#34d399]'
+            }`}
+            style={{
+              width: `${totalLimit > 0 ? Math.min((totalSpent / totalLimit) * 100, 100) : 0}%`,
+            }}
+          />
+        </div>
+        <div className="flex justify-between text-xs text-[#7a8599] mt-1">
+          <span>$0</span>
+          <span>
+            {totalLimit > 0
+              ? `${Math.round((totalSpent / totalLimit) * 100)}% used`
+              : 'No limit set'}
+          </span>
+          <span>${totalLimit.toFixed(2)}</span>
+        </div>
+      </div>
+
+      {/* Per-agent budgets */}
+      {loading ? (
+        <div className="space-y-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
+      ) : !budgets || budgets.length === 0 ? (
+        <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-8 text-center">
+          <p className="text-[#7a8599]">No budgets configured.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {budgets.map((budget) => {
+            const pct = budget.limit > 0 ? Math.min((budget.spent / budget.limit) * 100, 100) : 0;
+            const barColor =
+              pct > 85 ? 'bg-[#f87171]' : pct > 60 ? 'bg-[#fbbf24]' : 'bg-[#34d399]';
+
+            return (
+              <div
+                key={budget.id}
+                className="bg-[#111820] border border-[#1e2738] rounded-lg p-4 space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {budget.paused && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/30">
+                        PAUSED
+                      </span>
+                    )}
+                    <span className="text-sm font-medium text-[#e2e8f0]">{budget.agent}</span>
+                  </div>
+                  <button
+                    onClick={() => setOverrideBudget(budget)}
+                    className="text-xs px-2.5 py-1 border border-[#1e2738] text-[#7a8599] rounded-lg hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors"
+                  >
+                    Override
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-[#7a8599]">
+                    <span>${budget.spent.toFixed(4)} spent</span>
+                    <span>${budget.limit.toFixed(4)} limit</span>
+                  </div>
+                  <div className="w-full bg-[#1e2738] rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full ${barColor} transition-all`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span
+                      className={
+                        pct > 85
+                          ? 'text-[#f87171]'
+                          : pct > 60
+                          ? 'text-[#fbbf24]'
+                          : 'text-[#34d399]'
+                      }
+                    >
+                      {pct.toFixed(1)}% used
+                    </span>
+                    <span className="text-[#7a8599]">
+                      ${(budget.limit - budget.spent).toFixed(4)} remaining
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {overrideBudget && (
+        <OverrideModal
+          budget={overrideBudget}
+          onClose={() => setOverrideBudget(null)}
+          onDone={() => {
+            setOverrideBudget(null);
+            refetch();
+          }}
+        />
+      )}
+    </div>
+  );
+}

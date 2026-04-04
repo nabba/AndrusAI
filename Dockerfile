@@ -20,8 +20,9 @@ RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app/ app/
 
-# Copy dashboard for same-origin serving (avoids mixed-content blocks)
+# Copy dashboards: Firebase (legacy) + React control plane
 COPY dashboard/public/index.html dashboard/index.html
+COPY dashboard/build/ dashboard/build/
 
 # Create workspace directories
 RUN mkdir -p workspace/output workspace/memory workspace/skills workspace/proposals workspace/applied_code workspace/philosophy/texts

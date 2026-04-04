@@ -781,3 +781,11 @@ try:
     logger.info("Control Plane API mounted at /api/cp/")
 except Exception:
     logger.debug("Control Plane API not available", exc_info=True)
+
+# ── React Dashboard (self-hosted, replaces Firebase) ─────────────────────
+# Mount LAST so API routes take precedence. Serves the React SPA build.
+_dashboard_build = Path("/app/dashboard/build")
+if _dashboard_build.exists() and (_dashboard_build / "index.html").exists():
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/cp", StaticFiles(directory=str(_dashboard_build), html=True), name="dashboard-cp")
+    logger.info(f"React dashboard mounted at /cp/ from {_dashboard_build}")
