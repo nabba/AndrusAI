@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/cp/**", "destination": "/cp/index.html" }
+  ]
+}

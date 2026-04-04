@@ -407,6 +407,19 @@ def _publish_schedule() -> None:
 
 app = FastAPI(title="CrewAI Agent Gateway", lifespan=lifespan)
 
+# ── CORS — allow control plane dashboard (port 3100) to call API (port 8765) ──
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3100", "http://127.0.0.1:3100",
+                   "http://100.85.195.121:3100",
+                   "http://plgs-macbook-pro---andrus:3100",
+                   "http://plgs-macbook-pro---andrus.tail5b289b.ts.net:3100"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Mount philosophy API routes
 from app.philosophy.api import philosophy_router
 app.include_router(philosophy_router)
