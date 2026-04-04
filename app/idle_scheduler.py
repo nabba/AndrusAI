@@ -214,10 +214,12 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         SelfImprovementCrew().run()
     jobs.append(("learn-queue", _learn_queue))
 
-    # ── Evolution: run experiments (5 iterations per idle slot) ─────────
+    # ── Evolution: run experiments (2 iterations per idle slot) ─────────
+    # Reduced from 5 to 2: each iteration takes ~4min, so 5 = 20min which
+    # starves all subsequent jobs. 2 iterations keeps total under 10min.
     def _evolution():
         from app.evolution import run_evolution_session
-        run_evolution_session(max_iterations=5)
+        run_evolution_session(max_iterations=2)
     jobs.append(("evolution", _evolution))
 
     # ── Proactive learning: discover and queue new topics ──────────────
@@ -230,12 +232,6 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         from app.crews.retrospective_crew import RetrospectiveCrew
         RetrospectiveCrew().run()
     jobs.append(("retrospective", _retrospective))
-
-    # ── Evolution again (doubled frequency) ────────────────────────────
-    def _evolution2():
-        from app.evolution import run_evolution_session
-        run_evolution_session(max_iterations=5)
-    jobs.append(("evolution-2", _evolution2))
 
     # ── Improvement scan: analyze gaps and propose improvements ────────
     def _improvement_scan():
