@@ -68,14 +68,31 @@ def run_single_agent_crew(
     except Exception:
         pass
 
+    # Strip injected context from the task summary shown on dashboard.
+    # The enriched_task prepends KB/skills/memory context before the actual task.
+    _clean_desc = task_description
+    for _ctx_marker in ("KNOWLEDGE BASE CONTEXT", "RELEVANT KNOWLEDGE", "RELEVANT TEAM CONTEXT",
+                        "<recent_conversation>", "LESSONS FROM PAST"):
+        _idx = _clean_desc.find(_ctx_marker)
+        if _idx == 0:
+            # Context is at the start — find where the actual task begins
+            # (after the last closing tag or double newline)
+            for _end_marker in ("\n\nNOTE:", "\n</", "\nNOTE:"):
+                _end = _clean_desc.rfind(_end_marker)
+                if _end > 0:
+                    _rest = _clean_desc[_end:].split("\n\n", 2)
+                    if len(_rest) > 1:
+                        _clean_desc = _rest[-1].strip()
+                        break
+            break
     task_id = crew_started(
         crew_name,
-        f"{crew_name.title()}: {task_description[:100]}",
+        f"{crew_name.title()}: {_clean_desc[:100]}",
         eta_seconds=estimate_eta(crew_name),
         parent_task_id=parent_task_id,
         model=_model_name,
     )
-    update_belief(agent_role, "working", current_task=task_description[:100])
+    update_belief(agent_role, "working", current_task=_clean_desc[:100])
 
     task = Task(
         description=task_template.format(user_input=wrap_user_input(task_description)),
