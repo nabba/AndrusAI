@@ -7,5 +7,6 @@ export default defineConfig({
   server: {
     proxy: { '/api': 'http://localhost:8765' }
   },
+  base: '/cp/',
   build: { outDir: '../dashboard/build' }
 })
