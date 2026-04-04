@@ -501,6 +501,30 @@ def _propose_mutation_legacy(context: str, tried_hashes: set[str]) -> MutationSp
         auto_deploy = os.environ.get("EVOLUTION_AUTO_DEPLOY", "false").lower() == "true"
 
         if auto_deploy:
+            # Governance gate: evolution_deploy requires approval
+            try:
+                from app.config import get_settings as _cgs
+                if _cgs().control_plane_enabled:
+                    from app.control_plane.governance import get_governance
+                    from app.control_plane.projects import get_projects
+                    gate = get_governance()
+                    if gate.needs_approval("evolution_deploy"):
+                        pid = get_projects().get_active_project_id()
+                        gate.request_approval(
+                            project_id=pid,
+                            request_type="evolution_deploy",
+                            requested_by="evolution",
+                            title=f"Evolution code mutation: {hypothesis[:80]}",
+                            detail={"hypothesis": hypothesis[:500],
+                                    "files": [f["path"] for f in code_files[:5]]},
+                        )
+                        logger.info("Evolution: governance approval requested for code mutation")
+                        # Fall through to proposal path instead of auto-deploy
+                        auto_deploy = False
+            except Exception:
+                logger.debug("Evolution: governance check failed", exc_info=True)
+
+        if auto_deploy:
             # Run through ExperimentRunner: backup → apply → measure → keep/revert
             mutation = MutationSpec(
                 experiment_id=exp_id,

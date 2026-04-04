@@ -283,6 +283,39 @@ def schedule_deploy(reason: str) -> None:
 
     logger.info(f"auto_deployer: deploy scheduled — {reason}")
 
+    # ── Control Plane governance gate: code_change requires approval ────
+    try:
+        from app.config import get_settings as _cgs
+        if _cgs().control_plane_enabled:
+            from app.control_plane.governance import get_governance
+            from app.control_plane.projects import get_projects
+            gate = get_governance()
+            if gate.needs_approval("code_change"):
+                pid = get_projects().get_active_project_id()
+                req = gate.request_approval(
+                    project_id=pid,
+                    request_type="code_change",
+                    requested_by="auto_deployer",
+                    title=f"Auto-deploy: {reason[:100]}",
+                    detail={"reason": reason[:500]},
+                )
+                logger.info(f"auto_deployer: governance approval requested — #{str(req.get('id', ''))[:8]}")
+                # Notify user that approval is needed
+                try:
+                    from app.signal_client import send_message
+                    s = _cgs()
+                    send_message(
+                        s.signal_owner_number,
+                        f"⚖️ AUTO-DEPLOY requires approval: {reason[:100]}\n"
+                        f"Use `approve {str(req.get('id', ''))[:8]}` or `pending` to review.",
+                    )
+                except Exception:
+                    pass
+                _deploy_scheduled = False
+                return  # Don't deploy until approved
+    except Exception:
+        logger.debug("auto_deployer: governance check failed (proceeding)", exc_info=True)
+
     # Notify user via Signal that auto-deploy is starting
     try:
         from app.signal_client import send_message
