@@ -4,13 +4,16 @@ networks:
   firecrawl-backend:
     driver: bridge
   crewai-team_external:
-    external: true  # Shared with crewai-team for agent access
+    external: true
 
 x-common-env: &common-env
   REDIS_URL: redis://firecrawl-redis:6379
   REDIS_RATE_LIMIT_URL: redis://firecrawl-redis:6379
   PLAYWRIGHT_MICROSERVICE_URL: http://playwright-service:3000/scrape
   USE_DB_AUTHENTICATION: "false"
+  # NUQ infrastructure (required by latest Firecrawl)
+  NUQ_DATABASE_URL: postgresql://firecrawl:firecrawl@firecrawl-postgres:5432/firecrawl
+  NUQ_RABBITMQ_URL: amqp://guest:guest@firecrawl-rabbitmq:5672
   NUM_WORKERS_PER_QUEUE: ${FC_NUM_WORKERS:-4}
   CRAWL_CONCURRENT_REQUESTS: ${FC_CRAWL_CONCURRENT:-5}
   MAX_CONCURRENT_JOBS: ${FC_MAX_JOBS:-10}
@@ -22,6 +25,7 @@ x-common-env: &common-env
 services:
   firecrawl-api:
     image: ghcr.io/firecrawl/firecrawl:latest
+    env_file: .env
     environment:
       <<: *common-env
       PORT: "3002"
@@ -33,6 +37,10 @@ services:
       - "127.0.0.1:3002:3002"
     depends_on:
       firecrawl-redis:
+        condition: service_healthy
+      firecrawl-postgres:
+        condition: service_healthy
+      firecrawl-rabbitmq:
         condition: service_healthy
       playwright-service:
         condition: service_started
@@ -48,11 +56,12 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:3002/"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 40s
+      retries: 5
+      start_period: 60s
 
   firecrawl-worker:
     image: ghcr.io/firecrawl/firecrawl:latest
+    env_file: .env
     environment:
       <<: *common-env
     networks:
@@ -60,11 +69,16 @@ services:
     depends_on:
       firecrawl-redis:
         condition: service_healthy
+      firecrawl-postgres:
+        condition: service_healthy
+      firecrawl-rabbitmq:
+        condition: service_healthy
       playwright-service:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["node", "dist/src/harness.js", "--start-docker"]
+    # Use default entrypoint — harness manages all worker processes
+    # NUQ_DATABASE_URL + NUQ_RABBITMQ_URL skip Docker-in-Docker requirement
     deploy:
       resources:
         limits:
@@ -87,6 +101,43 @@ services:
     shm_size: "1gb"
     restart: unless-stopped
 
+  firecrawl-rabbitmq:
+    image: rabbitmq:3-alpine
+    networks:
+      - firecrawl-backend
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    restart: unless-stopped
+
+  firecrawl-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: firecrawl
+      POSTGRES_PASSWORD: firecrawl
+      POSTGRES_DB: firecrawl
+    networks:
+      - firecrawl-backend
+    volumes:
+      - firecrawl-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U firecrawl"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    restart: unless-stopped
+
   firecrawl-redis:
     image: redis:alpine
     networks:
@@ -107,3 +158,4 @@ services:
 
 volumes:
   firecrawl-redis-data:
+  firecrawl-postgres-data:
