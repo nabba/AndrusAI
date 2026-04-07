@@ -507,9 +507,10 @@ def _register_defaults(registry: HookRegistry) -> None:
         description="Log errors to control plane audit trail",
     )
 
-    # Priority 70: History compression (defined but was never registered)
+    # Priority 20: History compression (was never registered due to NameError)
     try:
-        if get_settings().history_compression_enabled:
+        from app.config import get_settings as _get_settings
+        if _get_settings().history_compression_enabled:
             registry.register(
                 "history_compress", HookPoint.PRE_LLM_CALL,
                 create_history_compression_hook(),

@@ -210,9 +210,43 @@ class FeedbackPipeline:
             event["confidence"] = 0.6
 
         # Store the event
-        self._store_event(event)
+        self._store_feedback_event(event)
         logger.info(f"feedback_pipeline: {feedback_type} reaction ({emoji}) on message ts={target_timestamp}")
         return event
+
+    def _store_feedback_event(self, event: dict) -> None:
+        """Persist a feedback event to PostgreSQL."""
+        self._execute(
+            """INSERT INTO feedback.events
+               (id, sender_id, feedback_type, raw_signal, original_task,
+                original_response, crew_used, prompt_version, model_used,
+                category, severity, target_layer, target_parameter,
+                target_role, direction, confidence)
+               VALUES (:id, :sender_id, :feedback_type, :raw_signal,
+                :original_task, :original_response, :crew_used,
+                :prompt_version, :model_used, :category, :severity,
+                :target_layer, :target_parameter, :target_role,
+                :direction, :confidence)
+               ON CONFLICT (id) DO NOTHING""",
+            {
+                "id": event.get("id", ""),
+                "sender_id": event.get("sender_id", ""),
+                "feedback_type": event.get("feedback_type", ""),
+                "raw_signal": event.get("raw_signal", ""),
+                "original_task": (event.get("original_task") or "")[:2000],
+                "original_response": (event.get("original_response") or "")[:2000],
+                "crew_used": event.get("crew_used", ""),
+                "prompt_version": event.get("prompt_version", 0),
+                "model_used": event.get("model_used", ""),
+                "category": event.get("category", ""),
+                "severity": event.get("severity", ""),
+                "target_layer": event.get("target_layer", ""),
+                "target_parameter": event.get("target_parameter", ""),
+                "target_role": event.get("target_role", ""),
+                "direction": (event.get("direction") or "")[:500],
+                "confidence": event.get("confidence", 0.0),
+            },
+        )
 
     def _classify_negative_reaction(self, metadata: dict) -> dict | None:
         """Use LLM to classify why a user reacted negatively."""

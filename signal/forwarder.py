@@ -138,7 +138,7 @@ def _process_envelope(envelope: dict) -> None:
 
 def poll_loop():
     """Poll signal-cli for messages and forward them."""
-    log(f"Polling signal-cli at {SIGNAL_CLI_URL} every ~7s")
+    log(f"Polling signal-cli at {SIGNAL_CLI_URL} every ~1.5s")
     log(f"Forwarding to {GATEWAY_URL}")
 
     while True:

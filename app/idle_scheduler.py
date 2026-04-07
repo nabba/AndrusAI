@@ -417,7 +417,8 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
                         f"stage={state.developmental_stage}")
         except Exception:
             logger.debug("idle_scheduler: PDS session failed", exc_info=True)
-    jobs.append(("personality-development", _personality_session))
+    # PDS placed after retrospective (job #5) to ensure it gets reached
+    jobs.insert(5, ("personality-development", _personality_session))
 
     # ── Cogito: metacognitive self-reflection cycle ─────────────────────
     def _cogito_cycle():

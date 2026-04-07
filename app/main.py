@@ -631,8 +631,9 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         # Record which crew handled the task (for per-crew analytics)
         try:
             from app.conversation_store import update_task_crew
+            # Commander sets _last_crew in handle() — it's a singleton so the attr persists
             crew_used = getattr(commander, '_last_crew', '') or ''
-            if crew_used:
+            if crew_used and crew_used != 'direct':
                 update_task_crew(task_row_id, crew_used)
         except Exception:
             pass
