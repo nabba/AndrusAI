@@ -631,6 +631,25 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         run_tech_scan()
     jobs.append(("tech-radar", _tech_radar))
 
+    # ── Heartbeat: per-agent autonomous wake cycle ────────────────────
+    def _heartbeat_cycle():
+        try:
+            from app.control_plane.heartbeats import get_heartbeat_scheduler
+            from app.control_plane.projects import get_projects
+
+            hb = get_heartbeat_scheduler()
+            project_id = get_projects().get_active_project_id()
+
+            # Cycle through agents, run heartbeat for those whose interval has elapsed
+            for role in ["commander", "researcher", "coder", "writer", "self_improver"]:
+                if hb.should_beat(role):
+                    result = hb.run_heartbeat(role, project_id)
+                    if result.get("status") != "idle":
+                        logger.info(f"heartbeat: {role} — {result}")
+        except Exception:
+            logger.debug("idle_scheduler: heartbeat cycle failed", exc_info=True)
+    jobs.append(("heartbeat-cycle", _heartbeat_cycle))
+
     return jobs
 
 
