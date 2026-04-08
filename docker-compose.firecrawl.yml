@@ -44,6 +44,9 @@ services:
   firecrawl-api:
     image: ghcr.io/firecrawl/firecrawl:latest
     env_file: .env
+    # Run ONLY the API server — skip the harness which spawns 12+ worker processes
+    # The separate firecrawl-worker container handles queue processing
+    command: ["node", "dist/src/index.js"]
     environment:
       <<: *common-env
       PORT: "3002"
@@ -67,8 +70,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 4G
+          cpus: "1.0"
+          memory: 1G
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3002/', r => { process.exit(r.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
@@ -95,13 +98,13 @@ services:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Use default entrypoint — harness manages all worker processes
-    # NUQ_DATABASE_URL + NUQ_RABBITMQ_URL skip Docker-in-Docker requirement
+    # Run only the queue worker — skip the harness which spawns 12 processes
+    command: ["node", "dist/src/services/queue-worker.js"]
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 4G
+          cpus: "1.0"
+          memory: 1G
     restart: unless-stopped
 
   playwright-service:
