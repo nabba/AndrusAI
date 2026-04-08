@@ -622,6 +622,13 @@ def run_evolution_session(max_iterations: int = 5) -> str:
     discarded = 0
     crashed = 0
 
+    # Adaptive ensemble controller — manages explore/exploit balance
+    try:
+        from app.adaptive_ensemble import get_controller
+        _evo_controller = get_controller()
+    except Exception:
+        _evo_controller = None
+
     # DGM-DB: Create evolution run record in PostgreSQL
     dgm_run_id = None
     if os.environ.get("EVOLUTION_USE_DGM_DB", "false").lower() == "true":
@@ -653,6 +660,24 @@ def run_evolution_session(max_iterations: int = 5) -> str:
 
             # 1. Build fresh context (includes results from previous iterations)
             context = _build_evolution_context()
+
+            # Inject adaptive ensemble strategy hint into context
+            if _evo_controller:
+                try:
+                    strategy = _evo_controller.select_mutation_strategy()
+                    rate = _evo_controller.exploration_rate
+                    phase = _evo_controller.ensemble.phase
+                    context += (
+                        f"\n\n## Evolution Strategy (adaptive ensemble)\n"
+                        f"Current phase: {phase} (exploration_rate={rate:.2f})\n"
+                        f"Suggested strategy: {strategy}\n"
+                        f"- meta_prompt: try new prompt structures/approaches\n"
+                        f"- random: explore entirely new directions\n"
+                        f"- inspiration: cross-pollinate from successful past experiments\n"
+                        f"- depth_exploit: refine the most promising recent change\n"
+                    )
+                except Exception:
+                    pass
 
             # 2. Agent proposes ONE mutation
             mutation = _propose_mutation(context, tried_hashes)
@@ -771,14 +796,23 @@ def run_evolution_session(max_iterations: int = 5) -> str:
                 except Exception:
                     logger.debug("Self-supervision check failed", exc_info=True)
 
+            # Adaptive ensemble: update explore/exploit balance based on fitness
+            _phase_info = ""
+            if _evo_controller:
+                try:
+                    info = _evo_controller.step(result.metric_after)
+                    _phase_info = f" [phase={info.get('phase','?')}, expl={info.get('exploration_rate',0):.2f}]"
+                except Exception:
+                    pass
+
             results_summary.append(
                 f"  [{i + 1}] {result.status:7s} {result.delta:+.4f} | "
-                f"{result.hypothesis[:60]}"
+                f"{result.hypothesis[:60]}{_phase_info}"
             )
 
             logger.info(
                 f"Evolution iteration {i + 1}: {result.status} "
-                f"({result.detail})"
+                f"({result.detail}){_phase_info}"
             )
 
         # DGM-DB: Mark run as completed
@@ -789,10 +823,18 @@ def run_evolution_session(max_iterations: int = 5) -> str:
             except Exception:
                 pass
 
+        _ctl_report = ""
+        if _evo_controller:
+            try:
+                _ctl_report = f"\n{_evo_controller.format_report()}"
+            except Exception:
+                pass
+
         summary = (
             f"Evolution session complete: {max_iterations} iterations\n"
             f"Kept: {kept}, Discarded: {discarded}, Crashed: {crashed}\n\n"
             + "\n".join(results_summary)
+            + _ctl_report
         )
 
         tracker = stop_request_tracking()
