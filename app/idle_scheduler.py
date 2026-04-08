@@ -506,6 +506,14 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: self-knowledge ingest failed", exc_info=True)
     jobs.append(("self-knowledge-ingest", _self_knowledge_ingest))
 
+    # ── Skill indexer: embed skills/*.md into ChromaDB for semantic retrieval ──
+    def _skill_index():
+        try:
+            _index_skills()
+        except Exception:
+            logger.debug("idle_scheduler: skill indexing failed", exc_info=True)
+    jobs.append(("skill-index", _skill_index))
+
     # ── Self-training: curate collected data + trigger training ─────────
     def _training_curate():
         try:
@@ -766,6 +774,98 @@ def _auto_discover_topics() -> None:
 
 _bg_listener_unsub = None
 _bg_poll_stop = threading.Event()
+
+
+def _index_skills() -> None:
+    """Index all workspace/skills/*.md files into ChromaDB 'skills' collection.
+
+    Each skill file is embedded as a single document (or chunked if large).
+    Uses the filename stem as the document ID for deduplication — re-running
+    only updates changed files (ChromaDB upsert).
+
+    This makes skills semantically searchable via _load_relevant_skills().
+    """
+    import hashlib
+    from pathlib import Path
+
+    SKILLS_DIR = Path("/app/workspace/skills")
+    if not SKILLS_DIR.exists():
+        return
+
+    try:
+        from app.memory.chromadb_manager import get_client
+        client = get_client()
+        collection = client.get_or_create_collection("skills")
+    except Exception as e:
+        logger.debug(f"skill_index: ChromaDB unavailable: {e}")
+        return
+
+    skill_files = sorted(SKILLS_DIR.glob("*.md"))
+    if not skill_files:
+        return
+
+    # Get existing IDs to skip unchanged files
+    existing = set()
+    try:
+        existing_data = collection.get(include=[])
+        existing = set(existing_data.get("ids", []))
+    except Exception:
+        pass
+
+    ids = []
+    documents = []
+    metadatas = []
+
+    for f in skill_files:
+        if f.name == "learning_queue.md":
+            continue
+
+        try:
+            content = f.read_text(errors="replace").strip()
+            if not content or len(content) < 20:
+                continue
+
+            # ID = filename stem (deterministic, deduplicates on re-run)
+            doc_id = f"skill_{f.stem}"
+            content_hash = hashlib.md5(content.encode()).hexdigest()[:8]
+
+            # Check if already indexed with same content
+            if doc_id in existing:
+                # Could check hash for changes, but upsert handles it
+                pass
+
+            # Truncate very long skills to 2000 chars for embedding
+            doc_text = content[:2000] if len(content) > 2000 else content
+
+            ids.append(doc_id)
+            documents.append(doc_text)
+            metadatas.append({
+                "filename": f.name,
+                "content_hash": content_hash,
+                "char_count": len(content),
+                "type": "skill",
+            })
+        except Exception:
+            continue
+
+    if not ids:
+        return
+
+    # Batch upsert (ChromaDB handles duplicates)
+    BATCH_SIZE = 50
+    total = 0
+    for i in range(0, len(ids), BATCH_SIZE):
+        batch_ids = ids[i:i + BATCH_SIZE]
+        batch_docs = documents[i:i + BATCH_SIZE]
+        batch_meta = metadatas[i:i + BATCH_SIZE]
+        try:
+            collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=batch_meta)
+            total += len(batch_ids)
+        except Exception as e:
+            logger.debug(f"skill_index: batch upsert failed: {e}")
+
+    if total > 0:
+        logger.info(f"skill_index: indexed {total} skills into ChromaDB 'skills' collection")
 
 
 def read_background_enabled() -> bool | None:

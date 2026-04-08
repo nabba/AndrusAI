@@ -6,16 +6,18 @@ logger = logging.getLogger(__name__)
 def _load_relevant_skills(task: str, n: int = 3) -> str:
     """Load only skills semantically relevant to the current task.
 
-    Uses ChromaDB vector retrieval instead of loading all skills,
-    implementing the 'Select' principle from context engineering.
+    Queries the 'skills' ChromaDB collection (indexed from workspace/skills/*.md)
+    with fallback to 'team_shared'. Implements the 'Select' principle.
     """
     try:
         from app.memory.chromadb_manager import retrieve
-        # Skills are stored in team_shared memory during self-improvement
-        relevant = retrieve("team_shared", task, n=n)
+        # Primary: dedicated skills collection (indexed by skill_index job)
+        relevant = retrieve("skills", task, n=n)
+        # Fallback: team_shared (legacy, some skills stored here)
+        if not relevant:
+            relevant = retrieve("team_shared", task, n=n)
         if not relevant:
             return ""
-        # Also check disk skills by name match
         skill_blocks = []
         for doc in relevant:
             skill_blocks.append(
