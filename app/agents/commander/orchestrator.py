@@ -104,8 +104,16 @@ class Commander:
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             hist_fut = pool.submit(_fetch_history)
             mem0_fut = pool.submit(_fetch_mem0)
-            history_text = hist_fut.result(timeout=5)
-            mem0_lines = mem0_fut.result(timeout=5)
+            try:
+                history_text = hist_fut.result(timeout=5)
+            except (concurrent.futures.TimeoutError, Exception):
+                history_text = ""
+                logger.debug("Commander routing: history lookup timed out")
+            try:
+                mem0_lines = mem0_fut.result(timeout=5)
+            except (concurrent.futures.TimeoutError, Exception):
+                mem0_lines = []
+                logger.debug("Commander routing: Mem0 lookup timed out (first call may be slow)")
 
         history_block = ""
         if history_text:
