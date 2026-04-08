@@ -207,21 +207,39 @@ def _build_evolution_context() -> str:
     else:
         experiments_text = "  No experiments yet."
 
-    # Format error patterns
+    # Format error patterns — with cooldown for already-addressed errors
+    # Count how many times each error type has been addressed by recent experiments
+    _addressed_errors = {}
+    for r in recent_results:
+        hyp = (r.get("hypothesis", "") + " " + r.get("detail", "")).lower()
+        for k in patterns:
+            if k.lower()[:20] in hyp:
+                _addressed_errors[k] = _addressed_errors.get(k, 0) + 1
+
     pattern_lines = []
     for k, v in list(patterns.items())[:10]:
-        pattern_lines.append(f"  {k}: {v}x")
+        times_addressed = _addressed_errors.get(k, 0)
+        if times_addressed >= 3:
+            pattern_lines.append(f"  {k}: {v}x (ALREADY ADDRESSED {times_addressed}x — skip this)")
+        else:
+            pattern_lines.append(f"  {k}: {v}x")
     patterns_text = "\n".join(pattern_lines) if pattern_lines else "  No error patterns."
 
-    # Recent undiagnosed errors
-    undiagnosed = [e for e in errors if not e.get("diagnosed")][:5]
-    error_lines = []
+    # Recent undiagnosed errors — exclude types already addressed 3+ times
+    undiagnosed = [e for e in errors if not e.get("diagnosed")]
+    fresh_errors = []
     for e in undiagnosed:
+        etype = e.get("error_type", "")
+        if _addressed_errors.get(etype, 0) < 3:
+            fresh_errors.append(e)
+    fresh_errors = fresh_errors[:5]
+    error_lines = []
+    for e in fresh_errors:
         error_lines.append(
             f"  [{e.get('crew', '?')}] {e.get('error_type', '?')}: "
             f"{e.get('error_msg', '?')[:80]}"
         )
-    errors_text = "\n".join(error_lines) if error_lines else "  No undiagnosed errors."
+    errors_text = "\n".join(error_lines) if error_lines else "  No fresh undiagnosed errors (all known errors addressed)."
 
     # Variant archive context (DGM genealogy)
     try:
@@ -253,7 +271,13 @@ def _build_evolution_context() -> str:
         f"  {', '.join(skill_names[:20]) if skill_names else 'None'}\n\n"
         f"## Drift from baseline: {drift} mutations\n"
         f"## Best Score Ever: {get_best_score():.4f}"
-        f"{tech_ctx}"
+        f"{tech_ctx}\n\n"
+        f"## DIVERSITY REQUIREMENT\n"
+        f"Do NOT propose improvements for errors marked 'ALREADY ADDRESSED'.\n"
+        f"Explore NEW areas: performance optimization, code quality, new capabilities,\n"
+        f"better error handling for DIFFERENT error types, architectural improvements,\n"
+        f"test coverage, documentation, or tool enhancements.\n"
+        f"Variety is more valuable than depth on a single topic."
     )
 
 

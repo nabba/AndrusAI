@@ -81,9 +81,12 @@ def _phase_planning(
         "3. Check evolutionary memory — do NOT repeat past failures\n"
         "4. Prefer CODE changes over SKILL files — skills teach, code FIXES\n"
         "5. For code changes, specify the EXACT file path (e.g. 'app/tools/web_search.py')\n\n"
-        "IMPORTANT: If error patterns exist in the system state, choose change_type='code'\n"
-        "and target the file where the error originates. You will receive the current\n"
-        "file contents in the next phase so you can make precise modifications.\n\n"
+        "IMPORTANT: If error patterns exist that are NOT marked 'ALREADY ADDRESSED',\n"
+        "choose change_type='code' and target the file where the error originates.\n"
+        "You will receive the current file contents in the next phase.\n\n"
+        "DIVERSITY: Do NOT address errors marked 'ALREADY ADDRESSED' in the context.\n"
+        "Explore new improvement areas instead: performance, code quality, new features,\n"
+        "better test coverage, architectural cleanup, or tool improvements.\n\n"
         "Respond with ONLY this JSON:\n"
         '{"hypothesis": "what to improve and why",\n'
         ' "approach": "specific technical approach",\n'
