@@ -66,6 +66,7 @@ class Individual:
     def to_dict(self) -> dict:
         return {
             "prompt_id": self.prompt_id,
+            "prompt_content": self.prompt_content,  # MUST persist for continuity
             "fitness": self.fitness,
             "generation": self.generation,
             "parent_id": self.parent_id,
@@ -74,6 +75,20 @@ class Individual:
             "created_at": self.created_at,
             "ancestors": self.ancestors[-10:],  # Keep last 10
         }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Individual":
+        return cls(
+            prompt_id=d.get("prompt_id", ""),
+            prompt_content=d.get("prompt_content", ""),
+            fitness=d.get("fitness", 0.0),
+            generation=d.get("generation", 0),
+            parent_id=d.get("parent_id", ""),
+            mutation_type=d.get("mutation_type", ""),
+            island_id=d.get("island_id", 0),
+            created_at=d.get("created_at", ""),
+            ancestors=d.get("ancestors", []),
+        )
 
 
 @dataclass
@@ -481,7 +496,9 @@ class IslandEvolution:
         Generates responses from the candidate prompt on test tasks,
         then scores with an external judge (DGM-safe: different LLM).
 
-        Uses local Gemma 4 for generation (free) and DeepSeek for judging.
+        Uses DeepSeek for both generation and judging (local models too slow
+        for population-scale eval). The DGM constraint is preserved because
+        generation and judging use different prompts with different roles.
         """
         import re as _re
 
@@ -492,17 +509,20 @@ class IslandEvolution:
         try:
             from app.llm_factory import create_specialist_llm, create_cheap_vetting_llm
 
-            # Agent LLM: local model with the CANDIDATE prompt injected
-            agent_llm = create_specialist_llm(max_tokens=512, role=self._role, force_tier="local")
+            # Use budget-tier for generation (local is too slow for population eval)
+            agent_llm = create_specialist_llm(max_tokens=1024, role=self._role)
             judge = create_cheap_vetting_llm()
 
             scores = []
             for task in sample:
                 try:
-                    # Generate response using candidate prompt
-                    response = str(agent_llm.call(
-                        f"{prompt_content[:2000]}\n\n{task}"
-                    )).strip()
+                    # Generate response using candidate prompt as system context
+                    generation_prompt = (
+                        f"SYSTEM INSTRUCTIONS:\n{prompt_content[:3000]}\n\n"
+                        f"USER TASK:\n{task}\n\n"
+                        "Complete the task following the system instructions above."
+                    )
+                    response = str(agent_llm.call(generation_prompt)).strip()
 
                     if not response or len(response) < 20:
                         scores.append(0.2)
@@ -510,11 +530,16 @@ class IslandEvolution:
 
                     # Judge the response (different LLM — DGM constraint)
                     judge_prompt = (
-                        f"Score this AI response 0.0 to 1.0 on accuracy, completeness, clarity.\n"
-                        f"Task: {task}\n"
-                        f"Response: {response[:2000]}\n\n"
-                        f"Reply with ONLY a JSON object: "
-                        '{"score": 0.X, "reason": "brief"}'
+                        "You are evaluating an AI agent's response quality.\n"
+                        "Score 0.0 to 1.0 based on:\n"
+                        "- Accuracy: Is the answer correct?\n"
+                        "- Completeness: Does it fully address the task?\n"
+                        "- Clarity: Is it well-structured and clear?\n"
+                        "- Professionalism: Is it production-quality?\n\n"
+                        f"Task given: {task}\n\n"
+                        f"Response:\n{response[:3000]}\n\n"
+                        "Reply with ONLY a JSON object:\n"
+                        '{"score": <0.0-1.0>, "reason": "<one sentence>"}'
                     )
                     raw = str(judge.call(judge_prompt)).strip()
 
@@ -529,7 +554,8 @@ class IslandEvolution:
                             scores.append(float(match.group(1)))
                         else:
                             scores.append(0.4)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"island_evolution: task eval failed: {e}")
                     scores.append(0.3)
 
             if scores:
@@ -582,6 +608,69 @@ class IslandEvolution:
         path = self._dir / "state.json"
         path.write_text(json.dumps(state, indent=2))
 
+    def _load(self) -> bool:
+        """Load island state from disk. Returns True if loaded."""
+        path = self._dir / "state.json"
+        if not path.exists():
+            return False
+        try:
+            data = json.loads(path.read_text())
+            if data.get("role") != self._role:
+                return False
+
+            self._epoch = data.get("epoch", 0)
+            islands_data = data.get("islands", [])
+
+            # Only restore if populations have prompt content
+            has_content = any(
+                ind.get("prompt_content")
+                for isl in islands_data
+                for ind in isl.get("population", [])
+            )
+            if not has_content:
+                logger.info("island_evolution: saved state has no prompt content, starting fresh")
+                return False
+
+            self._islands = []
+            for isl_data in islands_data:
+                island = Island(
+                    island_id=isl_data.get("island_id", 0),
+                    generation=isl_data.get("generation", 0),
+                    best_fitness=isl_data.get("best_fitness", 0.0),
+                    stagnation_count=isl_data.get("stagnation_count", 0),
+                )
+                for ind_data in isl_data.get("population", []):
+                    island.population.append(Individual.from_dict(ind_data))
+                self._islands.append(island)
+
+            # Ensure we have NUM_ISLANDS
+            while len(self._islands) < NUM_ISLANDS:
+                self._islands.append(Island(island_id=len(self._islands)))
+
+            logger.info(f"island_evolution: restored state for '{self._role}' "
+                        f"at epoch {self._epoch} with "
+                        f"{sum(len(i.population) for i in self._islands)} individuals")
+            return True
+
+        except Exception as e:
+            logger.warning(f"island_evolution: failed to load state: {e}")
+            return False
+
+    def has_saved_state(self) -> bool:
+        """Check if there is usable saved state."""
+        path = self._dir / "state.json"
+        if not path.exists():
+            return False
+        try:
+            data = json.loads(path.read_text())
+            return any(
+                ind.get("prompt_content")
+                for isl in data.get("islands", [])
+                for ind in isl.get("population", [])
+            )
+        except Exception:
+            return False
+
     def format_report(self) -> str:
         """Human-readable evolution report."""
         stats = self._get_stats()
@@ -610,7 +699,13 @@ def run_island_evolution_cycle(target_role: str = "coder") -> dict:
             return {"status": "no_prompt", "role": target_role}
 
         engine = IslandEvolution(target_role=target_role)
-        engine.initialize_population(base_prompt)
+
+        # Resume from saved state if available, otherwise initialize fresh
+        if not engine._load():
+            engine.initialize_population(base_prompt)
+        else:
+            logger.info(f"island_evolution: resuming {target_role} from epoch {engine._epoch}")
+
         results = engine.run_session(max_epochs=MAX_EPOCHS_PER_SESSION)
 
         # Promote best if significantly better

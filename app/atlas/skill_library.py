@@ -368,6 +368,17 @@ class SkillLibrary:
             "stale": len(self.get_stale_skills()),
         }
 
+    def list_skills(
+        self,
+        category: str = "",
+        min_confidence: float = 0.0,
+    ) -> list[SkillManifest]:
+        """List all skills, optionally filtered by category and minimum confidence.
+
+        Convenience wrapper around search() for callers expecting a list_skills API.
+        """
+        return self.search(category=category, min_confidence=min_confidence)
+
     def format_inventory(self, category: str = "") -> str:
         """Human-readable skill inventory."""
         skills = self.search(category=category) if category else list(self._index.values())

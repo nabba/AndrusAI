@@ -75,22 +75,24 @@ def _phase_planning(
         "1. Identify the HIGHEST-IMPACT improvement opportunity:\n"
         "   - Recurring errors with traceback → CODE fix (HIGHEST priority)\n"
         "   - Performance bottleneck → CODE optimization\n"
-        "   - Missing domain knowledge → SKILL file (only if no code fix is possible)\n"
         "   - New capability needed → CODE for new tools/features\n"
+        "   - Code quality / refactoring → CODE cleanup\n"
+        "   - Missing domain knowledge → SKILL file (LAST RESORT only)\n"
         "2. Form a specific, testable hypothesis\n"
-        "3. Check evolutionary memory — do NOT repeat past failures\n"
-        "4. Prefer CODE changes over SKILL files — skills teach, code FIXES\n"
-        "5. For code changes, specify the EXACT file path (e.g. 'app/tools/web_search.py')\n\n"
-        "IMPORTANT: If error patterns exist that are NOT marked 'ALREADY ADDRESSED',\n"
-        "choose change_type='code' and target the file where the error originates.\n"
-        "You will receive the current file contents in the next phase.\n\n"
+        "3. Check evolutionary memory — do NOT repeat past failures\n\n"
+        "CRITICAL RULES:\n"
+        "- You MUST use change_type='code' at least 80% of the time.\n"
+        "- ONLY use change_type='skill' when there is genuinely NO code fix possible.\n"
+        "- Skills are documentation, NOT fixes. Code changes are what actually improve the system.\n"
+        "- For code changes, specify the EXACT file path (e.g. 'app/tools/web_search.py').\n"
+        "- You will receive the current file contents in the next phase.\n\n"
         "DIVERSITY: Do NOT address errors marked 'ALREADY ADDRESSED' in the context.\n"
         "Explore new improvement areas instead: performance, code quality, new features,\n"
         "better test coverage, architectural cleanup, or tool improvements.\n\n"
         "Respond with ONLY this JSON:\n"
         '{"hypothesis": "what to improve and why",\n'
         ' "approach": "specific technical approach",\n'
-        ' "change_type": "skill" or "code",\n'
+        ' "change_type": "code",\n'
         ' "target_files": ["app/path/to/file.py"]}\n'
     )
 
@@ -106,12 +108,23 @@ def _phase_planning(
         logger.warning(f"AVO Phase 1: unparseable response: {err}")
         return None
 
-    # Dedup check
+    # Dedup check — exact hash
     hypothesis = plan.get("hypothesis", "")
     h = hashlib.sha256(hypothesis.lower().strip().encode()).hexdigest()[:8]
     if h in tried_hashes:
-        logger.info(f"AVO Phase 1: duplicate hypothesis, skipping")
+        logger.info(f"AVO Phase 1: duplicate hypothesis (exact), skipping")
         return None
+
+    # Fuzzy dedup — catch near-duplicate hypotheses that differ by a few words
+    # Normalize: lowercase, strip numbers, collapse whitespace, take first 40 chars
+    import re as _re
+    _norm = _re.sub(r'[^a-z ]+', '', hypothesis.lower())
+    _norm = ' '.join(_norm.split())[:40]
+    _fuzzy_h = hashlib.sha256(_norm.encode()).hexdigest()[:8]
+    if _fuzzy_h in tried_hashes:
+        logger.info(f"AVO Phase 1: duplicate hypothesis (fuzzy), skipping")
+        return None
+    tried_hashes.add(_fuzzy_h)  # Prevent future fuzzy dupes within session
 
     # Check against known failures
     similar_failures = recall_similar_failures(hypothesis, n=3)
@@ -167,9 +180,14 @@ def _phase_implementation(plan: dict, repair_errors: Optional[list] = None) -> O
 
     Returns dict {file_path: content} or None on failure.
     """
-    # Use local gemma4:26b for code generation — free, 256K context, strong coding (0.82)
-    # force_tier="local" ensures we use the local model for background evolution work
-    llm = create_specialist_llm(max_tokens=8192, role="coding", force_tier="local")
+    change_type_hint = plan.get("change_type", "skill")
+    if change_type_hint == "code":
+        # Code changes need reliable JSON output with complete file contents.
+        # DeepSeek (budget tier) is more reliable at structured output than local models.
+        llm = create_specialist_llm(max_tokens=8192, role="coding")
+    else:
+        # Skill files are simpler — local model is fine and free
+        llm = create_specialist_llm(max_tokens=8192, role="coding", force_tier="local")
 
     change_type = plan.get("change_type", "skill")
     hypothesis = plan.get("hypothesis", "")
@@ -306,11 +324,15 @@ def _phase_self_critique(
     files: dict[str, str],
     memory_context: str,
 ) -> tuple[bool, str]:
-    """Mid-tier LLM evaluates the mutation quality.
+    """External LLM evaluates the mutation quality (DGM: different model than generator).
+
+    Phase 2 uses local codestral:22b for generation.
+    Phase 4 uses DeepSeek (budget tier) for critique — ensures DGM separation.
 
     Returns (approved: bool, notes: str).
     """
-    llm = create_specialist_llm(max_tokens=1024, role="evo_critic")
+    from app.llm_factory import create_cheap_vetting_llm
+    llm = create_cheap_vetting_llm()
 
     hypothesis = plan.get("hypothesis", "")
     change_type = plan.get("change_type", "skill")

@@ -113,6 +113,7 @@ class ExperimentRunner:
                 delta=0.0,
                 status="crash",
                 detail=f"Pre-validation failed: {pre_msg}",
+                files_changed=list(mutation.files.keys()),
             )
             record_experiment(
                 experiment_id=result.experiment_id,
@@ -121,7 +122,7 @@ class ExperimentRunner:
                 metric_before=baseline,
                 metric_after=0.0,
                 status="crash",
-                files_changed=[],
+                files_changed=list(mutation.files.keys()),
                 detail=result.detail,
             )
             return result
@@ -142,6 +143,7 @@ class ExperimentRunner:
                 metric_after=0.0,
                 delta=0.0,
                 status="crash",
+                files_changed=list(mutation.files.keys()),
                 detail=f"Failed to apply mutation: {exc}",
             )
             record_experiment(
@@ -151,7 +153,7 @@ class ExperimentRunner:
                 metric_before=baseline,
                 metric_after=0.0,
                 status="crash",
-                files_changed=[],
+                files_changed=list(mutation.files.keys()),
             )
             return result
 

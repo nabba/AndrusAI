@@ -74,11 +74,22 @@ def _hypothesis_hash(hypothesis: str) -> str:
 
 
 def _get_tried_hypotheses(n: int = 50) -> set[str]:
-    """Return hashes of recently tried hypotheses to avoid repeats."""
+    """Return hashes of recently tried hypotheses to avoid repeats.
+
+    Includes both exact hashes and fuzzy hashes (normalized, first 40 chars)
+    to catch near-duplicate hypotheses like 'API credit error' variants.
+    """
+    import re as _re
     results = get_recent_results(n)
     hashes = set()
     for r in results:
-        hashes.add(_hypothesis_hash(r.get("hypothesis", "")))
+        hyp = r.get("hypothesis", "")
+        # Exact hash
+        hashes.add(_hypothesis_hash(hyp))
+        # Fuzzy hash — strip numbers/punctuation, first 40 chars
+        norm = _re.sub(r'[^a-z ]+', '', hyp.lower())
+        norm = ' '.join(norm.split())[:40]
+        hashes.add(hashlib.sha256(norm.encode()).hexdigest()[:8])
     return hashes
 
 
