@@ -63,7 +63,15 @@ def create_researcher(force_tier: str | None = None, light: bool = False) -> Age
             from app.tools.composio_tool import get_composio_tools
             composio_tools = get_composio_tools()
             if composio_tools:
-                tools.extend(composio_tools[:10])  # Cap at 10 to avoid context bloat
+                tools.extend(composio_tools[:10])
+        except Exception:
+            pass
+        # Host Bridge tools (read/write host files, execute commands, LAN access)
+        try:
+            from app.tools.bridge_tools import create_bridge_tools
+            bridge_tools = create_bridge_tools("researcher")
+            if bridge_tools:
+                tools.extend(bridge_tools)
         except Exception:
             pass
         backstory = RESEARCHER_BACKSTORY

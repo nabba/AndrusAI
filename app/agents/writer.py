@@ -23,11 +23,21 @@ def create_writer(force_tier: str | None = None) -> Agent:
     scoped_tools = create_scoped_memory_tools("writer")
     mem0_tools = create_mem0_tools("writer")
 
+    tools = [file_manager, web_search, read_attachment, KnowledgeSearchTool(), PhilosophyRAGTool()] + memory_tools + scoped_tools + mem0_tools
+    # Host Bridge tools (read/write host files for document output)
+    try:
+        from app.tools.bridge_tools import create_bridge_tools
+        bridge_tools = create_bridge_tools("writer")
+        if bridge_tools:
+            tools.extend(bridge_tools)
+    except Exception:
+        pass
+
     return Agent(
         role="Writer",
         goal="Write clear, well-structured content including summaries, reports, documentation, and emails.",
         backstory=WRITER_BACKSTORY,
         llm=llm,
-        tools=[file_manager, web_search, read_attachment, KnowledgeSearchTool(), PhilosophyRAGTool()] + memory_tools + scoped_tools + mem0_tools,
+        tools=tools,
         verbose=True,
     )

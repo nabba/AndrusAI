@@ -69,6 +69,14 @@ class SelfImprovementCrew:
             llm=llm,
             tools=[web_search, web_fetch, get_youtube_transcript, file_manager] + memory_tools,
         )
+        # Add Host Bridge tools for reading host files during learning
+        try:
+            from app.tools.bridge_tools import create_bridge_tools
+            bt = create_bridge_tools("self_improver")
+            if bt:
+                learner.tools.extend(bt)
+        except Exception:
+            pass
 
         for topic in topics[:3]:
             # Cooperative yield: abort if a user task arrived

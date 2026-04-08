@@ -776,5 +776,24 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         except Exception as exc:
             return f"Error: {str(exc)[:200]}"
 
+    # ── Host Bridge commands ─────────────────────────────────────────────
+    if lower in ("bridge", "bridge status"):
+        try:
+            from app.bridge_client import get_bridge
+            bridge = get_bridge("commander")
+            if not bridge:
+                return "Host Bridge: not configured (no token for commander)"
+            if bridge.is_available():
+                status = bridge.status()
+                return (
+                    f"🌉 Host Bridge: online\n"
+                    f"  Host: {status.get('hostname', '?')}\n"
+                    f"  OS: {status.get('os', '?')} {status.get('arch', '?')}\n"
+                    f"  Python: {status.get('python', '?')}"
+                )
+            return "🌉 Host Bridge: offline (port 9100 unreachable)"
+        except Exception as exc:
+            return f"Bridge error: {str(exc)[:200]}"
+
     # No command matched
     return None

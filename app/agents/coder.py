@@ -23,11 +23,21 @@ def create_coder(force_tier: str | None = None) -> Agent:
     scoped_tools = create_scoped_memory_tools("coder")
     mem0_tools = create_mem0_tools("coder")
 
+    tools = [execute_code, file_manager, web_search, read_attachment, KnowledgeSearchTool()] + memory_tools + scoped_tools + mem0_tools
+    # Host Bridge tools (read/write host files, execute commands on Mac)
+    try:
+        from app.tools.bridge_tools import create_bridge_tools
+        bridge_tools = create_bridge_tools("coder")
+        if bridge_tools:
+            tools.extend(bridge_tools)
+    except Exception:
+        pass
+
     return Agent(
         role="Coder",
         goal="Write, test, and debug code across any language. Execute code safely in a Docker sandbox.",
         backstory=CODER_BACKSTORY,
         llm=llm,
-        tools=[execute_code, file_manager, web_search, read_attachment, KnowledgeSearchTool()] + memory_tools + scoped_tools + mem0_tools,
+        tools=tools,
         verbose=True,
     )
