@@ -36,6 +36,12 @@ An autonomous, self-improving AI agent team built on [CrewAI](https://www.crewai
   - [Self-Healing](#self-healing)
   - [Circuit Breaker](#circuit-breaker)
 - [Knowledge Base](#knowledge-base)
+- [Subsystem Wiring](#subsystem-wiring)
+  - [Self-Awareness System](#self-awareness-system-10-modules-32-symbol-references-across-12-files)
+  - [ATLAS Learning System](#atlas-learning-system-8-modules-wired-into-orchestrator--idle-scheduler--publish)
+  - [Evolution System](#evolution-system-avo--island-evolution)
+  - [Knowledge Bases](#knowledge-bases-2-separate-systems-61-references-across-11-files)
+  - [Control Plane](#control-plane-postgresql-backed-8-tables)
 - [Monitoring Dashboard](#monitoring-dashboard)
 - [Project Structure](#project-structure)
 - [Prerequisites](#prerequisites)
@@ -537,11 +543,45 @@ crewai-team/
 │   │   ├── belief_state.py           # ProAgent belief tracking
 │   │   └── mem0_manager.py           # Mem0 persistent memory integration
 │   ├── knowledge_base/
-│   │   ├── ingestion.py              # Document chunking and ingestion
-│   │   ├── vectorstore.py            # Semantic search with query expansion
-│   │   └── tools.py                  # KB tools for agents
+│   │   ├── config.py                 # KB configuration (env-overridable)
+│   │   ├── ingestion.py              # Document chunking (10 formats) + injection defense
+│   │   ├── vectorstore.py            # ChromaDB-backed semantic search
+│   │   └── tools.py                  # 3 CrewAI tools (search, ingest, status)
+│   ├── philosophy/
+│   │   ├── config.py                 # Philosophy KB configuration
+│   │   ├── ingestion.py              # Philosophical text chunking with frontmatter
+│   │   ├── vectorstore.py            # Read-only ChromaDB store (27 texts)
+│   │   ├── rag_tool.py               # Agent RAG tool (search only, no write)
+│   │   └── api.py                    # REST API for dashboard management
+│   ├── atlas/
+│   │   ├── skill_library.py          # Skill registration, search, usage tracking
+│   │   ├── competence_tracker.py     # System capability mapping + gap detection
+│   │   ├── api_scout.py              # Autonomous API discovery + client generation
+│   │   ├── code_forge.py             # Grounded code generation from verified skills
+│   │   ├── video_learner.py          # YouTube knowledge extraction pipeline
+│   │   ├── learning_planner.py       # Auto-generated learning plans for capability gaps
+│   │   ├── auth_patterns.py          # 6 reusable authentication strategies
+│   │   └── audit_log.py              # Structured audit logging for external calls
+│   ├── control_plane/
+│   │   ├── db.py, tickets.py, budgets.py, audit.py
+│   │   ├── governance.py, heartbeats.py, org_chart.py
+│   │   ├── cost_tracker.py           # Per-request cost tracking
+│   │   └── dashboard_api.py          # Control plane REST API
+│   ├── evolution_suite/
+│   │   └── __init__.py               # Unified evolution module exports
+│   ├── island_evolution.py           # Island-based population evolution (3×5 variants)
+│   ├── avo_operator.py               # AVO 5-phase variation pipeline (NVIDIA arXiv:2603.24517)
 │   ├── self_awareness/
-│   │   └── self_model.py             # Structured self-models per role
+│   │   ├── self_model.py             # Structured self-models per role (8 roles)
+│   │   ├── cogito.py                 # Metacognitive self-reflection cycle
+│   │   ├── homeostasis.py            # Proto-emotional regulation (energy, frustration, confidence)
+│   │   ├── agent_state.py            # Per-crew runtime stats + Theory of Mind routing
+│   │   ├── query_router.py           # Self-referential query classification (3-layer)
+│   │   ├── grounding.py              # Grounded responses from actual system data
+│   │   ├── journal.py                # Activity journal (task/evolution/reflection events)
+│   │   ├── world_model.py            # Causal beliefs + prediction tracking
+│   │   ├── inspect_tools.py          # 6 read-only introspection tools
+│   │   └── knowledge_ingestion.py    # AST-based codebase self-embedding
 │   ├── souls/                        # SOUL.md personality framework
 │   │   ├── loader.py                 # Backstory composition engine
 │   │   ├── constitution.md           # Shared values and safety rules
@@ -559,8 +599,16 @@ crewai-team/
 │   ├── public/index.html             # Firebase-hosted dashboard UI
 │   └── firestore.rules               # Firestore security rules
 ├── tests/
-│   ├── test_security.py              # Security and unit tests
-│   └── test_self_awareness.py        # Self-awareness integration tests
+│   ├── test_atlas.py                 # ATLAS learning system (96 tests)
+│   ├── test_island_evolution.py      # Island evolution (87 tests)
+│   ├── test_avo_operator.py          # AVO pipeline (76 tests)
+│   ├── test_self_reflection.py       # Self-awareness system (152 tests)
+│   ├── test_knowledge_base.py        # Enterprise knowledge base (84 tests)
+│   ├── test_philosophy.py            # Philosophy knowledge base (77 tests)
+│   ├── test_subsystem_wiring.py      # Cross-subsystem import contracts (66 tests)
+│   ├── test_llm_discovery.py         # LLM auto-discovery pipeline (17 tests)
+│   ├── test_training_pipeline.py     # Self-training pipeline (40 tests)
+│   └── test_security.py              # Security and sanitization tests
 ├── signal/                           # Signal integration helpers
 ├── sandbox/                          # Docker sandbox configuration
 ├── scripts/                          # Installation and utility scripts
@@ -712,15 +760,195 @@ Network disabled, read-only FS, all capabilities dropped, memory/CPU/timeout lim
 
 ---
 
+## Subsystem Wiring
+
+The system consists of deeply interconnected subsystems. Every module is wired into the live system with no orphaned code.
+
+### Self-Awareness System (10 modules, 32 symbol references across 12 files)
+
+```
+                           ┌──────────────────┐
+                           │  Idle Scheduler   │
+                           │  (background)     │
+                           └────┬────┬─────────┘
+                                │    │
+                     run_cogito │    │ ingest_codebase
+                                ▼    ▼
+                    ┌──────────────────────────────┐
+                    │      Cogito Cycle             │
+                    │  (metacognitive reflection)   │
+                    │  → inspect_tools              │
+                    │  → grounding protocol          │
+                    │  → journal (SELF_REFLECTION)  │
+                    │  → world_model (beliefs)      │
+                    └──────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Commander Orchestrator                         │
+│                                                                       │
+│  Introspective gate:                                                  │
+│    query_router.classify() → grounding.gather_context()              │
+│    → grounded LLM response for reflective/comparative queries        │
+│                                                                       │
+│  Post-crew telemetry:                                                 │
+│    agent_state.record_task()     → per-crew success tracking         │
+│    homeostasis.update_state()    → proto-emotional regulation        │
+│    journal.write()               → TASK_COMPLETED / TASK_FAILED      │
+│    world_model.store_prediction_result() → prediction tracking       │
+│                                                                       │
+│  Routing:                                                             │
+│    homeostasis.get_behavioral_modifiers() → tier boost, critic gate  │
+│    agent_state.get_best_crew_for_difficulty() → Theory of Mind       │
+│                                                                       │
+│  Context injection:                                                   │
+│    context.recall_relevant_beliefs() → causal knowledge              │
+│    context.get_state_summary() → homeostatic state                   │
+└────────────────────────────────────────────────────────────────────────┘
+
+Additional consumers:
+  evolution.py       → journal (EVOLUTION_RESULT) + world_model (causal beliefs)
+  self_heal.py       → world_model (causal beliefs from error patterns)
+  postprocess.py     → world_model (prediction results)
+  publish.py         → journal + inspect_tools (dashboard reporting)
+  system_chronicle   → agent_state + homeostasis (live stats)
+  souls/loader.py    → self_model (agent backstories)
+  critic/introspector → self_model (role-specific blocks)
+```
+
+### ATLAS Learning System (8 modules, wired into orchestrator + idle scheduler + publish)
+
+```
+  Orchestrator (difficulty ≥ 6)          Idle Scheduler
+         │                               │    │    │
+         │ create_plan()     competence_sync  stale_check  atlas_learning
+         ▼                               ▼    ▼    ▼
+  ┌─────────────┐  ┌─────────────────────────────────────┐
+  │  Learning    │  │  Skill Library (register, search,    │
+  │  Planner     │  │  usage tracking, competence summary) │
+  └──────┬──────┘  └───────────────┬───────────────────────┘
+         │                         │ sync_from_skill_library()
+         ▼                         ▼
+  ┌──────────────┐  ┌─────────────────────┐
+  │  Competence  │  │   API Scout          │
+  │  Tracker     │  │   (discover → gen    │
+  │  (gaps,      │  │    → register)       │
+  │   strengths) │  └──────────┬──────────┘
+  └──────────────┘             │ auth detection
+                               ▼
+                    ┌─────────────────────┐
+                    │   Auth Patterns     │
+                    │   (6 built-in)      │
+                    └─────────────────────┘
+
+  Code Forge ← skill_library + auth_patterns + audit_log
+  Video Learner ← skill_library + competence_tracker + audit_log
+```
+
+### Evolution System (AVO + Island Evolution)
+
+```
+  Idle Scheduler
+       │
+       ├── evolution (AVO pipeline)
+       │     │
+       │     ├── Phase 1: Planning (DeepSeek, fuzzy dedup)
+       │     ├── Phase 2: Implementation (DeepSeek for code, local for skills)
+       │     ├── Phase 3: Local Testing (AST + safety, no LLM)
+       │     ├── Phase 4: Self-Critique (DeepSeek, DGM separation)
+       │     └── Phase 5: Submission → experiment_runner
+       │           │
+       │           ├── variant_archive (genealogy tracking)
+       │           ├── results_ledger (TSV log)
+       │           ├── journal (EVOLUTION_RESULT)
+       │           └── world_model (causal beliefs)
+       │
+       └── island-evolution (population-based)
+             │
+             ├── 3 islands × 5 variants (ring migration)
+             ├── Tournament selection + elitism
+             ├── Fitness: LLM-as-judge (DeepSeek)
+             ├── State persisted (prompt_content + fitness)
+             └── Promotion at fitness > 0.7
+```
+
+### Knowledge Bases (2 separate systems, 61 references across 11 files)
+
+```
+  Enterprise Knowledge Base                Philosophy Knowledge Base
+  (app/knowledge_base/)                    (app/philosophy/)
+  ┌────────────────────────┐               ┌────────────────────────┐
+  │ ChromaDB: enterprise_  │               │ ChromaDB: philosophy_  │
+  │ knowledge              │               │ humanist               │
+  │ 10 format extractors   │               │ 27 texts, 6 traditions │
+  │ Injection defense      │               │ READ-ONLY for agents   │
+  └────────┬───────────────┘               └────────┬───────────────┘
+           │                                         │
+   Consumers:                                Consumers:
+   ├── All 4 agents (SearchTool)             ├── Writer agent (RAGTool)
+   ├── Context injection (auto-RAG)          ├── Critic agent (RAGTool)
+   ├── Commander (kb commands)               ├── Evolution judge (compliance)
+   ├── REST API (/kb/*)                      ├── Lifecycle hooks (safety)
+   ├── Firebase publish + listeners          ├── System chronicle (stats)
+   └── Firestore schema contract             └── Firebase publish + listeners
+```
+
+### Control Plane (PostgreSQL-backed, 8 tables)
+
+```
+  Dashboard (React)  ──→  dashboard_api.py  ──→  PostgreSQL (control_plane schema)
+       │                        │
+       │    ┌───────────────────┼──────────────────────────┐
+       │    │   tickets.py      │   budgets.py             │
+       │    │   (task tracking) │   (cost enforcement)     │
+       │    │                   │                           │
+       │    │   audit.py        │   governance.py           │
+       │    │   (compliance)    │   (approval gates)        │
+       │    │                   │                           │
+       │    │   org_chart.py    │   heartbeats.py           │
+       │    │   (agent roles)   │   (liveness monitoring)   │
+       │    │                   │                           │
+       │    │   cost_tracker.py │   projects.py             │
+       │    └───────────────────┴──────────────────────────┘
+       │
+  Budget enforcement via PRE_LLM_CALL lifecycle hook (priority 2)
+```
+
+---
+
 ## Testing
 
 ```bash
-.venv/bin/python -m pytest tests/ -v          # All tests
-.venv/bin/python -m pytest tests/test_security.py -v         # Security tests
-.venv/bin/python -m pytest tests/test_self_awareness.py -v   # Self-awareness tests
+# Run inside Docker container:
+docker exec crewai-team-gateway-1 python3 -m pytest /app/tests/ -v
+
+# Individual test suites:
+docker exec crewai-team-gateway-1 python3 -m pytest /app/tests/test_atlas.py -v
+docker exec crewai-team-gateway-1 python3 -m pytest /app/tests/test_island_evolution.py -v
+docker exec crewai-team-gateway-1 python3 -m pytest /app/tests/test_avo_operator.py -v
+docker exec crewai-team-gateway-1 python3 -m pytest /app/tests/test_self_reflection.py -v
+docker exec crewai-team-gateway-1 python3 -m pytest /app/tests/test_knowledge_base.py -v
+docker exec crewai-team-gateway-1 python3 -m pytest /app/tests/test_philosophy.py -v
+docker exec crewai-team-gateway-1 python3 -m pytest /app/tests/test_subsystem_wiring.py -v
+docker exec crewai-team-gateway-1 python3 -m pytest /app/tests/test_llm_discovery.py -v
+docker exec crewai-team-gateway-1 python3 -m pytest /app/tests/test_training_pipeline.py -v
 ```
 
-Tests run without live dependencies by stubbing heavy imports. Coverage: sanitization, SSRF, path traversal, rate limiting, config validation, self-models, self-report/reflection tools, scoped memory, belief states, ChromaDB extensions, proactive scanner, policy loader, benchmarks, retrospective crew, and cross-phase integration.
+### Test Suite Summary
+
+| Suite | Tests | Coverage |
+|-------|-------|---------|
+| **test_atlas.py** | 96 | All 8 ATLAS modules, cross-module flows, system wiring |
+| **test_island_evolution.py** | 87 | Selection, migration, persistence, epochs, fitness eval |
+| **test_avo_operator.py** | 76 | All 5 AVO phases, pipeline, fuzzy dedup, safety checks |
+| **test_self_reflection.py** | 152 | All 10 self-awareness modules, 17 wiring checks, Theory of Mind |
+| **test_knowledge_base.py** | 84 | Format detection, extractors, chunking, vectorstore, API, wiring |
+| **test_philosophy.py** | 77 | Frontmatter, chunking, vectorstore, RAG tool, constitutional compliance |
+| **test_subsystem_wiring.py** | 66 | Import chains, cross-subsystem contracts |
+| **test_llm_discovery.py** | 17 | OpenRouter scanning, benchmarking, promotion |
+| **test_training_pipeline.py** | 40 | Data collection, scoring, curation, MLX pipeline |
+| **Total** | **695** | |
+
+Tests run without external API calls using mocked LLM responses. Heavy tests requiring ChromaDB/CrewAI imports are skippable via `LOW_MEM_TESTS=1` (default) for memory-constrained containers.
 
 ---
 
