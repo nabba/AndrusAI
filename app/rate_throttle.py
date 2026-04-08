@@ -313,7 +313,10 @@ def _find_cost(model: str) -> tuple[float, float] | None:
 
 
 def _record_token_usage(response, kwargs: dict) -> None:
-    """Extract token usage from litellm response and record it."""
+    """Extract token usage from litellm response and record it.
+
+    Also captures prompt-completion pairs for the self-training pipeline.
+    """
     try:
         usage = getattr(response, "usage", None)
         if not usage:
@@ -337,6 +340,19 @@ def _record_token_usage(response, kwargs: dict) -> None:
             from app.llm_benchmarks import record_tokens
             record_tokens(model, prompt_tokens, completion_tokens, cost_usd)
 
+            # Capture for self-training pipeline (fire-and-forget)
+            try:
+                _capture_training_data(response, kwargs, model)
+            except Exception:
+                pass
+
+            # Also record benchmark for model scoring
+            try:
+                from app.llm_benchmarks import record
+                record(model, "general", True, latency_ms=0, tokens=prompt_tokens + completion_tokens)
+            except Exception:
+                pass
+
             # Also accumulate into the active request tracker if present
             tracker = _request_cost.get(None)
             if tracker is not None:
@@ -348,6 +364,77 @@ def _record_token_usage(response, kwargs: dict) -> None:
 # ── Credit alert integration ─────────────────────────────────────────────────
 
 _resolved_providers: set[str] = set()  # avoid repeated resolve calls
+
+
+def _capture_training_data(response, kwargs: dict, model: str) -> None:
+    """Extract prompt-completion pair from litellm response for self-training.
+
+    Called from _record_token_usage on every successful LLM call.
+    Filters out short/internal responses and deduplicates by content hash.
+    Writes to JSONL + PostgreSQL via training_collector.
+    """
+    import threading
+
+    # Extract completion text
+    try:
+        choices = getattr(response, "choices", [])
+        if not choices:
+            return
+        completion = getattr(choices[0], "message", None)
+        if not completion:
+            return
+        response_text = getattr(completion, "content", "") or ""
+    except Exception:
+        return
+
+    # Filter: skip short/empty responses (internal routing, vetting, etc.)
+    if len(response_text) < 50:
+        return
+
+    # Extract input messages
+    messages = kwargs.get("messages", [])
+    if not messages:
+        return
+
+    # Filter: skip system-only messages (no user content)
+    has_user = any(m.get("role") == "user" for m in messages if isinstance(m, dict))
+    if not has_user:
+        return
+
+    # Build training record
+    def _store():
+        try:
+            from app.training_collector import _content_hash, _classify_model, _store_record
+            from app.training_collector import MAX_RESPONSE_LENGTH
+            from datetime import datetime, timezone
+
+            stored_messages = [
+                {"role": m.get("role", "user"), "content": str(m.get("content", ""))[:2000]}
+                for m in messages[-5:] if isinstance(m, dict)
+            ]
+            stored_response = response_text[:MAX_RESPONSE_LENGTH]
+            source_tier, provenance = _classify_model(model)
+
+            record = {
+                "id": _content_hash(stored_messages, stored_response),
+                "agent_role": kwargs.get("metadata", {}).get("agent_role", "unknown")
+                    if isinstance(kwargs.get("metadata"), dict) else "unknown",
+                "task_description": str(stored_messages[-1].get("content", ""))[:500]
+                    if stored_messages else "",
+                "messages": stored_messages,
+                "response": stored_response,
+                "source_model": model,
+                "source_tier": source_tier,
+                "provenance": provenance,
+                "quality_score": None,
+                "training_eligible": True,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            _store_record(record)
+        except Exception:
+            pass
+
+    threading.Thread(target=_store, daemon=True, name="training-capture").start()
 
 
 def _check_credit_error(exc: Exception, provider: str) -> None:
