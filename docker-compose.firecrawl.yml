@@ -14,9 +14,12 @@ x-common-env: &common-env
   # NUQ infrastructure (required by latest Firecrawl)
   NUQ_DATABASE_URL: postgresql://firecrawl:firecrawl@firecrawl-postgres:5432/firecrawl
   NUQ_RABBITMQ_URL: amqp://guest:guest@firecrawl-rabbitmq:5672
-  NUM_WORKERS_PER_QUEUE: ${FC_NUM_WORKERS:-4}
-  CRAWL_CONCURRENT_REQUESTS: ${FC_CRAWL_CONCURRENT:-5}
-  MAX_CONCURRENT_JOBS: ${FC_MAX_JOBS:-10}
+  # Reduced from 4 workers to 1 — Firecrawl runs 8+ processes per container
+  # which causes 200%+ CPU spikes even when idle. 1 worker is enough for
+  # our usage pattern (occasional scrape/ingest, not high-throughput crawling)
+  NUM_WORKERS_PER_QUEUE: ${FC_NUM_WORKERS:-1}
+  CRAWL_CONCURRENT_REQUESTS: ${FC_CRAWL_CONCURRENT:-2}
+  MAX_CONCURRENT_JOBS: ${FC_MAX_JOBS:-3}
   OLLAMA_BASE_URL: http://host.docker.internal:11434/api
   MODEL_NAME: ${FC_MODEL_NAME:-qwen3:30b-a3b}
   LOGGING_LEVEL: ${FC_LOG_LEVEL:-info}
