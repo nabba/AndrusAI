@@ -103,10 +103,14 @@ def chunk_text(
         if chunk:
             chunks.append((chunk, start))
 
+        # Advance start with overlap, ensuring we always move forward
+        prev_start = start
         start = best_split - overlap_chars
         if start < 0:
             start = 0
-        if start >= best_split:
+        # CRITICAL: start must advance past previous start to avoid infinite loop
+        # This can happen when overlap_chars > chunk_size_chars
+        if start <= prev_start:
             start = best_split
 
     return chunks

@@ -877,6 +877,33 @@ def run_evolution_session(max_iterations: int = 5) -> str:
             + _ctl_report
         )
 
+        # Record evolution session in activity journal
+        try:
+            from app.self_awareness.journal import get_journal, JournalEntry, JournalEntryType
+            get_journal().write(JournalEntry(
+                entry_type=JournalEntryType.EVOLUTION_RESULT,
+                summary=f"Evolution: {kept} kept, {discarded} discarded, {crashed} crashed",
+                agents_involved=["self_improvement"],
+                outcome="kept" if kept > 0 else "no_improvement",
+                details={"kept": kept, "discarded": discarded, "crashed": crashed,
+                          "iterations": max_iterations},
+            ))
+        except Exception:
+            pass
+
+        # Store causal belief about evolution effectiveness
+        try:
+            from app.self_awareness.world_model import store_causal_belief
+            if kept > 0:
+                store_causal_belief(
+                    cause=f"Evolution session with {max_iterations} iterations",
+                    effect=f"{kept} improvements kept (ratio={kept/max(1,max_iterations):.2f})",
+                    confidence="medium",
+                    source="evolution_session",
+                )
+        except Exception:
+            pass
+
         tracker = stop_request_tracking()
         _tokens = tracker.total_tokens if tracker else 0
         _model = ", ".join(sorted(tracker.models_used)) if tracker and tracker.models_used else ""

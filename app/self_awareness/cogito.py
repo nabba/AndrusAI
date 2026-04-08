@@ -114,6 +114,36 @@ class CogitoCycle:
                     f"discrepancies={len(report.discrepancies)}, "
                     f"proposals={len(report.improvement_proposals)}")
 
+        # Record reflection in activity journal
+        try:
+            from app.self_awareness.journal import get_journal, JournalEntry, JournalEntryType
+            get_journal().write(JournalEntry(
+                entry_type=JournalEntryType.SELF_REFLECTION,
+                summary=f"Cogito reflection: health={report.overall_health}",
+                agents_involved=["introspector"],
+                outcome=report.overall_health,
+                details={
+                    "discrepancies": len(report.discrepancies),
+                    "failure_patterns": len(report.failure_patterns),
+                    "proposals": len(report.improvement_proposals),
+                },
+            ))
+        except Exception:
+            pass
+
+        # Store causal observations in world model
+        try:
+            from app.self_awareness.world_model import store_causal_belief
+            for pattern in report.failure_patterns[:3]:
+                store_causal_belief(
+                    cause=pattern.get("pattern", "unknown"),
+                    effect=f"Detected {pattern.get('count', 0)} times — {pattern.get('recommendation', 'needs investigation')}",
+                    confidence="high" if pattern.get("count", 0) >= 3 else "medium",
+                    source="cogito_reflection",
+                )
+        except Exception:
+            pass
+
         return report
 
     def _gather_state(self) -> dict:
