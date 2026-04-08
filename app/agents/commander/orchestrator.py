@@ -774,6 +774,20 @@ class Commander:
             else:
                 _proactive_notes = ""
             final_result = _vet_future.result(timeout=30)
+
+            # Critic review for high-difficulty tasks (≥7) — adversarial quality gate
+            if difficulty >= 7:
+                try:
+                    from app.crews.critic_crew import CriticCrew
+                    final_result = CriticCrew().review(
+                        original_task=user_input,
+                        crew_output=final_result,
+                        crew_used=crew_name,
+                        difficulty=difficulty,
+                    )
+                except Exception:
+                    logger.debug("Critic review failed (non-blocking)", exc_info=True)
+
             if _proactive_notes:
                 final_result += "\n\n---\n" + _proactive_notes
             _proactive_done = True
@@ -869,6 +883,19 @@ class Commander:
                 user_input, combined, crew_names,
                 difficulty=max_diff, model_tier=get_last_tier() or "unknown",
             )
+
+            # Critic review for multi-crew high-difficulty results
+            if max_diff >= 7:
+                try:
+                    from app.crews.critic_crew import CriticCrew
+                    final_result = CriticCrew().review(
+                        original_task=user_input,
+                        crew_output=final_result,
+                        crew_used=crew_names,
+                        difficulty=max_diff,
+                    )
+                except Exception:
+                    logger.debug("Critic review failed (non-blocking)", exc_info=True)
 
         # ── Step 3: Log request cost ───────────────────────────────────────
         cost_tracker = stop_request_tracking()
