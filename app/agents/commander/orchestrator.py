@@ -751,6 +751,22 @@ class Commander:
             difficulty = d.get("difficulty", 5)
             tracker.crew_name = crew_name
 
+            # Fire ON_DELEGATION lifecycle hook for per-crew analytics
+            try:
+                from app.lifecycle_hooks import get_registry, HookPoint, HookContext
+                _hook_ctx = HookContext(
+                    hook_point=HookPoint.ON_DELEGATION,
+                    agent_id="commander",
+                    task_description=user_input[:200],
+                    data={},
+                    modified_data={},
+                    metadata={"crew": crew_name, "difficulty": difficulty},
+                    abort=False, abort_reason="", errors=[],
+                )
+                get_registry().execute(HookPoint.ON_DELEGATION, _hook_ctx)
+            except Exception:
+                pass
+
             # ATLAS: for hard tasks, check competence and queue learning if needed
             if difficulty >= 6:
                 try:

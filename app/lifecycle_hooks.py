@@ -520,4 +520,38 @@ def _register_defaults(registry: HookRegistry) -> None:
     except Exception:
         logger.debug("lifecycle_hooks: history compression hook not available", exc_info=True)
 
+    # Priority 70: Delegation tracking — log when Commander delegates to crews
+    def _on_delegation_hook(ctx: HookContext) -> HookContext:
+        crew = ctx.metadata.get("crew", "")
+        difficulty = ctx.metadata.get("difficulty", 0)
+        task_preview = (ctx.task_description or "")[:100]
+        try:
+            from app.control_plane.audit import get_audit
+            get_audit().log(
+                actor="commander",
+                action="crew.delegated",
+                resource_type="crew",
+                resource_id=crew,
+                detail={
+                    "crew": crew,
+                    "difficulty": difficulty,
+                    "task": task_preview,
+                },
+            )
+        except Exception:
+            pass
+        # Also update agent_state timing
+        try:
+            import time as _t
+            ctx.metadata["delegation_ts"] = _t.monotonic()
+        except Exception:
+            pass
+        return ctx
+    registry.register(
+        "delegation_tracking", HookPoint.ON_DELEGATION,
+        _on_delegation_hook,
+        priority=70,
+        description="Track crew delegations for per-crew analytics and audit",
+    )
+
     logger.info(f"lifecycle_hooks: registered {len(registry.list_hooks())} default hooks")
