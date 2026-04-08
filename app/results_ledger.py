@@ -83,6 +83,26 @@ def record_experiment(
         except OSError:
             logger.warning("Failed to write to results ledger", exc_info=True)
 
+    # Dual-write to control_plane audit log for unified tracking
+    try:
+        from app.control_plane.audit import get_audit
+        get_audit().log(
+            actor="evolution",
+            action=f"experiment.{status}",
+            resource_type="experiment",
+            resource_id=experiment_id,
+            detail={
+                "hypothesis": hypothesis[:200],
+                "change_type": change_type,
+                "delta": round(delta, 6),
+                "metric_before": round(metric_before, 6),
+                "metric_after": round(metric_after, 6),
+                "files": files_changed[:5] if files_changed else [],
+            },
+        )
+    except Exception:
+        pass
+
 
 def get_recent_results(n: int = 20) -> list[dict]:
     """Return the last n experiment results as dicts."""

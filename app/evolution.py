@@ -629,20 +629,25 @@ def run_evolution_session(max_iterations: int = 5) -> str:
     except Exception:
         _evo_controller = None
 
-    # DGM-DB: Create evolution run record in PostgreSQL
+    # Create evolution run record in PostgreSQL (always, not gated by env var)
     dgm_run_id = None
-    if os.environ.get("EVOLUTION_USE_DGM_DB", "false").lower() == "true":
-        try:
-            from app.evolution_db.archive_db import create_run
-            dgm_run_id = create_run(
-                agent_name="system",
-                target_type="mixed",
-                max_generations=max_iterations,
-                config={"avo_enabled": True, "rate_limit": _MAX_DAILY_PROMOTIONS},
-            )
-            logger.info(f"DGM-DB: evolution run {dgm_run_id[:8]}")
-        except Exception as e:
-            logger.debug(f"DGM-DB: failed to create run: {e}")
+    try:
+        from app.evolution_db.archive_db import create_run
+        ctl_stats = _evo_controller.get_stats() if _evo_controller else {}
+        dgm_run_id = create_run(
+            agent_name="system",
+            target_type="mixed",
+            max_generations=max_iterations,
+            config={
+                "avo_enabled": True,
+                "rate_limit": _MAX_DAILY_PROMOTIONS,
+                "exploration_rate": ctl_stats.get("exploration_rate", 0),
+                "phase": ctl_stats.get("ensemble", {}).get("phase", "unknown"),
+            },
+        )
+        logger.info(f"Evolution run {dgm_run_id[:8]} created in PostgreSQL")
+    except Exception as e:
+        logger.debug(f"Failed to create evolution run in PG: {e}")
 
     try:
         for i in range(max_iterations):
@@ -760,12 +765,12 @@ def run_evolution_session(max_iterations: int = 5) -> str:
             except Exception:
                 logger.debug("Failed to store evo_memory", exc_info=True)
 
-            # DGM-DB: Store variant in PostgreSQL archive + run LLM judge
-            if os.environ.get("EVOLUTION_USE_DGM_DB", "false").lower() == "true":
+            # Store variant in PostgreSQL archive + run LLM judge for kept variants
+            if dgm_run_id:
                 try:
                     _store_dgm_variant(mutation, result, dgm_run_id, i)
                 except Exception:
-                    logger.debug("DGM-DB: failed to store variant", exc_info=True)
+                    logger.debug("Failed to store variant in PG", exc_info=True)
 
             # Self-supervision: check for stagnation and cycles every 3 iterations
             if i > 0 and (i + 1) % 3 == 0:
