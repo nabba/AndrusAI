@@ -112,9 +112,30 @@ def select_model(
         tier_candidates = get_candidates_by_tier(task_type, [force_tier])
         if tier_candidates:
             forced = tier_candidates[0][0]
-            if _model_available(forced, settings, max_ram_gb):
-                logger.info(f"llm_selector: force_tier={force_tier} → {forced}")
-                return forced
+            # Tool-use compatibility check — even force_tier must respect this
+            _ROLES_NEEDING_TOOLS_EARLY = {"coding", "research", "writing", "media", "self_improve", "critic"}
+            if role in _ROLES_NEEDING_TOOLS_EARLY:
+                forced_entry = _cached_get_model(forced)
+                if forced_entry and forced_entry.get("supports_tools") is False:
+                    # Skip this candidate, find another in same tier that supports tools
+                    for name, _score in tier_candidates[1:]:
+                        alt_entry = _cached_get_model(name)
+                        if alt_entry and alt_entry.get("supports_tools") is not False:
+                            if _model_available(name, settings, max_ram_gb):
+                                logger.info(f"llm_selector: force_tier={force_tier}, "
+                                            f"{forced} no tools → {name}")
+                                return name
+                    # No tool-capable model in this tier — fall through to normal selection
+                    logger.info(f"llm_selector: force_tier={force_tier} has no tool-capable model, "
+                                f"falling through to normal selection for role={role}")
+                else:
+                    if _model_available(forced, settings, max_ram_gb):
+                        logger.info(f"llm_selector: force_tier={force_tier} → {forced}")
+                        return forced
+            else:
+                if _model_available(forced, settings, max_ram_gb):
+                    logger.info(f"llm_selector: force_tier={force_tier} → {forced}")
+                    return forced
 
     # Step 4: Benchmark adjustment
     bench_scores = get_scores(task_type)
