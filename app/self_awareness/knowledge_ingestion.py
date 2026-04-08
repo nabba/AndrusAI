@@ -142,8 +142,8 @@ def ingest_codebase(full: bool = False) -> dict:
     Returns: {files_processed, chunks_added, files_skipped}
     """
     try:
-        import chromadb
-        client = chromadb.HttpClient(host="chromadb", port=8000)
+        from app.memory.chromadb_manager import get_client
+        client = get_client()
         collection = client.get_or_create_collection(
             COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},
@@ -228,8 +228,8 @@ def ingest_codebase(full: bool = False) -> dict:
 def query_self_knowledge(query: str, n_results: int = 5) -> list[dict]:
     """Search the self_knowledge collection."""
     try:
-        import chromadb
-        client = chromadb.HttpClient(host="chromadb", port=8000)
+        from app.memory.chromadb_manager import get_client
+        client = get_client()
         collection = client.get_or_create_collection(COLLECTION_NAME)
         if collection.count() == 0:
             return []

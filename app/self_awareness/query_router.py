@@ -66,15 +66,25 @@ _OPERATION_PATTERNS = [
     r"\bare\s+you\s+(?:able|capable|equipped)\b",
     r"\byour\s+(?:last|recent|previous)\s+(?:task|execution|run|output)\b",
     r"\bwhat\s+(?:tools?|capabilities?)\s+do\s+you\s+have\b",
-    r"\bhow\s+do\s+you\s+(?:remember|store|retrieve|think|reason|decide)\b",
+    r"\bhow\s+do\s+you\s+(?:remember|store|retrieve|think|reason|decide|process|work)\b",
+    r"\bhow\s+do\s+you\s+(?:handle|route|dispatch|select|choose)\b",
+    r"\bwhat\s+(?:crews?|agents?)\s+(?:do\s+you|are)\s+(?:have|use|using|available)\b",
+    r"\bwhat\s+happens\s+when\s+(?:you|I)\b",
+    r"\bexplain\s+(?:how\s+you|your)\b",
 ]
 
 _REFLECTIVE_PATTERNS = [
     r"\bwhat\s+are\s+your\s+(?:weaknesses?|strengths?|limitations?|flaws?)\b",
-    r"\bhow\s+have\s+you\s+(?:evolved|changed|improved|grown)\b",
+    r"\bhow\s+have\s+you\s+(?:evolved|changed|improved|grown|learned)\b",
+    r"\bhow\s+do\s+you\s+(?:learn|improve|evolve|grow|train|self[-_]?improve)\b",
+    r"\bwhat\s+have\s+you\s+(?:learned|improved|changed|discovered)\b",
     r"\bwhat\s+would\s+you\s+(?:change|improve|fix)\s+about\s+yourself\b",
     r"\breflect\s+on\s+(?:yourself|your)\b", r"\bself[-_]?(?:assess|evaluate|critique)\b",
     r"\bare\s+you\s+(?:aware|conscious|sentient)\b", r"\byour\s+(?:identity|self[-_]?model)\b",
+    r"\bdo\s+you\s+(?:learn|remember|forget|make\s+mistakes|have\s+feelings)\b",
+    r"\bwhat\s+do\s+you\s+(?:think|know|believe)\s+about\s+yourself\b",
+    r"\byour\s+(?:mistakes|errors|failures|successes|achievements|progress)\b",
+    r"\bhow\s+(?:smart|intelligent|capable)\s+are\s+you\b",
 ]
 
 _COMPARATIVE_PATTERNS = [
