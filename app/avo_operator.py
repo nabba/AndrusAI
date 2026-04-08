@@ -71,17 +71,22 @@ def _phase_planning(
     prompt += (
         "## Your Task\n"
         "1. Identify the HIGHEST-IMPACT improvement opportunity:\n"
-        "   - Recurring errors → CODE fix (highest priority)\n"
-        "   - Missing domain knowledge → SKILL file\n"
-        "   - Capability gaps → CODE for new tools/features\n"
+        "   - Recurring errors with traceback → CODE fix (HIGHEST priority)\n"
+        "   - Performance bottleneck → CODE optimization\n"
+        "   - Missing domain knowledge → SKILL file (only if no code fix is possible)\n"
+        "   - New capability needed → CODE for new tools/features\n"
         "2. Form a specific, testable hypothesis\n"
         "3. Check evolutionary memory — do NOT repeat past failures\n"
-        "4. Prefer SIMPLICITY — removing complexity IS an improvement\n\n"
+        "4. Prefer CODE changes over SKILL files — skills teach, code FIXES\n"
+        "5. For code changes, specify the EXACT file path (e.g. 'app/tools/web_search.py')\n\n"
+        "IMPORTANT: If error patterns exist in the system state, choose change_type='code'\n"
+        "and target the file where the error originates. You will receive the current\n"
+        "file contents in the next phase so you can make precise modifications.\n\n"
         "Respond with ONLY this JSON:\n"
         '{"hypothesis": "what to improve and why",\n'
         ' "approach": "specific technical approach",\n'
         ' "change_type": "skill" or "code",\n'
-        ' "target_files": ["path/to/file"]}\n'
+        ' "target_files": ["app/path/to/file.py"]}\n'
     )
 
     try:
@@ -112,6 +117,42 @@ def _phase_planning(
             return None
 
     return plan
+
+
+# ── File reading for code context ────────────────────────────────────────────
+
+def _read_target_files(target_files: list[str]) -> dict[str, str]:
+    """Read current contents of target files for code mutation context.
+
+    Returns {file_path: content} for files that exist.
+    Resolves paths relative to /app/ (the container root).
+    Skips protected files and non-existent paths.
+    """
+    from app.auto_deployer import PROTECTED_FILES
+
+    result = {}
+    for fpath in target_files[:5]:  # Cap at 5 files
+        # Normalize path
+        if not fpath.startswith("app/"):
+            fpath = f"app/{fpath}" if not fpath.startswith("/") else fpath
+        full = Path(f"/app/{fpath}") if not fpath.startswith("/") else Path(fpath)
+
+        # Skip protected files
+        if fpath in PROTECTED_FILES:
+            logger.debug(f"AVO: skipping protected file {fpath}")
+            continue
+
+        # Read if exists
+        try:
+            if full.exists() and full.is_file() and full.suffix == ".py":
+                content = full.read_text(errors="replace")
+                if len(content) > 0:
+                    result[fpath] = content
+                    logger.debug(f"AVO: read {fpath} ({len(content)} chars)")
+        except Exception:
+            pass
+
+    return result
 
 
 # ── Phase 2: Implementation ──────────────────────────────────────────────────
@@ -149,16 +190,33 @@ def _phase_implementation(plan: dict, repair_errors: Optional[list] = None) -> O
             fname = f"skills/{slug}.md"
         prompt += f"\nFile path: {fname}\n"
     else:
+        # Read current contents of target files so the LLM modifies real code
+        existing_code = _read_target_files(target_files)
+
         prompt = (
-            "You are generating a CODE CHANGE for an autonomous AI agent team.\n\n"
+            "You are generating a CODE CHANGE for an autonomous AI agent team.\n"
+            "You MUST return the COMPLETE file contents (not a diff or partial).\n\n"
             f"## Hypothesis\n{hypothesis}\n\n"
             f"## Approach\n{approach}\n\n"
             f"## Target files\n{', '.join(target_files)}\n\n"
+        )
+
+        if existing_code:
+            prompt += "## Current file contents (MODIFY these, don't write from scratch)\n"
+            for fpath, content in existing_code.items():
+                # Truncate large files to focus on relevant parts
+                truncated = content[:3000] if len(content) > 3000 else content
+                prompt += f"\n### {fpath}\n```python\n{truncated}\n```\n"
+            prompt += "\n"
+
+        prompt += (
             "## Requirements\n"
+            "- Return the COMPLETE modified file (not just changed lines)\n"
+            "- Preserve all existing functionality — only add/fix what the hypothesis requires\n"
             "- Write clean, working Python code\n"
             "- Do NOT use dangerous imports (subprocess, os, sys, etc.)\n"
             "- Do NOT modify protected files\n"
-            "- Include only necessary changes\n"
+            "- Keep changes minimal and focused\n"
         )
 
     if repair_errors:
