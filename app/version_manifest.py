@@ -244,24 +244,32 @@ def _current_version() -> str:
 
 
 def _snapshot_code() -> dict:
-    """Capture git state."""
-    try:
-        sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=5, cwd="/app",
-        ).stdout.strip()
-        branch = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=5, cwd="/app",
-        ).stdout.strip()
-        # Check for uncommitted changes
-        dirty = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True, text=True, timeout=5, cwd="/app",
-        ).stdout.strip()
-        return {"git_sha": sha, "branch": branch, "dirty": bool(dirty)}
-    except Exception:
-        return {"git_sha": "unknown", "branch": "unknown", "dirty": True}
+    """Capture git state. Tries /app first, then /app/workspace (mounted volume)."""
+    for cwd in ["/app", "/app/workspace"]:
+        try:
+            sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True, text=True, timeout=5, cwd=cwd,
+            ).stdout.strip()
+            if sha:
+                branch = subprocess.run(
+                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                    capture_output=True, text=True, timeout=5, cwd=cwd,
+                ).stdout.strip()
+                dirty = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    capture_output=True, text=True, timeout=5, cwd=cwd,
+                ).stdout.strip()
+                return {"git_sha": sha, "branch": branch, "dirty": bool(dirty)}
+        except Exception:
+            continue
+
+    # Fallback: read from BUILD_SHA env var or Dockerfile label
+    build_sha = os.environ.get("BUILD_SHA", "")
+    if build_sha:
+        return {"git_sha": build_sha, "branch": "main", "dirty": False}
+
+    return {"git_sha": "unknown", "branch": "unknown", "dirty": True}
 
 
 def _snapshot_prompts() -> dict:
@@ -321,10 +329,14 @@ def _snapshot_config_values() -> dict:
 
 
 def _hash_chromadb() -> dict:
-    """Hash of ChromaDB collection metadata (not full embeddings)."""
+    """Hash of ChromaDB collection metadata (not full embeddings).
+
+    Uses PersistentClient (same as rest of system) — avoids the
+    HttpClient API version mismatch with chromadb server 0.5.23.
+    """
     try:
-        import chromadb
-        client = chromadb.HttpClient(host="chromadb", port=8000)
+        from app.memory.chromadb_manager import get_client
+        client = get_client()
         collections = client.list_collections()
         hashes = {}
         for col in collections:
@@ -333,43 +345,57 @@ def _hash_chromadb() -> dict:
                 "count": count,
                 "hash": hashlib.sha256(f"{col.name}:{count}".encode()).hexdigest()[:16],
             }
-        return {"collections": hashes}
+        return {"collections": hashes, "total_collections": len(hashes)}
     except Exception:
         return {"collections": {}}
 
 
 def _snapshot_mem0(ts_str: str) -> dict:
-    """Create PostgreSQL snapshot of mem0 + feedback + modification schemas."""
-    snapshot_dir = SNAPSHOTS_DIR / "mem0" / ts_str
-    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    """Capture PostgreSQL state metadata via psycopg2 query.
 
+    Uses direct SQL queries instead of pg_dump (which isn't in the slim image).
+    Records row counts per schema/table for snapshot comparison.
+    """
     try:
         from app.config import get_settings
+        import psycopg2
         s = get_settings()
         pg_url = s.mem0_postgres_url
         if not pg_url:
             return {"snapshot_id": "", "error": "no postgres URL"}
 
-        # pg_dump via subprocess (postgres is on internal network)
-        dump_path = snapshot_dir / "mem0_dump.sql"
-        result = subprocess.run(
-            ["pg_dump", "-h", s.mem0_postgres_host, "-p", str(s.mem0_postgres_port),
-             "-U", s.mem0_postgres_user, "-d", s.mem0_postgres_db,
-             "--no-password", "-f", str(dump_path)],
-            capture_output=True, text=True, timeout=60,
-            env={**os.environ, "PGPASSWORD": s.mem0_postgres_password.get_secret_value()},
-        )
-        if result.returncode == 0:
-            return {
-                "snapshot_id": ts_str,
-                "dump_path": str(dump_path),
-                "size_bytes": dump_path.stat().st_size,
-            }
-        else:
-            # pg_dump may not be available in the container — fall back to
-            # noting the state without a dump
-            logger.debug(f"pg_dump unavailable or failed: {result.stderr[:200]}")
-            return {"snapshot_id": ts_str, "method": "metadata_only"}
+        conn = psycopg2.connect(pg_url)
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            # Get row counts per table across all application schemas
+            cur.execute("""
+                SELECT schemaname, tablename
+                FROM pg_tables
+                WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY schemaname, tablename
+            """)
+            tables = cur.fetchall()
+
+            table_counts = {}
+            total_rows = 0
+            for schema, table in tables:
+                try:
+                    cur.execute(f"SELECT COUNT(*) FROM {schema}.{table}")
+                    count = cur.fetchone()[0]
+                    table_counts[f"{schema}.{table}"] = count
+                    total_rows += count
+                except Exception:
+                    table_counts[f"{schema}.{table}"] = -1
+
+        conn.close()
+
+        return {
+            "snapshot_id": ts_str,
+            "method": "row_counts",
+            "total_tables": len(table_counts),
+            "total_rows": total_rows,
+            "tables": table_counts,
+        }
     except Exception as e:
         return {"snapshot_id": ts_str, "error": str(e)[:200]}
 
