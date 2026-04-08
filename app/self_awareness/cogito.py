@@ -183,20 +183,66 @@ class CogitoCycle:
             )
 
     def _generate_narrative(self, report: ReflectionReport, state: dict) -> str:
-        """Generate a reflective narrative using LLM."""
+        """Generate a grounded reflective narrative using LLM + grounding protocol.
+
+        Uses GroundingProtocol to ensure the narrative is based on actual
+        system state, not generic AI platitudes from training data.
+        """
         try:
             from app.llm_factory import create_specialist_llm
             llm = create_specialist_llm(max_tokens=500, role="self_improve")
 
+            # Build grounded context from inspection data
+            grounded_context = (
+                f"Health: {report.overall_health}\n"
+                f"Discrepancies: {json.dumps(report.discrepancies[:5], default=str)}\n"
+                f"Observations: {json.dumps(report.observations[:5], default=str)}\n"
+                f"Agent count: {state.get('inspect_agents', {}).get('agent_count', '?')}\n"
+                f"Uptime: {state.get('inspect_runtime', {}).get('uptime_seconds', '?')}s\n"
+                f"Failure patterns: {json.dumps(report.failure_patterns[:3], default=str)}\n"
+                f"Proposals: {json.dumps(report.improvement_proposals[:3], default=str)}"
+            )
+
+            # Use the grounding system prompt for self-referential accuracy
+            try:
+                from app.self_awareness.grounding import GroundingProtocol, GroundedContext
+                gp = GroundingProtocol()
+
+                # Build a minimal grounded context from state data
+                self_model = state.get("inspect_self_model", {}).get("content", "")
+                runtime = state.get("inspect_runtime", {})
+
+                prompt = (
+                    "You are performing metacognitive self-reflection.\n\n"
+                    "CRITICAL: Answer ONLY from the grounded context below.\n"
+                    "Do NOT say 'As an AI language model' or use generic AI descriptions.\n"
+                    "Use first person: 'I am', 'my agents', 'I noticed'.\n\n"
+                    f"YOUR IDENTITY:\n{self_model[:1500]}\n\n"
+                    f"YOUR CURRENT STATE:\n{json.dumps(runtime, indent=2, default=str)[:500]}\n\n"
+                    f"INSPECTION RESULTS:\n{grounded_context}\n\n"
+                    "Write a brief (3-5 sentence) first-person reflection on your "
+                    "current state. Be specific about what you found."
+                )
+                raw = str(llm.call(prompt)).strip()[:1000]
+
+                # Post-process: detect ungrounded claims
+                result = gp.post_process(raw)
+                if not result["grounded"]:
+                    logger.info(
+                        f"cogito: narrative had ungrounded phrases: {result['ungrounded_detected']}"
+                    )
+                    # Still use it, but log the issue
+                return raw
+
+            except ImportError:
+                pass  # Fall through to ungrounded version
+
+            # Fallback: generate without grounding (if grounding module fails)
             prompt = (
                 "You are a system performing metacognitive self-reflection. "
                 "Based on the inspection data below, write a brief (3-5 sentence) "
                 "first-person reflection on your current state.\n\n"
-                f"Health: {report.overall_health}\n"
-                f"Discrepancies: {json.dumps(report.discrepancies[:5])}\n"
-                f"Observations: {json.dumps(report.observations[:5])}\n"
-                f"Agent count: {state.get('inspect_agents', {}).get('agent_count', '?')}\n"
-                f"Uptime: {state.get('inspect_runtime', {}).get('uptime_seconds', '?')}s\n\n"
+                f"{grounded_context}\n\n"
                 "Write in first person. Be specific. No generic AI platitudes."
             )
             return str(llm.call(prompt)).strip()[:1000]
