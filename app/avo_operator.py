@@ -56,6 +56,8 @@ def _phase_planning(
     Returns dict with keys: hypothesis, approach, change_type, target_files.
     Returns None if planning fails.
     """
+    # Planning needs strong reasoning — use architecture role (routes to mid-tier)
+    # This is the most important phase: bad plans waste all subsequent phases
     llm = create_specialist_llm(max_tokens=2048, role="architecture")
 
     prompt = (
@@ -147,7 +149,7 @@ def _read_target_files(target_files: list[str]) -> dict[str, str]:
             if full.exists() and full.is_file() and full.suffix == ".py":
                 content = full.read_text(errors="replace")
                 if len(content) > 0:
-                    result[fpath] = content
+                    result[fpath] = content[:8000]  # 8K chars covers most files fully
                     logger.debug(f"AVO: read {fpath} ({len(content)} chars)")
         except Exception:
             pass
@@ -162,7 +164,9 @@ def _phase_implementation(plan: dict, repair_errors: Optional[list] = None) -> O
 
     Returns dict {file_path: content} or None on failure.
     """
-    llm = create_specialist_llm(max_tokens=4096, role="coding")
+    # Use local gemma4:26b for code generation — free, 256K context, strong coding (0.82)
+    # force_tier="local" ensures we use the local model for background evolution work
+    llm = create_specialist_llm(max_tokens=8192, role="coding", force_tier="local")
 
     change_type = plan.get("change_type", "skill")
     hypothesis = plan.get("hypothesis", "")
@@ -204,8 +208,7 @@ def _phase_implementation(plan: dict, repair_errors: Optional[list] = None) -> O
         if existing_code:
             prompt += "## Current file contents (MODIFY these, don't write from scratch)\n"
             for fpath, content in existing_code.items():
-                # Truncate large files to focus on relevant parts
-                truncated = content[:3000] if len(content) > 3000 else content
+                truncated = content  # Already capped at 8K in _read_target_files
                 prompt += f"\n### {fpath}\n```python\n{truncated}\n```\n"
             prompt += "\n"
 
