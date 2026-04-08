@@ -186,23 +186,34 @@ class SearchInput(BaseModel):
 def firecrawl_search(query: str, limit: int = 5) -> str:
     """Search the web and return full page content (not just snippets).
 
-    NOTE: Requires SearXNG or SERPER_API_KEY configured on the Firecrawl instance.
+    Uses Firecrawl v1 search API with SearXNG backend.
     """
     limit = min(max(limit, 1), 10)
     client = get_firecrawl_client()
     if not client:
         return "Firecrawl not available. Use web_search tool instead."
+
+    # Use direct HTTP to v1/search (SDK v2 may hit v2 endpoint which doesn't exist self-hosted)
     try:
-        results = client.search(query, limit=limit)
-        data = getattr(results, "data", []) or []
+        import httpx
+        api_url = os.getenv("FIRECRAWL_API_URL", "http://firecrawl-api:3002")
+        resp = httpx.post(
+            f"{api_url}/v1/search",
+            json={"query": query, "limit": limit},
+            headers={"Authorization": f"Bearer {os.getenv('FIRECRAWL_API_KEY', 'self-hosted')}"},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return f"Search error: HTTP {resp.status_code}"
+
+        data = resp.json().get("data", [])
         output_parts = [f"Search results for: '{query}'\n"]
 
         for i, item in enumerate(data):
-            meta = getattr(item, "metadata", None)
-            title = getattr(meta, "title", f"Result {i+1}") if meta else getattr(item, "title", f"Result {i+1}")
-            item_url = getattr(meta, "source_url", "") if meta else getattr(item, "url", "")
-            content = (getattr(item, "markdown", "") or "")[:2000]
-            output_parts.append(f"\n---\n### [{i+1}] {title}\nURL: {item_url}\n\n{content}")
+            title = item.get("title", item.get("metadata", {}).get("title", f"Result {i+1}"))
+            url = item.get("url", item.get("metadata", {}).get("sourceURL", ""))
+            content = item.get("markdown", "")[:2000]
+            output_parts.append(f"\n---\n### [{i+1}] {title}\nURL: {url}\n\n{content}")
 
         return "\n".join(output_parts)
     except Exception as e:

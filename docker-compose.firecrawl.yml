@@ -21,8 +21,23 @@ x-common-env: &common-env
   MODEL_NAME: ${FC_MODEL_NAME:-qwen3:30b-a3b}
   LOGGING_LEVEL: ${FC_LOG_LEVEL:-info}
   BULL_AUTH_KEY: ${FC_BULL_AUTH_KEY:-fc-bull-auth-botarmy}
+  # SearXNG self-hosted search (free, unlimited, no API key)
+  SEARXNG_ENDPOINT: http://searxng:8080
 
 services:
+  searxng:
+    image: searxng/searxng:latest
+    networks:
+      - firecrawl-backend
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    restart: unless-stopped
+
   firecrawl-api:
     image: ghcr.io/firecrawl/firecrawl:latest
     env_file: .env

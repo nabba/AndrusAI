@@ -1,0 +1,47 @@
+# SearXNG settings for AndrusAI Firecrawl integration
+# Minimal config — JSON API enabled, no public UI needed
+
+use_default_settings: true
+
+server:
+  secret_key: "andrusai-searxng-secret-key-change-in-prod"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json  # Required for Firecrawl API access
+
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: false
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+  - name: stackoverflow
+    engine: stackoverflow
+    shortcut: so
+    disabled: false
+  - name: arxiv
+    engine: arxiv
+    shortcut: ar
+    disabled: false
