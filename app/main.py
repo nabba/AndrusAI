@@ -293,6 +293,15 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("Prompt registry initialization failed (non-fatal)", exc_info=True)
 
+    # Seed eval sets for evolution benchmarks (coder_v1, researcher_v1, writer_v1)
+    try:
+        from app.evolution_db.eval_sets import seed_default_eval_sets
+        created = await asyncio.to_thread(seed_default_eval_sets)
+        if created:
+            logger.info(f"Seeded {created} evolution eval sets")
+    except Exception:
+        logger.debug("Eval set seeding failed (non-fatal)", exc_info=True)
+
     # Initialize version manifest — create initial manifest if none exists
     try:
         from app.version_manifest import get_current_manifest, create_manifest, MANIFESTS_DIR

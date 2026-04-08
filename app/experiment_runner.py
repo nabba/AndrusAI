@@ -78,11 +78,28 @@ class ExperimentRunner:
         """
         logger.info(f"Experiment {mutation.experiment_id}: {mutation.hypothesis}")
 
-        # 1. Measure baseline
+        # 1. Measure baseline (system-level + task-level if eval set available)
         try:
             baseline = composite_score()
         except Exception:
             baseline = 0.5  # fallback if metrics fail
+
+        # Eval set baseline for the target agent (if applicable)
+        _eval_baseline = -1.0
+        _agent_role = ""
+        for f in (mutation.files or []):
+            fp = f.get("path", "") if isinstance(f, dict) else str(f)
+            if "researcher" in fp or "research" in fp:
+                _agent_role = "researcher"
+            elif "coder" in fp or "coding" in fp:
+                _agent_role = "coder"
+            elif "writer" in fp or "writing" in fp:
+                _agent_role = "writer"
+        if _agent_role:
+            try:
+                _eval_baseline = eval_set_score(_agent_role, sample_size=3)
+            except Exception:
+                pass
 
         # 2. Pre-validate (AST + safety checks before touching filesystem)
         pre_ok, pre_msg = self._pre_validate(mutation)
@@ -141,13 +158,26 @@ class ExperimentRunner:
         # 4. Validate the mutation (lightweight checks)
         validation_ok, validation_msg = self._validate_mutation(mutation, applied_files)
 
-        # 5. Measure after
+        # 5. Measure after (system-level + task-level)
         try:
             after = composite_score()
         except Exception:
             after = baseline  # if metrics fail, treat as no change
 
         delta = after - baseline
+
+        # Eval set after — blends task-level quality into the delta
+        if _eval_baseline >= 0 and _agent_role:
+            try:
+                _eval_after = eval_set_score(_agent_role, sample_size=3)
+                if _eval_after >= 0:
+                    # Blend: 70% system metric + 30% eval set
+                    eval_delta = _eval_after - _eval_baseline
+                    delta = delta * 0.7 + eval_delta * 0.3
+                    logger.info(f"Experiment: eval_set delta={eval_delta:+.4f} "
+                                f"(baseline={_eval_baseline:.3f}, after={_eval_after:.3f})")
+            except Exception:
+                pass
 
         # 6. Keep/discard decision
         # For skill mutations: keep if score didn't decrease
@@ -375,6 +405,121 @@ def compute_eval_hash() -> str:
     except OSError:
         pass
     return h.hexdigest()[:16]
+
+
+def eval_set_score(agent_name: str, sample_size: int = 3) -> float:
+    """Run a sample of eval set tasks and return average score.
+
+    Uses per-agent eval sets from evolution.eval_sets (PostgreSQL).
+    Scores each task with an external LLM judge (DGM compliant).
+    Returns 0.0-1.0 score, or -1.0 if eval sets unavailable.
+
+    This provides a task-level quality signal complementing the
+    system-level composite_score() metric.
+    """
+    try:
+        from app.evolution_db.eval_sets import load_eval_set
+    except ImportError:
+        return -1.0
+
+    import random
+
+    # Map agent names to eval set names
+    eval_set_map = {
+        "coder": "coder_v1", "coding": "coder_v1",
+        "researcher": "researcher_v1", "research": "researcher_v1",
+        "writer": "writer_v1", "writing": "writer_v1",
+    }
+    set_name = eval_set_map.get(agent_name)
+    if not set_name:
+        return -1.0
+
+    eval_set = load_eval_set(set_name)
+    if not eval_set:
+        return -1.0
+
+    tasks = eval_set.get("tasks", [])
+    rubric = eval_set.get("rubric", {})
+    if not tasks:
+        return -1.0
+
+    # Sample a subset to keep evaluation fast
+    sample = random.sample(tasks, min(sample_size, len(tasks)))
+
+    # Get the agent's LLM to generate responses
+    try:
+        from app.llm_factory import create_specialist_llm
+        from app.prompt_registry import get_active_prompt
+        agent_llm = create_specialist_llm(max_tokens=1024, role=agent_name)
+        agent_prompt = get_active_prompt(agent_name) or ""
+    except Exception:
+        return -1.0
+
+    # Get a DIFFERENT LLM as judge (DGM constraint)
+    try:
+        from app.llm_factory import create_vetting_llm
+        judge_llm = create_vetting_llm()
+    except Exception:
+        return -1.0
+
+    scores = []
+    for task in sample:
+        try:
+            # Generate response from the agent's LLM
+            response = str(agent_llm.call(
+                f"{agent_prompt[:1500]}\n\n{task['description']}"
+            )).strip()
+
+            if not response or len(response) < 10:
+                scores.append(0.0)
+                continue
+
+            # Basic validation
+            validation = task.get("validation", "")
+            if validation.startswith("contains:"):
+                keyword = validation.split(":", 1)[1]
+                if keyword not in response:
+                    scores.append(0.2)  # Partial credit — responded but wrong format
+                    continue
+            if validation.startswith("min_length:"):
+                min_len = int(validation.split(":", 1)[1])
+                if len(response) < min_len:
+                    scores.append(0.3)  # Partial credit — too short
+                    continue
+
+            # Judge the response with rubric
+            dims = rubric.get("dimensions", [])
+            if dims:
+                dim_desc = "\n".join(f"- {d['name']}: {d['criteria']}" for d in dims)
+                judge_prompt = (
+                    f"Score this AI response. Dimensions (each 0.0-1.0):\n{dim_desc}\n\n"
+                    f"Task: {task['description']}\n\nResponse: {response[:2000]}\n\n"
+                    f"Reply with ONLY JSON: " + "{"
+                    + ", ".join(f'"{d["name"]}": 0.X' for d in dims) + "}"
+                )
+                raw = str(judge_llm.call(judge_prompt)).strip()
+                from app.utils import safe_json_parse
+                parsed, _ = safe_json_parse(raw)
+                if parsed and isinstance(parsed, dict):
+                    weighted = sum(
+                        parsed.get(d["name"], 0.5) * d["weight"]
+                        for d in dims
+                    )
+                    scores.append(weighted)
+                else:
+                    scores.append(0.5)  # Judge failed to parse — neutral score
+            else:
+                scores.append(0.5)  # No rubric — neutral
+
+        except Exception:
+            scores.append(0.0)
+
+    if not scores:
+        return -1.0
+
+    avg = sum(scores) / len(scores)
+    logger.info(f"eval_set_score({agent_name}): {avg:.3f} from {len(scores)} tasks")
+    return avg
 
 
 def verify_eval_integrity() -> bool:
