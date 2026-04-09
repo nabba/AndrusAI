@@ -411,11 +411,44 @@ def start_fiction_queue_poller() -> None:
 
                         else:
                             # Default: upload/ingest a new fiction book
-                            content = data.get("content", "")
-                            fname = data.get("filename", "upload.md")
-                            author = data.get("author", "")
-                            title_val = data.get("title", "")
-                            themes = data.get("themes", [])
+                            # Handle chunked uploads (large files split across multiple docs)
+                            group_id = data.get("group_id")
+                            if group_id and data.get("total_parts", 1) > 1:
+                                part = data.get("part", 0)
+                                total_parts = data.get("total_parts", 1)
+                                # Only process when part 0 is found (assembler)
+                                if part != 0:
+                                    snap.reference.update({"status": "waiting", "processed_at": _now_iso()})
+                                    continue
+                                # Reassemble all parts
+                                all_parts = (
+                                    db.collection("fiction_queue")
+                                    .where("group_id", "==", group_id)
+                                    .order_by("part")
+                                    .get()
+                                )
+                                # Check all parts arrived
+                                if len(all_parts) < total_parts:
+                                    continue  # Wait for remaining parts
+                                parts_sorted = sorted(
+                                    [d.to_dict() for d in all_parts],
+                                    key=lambda x: x.get("part", 0),
+                                )
+                                content = "".join(p.get("content", "") for p in parts_sorted)
+                                fname = data.get("filename", "upload.md")
+                                author = data.get("author", "")
+                                title_val = data.get("title", "")
+                                themes = data.get("themes", [])
+                                # Mark all parts as done
+                                for part_snap in all_parts:
+                                    if part_snap.id != snap.id:
+                                        part_snap.reference.update({"status": "done", "processed_at": _now_iso()})
+                            else:
+                                content = data.get("content", "")
+                                fname = data.get("filename", "upload.md")
+                                author = data.get("author", "")
+                                title_val = data.get("title", "")
+                                themes = data.get("themes", [])
 
                             if not content:
                                 snap.reference.update({"status": "error", "error": "Empty content"})

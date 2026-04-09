@@ -1791,7 +1791,8 @@ fictionZone.addEventListener("drop", e => {
 fictionFile.addEventListener("change", () => { if (fictionFile.files.length) uploadFictionFiles(fictionFile.files); });
 
 async function uploadFictionFiles(files) {
-  const MAX_SIZE = 20 * 1024 * 1024; // 20MB — direct upload to gateway
+  const MAX_SIZE = 20 * 1024 * 1024; // 20MB
+  const CHUNK_LIMIT = 800 * 1024; // 800KB per Firestore doc (under 1MB limit)
   const author = document.getElementById("fiction-author").value.trim();
   const title = document.getElementById("fiction-title").value.trim();
   const theme = document.getElementById("fiction-themes").value;
@@ -1800,16 +1801,45 @@ async function uploadFictionFiles(files) {
   for (const file of files) {
     try {
       if (file.size > MAX_SIZE) { lastErr = `${file.name} exceeds 20MB limit`; failed++; continue; }
-      // Upload directly to gateway API (supports large files, bypasses Firestore 1MB doc limit)
-      const form = new FormData();
-      form.append("file", file);
-      if (author) form.append("author", author);
-      if (title) form.append("title", title);
-      if (theme) form.append("theme", theme);
-      const resp = await fetch("/fiction/upload", { method: "POST", body: form });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.detail || `HTTP ${resp.status}`);
+      const text = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = rej;
+        r.readAsText(file);
+      });
+      // Try direct gateway upload first (works via local proxy)
+      let directOk = false;
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        if (author) form.append("author", author);
+        if (title) form.append("title", title);
+        if (theme) form.append("theme", theme);
+        const resp = await fetch("/fiction/upload", { method: "POST", body: form });
+        if (resp.ok) { directOk = true; }
+      } catch (_) {}
+      if (directOk) { success++; continue; }
+      // Fallback: Firestore queue (chunked for large files)
+      if (text.length <= CHUNK_LIMIT) {
+        await addDoc(collection(db, "fiction_queue"), {
+          filename: file.name, content: text,
+          author: author || "", title: title || "",
+          themes: theme ? [theme] : [],
+          status: "pending", created_at: serverTimestamp(),
+        });
+      } else {
+        // Split into chunks with a shared group_id
+        const groupId = `${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+        const totalParts = Math.ceil(text.length / CHUNK_LIMIT);
+        for (let i = 0; i < totalParts; i++) {
+          await addDoc(collection(db, "fiction_queue"), {
+            filename: file.name, content: text.slice(i * CHUNK_LIMIT, (i + 1) * CHUNK_LIMIT),
+            author: author || "", title: title || "",
+            themes: theme ? [theme] : [],
+            status: "pending", created_at: serverTimestamp(),
+            group_id: groupId, part: i, total_parts: totalParts,
+          });
+        }
       }
       success++;
     } catch (e) {
@@ -1818,11 +1848,11 @@ async function uploadFictionFiles(files) {
     }
   }
   const msg = [];
-  if (success) msg.push(`<span style="color:var(--green)">${success} ingested successfully</span>`);
+  if (success) msg.push(`<span style="color:var(--green)">${success} queued for ingestion</span>`);
   if (failed) msg.push(`<span style="color:var(--red)">${failed} failed: ${esc(lastErr.slice(0,80))}</span>`);
   fictionStatus.innerHTML = msg.join(" · ");
   fictionFile.value = "";
-  if (success) setTimeout(() => { fictionStatus.innerHTML = ""; loadFictionStatus(); }, 5000);
+  if (success) setTimeout(() => { fictionStatus.innerHTML = ""; }, 8000);
 }
 
 window.deleteFictionBook = function(filename) {
