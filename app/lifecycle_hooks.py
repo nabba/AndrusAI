@@ -553,11 +553,44 @@ def _register_defaults(registry: HookRegistry) -> None:
             except Exception:
                 pass
 
+            # Phase 7: Build reality model + inferential competition (Beautiful Loop)
+            try:
+                from app.self_awareness.reality_model import RealityModelBuilder
+                rm_builder = RealityModelBuilder()
+                reality_model = rm_builder.build(
+                    agent_id=agent_id,
+                    step_number=ctx.metadata.get("step", 0),
+                    task_description=task_ctx.get("description", "")[:500],
+                )
+                ctx.metadata["_reality_model"] = reality_model
+
+                # Inferential competition: only when uncertainty is high
+                if previous_state:
+                    from app.self_awareness.inferential_competition import InferentialCompetition
+                    ic = InferentialCompetition()
+                    cert_mean = previous_state.certainty.fast_path_mean
+                    som_intensity = previous_state.somatic.intensity
+                    step_num = ctx.metadata.get("step", 0)
+                    if ic.should_compete(cert_mean, som_intensity, step_num):
+                        winner, all_plans = ic.compete(
+                            task_description=task_ctx.get("description", ""),
+                            reality_model=reality_model,
+                        )
+                        if winner and winner.approach:
+                            task_ctx.setdefault("strategy_hints", []).append(
+                                f"[Winning plan: {winner.approach[:200]}]"
+                            )
+                            ctx.metadata["_competition_result"] = {
+                                "winner": winner.to_dict(),
+                                "candidates": [p.to_dict() for p in all_plans],
+                            }
+            except Exception:
+                pass
+
             modified_ctx, meta_state = mcl.pre_reasoning_hook(task_ctx, previous_state)
             if modified_ctx.get("description"):
                 ctx.modified_data["task_description"] = modified_ctx["description"]
             ctx.metadata["_meta_cognitive_state"] = meta_state
-            # Store task_ctx for somatic floor enforcement in POST_LLM_CALL
             ctx.metadata["_task_context"] = task_ctx
         except Exception as e:
             logger.debug(f"lifecycle_hooks: meta-cognitive hook failed: {e}")
@@ -644,6 +677,14 @@ def _register_defaults(registry: HookRegistry) -> None:
             # Trend
             sl = get_state_logger()
             state.certainty_trend = sl.compute_trend(state.agent_id)
+
+            # Phase 7: Store reality model + competition from PRE_TASK
+            rm = ctx.metadata.get("_reality_model")
+            if rm:
+                state.reality_model_summary = rm.to_dict()
+            comp = ctx.metadata.get("_competition_result")
+            if comp:
+                state.competition_result = comp
 
             # Phase 7: Beautiful Loop — hyper-model (predict → compare → error)
             try:
