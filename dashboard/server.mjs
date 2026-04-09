@@ -67,8 +67,8 @@ function proxyToGateway(req, res) {
     res.end(JSON.stringify({ error: 'Gateway unavailable' }));
   });
 
-  // Set a timeout so we don't wait forever
-  proxyReq.setTimeout(30000, () => {
+  // Set a timeout (120s for large file uploads up to 20MB)
+  proxyReq.setTimeout(120000, () => {
     proxyReq.destroy();
     res.writeHead(504);
     res.end(JSON.stringify({ error: 'Gateway timeout' }));
@@ -79,7 +79,10 @@ function proxyToGateway(req, res) {
 
 const server = http.createServer((req, res) => {
   // API requests → proxy to gateway
-  if (req.url.startsWith('/api/')) {
+  if (req.url.startsWith('/api/') ||
+      req.url.startsWith('/fiction/') ||
+      req.url.startsWith('/philosophy/') ||
+      req.url.startsWith('/kb/')) {
     proxyToGateway(req, res);
     return;
   }
