@@ -559,6 +559,22 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: fiction ingest failed", exc_info=True)
     jobs.append(("fiction-ingest", _fiction_ingest))
 
+    # ── Consciousness probe: Garland/Butlin-Chalmers indicator battery ──
+    def _consciousness_probe():
+        try:
+            from app.self_awareness.consciousness_probe import run_consciousness_probes
+            report = run_consciousness_probes()
+            logger.info(f"idle_scheduler: consciousness probe score={report.composite_score:.3f}")
+            # Publish to Firebase for dashboard
+            try:
+                from app.firebase.publish import report_consciousness_probes
+                report_consciousness_probes(report)
+            except Exception:
+                pass
+        except Exception:
+            logger.debug("idle_scheduler: consciousness probe failed", exc_info=True)
+    jobs.append(("consciousness-probe", _consciousness_probe))
+
     # ── MAP-Elites: quality-diversity maintenance + migration ──────────
     def _map_elites_maintain():
         try:

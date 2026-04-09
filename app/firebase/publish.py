@@ -743,6 +743,56 @@ def report_internal_state() -> None:
         logger.debug("firebase.publish: internal_state write failed", exc_info=True)
 
 
+def report_consciousness_probes(report=None) -> None:
+    """Push consciousness probe results to Firestore for the dashboard."""
+    db = _get_db()
+    if not db:
+        return
+    try:
+        if report is None:
+            # Fetch latest from journal
+            from app.self_awareness.consciousness_probe import run_consciousness_probes
+            report = run_consciousness_probes()
+
+        # Get history (last 50 probe results)
+        history = []
+        try:
+            from app.control_plane.db import execute
+            rows = execute(
+                """
+                SELECT full_state, created_at
+                FROM internal_states
+                WHERE agent_id = 'consciousness_probe'
+                ORDER BY created_at DESC
+                LIMIT 50
+                """,
+                fetch=True,
+            )
+            for row in (rows or []):
+                fs = row.get("full_state") if isinstance(row, dict) else row[0]
+                ts = row.get("created_at") if isinstance(row, dict) else row[1]
+                if isinstance(fs, str):
+                    import json as _j
+                    fs = _j.loads(fs)
+                if isinstance(fs, dict) and "composite_score" in fs:
+                    history.append({
+                        "score": fs["composite_score"],
+                        "timestamp": str(ts),
+                        "probes": fs.get("probes", []),
+                    })
+        except Exception:
+            pass
+
+        payload = {
+            "latest": report.to_dict() if report else {},
+            "history": history[:30],  # Last 30 for timeline chart
+            "updated_at": _now_iso(),
+        }
+        db.collection("status").document("consciousness_probes").set(payload)
+    except Exception:
+        logger.debug("firebase.publish: consciousness probes write failed", exc_info=True)
+
+
 def report_token_stats() -> None:
     """Push aggregated token usage to Firestore for the dashboard."""
     def _write():
