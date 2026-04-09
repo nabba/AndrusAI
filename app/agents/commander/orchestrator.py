@@ -348,6 +348,25 @@ class Commander:
         context = _prune_context(context, difficulty)
         enriched_task = context + crew_task if context else crew_task
 
+        # ── Sentience: PRE_TASK hooks (inject internal state, meta-cognitive assessment) ──
+        try:
+            from app.lifecycle_hooks import get_registry, HookPoint, HookContext
+            pre_ctx = HookContext(
+                hook_point=HookPoint.PRE_TASK,
+                agent_id=crew_name,
+                task_description=enriched_task,
+                metadata={"crew": crew_name, "difficulty": difficulty},
+            )
+            # Pass previous internal state from last crew execution (if any)
+            if hasattr(self, "_last_internal_state"):
+                pre_ctx.metadata["_internal_state"] = self._last_internal_state
+            pre_ctx = get_registry().execute(HookPoint.PRE_TASK, pre_ctx)
+            # Apply any context modifications from hooks
+            if pre_ctx.modified_data.get("task_description"):
+                enriched_task = pre_ctx.modified_data["task_description"]
+        except Exception:
+            logger.debug("Sentience PRE_TASK hooks failed", exc_info=True)
+
         result = ""
         success = True
         if crew_name == "research":
@@ -366,6 +385,26 @@ class Commander:
             return crew_task
 
         duration_s = _time.monotonic() - t0
+
+        # ── Sentience: POST_LLM_CALL hooks (compute internal state, log, broadcast) ──
+        try:
+            from app.lifecycle_hooks import get_registry, HookPoint, HookContext
+            post_ctx = HookContext(
+                hook_point=HookPoint.POST_LLM_CALL,
+                agent_id=crew_name,
+                task_description=crew_task[:500],
+                data={"llm_response": str(result)[:2000], "result": str(result)[:2000]},
+                metadata={
+                    "crew": crew_name, "difficulty": difficulty,
+                    "duration_s": duration_s,
+                },
+            )
+            post_ctx = get_registry().execute(HookPoint.POST_LLM_CALL, post_ctx)
+            # Store internal state for next crew's PRE_TASK injection
+            if post_ctx.metadata.get("_internal_state"):
+                self._last_internal_state = post_ctx.metadata["_internal_state"]
+        except Exception:
+            logger.debug("Sentience POST_LLM_CALL hooks failed", exc_info=True)
 
         # S2+R1+R3: Post-crew async hook — heuristic self-awareness telemetry.
         # Generates real confidence/completeness signals from observable data
