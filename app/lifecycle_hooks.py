@@ -507,6 +507,30 @@ def _register_defaults(registry: HookRegistry) -> None:
         description="Log errors to control plane audit trail",
     )
 
+    # Priority 15: Meta-cognitive layer (sentience: strategy assessment + context modification)
+    def _meta_cognitive_hook(ctx: HookContext) -> HookContext:
+        try:
+            from app.self_awareness.meta_cognitive import MetaCognitiveLayer
+            agent_id = ctx.agent_id or "unknown"
+            mcl = MetaCognitiveLayer(agent_id=agent_id)
+            previous_state = ctx.metadata.get("_internal_state")
+            task_ctx = {"description": ctx.task_description or ""}
+            modified_ctx, meta_state = mcl.pre_reasoning_hook(task_ctx, previous_state)
+            # Apply context modifications (append-only)
+            if meta_state.modification_proposed and modified_ctx.get("description"):
+                ctx.modified_data["task_description"] = modified_ctx["description"]
+            ctx.metadata["_meta_cognitive_state"] = meta_state
+        except Exception as e:
+            logger.debug(f"lifecycle_hooks: meta-cognitive hook failed: {e}")
+        return ctx
+
+    registry.register(
+        "meta_cognitive", HookPoint.PRE_TASK,
+        _meta_cognitive_hook,
+        priority=15,
+        description="Meta-cognitive strategy assessment and context modification",
+    )
+
     # Priority 8: Internal state computation (sentience: certainty + somatic + dual-channel)
     def _internal_state_hook(ctx: HookContext) -> HookContext:
         try:

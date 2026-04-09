@@ -313,6 +313,28 @@ class Commander:
         # E5: Save context for reflexion reuse (avoids 5 vector DB queries on retry)
         self._last_context = context
 
+        # Inject internal state context (sentience: agent sees its own certainty/disposition)
+        try:
+            from app.self_awareness.state_logger import get_state_logger
+            recent = get_state_logger().get_recent_states(crew_name, limit=1)
+            if recent:
+                from app.self_awareness.internal_state import InternalState
+                # Reconstruct compact context string from last state
+                last = recent[0]
+                if isinstance(last, dict) and last.get("certainty"):
+                    from app.self_awareness.internal_state import CertaintyVector, SomaticMarker
+                    cv_data = last["certainty"]
+                    sm_data = last.get("somatic", {})
+                    temp_state = InternalState(
+                        certainty=CertaintyVector(**{k: cv_data.get(k, 0.5) for k in cv_data}),
+                        somatic=SomaticMarker(**{k: sm_data.get(k, v) for k, v in [("valence", 0.0), ("intensity", 0.0), ("source", ""), ("match_count", 0)]}),
+                        certainty_trend=last.get("certainty_trend", "stable"),
+                        action_disposition=last.get("action_disposition", "proceed"),
+                    )
+                    context += f"\n{temp_state.to_context_string()}\n\n"
+        except Exception:
+            pass
+
         # Context pruning: compress injected context to a token budget.
         context = _prune_context(context, difficulty)
         enriched_task = context + crew_task if context else crew_task

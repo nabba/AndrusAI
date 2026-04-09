@@ -93,7 +93,14 @@ class InternalStateLogger:
                 (agent_id, limit),
                 fetch=True,
             )
-            return [row[0] if isinstance(row[0], dict) else json.loads(row[0]) for row in (rows or [])]
+            results = []
+            for row in (rows or []):
+                fs = row.get("full_state") if isinstance(row, dict) else row[0]
+                if isinstance(fs, dict):
+                    results.append(fs)
+                elif isinstance(fs, str):
+                    results.append(json.loads(fs))
+            return results
         except Exception:
             return []
 
@@ -120,7 +127,10 @@ class InternalStateLogger:
 
             means = []
             for row in rows:
-                m = (row[0] + row[1] + row[2]) / 3.0
+                fg = row.get("certainty_factual_grounding", 0.5) if isinstance(row, dict) else row[0]
+                tc = row.get("certainty_tool_confidence", 0.5) if isinstance(row, dict) else row[1]
+                co = row.get("certainty_coherence", 0.5) if isinstance(row, dict) else row[2]
+                m = (fg + tc + co) / 3.0
                 means.append(m)
 
             half = len(means) // 2

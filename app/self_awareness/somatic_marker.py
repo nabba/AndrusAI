@@ -65,24 +65,33 @@ class SomaticMarkerComputer:
             if not rows:
                 return SomaticMarker(valence=0.0, intensity=0.0, source="no_prior_experience", match_count=0)
 
+            # Extract fields — execute() returns list[dict]
+            parsed = []
+            for r in rows:
+                sim = r.get("similarity", 0) if isinstance(r, dict) else r[3]
+                parsed.append({
+                    "outcome_score": r.get("outcome_score", 0) if isinstance(r, dict) else r[0],
+                    "context_summary": r.get("context_summary", "") if isinstance(r, dict) else r[1],
+                    "similarity": sim,
+                })
+
             # Filter by minimum similarity
-            relevant = [r for r in rows if r[3] >= self.min_similarity]
+            relevant = [p for p in parsed if p["similarity"] >= self.min_similarity]
             if not relevant:
                 return SomaticMarker(valence=0.0, intensity=0.0, source="no_relevant_experience", match_count=0)
 
             # Weighted average: recency x similarity
             weighted_sum = 0.0
             weight_total = 0.0
-            for i, row in enumerate(relevant):
-                outcome_score, context_summary, created_at, similarity = row
+            for i, p in enumerate(relevant):
                 recency_weight = self.decay_factor ** i
-                weight = recency_weight * similarity
-                weighted_sum += outcome_score * weight
+                weight = recency_weight * p["similarity"]
+                weighted_sum += p["outcome_score"] * weight
                 weight_total += weight
 
             valence = weighted_sum / weight_total if weight_total > 0 else 0.0
-            intensity = relevant[0][3]  # Strongest match similarity
-            source = str(relevant[0][1])[:200]
+            intensity = relevant[0]["similarity"]
+            source = str(relevant[0]["context_summary"])[:200]
 
             return SomaticMarker(
                 valence=round(valence, 3),

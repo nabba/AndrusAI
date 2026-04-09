@@ -369,9 +369,44 @@ class CurationPipeline:
             # Persist score to PostgreSQL
             self._update_score(record["id"], record["quality_score"])
 
+            # RLIF: compute self-certainty weighting for training data selection
+            try:
+                from app.training.rlif_certainty import SelfCertaintyScorer
+                # Use quality score as proxy for self-certainty (actual logprob scoring
+                # requires MLX forward pass on host — deferred to Host Bridge integration)
+                sc_score = record["quality_score"]  # Placeholder: quality as certainty proxy
+                curation_weight = SelfCertaintyScorer.compute_curation_weight(
+                    record["quality_score"], sc_score,
+                )
+                record["curation_weight"] = curation_weight
+                record["self_certainty_score"] = sc_score
+                # Persist self_certainty_score
+                self._update_self_certainty(record["id"], sc_score)
+            except Exception:
+                record["curation_weight"] = record.get("quality_score", 0.5)
+
         logger.info(f"training_collector: scored {scored_count}/{len(interactions)} interactions")
 
         return interactions
+
+    def _update_self_certainty(self, record_id: str, score: float) -> None:
+        """Update self_certainty_score in PostgreSQL."""
+        try:
+            from app.config import get_settings
+            import psycopg2
+            s = get_settings()
+            if not s.mem0_postgres_url:
+                return
+            conn = psycopg2.connect(s.mem0_postgres_url)
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE training.interactions SET self_certainty_score = %s WHERE id = %s",
+                    (score, record_id),
+                )
+            conn.close()
+        except Exception:
+            pass
 
     def _update_score(self, record_id: str, score: float) -> None:
         """Update quality score in PostgreSQL."""
