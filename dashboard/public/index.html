@@ -1905,10 +1905,11 @@ onSnapshot(doc(db, "status", "fiction_library"), s => {
   const books = d.books || [];
   if (books.length > 0) {
     booksEl.innerHTML = `<div style="overflow-x:auto"><table class="task-table"><thead><tr>
-      <th>Title</th><th>Author</th><th>Themes</th><th>Chunks</th><th></th>
+      <th>Title</th><th>Author</th><th>Genre</th><th>Themes</th><th>Chunks</th><th></th>
     </tr></thead><tbody>` + books.map(b => `<tr>
       <td style="font-weight:600">${esc(b.title || b.filename)}</td>
       <td style="color:var(--muted)">${esc(b.author || "—")}</td>
+      <td><span class="badge" style="background:rgba(59,130,246,.12);color:var(--blue)">${esc(b.genre || "—")}</span></td>
       <td><span class="badge" style="background:rgba(251,146,60,.12);color:var(--orange)">${esc((b.themes || []).join(", ") || "—")}</span></td>
       <td style="color:var(--muted)">${b.chunks || 0}</td>
       <td><button class="cmd-btn danger" style="font-size:.6rem;padding:2px 8px" onclick="deleteFictionBook('${esc(b.filename)}')">Del</button></td>

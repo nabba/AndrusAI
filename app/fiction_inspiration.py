@@ -144,15 +144,169 @@ def _extract_frontmatter(text: str) -> tuple[dict, str]:
 
 
 def _metadata_from_filename(filepath: Path) -> dict:
-    """Fallback metadata from filename: author_title.md → {author, title}."""
+    """Fallback metadata from filename patterns."""
     stem = filepath.stem
-    parts = stem.split("_", 1)
-    if len(parts) == 2:
-        return {
-            "author": parts[0].replace("-", " ").title(),
-            "title": parts[1].replace("-", " ").title(),
-        }
-    return {"title": stem.replace("-", " ").replace("_", " ").title()}
+    # Pattern: "Title - Author.md" or "Author - Title.md"
+    if " - " in stem:
+        parts = stem.split(" - ", 1)
+        # Heuristic: if second part looks like a name (2-3 words), it's the author
+        p1, p2 = parts[0].strip(), parts[1].strip()
+        p2_words = p2.replace("_", " ").split()
+        if 1 <= len(p2_words) <= 4:
+            return {"title": p1.replace("_", " "), "author": p2.replace("_", " ")}
+        return {"author": p1.replace("_", " "), "title": p2.replace("_", " ")}
+    # Pattern: "Title_-_Author.md" (underscored dash)
+    if "_-_" in stem:
+        parts = stem.split("_-_", 1)
+        return {"title": parts[0].replace("_", " ").strip(),
+                "author": parts[1].replace("_", " ").strip()}
+    # Generic: replace underscores with spaces
+    clean = stem.replace("_", " ").replace("-", " ").strip()
+    return {"title": clean}
+
+
+def _enrich_metadata(filepath: Path, frontmatter: dict, body: str) -> dict:
+    """3-stage metadata extraction: regex → LLM → web search.
+
+    Returns enriched metadata dict merged with existing frontmatter.
+    Only runs expensive stages if earlier stages didn't find clean data.
+    """
+    result = dict(frontmatter)
+    has_author = bool(result.get("author"))
+    has_title = bool(result.get("title"))
+    has_genre = bool(result.get("genre"))
+    has_themes = bool(result.get("themes"))
+
+    # ── Stage 1: Regex extraction from content (free, instant) ──────────
+    if not has_author or not has_title:
+        head = body[:2000]
+
+        # "by Author Name" pattern
+        by_match = re.search(r'\bby\s+([A-Z][a-z]+(?: [A-Z]\.?)?(?: [A-Z][a-z]+){1,3})', head)
+        if by_match and not has_author:
+            result["author"] = by_match.group(1).strip()
+            has_author = True
+
+        # "Copyright © YEAR Author" or "Copyright YEAR Author"
+        copy_match = re.search(
+            r'[Cc]opyright\s*(?:©|\(c\))?\s*\d{4}\s+([A-Z][a-z]+(?: [A-Z]\.?)?(?: [A-Z][a-z]+){1,3})',
+            head,
+        )
+        if copy_match and not has_author:
+            result["author"] = copy_match.group(1).strip()
+            has_author = True
+
+        # Title: first non-empty, non-frontmatter line that looks like a title
+        if not has_title:
+            for line in head.split("\n"):
+                line = line.strip().strip("#").strip()
+                if (line and len(line) > 3 and len(line) < 120
+                        and not line.startswith("by ")
+                        and not line.startswith("![")
+                        and not line.startswith("[")
+                        and not line.startswith("http")
+                        and not line.startswith("{")
+                        and not re.match(r'^[\W\d]+$', line)):  # Skip lines that are just symbols/numbers
+                    result["title"] = line
+                    has_title = True
+                    break
+
+    # ── Stage 2: LLM extraction (cheap, ~$0.001) ───────────────────────
+    if not has_author or not has_title or not has_genre:
+        try:
+            from app.llm_factory import create_cheap_vetting_llm
+            from app.utils import safe_json_parse
+
+            llm = create_cheap_vetting_llm()
+            excerpt = body[:3000]
+            prompt = (
+                "Extract metadata from this book. The filename often contains "
+                "the author and title separated by dashes or underscores.\n"
+                "Return ONLY a JSON object (no markdown):\n"
+                '{"author": "Full Author Name", "title": "Actual Book Title", '
+                '"genre": "Primary Genre", "themes": ["theme1", "theme2", "theme3"]}\n\n'
+                f"Filename: {filepath.name}\n\n"
+                f"First lines of content:\n{excerpt}"
+            )
+            raw = str(llm.call(prompt)).strip()
+            parsed, _ = safe_json_parse(raw)
+            if parsed:
+                if not has_author and parsed.get("author"):
+                    result["author"] = parsed["author"]
+                    has_author = True
+                # LLM title overrides bad/suspicious titles
+                if parsed.get("title"):
+                    existing_title = result.get("title", "")
+                    is_bad_title = (
+                        not has_title
+                        or existing_title.startswith("![")
+                        or existing_title.startswith("[")
+                        or existing_title.startswith("See what")
+                        or "\\" in existing_title
+                        or len(existing_title) < 3
+                        or len(existing_title) > 100
+                    )
+                    if is_bad_title:
+                        result["title"] = parsed["title"]
+                        has_title = True
+                if not has_genre and parsed.get("genre"):
+                    result["genre"] = parsed["genre"]
+                    has_genre = True
+                if not has_themes and parsed.get("themes"):
+                    result["themes"] = parsed["themes"]
+                    has_themes = True
+                logger.info(f"fiction_enrich: LLM extracted → author={result.get('author')}, "
+                            f"title={result.get('title')}, genre={result.get('genre')}")
+        except Exception as e:
+            logger.debug(f"fiction_enrich: LLM extraction failed: {e}")
+
+    # ── Stage 3: Web enrichment for genre/themes ────────────────────────
+    if has_author and has_title and (not has_genre or not has_themes):
+        try:
+            from app.tools.web_search import search_brave
+            from app.llm_factory import create_cheap_vetting_llm
+            from app.utils import safe_json_parse
+
+            query = f'"{result["author"]}" "{result["title"]}" book genre themes'
+            search_results = search_brave(query, count=3)
+            if search_results:
+                descriptions = " ".join(
+                    r.get("description", "")[:200] for r in search_results
+                )
+                llm = create_cheap_vetting_llm()
+                web_prompt = (
+                    f"Based on these search results about the book "
+                    f'"{result["title"]}" by {result["author"]}:\n\n'
+                    f"{descriptions[:1500]}\n\n"
+                    "Extract ONLY JSON: "
+                    '{"genre": "Primary Genre", "themes": ["theme1", "theme2", "theme3"]}'
+                )
+                raw = str(llm.call(web_prompt)).strip()
+                parsed, _ = safe_json_parse(raw)
+                if parsed:
+                    if not has_genre and parsed.get("genre"):
+                        result["genre"] = parsed["genre"]
+                    if not has_themes and parsed.get("themes"):
+                        result["themes"] = parsed["themes"]
+                    logger.info(f"fiction_enrich: web enriched → genre={result.get('genre')}, "
+                                f"themes={result.get('themes')}")
+        except Exception as e:
+            logger.debug(f"fiction_enrich: web enrichment failed: {e}")
+
+    # ── Write enriched frontmatter back to file ─────────────────────────
+    if result and result != frontmatter:
+        try:
+            import yaml
+            original_text = filepath.read_text(encoding="utf-8")
+            _, original_body = _extract_frontmatter(original_text)
+            fm_str = yaml.dump(result, default_flow_style=False, allow_unicode=True)
+            enriched_text = f"---\n{fm_str}---\n\n{original_body}"
+            filepath.write_text(enriched_text, encoding="utf-8")
+            logger.info(f"fiction_enrich: wrote enriched frontmatter to {filepath.name}")
+        except Exception as e:
+            logger.debug(f"fiction_enrich: failed to write frontmatter: {e}")
+
+    return result
 
 
 # ── Narrative-aware chunking ─────────────────────────────────────────────────
@@ -255,10 +409,39 @@ def ingest_book(filepath: Path, extract_concepts: bool = False) -> dict:
 
     text = filepath.read_text(encoding="utf-8")
     frontmatter, body = _extract_frontmatter(text)
-    fallback = _metadata_from_filename(filepath)
 
+    # Detect bad titles that need re-enrichment
+    _title = frontmatter.get("title", "")
+    _title_is_bad = (
+        not _title
+        or _title.startswith("![")
+        or _title.startswith("[")
+        or _title.startswith("See what")
+        or "\\" in _title
+        or len(_title) < 3
+        or len(_title) > 100
+    )
+
+    # Enrich metadata if frontmatter is missing or incomplete
+    needs_enrichment = not all([
+        frontmatter.get("author"),
+        not _title_is_bad,
+        frontmatter.get("genre"),
+    ])
+    if needs_enrichment:
+        enriched = _enrich_metadata(filepath, frontmatter, body)
+        # Re-read file after enrichment (frontmatter was written back)
+        text = filepath.read_text(encoding="utf-8")
+        frontmatter, body = _extract_frontmatter(text)
+        # Merge: enriched values override frontmatter if frontmatter still empty
+        for key in ("author", "title", "genre", "themes", "concepts"):
+            if enriched.get(key) and not frontmatter.get(key):
+                frontmatter[key] = enriched[key]
+
+    fallback = _metadata_from_filename(filepath)
     book_title = frontmatter.get("title", fallback.get("title", filepath.stem))
     author = frontmatter.get("author", fallback.get("author", "Unknown"))
+    genre = frontmatter.get("genre", "")
     themes = frontmatter.get("themes", [])
     concepts = frontmatter.get("concepts", [])
 
@@ -289,6 +472,7 @@ def ingest_book(filepath: Path, extract_concepts: bool = False) -> dict:
             # Book-level
             "book_title": book_title,
             "author": author,
+            "genre": genre,
             "themes": json.dumps(themes),
             "book_concepts": json.dumps(concepts),
 

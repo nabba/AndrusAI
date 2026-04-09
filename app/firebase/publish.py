@@ -583,6 +583,7 @@ def report_fiction_library() -> None:
                     books_map[title] = {
                         "title": title,
                         "author": meta.get("author", "Unknown"),
+                        "genre": meta.get("genre", ""),
                         "themes": themes,
                         "filename": meta.get("source_file", ""),
                         "chunks": 0,
