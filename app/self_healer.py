@@ -245,8 +245,8 @@ class SelfHealer:
         try:
             # Trigger ChromaDB collection optimization
             try:
-                import chromadb
-                client = chromadb.HttpClient(host="chromadb", port=8000)
+                from app.memory.chromadb_manager import get_client
+                client = get_client()
                 collections = client.list_collections()
                 for col in collections:
                     # ChromaDB doesn't have explicit reindex, but we can

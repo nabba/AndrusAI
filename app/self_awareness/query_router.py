@@ -142,8 +142,8 @@ class SelfRefRouter:
 
     def _init_exemplars(self):
         try:
-            import chromadb
-            client = chromadb.HttpClient(host="chromadb", port=8000)
+            from app.memory.chromadb_manager import get_client
+            client = get_client()
             self._exemplar_col = client.get_or_create_collection(
                 "self_ref_exemplars", metadata={"hnsw:space": "cosine"},
             )

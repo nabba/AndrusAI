@@ -281,8 +281,8 @@ def inspect_memory(backend: str = "all") -> dict:
 
     if backend in ("all", "chromadb"):
         try:
-            import chromadb
-            client = chromadb.HttpClient(host="chromadb", port=8000)
+            from app.memory.chromadb_manager import get_client
+            client = get_client()
             collections = client.list_collections()
             stats["chromadb"] = {
                 "collections": len(collections),

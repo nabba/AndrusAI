@@ -300,8 +300,8 @@ class ProjectManager:
     def search_knowledge(self, ctx: ProjectContext, query: str, n: int = 3) -> dict:
         """Search project-scoped ChromaDB knowledge collection."""
         try:
-            import chromadb
-            client = chromadb.HttpClient(host="chromadb", port=8000)
+            from app.memory.chromadb_manager import get_client
+            client = get_client()
             collection = client.get_or_create_collection(ctx.chroma_collection)
             return collection.query(query_texts=[query], n_results=n)
         except Exception:
@@ -320,8 +320,8 @@ class ProjectManager:
                         metadata: dict | None = None) -> None:
         """Store knowledge in a project-scoped ChromaDB collection."""
         try:
-            import chromadb
-            client = chromadb.HttpClient(host="chromadb", port=8000)
+            from app.memory.chromadb_manager import get_client
+            client = get_client()
             collection = client.get_or_create_collection(ctx.chroma_collection)
             collection.upsert(
                 ids=[doc_id], documents=[content],

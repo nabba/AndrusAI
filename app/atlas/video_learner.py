@@ -366,8 +366,8 @@ class VideoLearner:
 
         # Store in ChromaDB for semantic search
         try:
-            import chromadb
-            client = chromadb.HttpClient(host="chromadb", port=8000)
+            from app.memory.chromadb_manager import get_client
+            client = get_client()
             collection = client.get_or_create_collection("atlas_video_knowledge")
 
             # Store each concept/procedure as a document

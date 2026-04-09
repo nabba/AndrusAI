@@ -157,8 +157,8 @@ class GroundingProtocol:
 
         # RAG from self_knowledge collection
         try:
-            import chromadb
-            client = chromadb.HttpClient(host="chromadb", port=8000)
+            from app.memory.chromadb_manager import get_client
+            client = get_client()
             col = client.get_or_create_collection("self_knowledge")
             if col.count() > 0:
                 results = col.query(query_texts=[classification.query], n_results=5)

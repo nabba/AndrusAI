@@ -230,8 +230,8 @@ def _chunk_fiction(text: str) -> list[dict]:
 
 def _get_collection():
     """Get the fiction_inspiration ChromaDB collection."""
-    import chromadb
-    client = chromadb.HttpClient(host="chromadb", port=8000)
+    from app.memory.chromadb_manager import get_client
+    client = get_client()
     return client.get_or_create_collection(
         name=FICTION_COLLECTION_NAME,
         metadata={
