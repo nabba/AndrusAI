@@ -134,11 +134,23 @@ def get_history(sender: str, n: int = 10) -> str:
     if not rows:
         return ""
 
+    # Filter out system/internal responses that could contaminate crew context
+    _INTERNAL_PREFIXES = (
+        "LLM Discovery:", "Evolution session", "Retrospective analysis",
+        "Self-heal:", "Improvement scan", "Tech Radar", "Code audit",
+        "Training pipeline", "Consciousness probe", "Behavioral assessment",
+        "Prosocial session", "Fiction ingest", "Knowledge base ingestion",
+    )
+
     lines = []
     for role, content in rows:
         label = "User" if role == "user" else "Assistant"
-        # Truncate very long individual messages to keep prompt size bounded
-        snippet = content[:600] + ("…" if len(content) > 600 else "")
+        # Skip internal system responses from conversation history
+        if role == "assistant" and any(content.strip().startswith(p) for p in _INTERNAL_PREFIXES):
+            continue
+        # Truncate assistant responses more aggressively to prevent context pollution
+        max_len = 300 if role == "assistant" else 600
+        snippet = content[:max_len] + ("…" if len(content) > max_len else "")
         lines.append(f"{label}: {snippet}")
     return "\n".join(lines)
 
