@@ -533,6 +533,12 @@ def _register_defaults(registry: HookRegistry) -> None:
         try:
             from app.self_awareness.meta_cognitive import MetaCognitiveLayer
             agent_id = ctx.agent_id or "unknown"
+
+            # Skip expensive LLM-based operations for user-facing crew tasks
+            # to avoid competing with crew execution for Ollama resources.
+            # Only run lightweight operations (somatic bias, state injection).
+            is_user_task = agent_id in ("research", "coding", "writing", "media")
+
             if agent_id not in _meta_cognitive_instances:
                 _meta_cognitive_instances[agent_id] = MetaCognitiveLayer(agent_id=agent_id)
             mcl = _meta_cognitive_instances[agent_id]
@@ -553,7 +559,8 @@ def _register_defaults(registry: HookRegistry) -> None:
             except Exception:
                 pass
 
-            # Phase 7: Build reality model + inferential competition (Beautiful Loop)
+            # Phase 7: Build reality model (lightweight, no LLM) + inferential competition (LLM, expensive)
+            # Reality model: always build (no LLM needed, just structured data)
             try:
                 from app.self_awareness.reality_model import RealityModelBuilder
                 rm_builder = RealityModelBuilder()
@@ -563,9 +570,13 @@ def _register_defaults(registry: HookRegistry) -> None:
                     task_description=task_ctx.get("description", "")[:500],
                 )
                 ctx.metadata["_reality_model"] = reality_model
+            except Exception:
+                pass
 
-                # Inferential competition: only when uncertainty is high
-                if previous_state:
+            # Inferential competition: SKIP for user-facing tasks (uses local LLM,
+            # competes with crew for Ollama). Only run during background/idle tasks.
+            if not is_user_task and previous_state:
+                try:
                     from app.self_awareness.inferential_competition import InferentialCompetition
                     ic = InferentialCompetition()
                     cert_mean = previous_state.certainty.fast_path_mean
@@ -584,13 +595,19 @@ def _register_defaults(registry: HookRegistry) -> None:
                                 "winner": winner.to_dict(),
                                 "candidates": [p.to_dict() for p in all_plans],
                             }
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
-            modified_ctx, meta_state = mcl.pre_reasoning_hook(task_ctx, previous_state)
-            if modified_ctx.get("description"):
-                ctx.modified_data["task_description"] = modified_ctx["description"]
-            ctx.metadata["_meta_cognitive_state"] = meta_state
+            # Meta-cognitive assessment: skip LLM calls for user tasks to avoid Ollama contention
+            if not is_user_task:
+                modified_ctx, meta_state = mcl.pre_reasoning_hook(task_ctx, previous_state)
+                if modified_ctx.get("description"):
+                    ctx.modified_data["task_description"] = modified_ctx["description"]
+                ctx.metadata["_meta_cognitive_state"] = meta_state
+            else:
+                # Lightweight: just store task context for somatic floor, skip LLM assessment
+                from app.self_awareness.internal_state import MetaCognitiveState
+                ctx.metadata["_meta_cognitive_state"] = MetaCognitiveState()
             ctx.metadata["_task_context"] = task_ctx
         except Exception as e:
             logger.debug(f"lifecycle_hooks: meta-cognitive hook failed: {e}")
