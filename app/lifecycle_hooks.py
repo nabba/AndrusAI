@@ -534,11 +534,6 @@ def _register_defaults(registry: HookRegistry) -> None:
             from app.self_awareness.meta_cognitive import MetaCognitiveLayer
             agent_id = ctx.agent_id or "unknown"
 
-            # Skip expensive LLM-based operations for user-facing crew tasks
-            # to avoid competing with crew execution for Ollama resources.
-            # Only run lightweight operations (somatic bias, state injection).
-            is_user_task = agent_id in ("research", "coding", "writing", "media")
-
             if agent_id not in _meta_cognitive_instances:
                 _meta_cognitive_instances[agent_id] = MetaCognitiveLayer(agent_id=agent_id)
             mcl = _meta_cognitive_instances[agent_id]
@@ -573,39 +568,57 @@ def _register_defaults(registry: HookRegistry) -> None:
             except Exception:
                 pass
 
-            # Inferential competition: SKIP for user-facing tasks (uses local LLM,
-            # competes with crew for Ollama). Only run during background/idle tasks.
-            if not is_user_task and previous_state:
+            # Inferential competition: run with timeout to avoid blocking crew execution.
+            # Uses budget tier (OpenRouter) not local Ollama to avoid GPU contention.
+            if previous_state:
                 try:
+                    import concurrent.futures
                     from app.self_awareness.inferential_competition import InferentialCompetition
                     ic = InferentialCompetition()
                     cert_mean = previous_state.certainty.fast_path_mean
                     som_intensity = previous_state.somatic.intensity
                     step_num = ctx.metadata.get("step", 0)
                     if ic.should_compete(cert_mean, som_intensity, step_num):
-                        winner, all_plans = ic.compete(
-                            task_description=task_ctx.get("description", ""),
-                            reality_model=reality_model,
-                        )
-                        if winner and winner.approach:
-                            task_ctx.setdefault("strategy_hints", []).append(
-                                f"[Winning plan: {winner.approach[:200]}]"
+                        # Time-boxed: max 5 seconds, abort if slower
+                        def _run_competition():
+                            return ic.compete(
+                                task_description=task_ctx.get("description", ""),
+                                reality_model=reality_model,
                             )
-                            ctx.metadata["_competition_result"] = {
-                                "winner": winner.to_dict(),
-                                "candidates": [p.to_dict() for p in all_plans],
-                            }
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                            future = pool.submit(_run_competition)
+                            try:
+                                winner, all_plans = future.result(timeout=5)
+                                if winner and winner.approach:
+                                    task_ctx.setdefault("strategy_hints", []).append(
+                                        f"[Winning plan: {winner.approach[:200]}]"
+                                    )
+                                    ctx.metadata["_competition_result"] = {
+                                        "winner": winner.to_dict(),
+                                        "candidates": [p.to_dict() for p in all_plans],
+                                    }
+                            except concurrent.futures.TimeoutError:
+                                logger.debug("lifecycle_hooks: inferential competition timed out (5s)")
                 except Exception:
                     pass
 
-            # Meta-cognitive assessment: skip LLM calls for user tasks to avoid Ollama contention
-            if not is_user_task:
-                modified_ctx, meta_state = mcl.pre_reasoning_hook(task_ctx, previous_state)
-                if modified_ctx.get("description"):
-                    ctx.modified_data["task_description"] = modified_ctx["description"]
-                ctx.metadata["_meta_cognitive_state"] = meta_state
-            else:
-                # Lightweight: just store task context for somatic floor, skip LLM assessment
+            # Meta-cognitive assessment: time-boxed to avoid blocking crew execution
+            try:
+                import concurrent.futures
+                def _run_meta():
+                    return mcl.pre_reasoning_hook(task_ctx, previous_state)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(_run_meta)
+                    try:
+                        modified_ctx, meta_state = future.result(timeout=3)
+                        if modified_ctx.get("description"):
+                            ctx.modified_data["task_description"] = modified_ctx["description"]
+                        ctx.metadata["_meta_cognitive_state"] = meta_state
+                    except concurrent.futures.TimeoutError:
+                        logger.debug("lifecycle_hooks: meta-cognitive assessment timed out (3s)")
+                        from app.self_awareness.internal_state import MetaCognitiveState
+                        ctx.metadata["_meta_cognitive_state"] = MetaCognitiveState()
+            except Exception:
                 from app.self_awareness.internal_state import MetaCognitiveState
                 ctx.metadata["_meta_cognitive_state"] = MetaCognitiveState()
             ctx.metadata["_task_context"] = task_ctx
