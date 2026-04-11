@@ -182,9 +182,18 @@ def _get_col(name: str):
                     current_dim = get_embed_dim()
                     if existing_dim != current_dim:
                         logger.warning(
-                            f"Collection '{name}' has {existing_dim}-dim embeddings "
-                            f"but model produces {current_dim}-dim — recreating"
+                            f"ChromaDB: dimension mismatch in '{name}' "
+                            f"(stored={existing_dim}, model={current_dim}). Recreating."
                         )
+                        try:
+                            from app.self_awareness.journal import get_journal, JournalEntry, JournalEntryType
+                            get_journal().write(JournalEntry(
+                                entry_type=JournalEntryType.ERROR,
+                                summary=f"ChromaDB '{name}' recreated: dims {existing_dim}→{current_dim}",
+                                outcome="degraded",
+                            ))
+                        except Exception:
+                            pass
                         client.delete_collection(name)
                         col = client.get_or_create_collection(name)
         except Exception as e:

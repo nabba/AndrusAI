@@ -168,6 +168,33 @@ class RealityModelBuilder:
                 precision=0.7, source="inference",
             ))
 
+        # Temporal context: current date/time/season as high-precision env element
+        try:
+            from app.temporal_context import get_temporal_context
+            tc = get_temporal_context()
+            model.add_element(WorldModelElement(
+                element_id="temporal_now", category="env",
+                content=f"Current: {tc['date_str']}, {tc['season']}, {tc['daylight_desc']}",
+                precision=0.99, source="system_clock",
+            ))
+        except Exception:
+            pass
+
+        # Spatial context: current location as high-precision env element
+        try:
+            from app.spatial_context import get_location
+            loc = get_location()
+            prec = {"corelocation": 0.98, "ip": 0.85, "config": 0.7}
+            model.add_element(WorldModelElement(
+                element_id="spatial_location", category="env",
+                content=f"Location: {loc.get('city', '?')}, {loc.get('country', '?')} "
+                        f"({loc['lat']:.2f}°N, {loc['lon']:.2f}°E). {loc.get('place_context', '')}",
+                precision=prec.get(loc.get("source", "config"), 0.7),
+                source=loc.get("source", "config"),
+            ))
+        except Exception:
+            pass
+
         # Compute global coherence (simplified: ratio of high-precision elements)
         if model.elements:
             high_prec = sum(1 for e in model.elements if e.precision > 0.6)

@@ -369,17 +369,57 @@ class CurationPipeline:
             # Persist score to PostgreSQL
             self._update_score(record["id"], record["quality_score"])
 
-            # RLIF: compute self-certainty weighting for training data selection
+            # RLIF: compute self-certainty + trajectory entropy weighting
             try:
-                from app.training.rlif_certainty import SelfCertaintyScorer
+                from app.training.rlif_certainty import SelfCertaintyScorer, TrajectoryEntropyScorer
                 # Use quality score as proxy for self-certainty (actual logprob scoring
                 # requires MLX forward pass on host — deferred to Host Bridge integration)
                 sc_score = record["quality_score"]  # Placeholder: quality as certainty proxy
-                curation_weight = SelfCertaintyScorer.compute_curation_weight(
-                    record["quality_score"], sc_score,
+
+                # Trajectory entropy: embed this response + fetch recent response
+                # embeddings for the same crew to measure output diversity
+                traj_entropy = 0.5  # Default: neutral
+                try:
+                    from app.memory.chromadb_manager import embed
+                    response_text = record.get("response", "")[:500]
+                    if response_text and len(response_text) > 30:
+                        current_emb = embed(response_text)
+                        # Fetch recent response embeddings for same agent role
+                        agent_role = record.get("agent_role", "")
+                        if agent_role and current_emb:
+                            from app.control_plane.db import execute as db_exec
+                            recent = db_exec(
+                                """
+                                SELECT context_embedding
+                                FROM agent_experiences
+                                WHERE agent_id = %s
+                                  AND context_embedding IS NOT NULL
+                                ORDER BY created_at DESC
+                                LIMIT 5
+                                """,
+                                (agent_role,),
+                                fetch=True,
+                            )
+                            if recent and len(recent) >= 2:
+                                embeddings = [current_emb]
+                                for r in recent:
+                                    emb = r.get("context_embedding") if isinstance(r, dict) else r[0]
+                                    if emb and isinstance(emb, list):
+                                        embeddings.append(emb)
+                                if len(embeddings) >= 3:
+                                    traj_entropy = TrajectoryEntropyScorer.compute_trajectory_entropy_from_embeddings(
+                                        embeddings
+                                    )
+                except Exception:
+                    pass
+
+                # Combined curation weight: quality × certainty × trajectory entropy
+                curation_weight = TrajectoryEntropyScorer.compute_curation_weight_combined(
+                    record["quality_score"], sc_score, traj_entropy,
                 )
                 record["curation_weight"] = curation_weight
                 record["self_certainty_score"] = sc_score
+                record["trajectory_entropy"] = round(traj_entropy, 3)
                 # Persist self_certainty_score
                 self._update_self_certainty(record["id"], sc_score)
             except Exception:

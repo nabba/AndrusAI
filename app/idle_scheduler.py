@@ -739,6 +739,70 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: heartbeat cycle failed", exc_info=True)
     jobs.append(("heartbeat-cycle", _heartbeat_cycle))
 
+    # ── Emergent infrastructure: review pending tool proposals ────────
+    def _emergent_infrastructure():
+        try:
+            from app.self_awareness.emergent_infrastructure import EmergentInfrastructureManager
+            mgr = EmergentInfrastructureManager()
+            pending = mgr.get_pending_proposals()
+            if pending:
+                logger.info(f"idle_scheduler: {len(pending)} pending tool proposals for review")
+            # Auto-generate proposals from recent failures (if any)
+            from app.control_plane.db import execute
+            recent_fails = execute(
+                """
+                SELECT decision_context FROM internal_states
+                WHERE action_disposition IN ('pause', 'escalate')
+                  AND created_at > NOW() - INTERVAL '24 hours'
+                ORDER BY created_at DESC LIMIT 3
+                """,
+                fetch=True,
+            )
+            if recent_fails and len(recent_fails) >= 2:
+                contexts = [r.get("decision_context", "") if isinstance(r, dict) else str(r)
+                            for r in recent_fails]
+                combined = "; ".join(c[:100] for c in contexts if c)
+                if combined:
+                    proposal = mgr.generate_proposal(
+                        problem_description=f"Recurring failures: {combined[:300]}",
+                        agent_id="system",
+                    )
+                    if proposal:
+                        logger.info(f"idle_scheduler: emergent tool proposal: {proposal.get('name', '?')}")
+        except Exception:
+            logger.debug("idle_scheduler: emergent infrastructure failed", exc_info=True)
+    jobs.append(("emergent-infrastructure", _emergent_infrastructure))
+
+    # ── Entropy monitoring: check training for overconfidence collapse ──
+    def _entropy_monitoring():
+        try:
+            from app.training.rlif_certainty import EntropyCollapseMonitor
+            monitor = EntropyCollapseMonitor()
+            from app.control_plane.db import execute
+            # Get recent self-certainty scores from internal_states
+            rows = execute(
+                """
+                SELECT certainty_factual_grounding, certainty_tool_confidence, certainty_coherence
+                FROM internal_states
+                WHERE created_at > NOW() - INTERVAL '6 hours'
+                ORDER BY created_at DESC LIMIT 50
+                """,
+                fetch=True,
+            )
+            if rows and len(rows) >= 10:
+                scores = []
+                for r in rows:
+                    fg = r.get("certainty_factual_grounding", 0.5) if isinstance(r, dict) else 0.5
+                    tc = r.get("certainty_tool_confidence", 0.5) if isinstance(r, dict) else 0.5
+                    co = r.get("certainty_coherence", 0.5) if isinstance(r, dict) else 0.5
+                    scores.append((fg + tc + co) / 3.0)
+                collapsed = monitor.check_and_alert(scores, agent_id="system")
+                if collapsed:
+                    logger.warning("idle_scheduler: ENTROPY COLLAPSE detected — training may be overconfident")
+        except Exception:
+            logger.debug("idle_scheduler: entropy monitoring failed", exc_info=True)
+    jobs.append(("entropy-monitoring", _entropy_monitoring))
+
     return jobs
 
 

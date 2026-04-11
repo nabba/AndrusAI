@@ -29,13 +29,21 @@ class InternalStateLogger:
             somatic_valence, somatic_intensity, somatic_source, somatic_match_count,
             meta_strategy_assessment, meta_modification_proposed, meta_modification_description,
             meta_compute_phase, meta_compute_budget_remaining, meta_reassessment_triggered,
-            certainty_trend, action_disposition, risk_tier, full_state, created_at
+            certainty_trend, action_disposition, risk_tier,
+            hyper_predicted_certainty, hyper_actual_certainty, hyper_prediction_error,
+            free_energy_proxy, free_energy_trend, precision_weighted_certainty,
+            competition_winner, competition_candidates, reality_model,
+            full_state, created_at
         ) VALUES (
             %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s,
             %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s
+            %s, %s, %s,
+            %s, %s, %s,
+            %s, %s, %s,
+            %s, %s, %s,
+            %s, %s
         )
     """
 
@@ -43,6 +51,12 @@ class InternalStateLogger:
         """Persist an InternalState to the database. Non-fatal."""
         try:
             from app.control_plane.db import execute
+
+            # Extract Beautiful Loop fields (Phase 7)
+            hm = state.hyper_model_state or {}
+            comp = state.competition_result or {}
+            rm = state.reality_model_summary or {}
+
             execute(
                 self.INSERT_SQL,
                 (
@@ -71,6 +85,16 @@ class InternalStateLogger:
                     state.certainty_trend,
                     state.action_disposition,
                     state.risk_tier,
+                    # Beautiful Loop columns (Phase 7)
+                    hm.get("predicted_certainty"),
+                    hm.get("actual_certainty"),
+                    hm.get("self_prediction_error"),
+                    state.free_energy_proxy,
+                    state.free_energy_trend,
+                    state.precision_weighted_certainty,
+                    json.dumps(comp.get("winner")) if comp.get("winner") else None,
+                    json.dumps(comp.get("candidates")) if comp.get("candidates") else None,
+                    json.dumps(rm) if rm else None,
                     state.to_json(),
                     state.created_at,
                 ),

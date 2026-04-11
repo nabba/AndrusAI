@@ -40,5 +40,6 @@ def create_coder(force_tier: str | None = None) -> Agent:
         backstory=CODER_BACKSTORY,
         llm=llm,
         tools=tools,
+        max_execution_time=300,
         verbose=True,
     )

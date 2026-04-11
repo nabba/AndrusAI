@@ -457,6 +457,27 @@ def _verify_gateway_secret(request: Request) -> bool:
     return hmac.compare_digest(token, get_gateway_secret())
 
 
+@app.get("/location")
+async def get_location():
+    """Current resolved location (for dashboard and debugging)."""
+    try:
+        from app.spatial_context import get_location as resolve_location
+        from app.temporal_context import get_temporal_context
+        loc = resolve_location()
+        tc = get_temporal_context()
+        return {
+            "location": loc,
+            "temporal": {
+                "date": tc.get("date_str", ""),
+                "time": tc.get("time_str", ""),
+                "season": tc.get("season", ""),
+                "daylight_hours": tc.get("daylight_hours", 0),
+            },
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.post("/signal/inbound")
 async def receive_signal(request: Request):
     # Authenticate the request source
@@ -574,10 +595,39 @@ async def _safe_react(sender: str, msg_timestamp: int):
         logger.debug("Failed to send 👀 reaction", exc_info=True)
 
 
+# ── Message idempotency guard ────────────────────────────────────────────────
+class _MessageDedup:
+    """Bounded LRU deduplication by sender+timestamp. Thread-safe."""
+    def __init__(self, max_size: int = 500):
+        from collections import OrderedDict
+        self._seen: OrderedDict = OrderedDict()
+        self._max = max_size
+        self._lock = threading.Lock()
+
+    def is_dup(self, key: str) -> bool:
+        with self._lock:
+            if key in self._seen:
+                return True
+            self._seen[key] = True
+            if len(self._seen) > self._max:
+                self._seen.popitem(last=False)
+            return False
+
+_msg_dedup = _MessageDedup()
+
+
 async def handle_task(sender: str, text: str, attachments: list = None,
                       msg_timestamp: int = 0):
     global _inflight_tasks
     import time as _time
+
+    # Message idempotency: skip exact duplicate (same sender + Signal timestamp)
+    if msg_timestamp:
+        _dedup_key = f"{sender}:{msg_timestamp}"
+        if _msg_dedup.is_dup(_dedup_key):
+            logger.info(f"Duplicate message ignored: ts={msg_timestamp}")
+            return
+
     _task_start = _time.monotonic()
     # Start task tracking for metrics
     task_row_id = start_task(sender)
@@ -636,9 +686,16 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         report_chat_message("user", text + att_note, source="signal")
 
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            _commander_pool, commander.handle, text, sender, attachments or []
-        )
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    _commander_pool, commander.handle, text, sender, attachments or []
+                ),
+                timeout=600,  # 10 min absolute max per task
+            )
+        except asyncio.TimeoutError:
+            result = "Sorry, your request took too long to process. Please try a simpler question."
+            logger.error(f"TIMEOUT (600s): handle_task for {_redact_number(sender)}: {text[:80]}")
         log_response_sent(_redact_number(sender), len(result))
 
         # Record which crew handled the task (for per-crew analytics)

@@ -29,6 +29,17 @@ def _load_relevant_skills(task: str, n: int = 3) -> str:
         return ""
 
 
+_INTERNAL_MEMORY_MARKERS = (
+    '"role":', '"confidence":', '"completeness":', '"blockers":',  # Self-reports (JSON)
+    '"went_well":', '"went_wrong":', '"lesson":',  # Reflections (JSON)
+    "PROACTIVE:", "Evolution session", "Consciousness probe",
+    "Self-heal", "Improvement scan", "Tech Radar", "Code audit",
+    "Training pipeline", "Retrospective", "LLM Discovery",
+    "somatic", "certainty_trend", "action_disposition",  # Internal state terms
+    "exp_", "kept:", "discarded:", "crashed:",
+)
+
+
 def _load_relevant_team_memory(task: str, n: int = 3) -> str:
     """Retrieve team memories most relevant to the current task.
 
@@ -36,13 +47,23 @@ def _load_relevant_team_memory(task: str, n: int = 3) -> str:
     directly relevant context, not the entire memory store.
     Uses ChromaDB operational memory only (Mem0 is queried once
     during routing to avoid duplicate searches).
+
+    Filters out internal system reports/reflections that could
+    contaminate user-facing responses.
     """
     blocks = []
     try:
         from app.memory.scoped_memory import retrieve_operational
-        memories = retrieve_operational("scope_team", task, n=n)
+        # Fetch extra to compensate for filtering
+        memories = retrieve_operational("scope_team", task, n=n * 3)
         for m in (memories or []):
+            # Skip internal system reports — these contain metadata terms
+            # that confuse the LLM into researching system internals
+            if any(marker in m for marker in _INTERNAL_MEMORY_MARKERS):
+                continue
             blocks.append(f"- {m[:300]}")
+            if len(blocks) >= n:
+                break
     except Exception:
         pass
 
@@ -59,12 +80,21 @@ def _load_world_model_context(task: str, n: int = 3) -> str:
     """
     try:
         from app.self_awareness.world_model import recall_relevant_beliefs, recall_relevant_predictions
-        beliefs = recall_relevant_beliefs(task, n=n)
-        predictions = recall_relevant_predictions(task, n=2)
+        beliefs = recall_relevant_beliefs(task, n=n * 2)
+        predictions = recall_relevant_predictions(task, n=4)
         items = beliefs + predictions
         if not items:
             return ""
-        blocks = [f"- {item[:300]}" for item in items]
+        # Filter out internal system content (same defense as team memory)
+        blocks = []
+        for item in items:
+            if any(marker in item for marker in _INTERNAL_MEMORY_MARKERS):
+                continue
+            blocks.append(f"- {item[:300]}")
+            if len(blocks) >= n + 2:
+                break
+        if not blocks:
+            return ""
         return (
             "LESSONS FROM PAST EXPERIENCE (world model):\n"
             + "\n".join(blocks)

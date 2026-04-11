@@ -228,9 +228,18 @@ class CogitoCycle:
             logger.debug(f"cogito: proposal application failed: {e}")
 
     def _gather_state(self) -> dict:
-        """Run all inspection tools."""
+        """Run all inspection tools + self-knowledge query."""
         from app.self_awareness.inspect_tools import run_all_inspections
-        return run_all_inspections()
+        state = run_all_inspections()
+        # Enrich with self-knowledge about recent system changes
+        try:
+            from app.self_awareness.knowledge_ingestion import query_self_knowledge
+            sk = query_self_knowledge("recent system changes, new capabilities, known issues", n_results=5)
+            if sk:
+                state["self_knowledge"] = sk
+        except Exception:
+            pass
+        return state
 
     def _check_agent_config_consistency(self, agents: dict, config: dict, report: ReflectionReport):
         """Verify agents match configuration."""

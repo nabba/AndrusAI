@@ -28,8 +28,11 @@ def log(msg):
     print(f"[forwarder] {msg}", flush=True)
 
 
-def _receive_messages() -> list:
-    """Single receive call with short timeout."""
+def _receive_messages():
+    """Single receive call with short timeout.
+
+    Returns: list of messages, or None on connection error (distinct from empty []).
+    """
     try:
         resp = _signal_session.post(
             SIGNAL_CLI_URL.rstrip("/") + "/api/v1/rpc",
@@ -45,18 +48,40 @@ def _receive_messages() -> list:
         if "error" in data:
             err = data["error"].get("message", "")
             if "already being received" in err:
-                # Previous receive still winding down — wait and retry
                 return []
             log(f"receive error: {err}")
             return []
         return data.get("result", [])
     except requests.exceptions.ConnectionError:
-        return []
+        return None  # Signal connection error — distinct from empty
     except requests.exceptions.ReadTimeout:
         return []
     except Exception as e:
         log(f"receive failed: {e}")
-        return []
+        return None
+
+
+def _check_signal_cli_alive() -> bool:
+    """Quick health check on signal-cli."""
+    try:
+        resp = _signal_session.post(
+            SIGNAL_CLI_URL.rstrip("/") + "/api/v1/rpc",
+            json={"jsonrpc": "2.0", "id": 1, "method": "version"},
+            timeout=3,
+        )
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def _wait_for_signal_cli():
+    """Block until signal-cli responds (reuses startup logic)."""
+    log("Waiting for signal-cli to come back...")
+    while True:
+        if _check_signal_cli_alive():
+            log("signal-cli reconnected")
+            return
+        time.sleep(5)
 
 
 def _process_envelope(envelope: dict) -> None:
@@ -136,20 +161,82 @@ def _process_envelope(envelope: dict) -> None:
         log(f"Failed to forward: {e}")
 
 
+_LOCATION_FILE = "/tmp/botarmy-location.json"
+_LOCATION_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "location-helper")
+_LOCATION_INTERVAL = 1800  # 30 minutes
+_last_location_probe = 0.0
+
+
+def _probe_location():
+    """Try to get location via CoreLocation helper and write to shared file.
+
+    Best-effort: if helper binary doesn't exist or fails, silently skip.
+    """
+    global _last_location_probe
+    now = time.time()
+    if now - _last_location_probe < _LOCATION_INTERVAL:
+        return
+    _last_location_probe = now
+
+    if not os.path.exists(_LOCATION_HELPER):
+        return
+
+    try:
+        import subprocess
+        result = subprocess.run(
+            [_LOCATION_HELPER],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            data = json.loads(result.stdout.strip())
+            if "lat" in data and "lon" in data:
+                with open(_LOCATION_FILE, "w") as f:
+                    json.dump(data, f)
+                log(f"Location updated: {data.get('lat', '?'):.4f}, {data.get('lon', '?'):.4f} "
+                    f"(±{data.get('accuracy', '?')}m)")
+    except Exception as e:
+        log(f"Location probe failed (non-fatal): {e}")
+
+
 def poll_loop():
-    """Poll signal-cli for messages and forward them."""
+    """Poll signal-cli for messages and forward them.
+
+    Monitors connection health and reconnects if signal-cli becomes unresponsive.
+    """
     log(f"Polling signal-cli at {SIGNAL_CLI_URL} every ~1.5s")
     log(f"Forwarding to {GATEWAY_URL}")
+    _consecutive_errors = 0
+    _MAX_ERRORS = 60  # ~30s of consecutive connection failures triggers reconnect
 
     while True:
+        # Periodic location probe (every 30 min, non-blocking)
+        try:
+            _probe_location()
+        except Exception:
+            pass
+
         messages = _receive_messages()
-        if messages:
+        if messages is None:
+            # Connection error — signal-cli may be down
+            _consecutive_errors += 1
+        elif messages:
+            _consecutive_errors = 0
             for msg in messages:
                 envelope = msg.get("envelope", msg)
                 try:
                     _process_envelope(envelope)
                 except Exception as e:
                     log(f"Error processing envelope: {e}")
+        else:
+            # Empty list — normal, no new messages
+            _consecutive_errors = 0
+
+        # Reconnect if signal-cli has been unresponsive for ~30s
+        if _consecutive_errors >= _MAX_ERRORS:
+            log(f"signal-cli unresponsive ({_consecutive_errors} consecutive errors)")
+            _wait_for_signal_cli()
+            _consecutive_errors = 0
+
         # Gap between polls — signal-cli needs a brief pause to release the lock
         time.sleep(0.5)
 

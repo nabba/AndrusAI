@@ -48,5 +48,6 @@ def create_writer(force_tier: str | None = None) -> Agent:
         backstory=WRITER_BACKSTORY,
         llm=llm,
         tools=tools,
+        max_execution_time=300,
         verbose=True,
     )

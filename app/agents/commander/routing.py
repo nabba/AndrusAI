@@ -52,9 +52,11 @@ _FAST_ROUTE_PATTERNS = [
 
 # Q6: Time-sensitive query detection — skip semantic cache for these
 _TEMPORAL_PATTERN = re.compile(
-    r"\b(?:today|now|current(?:ly)?|latest|right now|this (?:morning|afternoon|evening|week|month)"
+    r"\b(?:today|now|current(?:ly)?|latest|right now"
+    r"|this (?:morning|afternoon|evening|week|month|season|year|time of year)"
     r"|live|breaking|just (?:happened|announced)|real[- ]time|price (?:of|for)|stock price"
-    r"|weather|score|match result)\b",
+    r"|weather|score|match result|sunrise|sunset|moon|season(?:al)?|daylight"
+    r"|spring|summer|autumn|fall|winter)\b",
     re.IGNORECASE,
 )
 

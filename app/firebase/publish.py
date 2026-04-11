@@ -680,6 +680,9 @@ def report_internal_state() -> None:
                 AVG(certainty_coherence) AS avg_coherence,
                 AVG(certainty_meta) AS avg_meta,
                 AVG(somatic_valence) AS avg_valence,
+                AVG(free_energy_proxy) AS avg_free_energy,
+                AVG(precision_weighted_certainty) AS avg_precision_certainty,
+                AVG(hyper_prediction_error) AS avg_prediction_error,
                 COUNT(*) FILTER (WHERE action_disposition = 'proceed') AS proceed_count,
                 COUNT(*) FILTER (WHERE action_disposition = 'cautious') AS cautious_count,
                 COUNT(*) FILTER (WHERE action_disposition = 'pause') AS pause_count,
@@ -710,6 +713,11 @@ def report_internal_state() -> None:
                     "meta": round(float(r.get("avg_meta", 0.5)), 2),
                 },
                 "avg_valence": round(float(r.get("avg_valence", 0.0)), 2),
+                "beautiful_loop": {
+                    "free_energy": round(float(r.get("avg_free_energy") or 0), 3),
+                    "precision_certainty": round(float(r.get("avg_precision_certainty") or 0.5), 2),
+                    "prediction_error": round(float(r.get("avg_prediction_error") or 0), 3),
+                },
                 "steps": int(r.get("total_steps", 0)),
             }
             total_steps += int(r.get("total_steps", 0))

@@ -72,24 +72,45 @@ def _get_conn() -> sqlite3.Connection:
     return _local.conn
 
 
+_SENDER_KEY_FILE = Path("/app/workspace/.sender_key")
+
+
+def _get_stable_sender_key() -> bytes:
+    """Get a stable HMAC key for sender ID hashing.
+
+    Priority: gateway_secret > persisted file > generate and persist new.
+    The persisted file ensures sender IDs survive process restarts.
+    """
+    # Priority 1: gateway secret (best — derived from env config)
+    try:
+        secret = get_gateway_secret()
+        if secret and len(secret) >= 8:
+            return secret.encode()
+    except Exception:
+        pass
+    # Priority 2: persisted key file (survives restarts)
+    try:
+        if _SENDER_KEY_FILE.exists():
+            key = _SENDER_KEY_FILE.read_bytes()
+            if len(key) >= 16:
+                return key
+    except Exception:
+        pass
+    # Priority 3: generate and persist new key
+    import secrets
+    key = secrets.token_bytes(32)
+    try:
+        _SENDER_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _SENDER_KEY_FILE.write_bytes(key)
+        logger.info("conversation_store: generated persistent sender key")
+    except Exception:
+        logger.warning("conversation_store: could not persist sender key — IDs may change on restart")
+    return key
+
+
 def _sender_id(sender: str) -> str:
     """Return a stable, non-reversible 16-char token for a sender number."""
-    # Use gateway secret as HMAC key so IDs are unpredictable even if DB leaks.
-    # No fallback key — if the secret is unavailable the system should not
-    # silently degrade to a brutable hash.
-    try:
-        key = get_gateway_secret().encode()
-        if len(key) < 8:
-            raise ValueError("gateway secret too short for secure HMAC")
-    except Exception:
-        logger.error("conversation_store: gateway secret unavailable — cannot hash sender ID securely")
-        # Use a per-process random salt so at least IDs are unpredictable
-        # within this process lifetime (won't be stable across restarts)
-        import secrets
-        key = getattr(_sender_id, "_ephemeral_key", None)
-        if key is None:
-            key = secrets.token_bytes(32)
-            _sender_id._ephemeral_key = key  # type: ignore[attr-defined]
+    key = _get_stable_sender_key()
     return hmac.new(key, sender.encode(), hashlib.sha256).hexdigest()[:16]
 
 

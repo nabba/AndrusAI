@@ -55,5 +55,6 @@ def create_critic() -> Agent:
         backstory=CRITIC_BACKSTORY,
         llm=llm,
         tools=[PhilosophyRAGTool()] + memory_tools + scoped_tools + awareness_tools,
+        max_execution_time=300,
         verbose=True,
     )

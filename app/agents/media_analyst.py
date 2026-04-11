@@ -36,5 +36,6 @@ def create_media_analyst(force_tier: str | None = None) -> Agent:
             web_search, web_fetch, get_youtube_transcript,
             file_manager, read_attachment, KnowledgeSearchTool(),
         ] + memory_tools + scoped_tools + mem0_tools + awareness_tools,
+        max_execution_time=300,
         verbose=True,
     )

@@ -22,3 +22,5 @@ dist/
 firebase-service-account.json
 # Host Bridge — capability tokens contain secrets
 host_bridge/capabilities.json
+# Compiled CoreLocation helper binary
+signal/location-helper

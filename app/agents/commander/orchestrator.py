@@ -133,8 +133,22 @@ class Commander:
                 + "\n</persistent_memory>\n\n"
             )
 
+        # Temporal + spatial context: agents know current date/time/season + location
+        try:
+            from app.temporal_context import format_temporal_block
+            temporal_block = format_temporal_block() + "\n"
+        except Exception:
+            temporal_block = ""
+        try:
+            from app.spatial_context import format_spatial_block
+            spatial_block = format_spatial_block() + "\n\n"
+        except Exception:
+            spatial_block = ""
+
         prompt = (
             f"{ROUTING_PROMPT}\n\n"
+            f"{temporal_block}"
+            f"{spatial_block}"
             f"{mem0_block}"
             f"{history_block}"
             f"{attachment_context}"
@@ -146,12 +160,32 @@ class Commander:
         # Switch to fallback LLM on credit exhaustion or auth errors.
         last_exc = None
         active_llm = self.llm
+        _routing_provider = "anthropic"
+
+        # Circuit breaker: fast-switch to fallback if primary provider is down
+        from app.circuit_breaker import is_available as _cb_available, record_success as _cb_success, record_failure as _cb_failure
+        if not _cb_available("anthropic"):
+            logger.info("Circuit breaker: anthropic unavailable, using OpenRouter for routing")
+            try:
+                from app.llm_factory import _cached_llm, get_model
+                from app.config import get_openrouter_api_key
+                fallback = get_model("deepseek-v3.2")
+                if fallback:
+                    active_llm = _cached_llm(fallback["model_id"], max_tokens=1024, api_key=get_openrouter_api_key())
+                else:
+                    active_llm = _cached_llm("openrouter/deepseek/deepseek-chat", max_tokens=1024, api_key=get_openrouter_api_key())
+                _routing_provider = "openrouter"
+            except Exception:
+                pass
+
         for attempt in range(1, 5):
             try:
                 raw = str(active_llm.call(prompt)).strip()
+                _cb_success(_routing_provider)
                 break
             except Exception as exc:
                 last_exc = exc
+                _cb_failure(_routing_provider)
                 err_str = str(exc).lower()
                 is_credit_error = any(k in err_str for k in ("credit balance", "insufficient_credits", "payment", "billing", "quota"))
                 is_auth_error = any(k in err_str for k in ("authentication", "invalid_api_key", "unauthorized", "403"))
@@ -181,8 +215,9 @@ class Commander:
                         raise exc
                     continue
                 elif is_transient and attempt < 3:
-                    wait = 2 * attempt
-                    logger.warning(f"Commander routing attempt {attempt} failed (transient): {exc}, retrying in {wait}s")
+                    import random as _rand
+                    wait = min(30, (2 ** attempt) + _rand.uniform(0, 1))
+                    logger.warning(f"Commander routing attempt {attempt} failed (transient): {exc}, retrying in {wait:.1f}s")
                     import time as _time
                     _time.sleep(wait)
                     continue
@@ -213,6 +248,13 @@ class Commander:
             decisions = [parsed]
         else:
             decisions = [{"crew": "direct", "task": raw}]
+
+        # Validate crew names — reject invalid, don't leak raw JSON to user
+        _VALID_CREWS = frozenset({"research", "coding", "writing", "media", "direct"})
+        for d in decisions:
+            if d.get("crew") not in _VALID_CREWS:
+                logger.warning(f"Routing: invalid crew '{d.get('crew')}', defaulting to research")
+                d["crew"] = "research"
 
         # Ensure every decision has a difficulty score (default 5 if LLM omits it)
         for d in decisions:
@@ -279,12 +321,20 @@ class Commander:
 
         t0 = _time.monotonic()
 
+        # Temporal + spatial context: injected unconditionally (tiny, essential)
+        try:
+            from app.temporal_context import format_temporal_block
+            from app.spatial_context import format_spatial_block
+            _temporal_prefix = format_temporal_block() + "\n" + format_spatial_block() + "\n\n"
+        except Exception:
+            _temporal_prefix = ""
+
         # S6+R2: Select relevant context + policies + world model in parallel.
         # E2: Skip for trivial tasks. E5: Reuse if preloaded (reflexion retries).
         if preloaded_context is not None:
-            context = preloaded_context
+            context = _temporal_prefix + preloaded_context
         elif difficulty <= 2:
-            context = ""
+            context = _temporal_prefix
         else:
             f_skills = _ctx_pool.submit(_load_relevant_skills, crew_task)
             f_memory = _ctx_pool.submit(_load_relevant_team_memory, crew_task)
@@ -338,12 +388,13 @@ class Commander:
             pass
 
         # Inject internal state context (sentience: agent sees its own certainty/disposition)
+        # IMPORTANT: wrapped in <system_metadata> tags with explicit instruction to ignore
+        # for task content — prevents LLM from researching "somatic" or "certainty" topics.
         try:
             from app.self_awareness.state_logger import get_state_logger
             recent = get_state_logger().get_recent_states(crew_name, limit=1)
             if recent:
                 from app.self_awareness.internal_state import InternalState
-                # Reconstruct compact context string from last state
                 last = recent[0]
                 if isinstance(last, dict) and last.get("certainty"):
                     from app.self_awareness.internal_state import CertaintyVector, SomaticMarker
@@ -355,7 +406,13 @@ class Commander:
                         certainty_trend=last.get("certainty_trend", "stable"),
                         action_disposition=last.get("action_disposition", "proceed"),
                     )
-                    context += f"\n{temp_state.to_context_string()}\n\n"
+                    # Only inject disposition signal, not full internal state details
+                    disposition = temp_state.action_disposition
+                    if disposition != "proceed":
+                        context += (
+                            f"\n<system_note>Previous task disposition: {disposition}. "
+                            f"Adjust caution level accordingly.</system_note>\n\n"
+                        )
         except Exception:
             pass
 
@@ -376,28 +433,70 @@ class Commander:
             if hasattr(self, "_last_internal_state"):
                 pre_ctx.metadata["_internal_state"] = self._last_internal_state
             pre_ctx = get_registry().execute(HookPoint.PRE_TASK, pre_ctx)
-            # Apply any context modifications from hooks
-            if pre_ctx.modified_data.get("task_description"):
-                enriched_task = pre_ctx.modified_data["task_description"]
+            # Apply hook modifications only if they still contain the original task
+            # (prevents hooks from replacing the task with internal system content)
+            hook_desc = pre_ctx.modified_data.get("task_description", "")
+            if hook_desc and crew_task[:50] in hook_desc:
+                enriched_task = hook_desc
         except Exception:
             logger.debug("Sentience PRE_TASK hooks failed", exc_info=True)
 
+        # ── Sentience: PRE_LLM_CALL hooks (safety check, budget enforcement) ──
+        # These fire once per crew execution as a pre-flight check.
+        try:
+            from app.lifecycle_hooks import get_registry, HookPoint, HookContext
+            pre_llm_ctx = HookContext(
+                hook_point=HookPoint.PRE_LLM_CALL,
+                agent_id=crew_name,
+                task_description=enriched_task[:500],
+                metadata={"crew": crew_name, "difficulty": difficulty},
+            )
+            pre_llm_ctx = get_registry().execute(HookPoint.PRE_LLM_CALL, pre_llm_ctx)
+            # Safety/budget hooks can abort execution via ctx.abort
+            if pre_llm_ctx.abort:
+                reason = pre_llm_ctx.abort_reason or "Blocked by safety/budget hook"
+                logger.warning(f"PRE_LLM_CALL abort for {crew_name}: {reason}")
+                return reason
+        except Exception:
+            logger.debug("PRE_LLM_CALL hooks failed (non-fatal)", exc_info=True)
+
         result = ""
         success = True
-        if crew_name == "research":
-            from app.crews.research_crew import ResearchCrew
-            result = ResearchCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-        elif crew_name == "coding":
-            from app.crews.coding_crew import CodingCrew
-            result = CodingCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-        elif crew_name == "writing":
-            from app.crews.writing_crew import WritingCrew
-            result = WritingCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-        elif crew_name == "media":
-            from app.crews.media_crew import MediaCrew
-            result = MediaCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-        else:
-            return crew_task
+        crew_error = None
+        try:
+            if crew_name == "research":
+                from app.crews.research_crew import ResearchCrew
+                result = ResearchCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
+            elif crew_name == "coding":
+                from app.crews.coding_crew import CodingCrew
+                result = CodingCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
+            elif crew_name == "writing":
+                from app.crews.writing_crew import WritingCrew
+                result = WritingCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
+            elif crew_name == "media":
+                from app.crews.media_crew import MediaCrew
+                result = MediaCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
+            else:
+                return crew_task
+        except Exception as e:
+            crew_error = e
+            success = False
+            result = f"Crew {crew_name} failed: {str(e)[:200]}"
+            logger.error(f"Crew {crew_name} raised: {e}", exc_info=True)
+            # ── Sentience: ON_ERROR hooks ──
+            try:
+                from app.lifecycle_hooks import get_registry, HookPoint, HookContext
+                err_ctx = HookContext(
+                    hook_point=HookPoint.ON_ERROR,
+                    agent_id=crew_name,
+                    task_description=crew_task[:500],
+                    data={"error": str(e)[:500]},
+                    metadata={"crew": crew_name, "difficulty": difficulty},
+                )
+                err_ctx.errors = [str(e)[:500]]
+                get_registry().execute(HookPoint.ON_ERROR, err_ctx)
+            except Exception:
+                pass
 
         duration_s = _time.monotonic() - t0
 
@@ -418,8 +517,29 @@ class Commander:
             # Store internal state for next crew's PRE_TASK injection
             if post_ctx.metadata.get("_internal_state"):
                 self._last_internal_state = post_ctx.metadata["_internal_state"]
+            # Consume self_correct retry signal — flag for reflexion loop
+            if post_ctx.metadata.get("needs_retry") and not crew_error:
+                self._needs_format_retry = True
+                self._retry_reason = post_ctx.metadata.get("retry_reason", "malformed output")
+                logger.info(f"Self-correct flagged retry for {crew_name}: {self._retry_reason}")
+            else:
+                self._needs_format_retry = False
         except Exception:
             logger.debug("Sentience POST_LLM_CALL hooks failed", exc_info=True)
+
+        # ── Sentience: ON_COMPLETE hooks (health metrics) ──
+        try:
+            from app.lifecycle_hooks import get_registry, HookPoint, HookContext
+            comp_ctx = HookContext(
+                hook_point=HookPoint.ON_COMPLETE,
+                agent_id=crew_name,
+                task_description=crew_task[:200],
+                data={"result": str(result)[:500], "success": success},
+                metadata={"crew": crew_name, "difficulty": difficulty, "duration_s": duration_s},
+            )
+            get_registry().execute(HookPoint.ON_COMPLETE, comp_ctx)
+        except Exception:
+            pass
 
         # S2+R1+R3: Post-crew async hook — heuristic self-awareness telemetry.
         # Generates real confidence/completeness signals from observable data
@@ -508,8 +628,16 @@ class Commander:
                             difficulty=difficulty, duration_s=duration_s)
 
                 # L6: Update homeostatic state (proto-emotions)
+                # Bidirectional coupling: pass somatic valence from last internal state
+                _somatic_val = None
+                if hasattr(self, "_last_internal_state") and self._last_internal_state:
+                    try:
+                        _somatic_val = self._last_internal_state.somatic.valence
+                    except (AttributeError, TypeError):
+                        pass
                 from app.self_awareness.homeostasis import update_state
-                update_state("task_complete", crew_name, success=result_ok, difficulty=difficulty)
+                update_state("task_complete", crew_name, success=result_ok,
+                             difficulty=difficulty, somatic_valence=_somatic_val)
 
                 # L7: Record in activity journal
                 try:
@@ -628,13 +756,20 @@ class Commander:
                 _cached_context = self._last_context
 
             # Quick quality check (no LLM call)
-            if _passes_quality_gate(result, crew_name):
+            # Also check self-correct format retry signal from POST_LLM_CALL hook
+            format_ok = not getattr(self, "_needs_format_retry", False)
+            if format_ok and _passes_quality_gate(result, crew_name):
                 if trial > 1:
                     _store_reflexion_success(task, trial, reflections)
                 return result, False
 
             # Generate heuristic reflection (no LLM call)
-            reflection = _generate_reflection(task, result, crew_name, trial)
+            if not format_ok:
+                # Self-correct hook detected malformed output — add format hint
+                fmt_reason = getattr(self, "_retry_reason", "malformed output")
+                reflection = f"Output format error: {fmt_reason}. Ensure response is well-formed."
+            else:
+                reflection = _generate_reflection(task, result, crew_name, trial)
             reflections.append(reflection)
             logger.warning(
                 f"Reflexion trial {trial}/{max_trials} for {crew_name}: "

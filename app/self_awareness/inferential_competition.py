@@ -34,6 +34,7 @@ class CompetingPlan:
     precision_score: float = 0.0
     alignment_score: float = 0.0
     novelty_score: float = 0.0
+    affective_score: float = 0.5    # Somatic forecast valence (0=negative, 1=positive)
     composite_score: float = 0.0
 
     def to_dict(self) -> dict:
@@ -44,6 +45,7 @@ class CompetingPlan:
             "precision_score": round(self.precision_score, 3),
             "alignment_score": round(self.alignment_score, 3),
             "novelty_score": round(self.novelty_score, 3),
+            "affective_score": round(self.affective_score, 3),
             "composite_score": round(self.composite_score, 3),
         }
 
@@ -66,14 +68,16 @@ class InferentialCompetition:
     def __init__(
         self,
         n_candidates: int = 3,
-        precision_weight: float = 0.4,
-        alignment_weight: float = 0.4,
-        novelty_weight: float = 0.2,
+        precision_weight: float = 0.3,
+        alignment_weight: float = 0.3,
+        novelty_weight: float = 0.15,
+        affective_weight: float = 0.25,
     ):
         self.n_candidates = n_candidates
         self.precision_weight = precision_weight
         self.alignment_weight = alignment_weight
         self.novelty_weight = novelty_weight
+        self.affective_weight = affective_weight
 
     def should_compete(
         self,
@@ -95,6 +99,7 @@ class InferentialCompetition:
         task_description: str,
         reality_model=None,
         available_tools: list[str] = None,
+        agent_id: str = "",
     ) -> tuple[CompetingPlan, list[CompetingPlan]]:
         """Generate N plans and select winner. Returns (winner, all)."""
         candidates = self._generate_candidates(task_description, reality_model, available_tools)
@@ -107,8 +112,8 @@ class InferentialCompetition:
             )
             return default, [default]
 
-        # Score each candidate
-        scored = [self._score_plan(c, reality_model, candidates) for c in candidates]
+        # Score each candidate (includes affective forecasting)
+        scored = [self._score_plan(c, reality_model, candidates, agent_id) for c in candidates]
         scored.sort(key=lambda p: p.composite_score, reverse=True)
 
         logger.info(
@@ -181,8 +186,8 @@ class InferentialCompetition:
             logger.debug(f"Plan generation failed: {e}")
             return []
 
-    def _score_plan(self, plan, reality_model, all_plans) -> CompetingPlan:
-        """Score a plan using precision-weighting."""
+    def _score_plan(self, plan, reality_model, all_plans, agent_id: str = "") -> CompetingPlan:
+        """Score a plan using precision-weighting + affective forecasting."""
         try:
             from app.memory.chromadb_manager import embed
             plan_emb = embed(plan.approach[:200])
@@ -215,14 +220,34 @@ class InferentialCompetition:
             else:
                 plan.novelty_score = 0.5
 
+            # 4. Affective forecast: predict emotional outcome of this approach
+            # Uses somatic marker forecast (backward experience + forward causal beliefs)
+            if agent_id:
+                try:
+                    from app.self_awareness.somatic_marker import SomaticMarkerComputer
+                    smc = SomaticMarkerComputer()
+                    forecast = smc.forecast(
+                        agent_id=agent_id,
+                        proposed_action=plan.approach[:300],
+                        context_embedding=plan_emb,
+                    )
+                    # Map valence [-1, 1] to score [0, 1]
+                    plan.affective_score = (forecast.valence + 1.0) / 2.0
+                except Exception:
+                    plan.affective_score = 0.5
+            else:
+                plan.affective_score = 0.5
+
         except Exception:
             plan.precision_score = 0.5
             plan.alignment_score = 0.5
             plan.novelty_score = 0.5
+            plan.affective_score = 0.5
 
         plan.composite_score = (
             self.precision_weight * plan.precision_score
             + self.alignment_weight * plan.alignment_score
             + self.novelty_weight * plan.novelty_score
+            + self.affective_weight * plan.affective_score
         )
         return plan

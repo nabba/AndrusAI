@@ -193,6 +193,11 @@ class Settings(BaseSettings):
     # Firebase — service account for Firestore dashboard writes
     firebase_service_account_json: str = ""
 
+    # Temporal context — default location for seasonal/astronomical context
+    default_latitude: float = 60.17      # Helsinki
+    default_longitude: float = 24.94
+    default_timezone: str = "Europe/Helsinki"
+
     model_config = ConfigDict(env_file=".env")
 
     @field_validator("sandbox_memory_limit")

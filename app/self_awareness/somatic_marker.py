@@ -24,10 +24,14 @@ logger = logging.getLogger(__name__)
 class SomaticMarkerComputer:
     """Computes somatic markers via pgvector similarity search on agent_experiences."""
 
-    def __init__(self, top_k: int = 5, decay_factor: float = 0.95, min_similarity: float = 0.3):
+    def __init__(
+        self, top_k: int = 5, decay_factor: float = 0.95, min_similarity: float = 0.3,
+        temporal_half_life_hours: float = 168.0,  # 7 days — experiences lose half their weight
+    ):
         self.top_k = top_k
         self.decay_factor = decay_factor
         self.min_similarity = min_similarity
+        self.temporal_half_life_hours = temporal_half_life_hours
 
     def compute(
         self,
@@ -69,10 +73,12 @@ class SomaticMarkerComputer:
             parsed = []
             for r in rows:
                 sim = r.get("similarity", 0) if isinstance(r, dict) else r[3]
+                created = r.get("created_at") if isinstance(r, dict) else r[2]
                 parsed.append({
                     "outcome_score": r.get("outcome_score", 0) if isinstance(r, dict) else r[0],
                     "context_summary": r.get("context_summary", "") if isinstance(r, dict) else r[1],
                     "similarity": sim,
+                    "created_at": created,
                 })
 
             # Filter by minimum similarity
@@ -80,18 +86,45 @@ class SomaticMarkerComputer:
             if not relevant:
                 return SomaticMarker(valence=0.0, intensity=0.0, source="no_relevant_experience", match_count=0)
 
-            # Weighted average: recency x similarity
+            # Weighted average: recency_rank × similarity × temporal_decay
+            # Temporal decay: experiences lose weight over time but never below 20% floor
+            # (old failures must leave a lasting mark — the system should learn, not forget)
+            from datetime import datetime as _dt, timezone as _tz
+            import math as _math
+            now = _dt.now(_tz.utc)
+            _TEMPORAL_FLOOR = 0.2  # Old experiences retain at least 20% weight
+
             weighted_sum = 0.0
             weight_total = 0.0
             for i, p in enumerate(relevant):
                 recency_weight = self.decay_factor ** i
-                weight = recency_weight * p["similarity"]
+
+                # Temporal decay: half-life based, with floor
+                temporal_weight = 1.0
+                if p.get("created_at"):
+                    try:
+                        created = p["created_at"]
+                        if hasattr(created, "timestamp"):
+                            age_hours = (now - created).total_seconds() / 3600
+                        else:
+                            age_hours = 0
+                        if age_hours > 0 and self.temporal_half_life_hours > 0:
+                            raw_decay = 0.5 ** (age_hours / self.temporal_half_life_hours)
+                            temporal_weight = max(_TEMPORAL_FLOOR, raw_decay)
+                    except Exception:
+                        temporal_weight = 1.0
+
+                weight = recency_weight * p["similarity"] * temporal_weight
                 weighted_sum += p["outcome_score"] * weight
                 weight_total += weight
 
             valence = weighted_sum / weight_total if weight_total > 0 else 0.0
             intensity = relevant[0]["similarity"]
             source = str(relevant[0]["context_summary"])[:200]
+
+            # Homeostasis modulation: frustration amplifies negative signals,
+            # low energy dampens intensity (system too tired to feel strongly)
+            valence, intensity = self._apply_homeostatic_modulation(valence, intensity)
 
             return SomaticMarker(
                 valence=round(valence, 3),
@@ -103,6 +136,40 @@ class SomaticMarkerComputer:
         except Exception as e:
             logger.debug(f"Somatic marker computation failed for {agent_id}: {e}")
             return SomaticMarker()
+
+    @staticmethod
+    def _apply_homeostatic_modulation(valence: float, intensity: float) -> tuple[float, float]:
+        """Modulate somatic signal based on homeostatic proto-emotions.
+
+        - High frustration amplifies negative valence (anxious system is more sensitive to threats)
+        - Low cognitive energy dampens intensity (tired system has muted feelings)
+        - High confidence slightly dampens negative signals (confident system is more resilient)
+        """
+        try:
+            from app.self_awareness.homeostasis import get_state
+            state = get_state()
+            frustration = state.get("frustration", 0.1)
+            energy = state.get("cognitive_energy", 0.7)
+            confidence = state.get("confidence", 0.5)
+
+            # Frustration amplifies negative valence: up to 40% stronger when frustrated
+            if valence < 0 and frustration > 0.3:
+                amplification = 1.0 + (frustration - 0.3) * 0.6  # max 1.42x at frustration=1.0
+                valence = max(-1.0, valence * amplification)
+
+            # Confidence dampens negative valence slightly (resilience)
+            if valence < 0 and confidence > 0.6:
+                dampening = 1.0 - (confidence - 0.6) * 0.25  # max 0.9x at confidence=1.0
+                valence = valence * dampening
+
+            # Low energy dampens intensity (emotional blunting from fatigue)
+            if energy < 0.4:
+                energy_factor = 0.5 + energy * 1.25  # maps 0→0.5, 0.4→1.0
+                intensity = intensity * energy_factor
+
+        except Exception:
+            pass
+        return valence, intensity
 
 
     def forecast(

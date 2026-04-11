@@ -82,5 +82,6 @@ def create_researcher(force_tier: str | None = None, light: bool = False) -> Age
         backstory=backstory,
         llm=llm,
         tools=tools,
+        max_execution_time=300,
         verbose=True,
     )

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 homeostasis.py — System-level homeostatic self-regulation (Layer 6).
 
@@ -112,10 +114,15 @@ def update_state(
     crew_name: str = "",
     success: bool = True,
     difficulty: int = 5,
+    somatic_valence: float | None = None,
 ) -> None:
     """Update homeostatic state based on a system event.
 
     Called from _post_crew_telemetry() after every crew execution.
+
+    Args:
+        somatic_valence: Optional somatic valence [-1, 1] from the last internal state.
+            Feeds emotional signal back into homeostasis (bidirectional coupling).
     """
     state = _load()
 
@@ -134,6 +141,20 @@ def update_state(
             state["frustration"] = min(1.0, state.get("frustration", 0.1) + 0.15)
             state["confidence"] = max(0.0, state.get("confidence", 0.5) - 0.05)
             state["consecutive_failures"] = state.get("consecutive_failures", 0) + 1
+
+        # Somatic → Homeostasis coupling: emotional signal feeds into proto-emotions
+        # Strong negative somatic increases frustration, strong positive reduces it
+        if somatic_valence is not None:
+            if somatic_valence < -0.3:
+                # Negative emotional signal: body is anxious, increase frustration
+                boost = abs(somatic_valence) * 0.08  # max ~0.08 at valence=-1.0
+                state["frustration"] = min(1.0, state.get("frustration", 0.1) + boost)
+                state["cognitive_energy"] = max(0.0, state.get("cognitive_energy", 0.7) - boost * 0.5)
+            elif somatic_valence > 0.3:
+                # Positive emotional signal: body is relaxed, reduce frustration
+                relief = somatic_valence * 0.05  # max ~0.05 at valence=1.0
+                state["frustration"] = max(0.0, state.get("frustration", 0.1) - relief)
+                state["confidence"] = min(1.0, state.get("confidence", 0.5) + relief * 0.5)
 
         # High difficulty tasks increase curiosity (novel challenge)
         if difficulty >= 7:

@@ -300,7 +300,7 @@ def ingest_document(
             from app.sanitize import sanitize_content
             raw_text = sanitize_content(raw_text)
         except ImportError:
-            pass
+            logger.warning("knowledge_base: sanitization module unavailable — ingesting without content sanitization")
 
         # Clean
         raw_text = re.sub(r"\n{3,}", "\n\n", raw_text).strip()

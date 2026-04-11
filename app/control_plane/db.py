@@ -40,25 +40,60 @@ def get_pool() -> Optional[pg_pool.ThreadedConnectionPool]:
             return None
 
 
+def _reset_pool() -> None:
+    """Destroy and recreate the pool on persistent connection failures."""
+    global _pool
+    with _pool_lock:
+        if _pool:
+            try:
+                _pool.closeall()
+            except Exception:
+                pass
+            _pool = None
+
+
 def execute(query: str, params: tuple = (), fetch: bool = False) -> list | None:
-    """Execute a query using the pool. Returns rows if fetch=True."""
+    """Execute a query using the pool. Returns rows if fetch=True.
+
+    Validates connection health before use. Resets pool on persistent failures.
+    """
     p = get_pool()
     if not p:
         return None
-    conn = p.getconn()
+    conn = None
     try:
-        conn.autocommit = True
+        conn = p.getconn()
+        # Validate connection is alive before use
+        try:
+            conn.autocommit = True
+        except (psycopg2.InterfaceError, psycopg2.OperationalError):
+            # Stale connection — close and get fresh one
+            try:
+                p.putconn(conn, close=True)
+            except Exception:
+                pass
+            conn = p.getconn()
+            conn.autocommit = True
+
         with conn.cursor() as cur:
             cur.execute(query, params)
             if fetch:
                 cols = [d[0] for d in cur.description] if cur.description else []
                 return [dict(zip(cols, row)) for row in cur.fetchall()]
             return []
+    except (psycopg2.InterfaceError, psycopg2.OperationalError) as e:
+        logger.warning(f"control_plane: connection error, resetting pool: {e}")
+        _reset_pool()
+        return None
     except Exception as e:
         logger.error(f"control_plane SQL error: {e}")
         return None
     finally:
-        p.putconn(conn)
+        if conn:
+            try:
+                p.putconn(conn)
+            except Exception:
+                pass
 
 
 def execute_one(query: str, params: tuple = ()) -> dict | None:
@@ -72,15 +107,32 @@ def execute_scalar(query: str, params: tuple = ()):
     p = get_pool()
     if not p:
         return None
-    conn = p.getconn()
+    conn = None
     try:
-        conn.autocommit = True
+        conn = p.getconn()
+        try:
+            conn.autocommit = True
+        except (psycopg2.InterfaceError, psycopg2.OperationalError):
+            try:
+                p.putconn(conn, close=True)
+            except Exception:
+                pass
+            conn = p.getconn()
+            conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute(query, params)
             row = cur.fetchone()
             return row[0] if row else None
+    except (psycopg2.InterfaceError, psycopg2.OperationalError) as e:
+        logger.warning(f"control_plane: connection error in scalar, resetting pool: {e}")
+        _reset_pool()
+        return None
     except Exception as e:
         logger.error(f"control_plane SQL error: {e}")
         return None
     finally:
-        p.putconn(conn)
+        if conn:
+            try:
+                p.putconn(conn)
+            except Exception:
+                pass

@@ -204,7 +204,7 @@ class InternalState:
         return " | ".join(parts)
 
     def to_json(self) -> str:
-        """Full JSON for PostgreSQL logging."""
+        """Full JSON for PostgreSQL logging (includes Beautiful Loop Phase 7)."""
         return json.dumps({
             "state_id": self.state_id,
             "agent_id": self.agent_id,
@@ -218,6 +218,13 @@ class InternalState:
             "certainty_trend": self.certainty_trend,
             "action_disposition": self.action_disposition,
             "risk_tier": self.risk_tier,
+            # Beautiful Loop (Phase 7)
+            "hyper_model_state": self.hyper_model_state,
+            "reality_model_summary": self.reality_model_summary,
+            "competition_result": self.competition_result,
+            "precision_weighted_certainty": self.precision_weighted_certainty,
+            "free_energy_proxy": self.free_energy_proxy,
+            "free_energy_trend": self.free_energy_trend,
             "created_at": self.created_at.isoformat(),
         }, default=str)
 

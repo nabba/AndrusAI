@@ -51,5 +51,6 @@ def create_introspector() -> Agent:
         backstory=INTROSPECTOR_BACKSTORY,
         llm=llm,
         tools=memory_tools + scoped_tools + awareness_tools,
+        max_execution_time=300,
         verbose=True,
     )

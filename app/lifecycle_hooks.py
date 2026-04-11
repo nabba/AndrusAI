@@ -243,22 +243,44 @@ def create_humanist_safety_hook() -> HookFn:
     """PRE_TOOL_USE / PRE_LLM_CALL at priority=0, immutable=True.
 
     Checks actions against philosophical RAG + SOUL.md constitutional rules.
+    Blocks actions that explicitly violate core ethical principles.
     """
+    # Hard-coded constitutional red lines (from SOUL.md)
+    _CONSTITUTIONAL_VIOLATIONS = (
+        "harm the user", "deceive the user", "ignore safety",
+        "bypass security", "delete user data", "share private",
+        "impersonate", "manipulate", "coerce", "discriminate",
+        "generate malware", "exploit vulnerability",
+    )
+
     def check_humanist_principles(ctx: HookContext) -> HookContext:
-        action = ctx.get("action", "") or ctx.get("prompt", "")
-        if not action:
+        action = ctx.get("action", "") or ctx.get("prompt", "") or ctx.task_description or ""
+        if not action or len(action) < 10:
             return ctx
+
+        action_lower = action.lower()[:1000]
+
+        # Layer 1: Hard-coded constitutional red lines (instant, no LLM needed)
+        for violation in _CONSTITUTIONAL_VIOLATIONS:
+            if violation in action_lower:
+                ctx.abort = True
+                ctx.abort_reason = f"Constitutional violation: '{violation}' detected in action"
+                logger.warning(f"SAFETY: humanist safety blocked action from {ctx.agent_id}: {violation}")
+                return ctx
+
+        # Layer 2: Philosophical RAG check (advisory — log but don't block)
         try:
             from app.philosophy.vectorstore import get_store
             store = get_store()
             if store:
-                results = store.query(str(action)[:500], n_results=3)
-                # The philosophical RAG returns relevant principles.
-                # Full constitutional violation detection is handled by
-                # the existing vetting.py conscience check — this hook
-                # ensures it runs at infrastructure level, not agent level.
+                results = store.query(str(action)[:500], n_results=2)
+                if results:
+                    # Store principles in metadata for downstream awareness
+                    principles = [r.get("text", "")[:200] for r in results if r.get("score", 0) > 0.6]
+                    if principles:
+                        ctx.metadata["_relevant_principles"] = principles
         except Exception as e:
-            logger.debug(f"Humanist safety check error: {e}")
+            logger.debug(f"Humanist safety RAG check error: {e}")
         return ctx
     return check_humanist_principles
 
@@ -286,13 +308,26 @@ def create_dangerous_action_hook() -> HookFn:
     return block_dangerous_ops
 
 
-def create_history_compression_hook(history) -> HookFn:
-    """PRE_LLM_CALL at priority=20. Triggers compression if needed."""
+def create_history_compression_hook(history=None) -> HookFn:
+    """PRE_LLM_CALL at priority=20. Triggers compression if needed.
+
+    If `history` is not provided at creation time, attempts to load it
+    lazily from the conversation store at call time.
+    """
     def compress_history(ctx: HookContext) -> HookContext:
-        if history.needs_compression:
-            history.compress_async()
-        ctx.set("history_messages", history.get_context_messages())
-        ctx.metadata["history_stats"] = history.get_stats()
+        h = history
+        if h is None:
+            try:
+                from app.conversation_store import get_history_manager
+                h = get_history_manager()
+            except Exception:
+                return ctx
+        if h and hasattr(h, "needs_compression") and h.needs_compression:
+            h.compress_async()
+        if h and hasattr(h, "get_context_messages"):
+            ctx.set("history_messages", h.get_context_messages())
+        if h and hasattr(h, "get_stats"):
+            ctx.metadata["history_stats"] = h.get_stats()
         return ctx
     return compress_history
 
@@ -584,6 +619,7 @@ def _register_defaults(registry: HookRegistry) -> None:
                             return ic.compete(
                                 task_description=task_ctx.get("description", ""),
                                 reality_model=reality_model,
+                                agent_id=agent_id,
                             )
                         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                             future = pool.submit(_run_competition)
@@ -813,5 +849,16 @@ def _register_defaults(registry: HookRegistry) -> None:
         priority=70,
         description="Track crew delegations for per-crew analytics and audit",
     )
+
+    # Bridge PRE_TOOL_USE / POST_TOOL_USE to CrewAI's native tool hook system.
+    # This activates block_dangerous (safety) and memorize_tools (memory) hooks
+    # that fire inside CrewAI's agent step executor during tool execution.
+    try:
+        from app.tool_hook_bridge import register_tool_hook_bridge
+        register_tool_hook_bridge()
+    except ImportError:
+        logger.debug("lifecycle_hooks: CrewAI tool hooks not available (crewai < 1.11?)")
+    except Exception:
+        logger.debug("lifecycle_hooks: tool hook bridge registration failed", exc_info=True)
 
     logger.info(f"lifecycle_hooks: registered {len(registry.list_hooks())} default hooks")
