@@ -5,17 +5,15 @@ ChromaDB collection namespace, and Mem0 user_id namespace.
 """
 import logging
 import threading
-from typing import Optional
 
 from app.control_plane.db import execute, execute_one, execute_scalar
 
 logger = logging.getLogger(__name__)
 
-
 class ProjectManager:
     """Multi-project CRUD and scoping."""
 
-    _active_project_id: Optional[str] = None
+    _active_project_id: str | None = None
     _lock = threading.Lock()
 
     def create(self, name: str, mission: str = "", description: str = "",
@@ -117,12 +115,10 @@ class ProjectManager:
             lines.append(f"  {p['name']}: {p.get('mission', '—')[:80]}{marker}")
         return "\n".join(lines)
 
-
 # ── Singleton ────────────────────────────────────────────────────────────────
 
-_manager: Optional[ProjectManager] = None
+_manager: ProjectManager | None = None
 _lock = threading.Lock()
-
 
 def get_projects() -> ProjectManager:
     global _manager

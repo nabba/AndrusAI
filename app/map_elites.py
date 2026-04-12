@@ -37,7 +37,6 @@ import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +59,7 @@ MIGRATION_COUNT = 3        # top N per island
 TOP_K_PERFORMANCE = 3      # top performers for exploitation
 DIVERSE_K_INSPIRATION = 2  # diverse exemplars for exploration
 
-
 # ── Data types ────────────────────────────────────────────────────────────────
-
 
 @dataclass
 class Artifact:
@@ -103,7 +100,6 @@ class Artifact:
         if self.suggestion:
             lines.append(f"  🔧 Suggestion: {self.suggestion[:200]}")
         return "\n".join(lines)
-
 
 @dataclass
 class StrategyEntry:
@@ -150,9 +146,7 @@ class StrategyEntry:
         entry.artifacts = artifacts
         return entry
 
-
 # ── Feature extraction ────────────────────────────────────────────────────────
-
 
 def extract_features(prompt: str) -> dict[str, float]:
     """Extract behavioral feature vector from a prompt.
@@ -189,9 +183,7 @@ def extract_features(prompt: str) -> dict[str, float]:
         "specialization": round(specialization, 3),
     }
 
-
 # ── MAP-Elites Grid ──────────────────────────────────────────────────────────
-
 
 class MAPElitesGrid:
     """Quality-diversity grid backed by in-memory dict + PostgreSQL persistence.
@@ -219,7 +211,7 @@ class MAPElitesGrid:
                 return True
             return False
 
-    def get_best_overall(self) -> Optional[StrategyEntry]:
+    def get_best_overall(self) -> StrategyEntry | None:
         """Get the globally best strategy across all cells."""
         with self._lock:
             if not self._grid:
@@ -297,9 +289,7 @@ class MAPElitesGrid:
     def to_dict(self) -> list[dict]:
         return [e.to_dict() for e in self._grid.values()]
 
-
 # ── Artifact Feedback Manager ─────────────────────────────────────────────────
-
 
 class ArtifactManager:
     """Manages generation-to-generation structured feedback.
@@ -333,10 +323,9 @@ class ArtifactManager:
 
         return "\n".join(lines)
 
-    def get_latest(self, role: str) -> Optional[Artifact]:
+    def get_latest(self, role: str) -> Artifact | None:
         arts = self._history.get(role, [])
         return arts[-1] if arts else None
-
 
 # ── Template Stochasticity ────────────────────────────────────────────────────
 
@@ -389,7 +378,6 @@ PROMPT_VARIATIONS: dict[str, dict[str, list[str]]] = {
     },
 }
 
-
 def apply_stochasticity(role: str, prompt: str) -> str:
     """Apply controlled randomization to a prompt by injecting variation snippets.
 
@@ -412,9 +400,7 @@ def apply_stochasticity(role: str, prompt: str) -> str:
     stochastic_block = "\n".join(selected)
     return f"{prompt}\n\n## Session-Specific Guidance\n{stochastic_block}"
 
-
 # ── MAP-Elites Strategy Database (multi-island) ──────────────────────────────
-
 
 class MAPElitesDB:
     """Multi-island MAP-Elites with migration, double-selection, and artifact feedback.
@@ -590,12 +576,10 @@ class MAPElitesDB:
             )
         return "\n".join(lines)
 
-
 # ── Module-level singletons ──────────────────────────────────────────────────
 
 _databases: dict[str, MAPElitesDB] = {}
 _db_lock = threading.Lock()
-
 
 def get_db(role: str = "coder") -> MAPElitesDB:
     """Get or create a MAP-Elites database for a role."""

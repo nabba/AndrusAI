@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional
 
 from app.self_awareness.internal_state import CertaintyVector
 
 logger = logging.getLogger(__name__)
-
 
 class CertaintyVectorComputer:
     """Computes the CertaintyVector for a reasoning step."""
@@ -32,8 +30,8 @@ class CertaintyVectorComputer:
         current_output: str,
         rag_source_count: int = 0,
         total_claim_count: int = 0,
-        selected_tool: Optional[str] = None,
-        recent_output_embeddings: Optional[list[list[float]]] = None,
+        selected_tool: str | None = None,
+        recent_output_embeddings: list[list[float]] | None = None,
     ) -> CertaintyVector:
         """Compute 3 fast-path dimensions from DB lookups and embeddings."""
         cv = CertaintyVector()
@@ -161,7 +159,7 @@ class CertaintyVectorComputer:
         current_output: str,
         rag_source_count: int = 0,
         total_claim_count: int = 0,
-        selected_tool: Optional[str] = None,
+        selected_tool: str | None = None,
     ) -> CertaintyVector:
         """Full certainty vector: fast path always, slow path conditionally."""
         cv = self.compute_fast_path(

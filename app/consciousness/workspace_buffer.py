@@ -23,10 +23,8 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class WorkspaceItem:
@@ -59,15 +57,13 @@ class WorkspaceItem:
             "cycles_in_workspace": self.cycles_in_workspace,
         }
 
-
 @dataclass
 class GateResult:
     """Result of competitive gating evaluation."""
     admitted: bool
-    displaced_item: Optional[WorkspaceItem] = None
-    rejection_reason: Optional[str] = None
+    displaced_item: WorkspaceItem | None = None
+    rejection_reason: str | None = None
     transition_type: str = "admitted"   # admitted, displaced, rejected, novelty_floor
-
 
 def _cosine_sim(a: list[float], b: list[float]) -> float:
     """Cosine similarity between two vectors, normalized to [0, 1]."""
@@ -79,7 +75,6 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
     if na == 0 or nb == 0:
         return 0.5
     return (dot / (na * nb) + 1.0) / 2.0
-
 
 class SalienceScorer:
     """Compute composite salience score for a workspace candidate."""
@@ -122,7 +117,6 @@ class SalienceScorer:
                + self.w_surprise * item.surprise_signal)
         item.salience_score = round(raw * decay, 4)
         return item.salience_score
-
 
 class CompetitiveGate:
     """Capacity-constrained competitive workspace gate."""
@@ -248,12 +242,10 @@ class CompetitiveGate:
         except Exception:
             pass
 
-
 # ── Module-level singleton ──────────────────────────────────────────────────
 
-_gate: Optional[CompetitiveGate] = None
-_scorer: Optional[SalienceScorer] = None
-
+_gate: CompetitiveGate | None = None
+_scorer: SalienceScorer | None = None
 
 def get_workspace_gate() -> CompetitiveGate:
     global _gate
@@ -266,7 +258,6 @@ def get_workspace_gate() -> CompetitiveGate:
             consumption_decay=cfg.consumption_decay,
         )
     return _gate
-
 
 def get_salience_scorer() -> SalienceScorer:
     global _scorer

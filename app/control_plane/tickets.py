@@ -7,12 +7,10 @@ import json
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import Optional
 
 from app.control_plane.db import execute, execute_one, execute_scalar
 
 logger = logging.getLogger(__name__)
-
 
 class TicketManager:
     """Persistent task tracking with threaded comments."""
@@ -197,12 +195,10 @@ class TicketManager:
             (limit,), fetch=True,
         ) or []
 
-
 # ── Singleton ────────────────────────────────────────────────────────────────
 
-_tickets: Optional[TicketManager] = None
+_tickets: TicketManager | None = None
 _lock = threading.Lock()
-
 
 def get_tickets() -> TicketManager:
     global _tickets

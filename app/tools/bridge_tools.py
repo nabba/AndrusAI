@@ -15,10 +15,8 @@ IMMUTABLE — infrastructure-level module.
 
 import json
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 def create_bridge_tools(agent_id: str) -> list:
     """Create a set of CrewAI tools bound to an agent's bridge client.

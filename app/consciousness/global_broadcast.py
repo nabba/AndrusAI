@@ -19,10 +19,8 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class AgentReaction:
@@ -31,7 +29,7 @@ class AgentReaction:
     reaction_type: str = "NOTED"      # NOTED | RELEVANT | URGENT | ACTIONABLE
     relevance_score: float = 0.0
     relevance_reason: str = ""
-    proposed_action: Optional[str] = None
+    proposed_action: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -41,7 +39,6 @@ class AgentReaction:
             "relevance_reason": self.relevance_reason[:200],
             "proposed_action": self.proposed_action[:200] if self.proposed_action else None,
         }
-
 
 @dataclass
 class BroadcastEvent:
@@ -77,7 +74,6 @@ class BroadcastEvent:
             "reactions": {k: v.to_dict() for k, v in self.reactions.items()},
         }
 
-
 @dataclass
 class AgentBroadcastListener:
     """Per-agent broadcast configuration."""
@@ -93,7 +89,6 @@ class AgentBroadcastListener:
 
     def has_budget(self) -> bool:
         return self.broadcasts_processed < self.attention_budget
-
 
 class GlobalBroadcastEngine:
     """Manages global broadcast of workspace items to all registered agents."""
@@ -274,11 +269,9 @@ class GlobalBroadcastEngine:
         """Dashboard API: recent broadcast events."""
         return [e.to_dict() for e in list(self._log)[-n:]]
 
-
 # ── Module-level singleton ──────────────────────────────────────────────────
 
-_engine: Optional[GlobalBroadcastEngine] = None
-
+_engine: GlobalBroadcastEngine | None = None
 
 def get_broadcast_engine() -> GlobalBroadcastEngine:
     global _engine

@@ -19,10 +19,8 @@ import logging
 import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 # ── Learning step types ──────────────────────────────────────────────────────
 
@@ -59,7 +57,6 @@ LEARNING_METHODS = {
     },
 }
 
-
 @dataclass
 class LearningStep:
     """A single step in a learning plan."""
@@ -74,7 +71,6 @@ class LearningStep:
     status: str = "pending"       # pending | in_progress | completed | failed
     result: str = ""
 
-
 @dataclass
 class LearningPlan:
     """An ordered plan for learning missing capabilities."""
@@ -88,7 +84,6 @@ class LearningPlan:
     def to_dict(self) -> dict:
         d = asdict(self)
         return d
-
 
 class LearningPlanner:
     """Generates and manages learning plans for capability gaps."""
@@ -333,7 +328,7 @@ Only include specific, named capabilities. Return ONLY valid JSON."""
 
         return []
 
-    def _find_step(self, plan: LearningPlan, step_id: str) -> Optional[LearningStep]:
+    def _find_step(self, plan: LearningPlan, step_id: str) -> LearningStep | None:
         """Find a step by ID in a plan."""
         for step in plan.steps:
             if step.step_id == step_id:
@@ -371,9 +366,7 @@ Only include specific, named capabilities. Return ONLY valid JSON."""
 
         return "\n".join(lines)
 
-
 # ── Quality Evaluator ────────────────────────────────────────────────────────
-
 
 class QualityEvaluator:
     """Evaluates and tracks knowledge quality across the system.
@@ -446,19 +439,16 @@ class QualityEvaluator:
             )
         return "\n".join(lines)
 
-
 # ── Module-level singletons ──────────────────────────────────────────────────
 
 _planner: LearningPlanner | None = None
 _evaluator: QualityEvaluator | None = None
-
 
 def get_planner() -> LearningPlanner:
     global _planner
     if _planner is None:
         _planner = LearningPlanner()
     return _planner
-
 
 def get_evaluator() -> QualityEvaluator:
     global _evaluator

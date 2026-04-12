@@ -10,12 +10,10 @@ import json
 import logging
 import threading
 from datetime import datetime, timezone
-from typing import Optional
 
 from app.control_plane.db import execute, execute_one
 
 logger = logging.getLogger(__name__)
-
 
 class AuditTrail:
     """Append-only audit log writer."""
@@ -118,12 +116,10 @@ class AuditTrail:
         )
         return {"by_actor": rows or [], "total_cost": sum(r.get("total_cost", 0) or 0 for r in (rows or []))}
 
-
 # ── Singleton ────────────────────────────────────────────────────────────────
 
-_audit: Optional[AuditTrail] = None
+_audit: AuditTrail | None = None
 _lock = threading.Lock()
-
 
 def get_audit() -> AuditTrail:
     global _audit

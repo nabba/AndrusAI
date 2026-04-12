@@ -19,8 +19,6 @@ Usage:
 from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
-
 
 @dataclass(frozen=True)
 class TaskStarted:
@@ -34,7 +32,6 @@ class TaskStarted:
     parent_task_id: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
-
 @dataclass(frozen=True)
 class TaskCompleted:
     """Emitted when a crew finishes a task successfully."""
@@ -47,7 +44,6 @@ class TaskCompleted:
     duration_seconds: float = 0.0
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
-
 @dataclass(frozen=True)
 class TaskFailed:
     """Emitted when a crew fails a task."""
@@ -57,7 +53,6 @@ class TaskFailed:
     error_type: str = ""
     duration_seconds: float = 0.0
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-
 
 @dataclass(frozen=True)
 class FeedbackReceived:
@@ -69,7 +64,6 @@ class FeedbackReceived:
     is_remove: bool = False
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
-
 @dataclass(frozen=True)
 class PromptModified:
     """Emitted when a prompt version is promoted or rolled back."""
@@ -80,7 +74,6 @@ class PromptModified:
     modification_type: str = ""  # promotion, rollback, tier1_auto, tier2_approved
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
-
 @dataclass(frozen=True)
 class HealthAlert:
     """Emitted when health monitor detects a threshold violation."""
@@ -90,7 +83,6 @@ class HealthAlert:
     threshold: float = 0.0
     auto_remediate: bool = True
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-
 
 @dataclass(frozen=True)
 class EvolutionResult:

@@ -6,7 +6,6 @@ All routes prefixed with /api/cp/.
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -14,7 +13,6 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cp", tags=["control-plane"])
-
 
 # ── Request models ───────────────────────────────────────────────────────────
 
@@ -49,7 +47,6 @@ class BudgetSet(BaseModel):
     limit_usd: float
     limit_tokens: int = None
 
-
 # ── Projects ─────────────────────────────────────────────────────────────────
 
 @router.get("/projects")
@@ -77,7 +74,6 @@ def get_project(project_id: str):
 def project_status(project_id: str):
     from app.control_plane.projects import get_projects
     return get_projects().get_status(project_id)
-
 
 # ── Tickets ──────────────────────────────────────────────────────────────────
 
@@ -145,7 +141,6 @@ def add_comment(ticket_id: str, body: CommentCreate):
     get_tickets().add_comment(ticket_id, body.author, body.content)
     return {"status": "added"}
 
-
 # ── Budgets ──────────────────────────────────────────────────────────────────
 
 @router.get("/budgets")
@@ -164,7 +159,6 @@ def override_budget(body: BudgetOverride):
     from app.control_plane.budgets import get_budget_enforcer
     get_budget_enforcer().override_budget(body.project_id, body.agent_role, body.new_limit, body.approver)
     return {"status": "overridden"}
-
 
 # ── Audit ────────────────────────────────────────────────────────────────────
 
@@ -185,7 +179,6 @@ def get_audit_log(
 def audit_costs(project_id: str = Query(None)):
     from app.control_plane.audit import get_audit
     return get_audit().cost_summary(project_id)
-
 
 # ── Governance ───────────────────────────────────────────────────────────────
 
@@ -210,14 +203,12 @@ def reject_governance(request_id: str):
         raise HTTPException(404, "Request not found or already resolved")
     return {"status": "rejected"}
 
-
 # ── Org Chart ────────────────────────────────────────────────────────────────
 
 @router.get("/org-chart")
 def get_org_chart_api():
     from app.control_plane.org_chart import get_org_chart
     return get_org_chart()
-
 
 # ── System Health (aggregated from existing systems) ─────────────────────────
 
@@ -235,7 +226,6 @@ def control_plane_health():
         "audit_entries": audit_count,
         "governance_pending": pending,
     }
-
 
 # ── Costs ────────────────────────────────────────────────────────────────────
 

@@ -36,7 +36,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,6 @@ ARCHIVE_DIR = Path("/app/workspace/evolution_archive")
 SANDBOX_WORKSPACES = Path("/app/workspace/sandbox_workspaces")
 
 # ── Archive entry ─────────────────────────────────────────────────────────────
-
 
 @dataclass
 class ArchiveEntry:
@@ -80,9 +78,7 @@ class ArchiveEntry:
     def from_dict(cls, d: dict) -> "ArchiveEntry":
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
-
 # ── Evolution Archive ─────────────────────────────────────────────────────────
-
 
 # IMMUTABLE: Novelty scoring weights
 NOVELTY_RECENCY_WEIGHT = 0.3
@@ -91,7 +87,6 @@ NOVELTY_UNDEREXPLORED_WEIGHT = 0.3
 
 # UCB exploration constant for parent selection
 UCB_C = 1.414
-
 
 class EvolutionArchive:
     """Maintains a diverse archive of successful agent configurations.
@@ -134,7 +129,7 @@ class EvolutionArchive:
         logger.info(f"parallel_evolution: archived {entry.version_tag} "
                     f"(novelty={entry.novelty_score:.3f}, strategy={entry.mutation_strategy})")
 
-    def select_parent(self) -> Optional[ArchiveEntry]:
+    def select_parent(self) -> ArchiveEntry | None:
         """Select a parent variant using UCB1 with novelty bonus.
 
         Strategy: weighted selection favoring:
@@ -310,9 +305,7 @@ class EvolutionArchive:
 
         return "\n".join(lines)
 
-
 # ── Parallel sandbox execution ────────────────────────────────────────────────
-
 
 @dataclass
 class ParallelCandidate:
@@ -327,7 +320,6 @@ class ParallelCandidate:
     safety_violations: bool = False
     duration_seconds: float = 0.0
     error: str = ""
-
 
 class ParallelEvolutionRunner:
     """Run multiple sandbox instances in parallel for diverse exploration.
@@ -405,7 +397,7 @@ class ParallelEvolutionRunner:
 
     def select_best_candidate(
         self, candidates: list[ParallelCandidate]
-    ) -> Optional[ParallelCandidate]:
+    ) -> ParallelCandidate | None:
         """Select the best candidate from parallel runs.
 
         Criteria (in priority order):
@@ -560,13 +552,10 @@ class ParallelEvolutionRunner:
     def archive(self) -> EvolutionArchive:
         return self._archive
 
-
 # ── Module-level helpers ──────────────────────────────────────────────────────
-
 
 _runner: ParallelEvolutionRunner | None = None
 _runner_lock = threading.Lock()
-
 
 def get_runner() -> ParallelEvolutionRunner:
     """Get or create the singleton parallel evolution runner."""
@@ -575,7 +564,6 @@ def get_runner() -> ParallelEvolutionRunner:
         if _runner is None:
             _runner = ParallelEvolutionRunner()
         return _runner
-
 
 def run_parallel_evolution_cycle() -> dict:
     """Entry point for idle scheduler — run one parallel evolution cycle.
@@ -679,7 +667,6 @@ def run_parallel_evolution_cycle() -> dict:
                 _ws_lock.release()
 
     return result
-
 
 def _suggest_strategies(archive: EvolutionArchive) -> list[str]:
     """Suggest mutation strategies that are under-explored in the archive."""

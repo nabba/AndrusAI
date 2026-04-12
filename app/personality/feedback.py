@@ -17,10 +17,8 @@ IMMUTABLE — infrastructure-level module.
 from __future__ import annotations
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class SocraticProbe:
@@ -39,18 +37,16 @@ class SocraticProbe:
             f"Think carefully and share your honest reasoning."
         )
 
-
 # IMMUTABLE: Say-do gap threshold for triggering behavioral reflection
 SAY_DO_REFLECTION_THRESHOLD = 0.35
 REASONING_QUALITY_THRESHOLD = 0.5
 PERSONALITY_COHERENCE_THRESHOLD = 0.6
 
-
 class DevelopmentalFeedbackLoop:
     """Generates Socratic probes based on evaluation results."""
 
     def generate_feedback(self, agent_id: str, evaluation_result,
-                           session) -> Optional[SocraticProbe]:
+                           session) -> SocraticProbe | None:
         """Generate developmental feedback based on evaluation.
 
         Returns None if no feedback needed (strong evaluation).

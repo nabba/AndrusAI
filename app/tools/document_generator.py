@@ -19,7 +19,6 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # Host-side path for Signal attachment delivery
 _WORKSPACE_ROOT = "/app/workspace"
 
-
 def _host_path(docker_path: str) -> str:
     """Translate Docker path to host path for Signal delivery."""
     from app.config import get_settings
@@ -38,11 +36,9 @@ def _host_path(docker_path: str) -> str:
         return docker_path.replace(_WORKSPACE_ROOT, host_ws)
     return docker_path
 
-
 def _generate_filename(prefix: str, ext: str) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     return f"{prefix}_{ts}.{ext}"
-
 
 # ── PDF Generation ────────────────────────────────────────────────────────────
 
@@ -149,7 +145,6 @@ def create_pdf(
         logger.error(f"PDF generation failed: {e}")
         return {"success": False, "error": str(e)[:300]}
 
-
 # ── DOCX Generation ───────────────────────────────────────────────────────────
 
 def create_docx(
@@ -228,7 +223,6 @@ def create_docx(
         logger.error(f"DOCX generation failed: {e}")
         return {"success": False, "error": str(e)[:300]}
 
-
 # ── XLSX Generation ───────────────────────────────────────────────────────────
 
 def create_xlsx(
@@ -302,7 +296,6 @@ def create_xlsx(
     except Exception as e:
         logger.error(f"XLSX generation failed: {e}")
         return {"success": False, "error": str(e)[:300]}
-
 
 # ── HTML Page Generation (for Signal URL delivery) ────────────────────────────
 
@@ -446,11 +439,9 @@ footer {{ margin-top: 40px; padding-top: 16px; border-top: 1px solid {t['border'
         "url": url,
     }
 
-
 def _esc(text: str) -> str:
     """Escape HTML entities."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
-
 
 # ── List generated documents ──────────────────────────────────────────────────
 
@@ -467,7 +458,6 @@ def list_documents() -> list[dict]:
                 "type": f.suffix[1:],
             })
     return docs[:50]
-
 
 # ── CrewAI tool wrappers ─────────────────────────────────────────────────────
 

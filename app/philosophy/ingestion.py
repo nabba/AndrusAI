@@ -12,7 +12,6 @@ Metadata schema per chunk:
 import logging
 import re
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -32,7 +31,6 @@ SEPARATORS = [
     ". ",         # Sentence boundary (last resort)
 ]
 
-
 def extract_frontmatter(content: str) -> tuple[dict, str]:
     """Extract YAML frontmatter from markdown content.
 
@@ -50,13 +48,11 @@ def extract_frontmatter(content: str) -> tuple[dict, str]:
         return metadata, content[match.end():]
     return {}, content
 
-
 def _extract_section(text: str, position: int) -> str:
     """Find the nearest Markdown heading before position."""
     preceding = text[:position]
     headings = list(re.finditer(r"^#{1,3}\s+(.+)$", preceding, re.MULTILINE))
     return headings[-1].group(1).strip() if headings else "Introduction"
-
 
 def chunk_text(
     text: str,
@@ -115,10 +111,9 @@ def chunk_text(
 
     return chunks
 
-
 def ingest_file(
     filepath: Path,
-    store: Optional[PhilosophyStore] = None,
+    store: PhilosophyStore | None = None,
 ) -> int:
     """Ingest a single .md file into the philosophy vector store.
 
@@ -168,7 +163,6 @@ def ingest_file(
     )
     return added
 
-
 def ingest_text(
     text: str,
     filename: str,
@@ -176,7 +170,7 @@ def ingest_text(
     tradition: str = "Unknown",
     era: str = "Unknown",
     title: str = "Unknown",
-    store: Optional[PhilosophyStore] = None,
+    store: PhilosophyStore | None = None,
 ) -> int:
     """Ingest raw markdown text directly (from dashboard upload).
 
@@ -212,10 +206,9 @@ def ingest_text(
 
     return store.add_documents(chunks=chunks, metadatas=metadatas)
 
-
 def ingest_directory(
-    texts_dir: Optional[Path] = None,
-    store: Optional[PhilosophyStore] = None,
+    texts_dir: Path | None = None,
+    store: PhilosophyStore | None = None,
 ) -> dict:
     """Ingest all .md files from the texts directory.
 

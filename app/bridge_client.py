@@ -14,7 +14,6 @@ IMMUTABLE — infrastructure-level module.
 import json
 import logging
 import os
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +22,11 @@ BRIDGE_URL = "http://{}:{}".format(
     os.getenv("BRIDGE_PORT", "9100"),
 )
 
-
 class BridgeError(Exception):
     """Error from the host bridge."""
     def __init__(self, message: str, status_code: int = 0):
         super().__init__(message)
         self.status_code = status_code
-
 
 class BridgeClient:
     """Client for the Host Bridge Service. Each agent gets one with its token."""
@@ -154,14 +151,12 @@ class BridgeClient:
         except Exception:
             return False
 
-
 # ── Agent token loading ───────────────────────────────────────────────────────
 # SECURITY: Each agent reads ONLY its own token from a per-agent env var.
 # This prevents privilege escalation where one agent reads another's token.
 # Pattern: BRIDGE_TOKEN_{AGENT_ID_UPPER} → per-agent isolation
 
-
-def _get_agent_token(agent_id: str) -> Optional[str]:
+def _get_agent_token(agent_id: str) -> str | None:
     """Get capability token for a specific agent from per-agent env var.
 
     Reads BRIDGE_TOKEN_{AGENT_ID} (e.g., BRIDGE_TOKEN_COMMANDER).
@@ -185,8 +180,7 @@ def _get_agent_token(agent_id: str) -> Optional[str]:
 
     return None
 
-
-def get_bridge(agent_id: str) -> Optional[BridgeClient]:
+def get_bridge(agent_id: str) -> BridgeClient | None:
     """Get a BridgeClient for an agent. Returns None if no token configured."""
     token = _get_agent_token(agent_id)
     if not token:

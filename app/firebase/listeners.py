@@ -8,12 +8,10 @@ Firestore mode reading.
 
 import logging
 import threading
-from typing import Optional
 
 from app.firebase.infra import _get_db, _fire, _now_iso
 
 logger = logging.getLogger(__name__)
-
 
 # ── LLM mode reading ────────────────────────────────────────────────────────
 
@@ -32,12 +30,10 @@ def read_llm_mode_from_firestore() -> str | None:
         logger.debug("firebase.listeners: failed to read llm mode from Firestore", exc_info=True)
     return None
 
-
 # ── Mode listener ────────────────────────────────────────────────────────────
 
 _mode_listener_unsub = None  # Must be kept alive to prevent GC of the listener
 _mode_poll_stop = threading.Event()  # Signal to stop the polling thread
-
 
 def _apply_mode_if_changed(new_mode: str) -> bool:
     """Apply a mode change if it differs from current. Returns True if changed."""
@@ -49,7 +45,6 @@ def _apply_mode_if_changed(new_mode: str) -> bool:
         logger.info(f"firebase.listeners: mode changed from dashboard -> {new_mode}")
         return True
     return False
-
 
 def start_mode_listener() -> None:
     """Listen for dashboard mode changes via Firestore on_snapshot + polling fallback.
@@ -96,11 +91,9 @@ def start_mode_listener() -> None:
     t.start()
     logger.info("firebase.listeners: mode poll started (15s interval)")
 
-
 # ── KB Queue Poller ──────────────────────────────────────────────────────────
 
 _kb_poll_stop = threading.Event()
-
 
 def start_kb_queue_poller() -> None:
     """Poll Firestore kb_queue for pending uploads and ingest them."""
@@ -196,11 +189,9 @@ def start_kb_queue_poller() -> None:
     t.start()
     logger.info("firebase.listeners: KB queue poller started (10s interval)")
 
-
 # ── Philosophy Queue Poller ──────────────────────────────────────────────────
 
 _phil_poll_stop = threading.Event()
-
 
 def start_phil_queue_poller() -> None:
     """Poll Firestore phil_queue for pending uploads/actions and process them."""
@@ -339,11 +330,9 @@ def start_phil_queue_poller() -> None:
     t.start()
     logger.info("firebase.listeners: Philosophy queue poller started (10s interval)")
 
-
 # ── Fiction Inspiration Queue Poller ──────────────────────────────────────────
 
 _fiction_poll_stop = threading.Event()
-
 
 def start_fiction_queue_poller() -> None:
     """Poll Firestore fiction_queue for pending uploads/actions."""
@@ -508,7 +497,6 @@ def start_fiction_queue_poller() -> None:
     t = threading.Thread(target=_poll_fiction, daemon=True, name="firebase-fiction-poll")
     t.start()
     logger.info("firebase.listeners: Fiction queue poller started (10s interval)")
-
 
 # ── Chat inbox poller ────────────────────────────────────────────────────────
 

@@ -9,7 +9,6 @@ import logging
 import threading
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import Optional
 
 from app.firebase.infra import _get_db, _fire, _now_iso, _add_activity
 
@@ -19,12 +18,11 @@ logger = logging.getLogger(__name__)
 _task_start_times: dict[str, str] = {}
 _task_start_lock = threading.Lock()
 
-
 # ── Crew / agent status ───────────────────────────────────────────────────────
 
-def crew_started(crew: str, task_summary: str, eta_seconds: Optional[int] = None,
-                 parent_task_id: Optional[str] = None,
-                 model: Optional[str] = None) -> str:
+def crew_started(crew: str, task_summary: str, eta_seconds: int | None = None,
+                 parent_task_id: str | None = None,
+                 model: str | None = None) -> str:
     """Mark a crew as active.  Returns a task_id for later updates.
 
     If parent_task_id is set, this task is a sub-agent spawned by a parent task.
@@ -79,7 +77,6 @@ def crew_started(crew: str, task_summary: str, eta_seconds: Optional[int] = None
     _fire(_write)
     return task_id
 
-
 def _get_tracker_data() -> tuple[int, str, float]:
     """Get token usage from the active request cost tracker (if any)."""
     try:
@@ -91,7 +88,6 @@ def _get_tracker_data() -> tuple[int, str, float]:
     except Exception:
         pass
     return 0, "", 0.0
-
 
 def _get_tokens_since(since_iso: str) -> tuple[int, str, float]:
     """Fallback: read tokens from llm_benchmarks recorded after since_iso.
@@ -105,7 +101,6 @@ def _get_tokens_since(since_iso: str) -> tuple[int, str, float]:
         return data["total_tokens"], data["models"], data["cost_usd"]
     except Exception:
         return 0, "", 0.0
-
 
 def crew_completed(crew: str, task_id: str, result_preview: str = "",
                    tokens_used: int = 0, model: str = "",
@@ -183,7 +178,6 @@ def crew_completed(crew: str, task_id: str, result_preview: str = "",
             logger.debug("firebase.crew_tracking: crew_completed write failed", exc_info=True)
     _fire(_write)
 
-
 def crew_failed(crew: str, task_id: str, error: str = "") -> None:
     """Mark a task as failed."""
     # Clean up start time tracking on failure
@@ -212,7 +206,6 @@ def crew_failed(crew: str, task_id: str, error: str = "") -> None:
             logger.debug("firebase.crew_tracking: crew_failed write failed", exc_info=True)
     _fire(_write)
 
-
 def update_eta(crew: str, task_id: str, eta_seconds: int) -> None:
     """Revise the ETA estimate for a running task."""
     eta_iso = (datetime.now(timezone.utc) + timedelta(seconds=eta_seconds)).isoformat()
@@ -227,7 +220,6 @@ def update_eta(crew: str, task_id: str, eta_seconds: int) -> None:
         except Exception:
             logger.debug("firebase.crew_tracking: update_eta write failed", exc_info=True)
     _fire(_write)
-
 
 def task_delegated(task_id: str, from_crew: str, to_crew: str, reason: str = "") -> None:
     """Record that a task was delegated from one crew/agent to another."""
@@ -249,7 +241,6 @@ def task_delegated(task_id: str, from_crew: str, to_crew: str, reason: str = "")
             logger.debug("firebase.crew_tracking: task_delegated write failed", exc_info=True)
     _fire(_write)
 
-
 def update_sub_agent_progress(crew: str, parent_task_id: str,
                                completed: int, total: int) -> None:
     """Update the parent task with sub-agent completion progress."""
@@ -265,7 +256,6 @@ def update_sub_agent_progress(crew: str, parent_task_id: str,
         except Exception:
             logger.debug("firebase.crew_tracking: sub_agent_progress write failed", exc_info=True)
     _fire(_write)
-
 
 def cleanup_stale_tasks() -> None:
     """
@@ -312,5 +302,4 @@ def cleanup_stale_tasks() -> None:
         except Exception:
             logger.debug("firebase.crew_tracking: stale task cleanup failed", exc_info=True)
     _fire(_cleanup)
-
 

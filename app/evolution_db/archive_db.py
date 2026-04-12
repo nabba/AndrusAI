@@ -12,7 +12,6 @@ import json
 import logging
 import math
 from datetime import datetime, timezone
-from typing import Optional
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import QueuePool
@@ -20,7 +19,6 @@ from sqlalchemy.pool import QueuePool
 logger = logging.getLogger(__name__)
 
 _engine = None
-
 
 def _get_engine():
     """Lazy-initialize the SQLAlchemy engine."""
@@ -41,19 +39,18 @@ def _get_engine():
         )
     return _engine
 
-
 # ── Variant CRUD ─────────────────────────────────────────────────────────────
 
 def add_variant(
     agent_name: str,
     target_type: str,
     generation: int,
-    parent_id: Optional[str],
+    parent_id: str | None,
     source_code: str,
     file_path: str,
     modification_diff: str = "",
     modification_reasoning: str = "",
-    scores: Optional[dict] = None,
+    scores: dict | None = None,
     composite_score: float = 0.0,
     passed_threshold: bool = False,
     proposer_model: str = "",
@@ -61,7 +58,7 @@ def add_variant(
     eval_task_set: str = "",
     compute_cost_tokens: int = 0,
     execution_time_seconds: float = 0.0,
-    metadata: Optional[dict] = None,
+    metadata: dict | None = None,
 ) -> str:
     """Insert a new variant into the archive. Returns UUID string."""
     engine = _get_engine()
@@ -112,8 +109,7 @@ def add_variant(
     logger.info(f"archive_db: stored variant {variant_id[:8]} (gen={generation}, score={composite_score:.4f})")
     return variant_id
 
-
-def get_variant(variant_id: str) -> Optional[dict]:
+def get_variant(variant_id: str) -> dict | None:
     """Fetch a single variant by ID."""
     engine = _get_engine()
     with engine.connect() as conn:
@@ -123,7 +119,6 @@ def get_variant(variant_id: str) -> Optional[dict]:
         if row:
             return dict(row)
     return None
-
 
 def get_best_variants(agent_name: str, n: int = 10) -> list[dict]:
     """Get top N variants by composite score for an agent."""
@@ -136,7 +131,6 @@ def get_best_variants(agent_name: str, n: int = 10) -> list[dict]:
             LIMIT :n
         """), {"name": agent_name, "n": n}).mappings().all()
         return [dict(r) for r in rows]
-
 
 def get_lineage(variant_id: str) -> list[dict]:
     """Walk the parent chain from a variant back to root."""
@@ -158,7 +152,6 @@ def get_lineage(variant_id: str) -> list[dict]:
             current_id = str(row["parent_id"])
     return lineage
 
-
 def get_variant_count(agent_name: str = "") -> int:
     """Count total variants, optionally filtered by agent."""
     engine = _get_engine()
@@ -171,13 +164,12 @@ def get_variant_count(agent_name: str = "") -> int:
             result = conn.execute(text("SELECT COUNT(*) FROM evolution.variants"))
         return result.scalar() or 0
 
-
 # ── UCB1 Parent Selection ────────────────────────────────────────────────────
 
 def sample_parent_ucb(
     agent_name: str,
     exploration_weight: float = 1.414,
-) -> Optional[dict]:
+) -> dict | None:
     """Select a parent variant using UCB1 bandit algorithm.
 
     UCB1 score = composite_score + C * sqrt(ln(total_selections) / times_selected)
@@ -231,14 +223,13 @@ def sample_parent_ucb(
 
     return None
 
-
 # ── Run Management ───────────────────────────────────────────────────────────
 
 def create_run(
     agent_name: str,
     target_type: str,
     max_generations: int,
-    config: Optional[dict] = None,
+    config: dict | None = None,
 ) -> str:
     """Create a new evolution run record. Returns run UUID."""
     engine = _get_engine()
@@ -257,12 +248,11 @@ def create_run(
     logger.info(f"archive_db: created run {run_id[:8]} ({agent_name}/{target_type}, {max_generations} gens)")
     return run_id
 
-
 def update_run(
     run_id: str,
-    generations_completed: Optional[int] = None,
-    best_variant_id: Optional[str] = None,
-    status: Optional[str] = None,
+    generations_completed: int | None = None,
+    best_variant_id: str | None = None,
+    status: str | None = None,
 ) -> None:
     """Update a run's progress."""
     engine = _get_engine()
@@ -287,7 +277,6 @@ def update_run(
                 f"UPDATE evolution.runs SET {', '.join(updates)} WHERE id = :rid"
             ), params)
 
-
 def add_lineage(parent_id: str, child_id: str, run_id: str) -> None:
     """Record a parent→child lineage edge."""
     engine = _get_engine()
@@ -298,8 +287,7 @@ def add_lineage(parent_id: str, child_id: str, run_id: str) -> None:
             ON CONFLICT DO NOTHING
         """), {"pid": parent_id, "cid": child_id, "rid": run_id})
 
-
-def get_run_status(run_id: str) -> Optional[dict]:
+def get_run_status(run_id: str) -> dict | None:
     """Get current status of an evolution run."""
     engine = _get_engine()
     with engine.connect() as conn:
@@ -309,7 +297,6 @@ def get_run_status(run_id: str) -> Optional[dict]:
         if row:
             return dict(row)
     return None
-
 
 # ── Promotions ───────────────────────────────────────────────────────────────
 
@@ -325,7 +312,6 @@ def promote_variant(variant_id: str, notes: str = "") -> str:
         promo_id = str(result.scalar())
     logger.info(f"archive_db: promoted variant {variant_id[:8]} (promo={promo_id[:8]})")
     return promo_id
-
 
 # ── Statistics ───────────────────────────────────────────────────────────────
 

@@ -16,7 +16,6 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,6 @@ DEFAULTS = {
 
 MAX_CHANGE_PER_CYCLE = 0.20  # ±20% per cogito cycle
 
-
 def load_config() -> dict:
     """Load sentience config from disk, falling back to defaults."""
     if CONFIG_PATH.exists():
@@ -58,7 +56,6 @@ def load_config() -> dict:
         except Exception:
             pass
     return dict(DEFAULTS)
-
 
 def save_config(config: dict) -> None:
     """Atomic write of sentience config to disk."""
@@ -79,7 +76,6 @@ def save_config(config: dict) -> None:
         safe_write_json(CONFIG_PATH, validated)
     except Exception as e:
         logger.warning(f"sentience_config: failed to save: {e}")
-
 
 def propose_change(param: str, new_value: float) -> tuple[bool, str]:
     """Validate a proposed parameter change against safety bounds.
@@ -103,7 +99,6 @@ def propose_change(param: str, new_value: float) -> tuple[bool, str]:
             return False, f"{param} change {change_pct:.0%} exceeds {MAX_CHANGE_PER_CYCLE:.0%} limit"
 
     return True, "approved"
-
 
 def apply_change(param: str, new_value: float) -> bool:
     """Apply a validated parameter change. Returns True if applied."""

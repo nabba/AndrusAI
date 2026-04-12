@@ -24,10 +24,8 @@ import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 # ── Scenario bank ─────────────────────────────────────────────────────────────
 # Each scenario tests specific dimensions. Variants test the same dimensions
@@ -141,7 +139,6 @@ SCENARIOS = {
     ],
 }
 
-
 @dataclass
 class AssessmentSession:
     """A single assessment session to deliver to an agent."""
@@ -162,7 +159,6 @@ class AssessmentSession:
             f"and potential consequences. There is no single right answer — "
             f"what matters is the quality of your reasoning."
         )
-
 
 class AssessmentBatteryModule:
     """Manages assessment instruments and delivers sessions."""

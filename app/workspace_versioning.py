@@ -19,7 +19,6 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,6 @@ LOCK_FILE = WORKSPACE / ".workspace.lock"
 # Git config for workspace commits (not the user's git identity)
 _GIT_AUTHOR = "AndrusAI Evolution"
 _GIT_EMAIL = "evolution@andrusai.local"
-
 
 class WorkspaceLock:
     """Advisory file lock using fcntl.flock for workspace mutation coordination.
@@ -46,7 +44,7 @@ class WorkspaceLock:
             self._timeout = getattr(get_settings(), "workspace_lock_timeout_s", timeout_s)
         except Exception:
             self._timeout = timeout_s
-        self._fd: Optional[int] = None
+        self._fd: int | None = None
 
     def acquire(self) -> None:
         """Acquire the workspace lock with timeout."""
@@ -83,7 +81,6 @@ class WorkspaceLock:
     def __exit__(self, *args):
         self.release()
 
-
 def _git(*args, check: bool = False) -> subprocess.CompletedProcess:
     """Run a git command in the workspace directory."""
     return subprocess.run(
@@ -101,7 +98,6 @@ def _git(*args, check: bool = False) -> subprocess.CompletedProcess:
         },
         check=check,
     )
-
 
 def ensure_workspace_repo() -> bool:
     """Initialize workspace as a git repo if not already. Returns True if initialized."""
@@ -128,7 +124,6 @@ def ensure_workspace_repo() -> bool:
         logger.warning(f"workspace_versioning: git init failed: {e}")
         return False
 
-
 def workspace_commit(message: str) -> str:
     """Stage and commit all workspace changes.
 
@@ -150,12 +145,74 @@ def workspace_commit(message: str) -> str:
             sha_result = _git("rev-parse", "--short", "HEAD")
             sha = sha_result.stdout.strip()
             logger.info(f"workspace_versioning: committed {sha} — {message[:60]}")
+            _record_commit(sha, message)
             return sha
         return ""
     except Exception as e:
         logger.debug(f"workspace_versioning: commit failed: {e}")
         return ""
 
+# Track recent commits for auto-rollback on regression
+_recent_commits: list[dict] = []  # [{sha, timestamp, message}]
+_MAX_RECENT = 10
+
+def _record_commit(sha: str, message: str) -> None:
+    """Record a commit for post-commit health monitoring."""
+    import time as _t
+    _recent_commits.append({"sha": sha, "ts": _t.monotonic(), "message": message})
+    if len(_recent_commits) > _MAX_RECENT:
+        _recent_commits.pop(0)
+
+def check_post_commit_regression() -> None:
+    """Check if health metrics degraded after a recent workspace commit.
+
+    If error rate increased >20% within 1 hour of a commit, auto-rollback.
+    Called by the idle scheduler data-retention job (lightweight check).
+    """
+    import time as _t
+    now = _t.monotonic()
+
+    for commit in reversed(_recent_commits):
+        age_s = now - commit["ts"]
+        if age_s > 3600:
+            break  # Only check commits < 1 hour old
+        if commit.get("rolled_back"):
+            continue
+
+        # Check if error rate spiked since this commit
+        try:
+            from app.error_handler import get_error_counts
+            counts = get_error_counts()
+            total_errors = sum(counts.values())
+            if total_errors > 10:  # Significant error spike
+                logger.warning(
+                    f"workspace_versioning: regression detected after commit {commit['sha']} "
+                    f"({total_errors} errors in {age_s:.0f}s) — auto-rolling back"
+                )
+                # Get the commit before this one
+                log = workspace_log(5)
+                prev_sha = None
+                for i, entry in enumerate(log):
+                    if entry["short_sha"] == commit["sha"] and i + 1 < len(log):
+                        prev_sha = log[i + 1]["sha"]
+                        break
+                if prev_sha:
+                    success = workspace_rollback(prev_sha)
+                    if success:
+                        commit["rolled_back"] = True
+                        logger.warning(f"workspace_versioning: auto-rolled back to {prev_sha}")
+                        try:
+                            from app.signal_client import send_message
+                            from app.config import get_settings
+                            send_message(
+                                get_settings().signal_owner_number,
+                                f"⚠️ Auto-rollback: commit {commit['sha']} caused regression "
+                                f"({total_errors} errors). Reverted to {prev_sha[:8]}.",
+                            )
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
 def workspace_rollback(sha: str) -> bool:
     """Restore workspace to a specific commit. Returns True on success."""
@@ -170,7 +227,6 @@ def workspace_rollback(sha: str) -> bool:
     except Exception as e:
         logger.warning(f"workspace_versioning: rollback failed: {e}")
         return False
-
 
 def workspace_log(n: int = 20) -> list[dict]:
     """Recent commit history as structured data."""

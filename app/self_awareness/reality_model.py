@@ -24,10 +24,8 @@ import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class WorldModelElement:
@@ -37,8 +35,8 @@ class WorldModelElement:
     content: str
     precision: float       # 0.0-1.0: confidence in this element
     source: str            # rag | memory | observation | inference | input
-    prediction: Optional[str] = None
-    actual: Optional[str] = None
+    prediction: str | None = None
+    actual: str | None = None
     prediction_error: float = 0.0
 
     def to_dict(self) -> dict:
@@ -50,7 +48,6 @@ class WorldModelElement:
             "source": self.source,
             "prediction_error": round(self.prediction_error, 3),
         }
-
 
 @dataclass
 class RealityModel:
@@ -110,7 +107,6 @@ class RealityModel:
             "total_prediction_error": round(self.total_prediction_error, 3),
         }
 
-
     def update_precision_from_outcome(
         self,
         hyper_prediction_error: float,
@@ -143,7 +139,6 @@ class RealityModel:
         if self.elements:
             high = sum(1 for e in self.elements if e.precision > 0.6)
             self.global_coherence = high / len(self.elements)
-
 
 class RealityModelBuilder:
     """Builds a RealityModel from available context sources."""

@@ -28,10 +28,8 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 # ── Surprise Level Thresholds ───────────────────────────────────────────────
 
@@ -43,14 +41,12 @@ SURPRISE_THRESHOLDS = {
     "PARADIGM_VIOLATION": (0.75, 1.0),
 }
 
-
 def classify_surprise(error_magnitude: float) -> str:
     """Classify surprise level from error magnitude."""
     for level, (low, high) in SURPRISE_THRESHOLDS.items():
         if low <= error_magnitude < high:
             return level
     return "PARADIGM_VIOLATION" if error_magnitude >= 0.75 else "EXPECTED"
-
 
 @dataclass
 class Prediction:
@@ -63,7 +59,6 @@ class Prediction:
     basis: str = ""
     cycle_number: int = 0
     predicted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-
 
 @dataclass
 class PredictionError:
@@ -91,7 +86,6 @@ class PredictionError:
             "routed_to_workspace": self.routed_to_workspace,
         }
 
-
 def _cosine_distance(a: list[float], b: list[float]) -> float:
     """1 - cosine_similarity. Returns [0, 1]."""
     if not a or not b or len(a) != len(b):
@@ -104,7 +98,6 @@ def _cosine_distance(a: list[float], b: list[float]) -> float:
     sim = dot / (na * nb)
     return max(0.0, min(1.0, 1.0 - (sim + 1.0) / 2.0))
 
-
 class ChannelPredictor:
     """Generates predictions and tracks accuracy for a single input channel."""
 
@@ -116,7 +109,7 @@ class ChannelPredictor:
         self.running_confidence: float = 0.5
         self._accuracy_history: deque[float] = deque(maxlen=50)
         self._prediction_count: int = 0
-        self._last_prediction: Optional[Prediction] = None
+        self._last_prediction: Prediction | None = None
 
     def generate_prediction(self, context: str, beliefs_context: str = "") -> Prediction:
         """Generate prediction for this channel using context + beliefs.
@@ -205,7 +198,6 @@ class ChannelPredictor:
                 sum(self._accuracy_history) / len(self._accuracy_history), 3
             ) if self._accuracy_history else 0.5,
         }
-
 
 class PredictiveLayer:
     """Manages channel predictors and routes surprise signals."""
@@ -320,11 +312,9 @@ class PredictiveLayer:
         except Exception:
             pass
 
-
 # ── Module-level singleton ──────────────────────────────────────────────────
 
-_layer: Optional[PredictiveLayer] = None
-
+_layer: PredictiveLayer | None = None
 
 def get_predictive_layer() -> PredictiveLayer:
     global _layer

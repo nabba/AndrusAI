@@ -214,6 +214,27 @@ def stop_all() -> None:
     logger.info("ollama_native: all models unloaded")
 
 
+def unload_idle_models(idle_minutes: int = 30) -> list[str]:
+    """Unload models not used in the last N minutes to free VRAM.
+
+    Called periodically by idle scheduler. Prevents memory fragmentation
+    from multiple small models staying loaded indefinitely.
+    """
+    now = time.monotonic()
+    threshold = idle_minutes * 60
+    unloaded = []
+    for model, last_used_ts in list(_last_used.items()):
+        if now - last_used_ts > threshold:
+            try:
+                stop_model(model)
+                unloaded.append(model)
+                logger.info(f"ollama_native: unloaded idle model '{model}' "
+                            f"(unused for {(now - last_used_ts) / 60:.0f} min)")
+            except Exception:
+                pass
+    return unloaded
+
+
 def get_available_models() -> list[str]:
     """Get all models downloaded in the native Ollama installation."""
     reach = _reachable_url()

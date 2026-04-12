@@ -9,7 +9,6 @@ Extends the existing idle_scheduler with:
 import logging
 import threading
 import time
-from typing import Optional
 
 from app.control_plane.db import execute, execute_one, execute_scalar
 
@@ -23,7 +22,6 @@ DEFAULT_INTERVALS = {
     "writer": 900,          # 15 min
     "self_improver": 1800,  # 30 min
 }
-
 
 class HeartbeatScheduler:
     """Enhanced scheduler with per-agent heartbeats and event-driven wakes."""
@@ -152,12 +150,10 @@ class HeartbeatScheduler:
             })
         return schedule
 
-
 # ── Singleton ────────────────────────────────────────────────────────────────
 
-_scheduler: Optional[HeartbeatScheduler] = None
+_scheduler: HeartbeatScheduler | None = None
 _lock = threading.Lock()
-
 
 def get_heartbeat_scheduler() -> HeartbeatScheduler:
     global _scheduler

@@ -16,12 +16,10 @@ IMMUTABLE — infrastructure-level module.
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 from app.self_awareness.query_router import SelfRefClassification, SelfRefType
 
 logger = logging.getLogger(__name__)
-
 
 # ── IMMUTABLE: Grounding system prompt ────────────────────────────────────────
 
@@ -73,9 +71,7 @@ _GENERIC_PHRASES = [
     "my knowledge cutoff",
 ]
 
-
 # ── Context gathering ─────────────────────────────────────────────────────────
-
 
 @dataclass
 class GroundedContext:
@@ -83,8 +79,7 @@ class GroundedContext:
     runtime_state: dict = field(default_factory=dict)
     tool_outputs: dict = field(default_factory=dict)
     rag_results: list = field(default_factory=list)
-    classification: Optional[SelfRefClassification] = None
-
+    classification: SelfRefClassification | None = None
 
 class GroundingProtocol:
     """Gathers grounded context and builds constrained prompts."""

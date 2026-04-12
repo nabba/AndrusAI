@@ -16,7 +16,7 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable
 
 from app.config import get_settings
 
@@ -35,20 +35,18 @@ _pool = ThreadPoolExecutor(
 _ollama_concurrency = getattr(settings, "ollama_max_concurrent_crews", 4)
 _ollama_semaphore = threading.Semaphore(_ollama_concurrency)
 
-
 @dataclass
 class ParallelResult:
     """Result from a single parallel task."""
     label: str
     success: bool
-    result: Optional[str] = None
-    error: Optional[str] = None
-
+    result: str | None = None
+    error: str | None = None
 
 def run_parallel(
     tasks: list[tuple[str, Callable[[], str]]],
     timeout_seconds: int = 600,
-    on_complete: Optional[Callable[["ParallelResult"], None]] = None,
+    on_complete: Callable[["ParallelResult"], None] | None = None,
 ) -> list[ParallelResult]:
     """
     Run multiple callables in parallel and collect results.

@@ -107,8 +107,62 @@ def is_enabled() -> bool:
         return _enabled
 
 
+# ── Persistent job failure state (survives restarts via dbm.sqlite3) ──────────
+# Before Python 3.13 these were in-memory dicts lost on every restart.
+# Now persisted so a job in 1-hour cooldown stays in cooldown after restart.
+_JOB_STATE_PATH = "/app/workspace/memory/idle_job_state"
+
 _job_failure_counts: dict[str, int] = {}  # Per-job consecutive failure counter
-_job_skip_until: dict[str, float] = {}    # Per-job skip-until timestamp (monotonic)
+_job_skip_until: dict[str, float] = {}    # Per-job skip-until timestamp (wall clock)
+
+
+def _load_job_state() -> None:
+    """Load persisted job failure counts and skip-until timestamps."""
+    global _job_failure_counts, _job_skip_until
+    try:
+        import dbm.sqlite3
+        import os
+        os.makedirs(os.path.dirname(_JOB_STATE_PATH), exist_ok=True)
+        with dbm.sqlite3.open(_JOB_STATE_PATH, "c") as db:
+            for key in db.keys():
+                k = key.decode() if isinstance(key, bytes) else key
+                val = db[key].decode() if isinstance(db[key], bytes) else db[key]
+                if k.startswith("fail:"):
+                    _job_failure_counts[k[5:]] = int(val)
+                elif k.startswith("skip:"):
+                    ts = float(val)
+                    if ts > time.time():  # Only load if still in the future
+                        _job_skip_until[k[5:]] = ts
+        if _job_failure_counts or _job_skip_until:
+            logger.info(f"idle_scheduler: restored job state — "
+                        f"{len(_job_failure_counts)} failure counts, "
+                        f"{len(_job_skip_until)} active cooldowns")
+    except Exception:
+        logger.debug("idle_scheduler: job state load failed (starting fresh)", exc_info=True)
+
+
+def _persist_job_failure(name: str, count: int) -> None:
+    """Persist failure count for a job."""
+    try:
+        import dbm.sqlite3
+        with dbm.sqlite3.open(_JOB_STATE_PATH, "c") as db:
+            db[f"fail:{name}"] = str(count)
+    except Exception:
+        pass
+
+
+def _persist_job_skip(name: str, until: float) -> None:
+    """Persist skip-until timestamp for a job."""
+    try:
+        import dbm.sqlite3
+        with dbm.sqlite3.open(_JOB_STATE_PATH, "c") as db:
+            db[f"skip:{name}"] = str(until)
+    except Exception:
+        pass
+
+
+# Load on module init
+_load_job_state()
 
 
 def _run_single_job(name: str, fn: Callable, timeout_s: int = 60) -> bool:
@@ -117,9 +171,9 @@ def _run_single_job(name: str, fn: Callable, timeout_s: int = 60) -> bool:
     Returns True if job succeeded, False if failed.
     Jobs that fail 3 consecutive times are skipped for 1 hour.
     """
-    # Check if job is in skip cooldown
+    # Check if job is in skip cooldown (wall clock — survives restarts)
     skip_until = _job_skip_until.get(name, 0)
-    if skip_until and time.monotonic() < skip_until:
+    if skip_until and time.time() < skip_until:
         return False
 
     _job_timeout.clear()
@@ -132,16 +186,20 @@ def _run_single_job(name: str, fn: Callable, timeout_s: int = 60) -> bool:
         logger.info(f"idle_scheduler: '{name}' completed")
         _report_background_activity(name, "completed")
         _job_failure_counts[name] = 0  # Reset on success
+        _persist_job_failure(name, 0)
         return True
     except Exception as exc:
         _job_failure_counts[name] = _job_failure_counts.get(name, 0) + 1
         consec = _job_failure_counts[name]
+        _persist_job_failure(name, consec)
         logger.warning(f"idle_scheduler: '{name}' failed ({consec} consecutive): {exc}")
         _report_background_activity(name, "failed")
 
         # After 3 consecutive failures, skip job for 1 hour
         if consec >= 3:
-            _job_skip_until[name] = time.monotonic() + 3600
+            skip_ts = time.time() + 3600
+            _job_skip_until[name] = skip_ts
+            _persist_job_skip(name, skip_ts)
             logger.warning(f"idle_scheduler: '{name}' skipped for 1h after {consec} consecutive failures")
 
         try:

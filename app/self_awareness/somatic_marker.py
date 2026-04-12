@@ -14,12 +14,10 @@ IMMUTABLE — infrastructure-level module.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from app.self_awareness.internal_state import SomaticMarker
 
 logger = logging.getLogger(__name__)
-
 
 class SomaticMarkerComputer:
     """Computes somatic markers via pgvector similarity search on agent_experiences."""
@@ -37,7 +35,7 @@ class SomaticMarkerComputer:
         self,
         agent_id: str,
         decision_context: str,
-        context_embedding: Optional[list[float]] = None,
+        context_embedding: list[float] | None = None,
     ) -> SomaticMarker:
         """Compute somatic marker for current decision context. ~10ms with indexed pgvector."""
         if context_embedding is None:
@@ -171,12 +169,11 @@ class SomaticMarkerComputer:
             pass
         return valence, intensity
 
-
     def forecast(
         self,
         agent_id: str,
         proposed_action: str,
-        context_embedding: Optional[list[float]] = None,
+        context_embedding: list[float] | None = None,
     ) -> SomaticMarker:
         """Predict emotional impact of a future action (affective forecasting).
 
@@ -221,14 +218,13 @@ class SomaticMarkerComputer:
             match_count=backward.match_count,
         )
 
-
 def record_experience_sync(
     agent_id: str,
     context_summary: str,
     outcome_score: float,
     outcome_description: str = "",
     task_type: str = "",
-    tools_used: Optional[list[str]] = None,
+    tools_used: list[str] | None = None,
     venture: str = "system",
 ) -> None:
     """Record a completed experience for future somatic marker lookups.

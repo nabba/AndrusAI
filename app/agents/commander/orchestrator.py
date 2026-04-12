@@ -1315,7 +1315,7 @@ class Commander:
                         try:
                             import asyncio
                             from app.main import signal_client
-                            loop = asyncio.get_event_loop()
+                            loop = asyncio.get_running_loop()
                             preview = pr.result[:600] if pr.result else ""
                             loop.call_soon_threadsafe(
                                 asyncio.ensure_future,

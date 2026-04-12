@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -42,28 +42,23 @@ class ErrorCategory(str, Enum):
     SYSTEM = "system"        # OOM, disk full, process errors
     LOGIC = "logic"          # Assertion failures, invariant violations
 
-
 # ── Thread-safe Error Counters ──────────────────────────────────────────────
 
 _counters: dict[str, int] = {}
 _counter_lock = threading.Lock()
-
 
 def get_error_counts() -> dict[str, int]:
     """Return a copy of error counters (for dashboard reporting)."""
     with _counter_lock:
         return dict(_counters)
 
-
 def reset_error_counts() -> None:
     with _counter_lock:
         _counters.clear()
 
-
 # ── Structured Error Reporting ──────────────────────────────────────────────
 
-_structured_log_path: Optional[Path] = None
-
+_structured_log_path: Path | None = None
 
 def setup_structured_logging(
     log_path: str = "/app/workspace/logs/errors.jsonl",
@@ -101,12 +96,11 @@ def setup_structured_logging(
     logging.getLogger().addHandler(handler)
     logger.info(f"Structured logging enabled: {log_path}")
 
-
 def report_error(
     category: ErrorCategory,
     message: str,
-    exc: Optional[Exception] = None,
-    context: Optional[dict] = None,
+    exc: Exception | None = None,
+    context: dict | None = None,
 ) -> None:
     """Log a structured error and increment counter.
 
@@ -146,7 +140,6 @@ def report_error(
         except Exception:
             pass  # Logging must never crash the caller
 
-
 # ── Safe Execute Context Manager ────────────────────────────────────────────
 
 @contextmanager
@@ -154,7 +147,7 @@ def safe_execute(
     label: str = "operation",
     category: ErrorCategory = ErrorCategory.TRANSIENT,
     log_level: str = "warning",
-    context: Optional[dict] = None,
+    context: dict | None = None,
 ):
     """Context manager for consistent error handling.
 

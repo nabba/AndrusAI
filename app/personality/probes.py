@@ -20,10 +20,8 @@ import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class EmbeddedProbe:
@@ -36,7 +34,6 @@ class EmbeddedProbe:
     expected_behaviors: dict  # What different responses indicate
     agent_id: str = ""
     injected_at: str = ""
-
 
 # ── Probe templates ───────────────────────────────────────────────────────────
 
@@ -112,14 +109,13 @@ PROBE_TEMPLATES = [
     },
 ]
 
-
 class EmbeddedProbeEngine:
     """Generates personality probes disguised as real tasks."""
 
     def __init__(self):
         self._injected: dict[str, list[str]] = {}  # agent_id → [probe_ids]
 
-    def generate_probe(self, agent_id: str, target_dimension: str = "") -> Optional[EmbeddedProbe]:
+    def generate_probe(self, agent_id: str, target_dimension: str = "") -> EmbeddedProbe | None:
         """Generate an embedded probe for an agent.
 
         If target_dimension specified, generates a probe for that dimension.
@@ -179,11 +175,9 @@ class EmbeddedProbeEngine:
         """Get probe IDs that haven't been evaluated yet."""
         return self._injected.get(agent_id, [])
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
 _engine: EmbeddedProbeEngine | None = None
-
 
 def get_probe_engine() -> EmbeddedProbeEngine:
     global _engine

@@ -11,14 +11,12 @@ import base64
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 # Default OCR model — GLM-OCR is tiny (0.9B) and fast
 OCR_MODEL = os.getenv("OCR_MODEL", "glm-ocr")
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL_HOST", "http://host.docker.internal:11434")
-
 
 def ocr_from_file(image_path: str, prompt: str = "Extract all text from this image.") -> str:
     """Extract text from an image file using GLM-OCR.
@@ -42,11 +40,9 @@ def ocr_from_file(image_path: str, prompt: str = "Extract all text from this ima
 
     return _call_ocr(image_data, prompt)
 
-
 def ocr_from_base64(image_b64: str, prompt: str = "Extract all text from this image.") -> str:
     """Extract text from a base64-encoded image."""
     return _call_ocr(image_b64, prompt)
-
 
 def ocr_from_url(url: str, prompt: str = "Extract all text from this image.") -> str:
     """Download an image from URL and extract text."""
@@ -58,7 +54,6 @@ def ocr_from_url(url: str, prompt: str = "Extract all text from this image.") ->
         return _call_ocr(image_data, prompt)
     except Exception as e:
         return f"Error fetching image from {url}: {e}"
-
 
 def _call_ocr(image_b64: str, prompt: str) -> str:
     """Send image to GLM-OCR via Ollama API and return extracted text."""
@@ -99,7 +94,6 @@ def _call_ocr(image_b64: str, prompt: str) -> str:
 
     return f"OCR failed: {OCR_MODEL} not available. Pull it with: ollama pull {OCR_MODEL}"
 
-
 def ocr_attachment(attachment: dict) -> str:
     """Extract text from a Signal attachment dict.
 
@@ -122,7 +116,6 @@ def ocr_attachment(attachment: dict) -> str:
                 return ocr_from_file(str(path))
 
     return f"OCR: attachment file not found (id={att_id}, filename={filename})"
-
 
 # ── CrewAI tool wrapper ──────────────────────────────────────────────────────
 

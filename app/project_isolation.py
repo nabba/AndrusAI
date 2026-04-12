@@ -30,15 +30,12 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 PROJECTS_DIR = Path("/app/workspace/projects")
 
-
 # ── Project config ────────────────────────────────────────────────────────────
-
 
 @dataclass
 class ProjectConfig:
@@ -58,7 +55,6 @@ class ProjectConfig:
             self.mem0_namespace = f"project_{self.name}"
         if not self.chroma_prefix:
             self.chroma_prefix = f"{self.name}_"
-
 
 @dataclass
 class ProjectContext:
@@ -83,13 +79,12 @@ class ProjectContext:
     def skills_collection(self) -> str:
         return f"{self.project.chroma_prefix}skills"
 
-    def get_agent_instructions(self, agent_name: str) -> Optional[str]:
+    def get_agent_instructions(self, agent_name: str) -> str | None:
         """Get project-specific instructions for an agent."""
         return self.instructions.get(agent_name) or self.instructions.get(agent_name.lower())
 
-    def get_variable(self, key: str) -> Optional[str]:
+    def get_variable(self, key: str) -> str | None:
         return self.variables.get(key)
-
 
 # ── IMMUTABLE: project detection keywords ─────────────────────────────────────
 
@@ -111,9 +106,7 @@ PROJECT_KEYWORDS: dict[str, list[str]] = {
     ],
 }
 
-
 # ── Project Manager ───────────────────────────────────────────────────────────
-
 
 class ProjectManager:
     """Manages project isolation across ventures.
@@ -139,7 +132,7 @@ class ProjectManager:
     def __init__(self, projects_dir: Path = PROJECTS_DIR):
         self._dir = projects_dir
         self._projects: dict[str, ProjectConfig] = {}
-        self._active: Optional[ProjectContext] = None
+        self._active: ProjectContext | None = None
         self._lock = threading.Lock()
 
     def scan_projects(self) -> list[str]:
@@ -207,7 +200,7 @@ class ProjectManager:
 
         logger.info("project_isolation: bootstrapped default projects (plg, archibal, kaicart)")
 
-    def _load_config(self, project_dir: Path) -> Optional[ProjectConfig]:
+    def _load_config(self, project_dir: Path) -> ProjectConfig | None:
         """Load project config from directory."""
         config_file = project_dir / "config.yaml"
         if config_file.exists():
@@ -268,11 +261,11 @@ class ProjectManager:
             self._active = None
 
     @property
-    def active(self) -> Optional[ProjectContext]:
+    def active(self) -> ProjectContext | None:
         with self._lock:
             return self._active
 
-    def detect_project(self, task_description: str) -> Optional[str]:
+    def detect_project(self, task_description: str) -> str | None:
         """Heuristic project detection from task text."""
         task_lower = task_description.lower()
         scores: dict[str, int] = {}
@@ -403,12 +396,9 @@ class ProjectManager:
                 lines.append(f"     {p.description[:80]}")
         return "\n".join(lines)
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
-
 _manager: ProjectManager | None = None
-
 
 def get_manager() -> ProjectManager:
     """Get or create the singleton project manager."""

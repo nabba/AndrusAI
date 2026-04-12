@@ -18,7 +18,6 @@ import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +84,6 @@ Previous fix attempts ({attempt_num}/{max_attempts}):
 
 Fix the code. Return ONLY the corrected Python code. No explanation."""
 
-
 @dataclass
 class CodeForgeResult:
     """Result of a code forge build."""
@@ -99,7 +97,6 @@ class CodeForgeResult:
     debug_iterations: int = 0
     error: str = ""
     duration_seconds: float = 0.0
-
 
 class CodeForge:
     """Grounded code generation with skill library integration and self-debugging."""
@@ -398,11 +395,9 @@ Generate ONLY Python test code. No markdown fences."""
         except Exception:
             return ""
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
 _forge: CodeForge | None = None
-
 
 def get_forge() -> CodeForge:
     """Get or create the singleton Code Forge."""

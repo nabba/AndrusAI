@@ -21,10 +21,8 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 # ── Domain constants ────────────────────────────────────────────────────────
 
@@ -34,7 +32,6 @@ VALID_DOMAINS = frozenset({
 })
 
 VALID_STATUSES = frozenset({"ACTIVE", "SUSPENDED", "RETRACTED", "SUPERSEDED"})
-
 
 @dataclass
 class Belief:
@@ -51,7 +48,7 @@ class Belief:
     metacognitive_flags: list[dict] = field(default_factory=list)
     update_history: list[dict] = field(default_factory=list)
     belief_status: str = "ACTIVE"
-    superseded_by: Optional[str] = None
+    superseded_by: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -65,7 +62,6 @@ class Belief:
             "last_validated": self.last_validated.isoformat() if self.last_validated else "",
             "updates": len(self.update_history),
         }
-
 
 @dataclass
 class MetacognitiveUpdate:
@@ -91,7 +87,6 @@ class MetacognitiveUpdate:
             "reasoning": self.reasoning[:200],
         }
 
-
 class BeliefStore:
     """PostgreSQL-backed belief store with semantic search and metacognitive updating."""
 
@@ -100,7 +95,7 @@ class BeliefStore:
         self._config = load_config()
 
     def form_belief(self, content: str, domain: str, confidence: float = 0.5,
-                    evidence: list[dict] = None) -> Optional[Belief]:
+                    evidence: list[dict] = None) -> Belief | None:
         """Create a new belief from evidence. Returns Belief or None on failure."""
         if domain not in VALID_DOMAINS:
             logger.warning(f"belief_store: invalid domain '{domain}'")
@@ -176,7 +171,7 @@ class BeliefStore:
             return []
 
     def update_confidence(self, belief_id: str, delta: float,
-                          trigger: str, reasoning: str) -> Optional[MetacognitiveUpdate]:
+                          trigger: str, reasoning: str) -> MetacognitiveUpdate | None:
         """Adjust belief confidence. Asymmetric: decay faster than growth."""
         try:
             from app.control_plane.db import execute
@@ -267,7 +262,7 @@ class BeliefStore:
         except Exception:
             return []
 
-    def suspend_belief(self, belief_id: str, reason: str) -> Optional[MetacognitiveUpdate]:
+    def suspend_belief(self, belief_id: str, reason: str) -> MetacognitiveUpdate | None:
         """Suspend a belief (confidence below threshold)."""
         return self.update_confidence(
             belief_id, delta=-1.0, trigger="COGITO_CYCLE",
@@ -275,7 +270,7 @@ class BeliefStore:
         )
 
     def retract_belief(self, belief_id: str, reason: str,
-                       replacement_id: str = None) -> Optional[MetacognitiveUpdate]:
+                       replacement_id: str = None) -> MetacognitiveUpdate | None:
         """Retract a belief (strong contradicting evidence)."""
         try:
             from app.control_plane.db import execute
@@ -390,11 +385,9 @@ class BeliefStore:
         except Exception:
             logger.debug("belief_store: update persist failed", exc_info=True)
 
-
 # ── Module-level singleton ──────────────────────────────────────────────────
 
-_store: Optional[BeliefStore] = None
-
+_store: BeliefStore | None = None
 
 def get_belief_store() -> BeliefStore:
     global _store

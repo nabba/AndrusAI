@@ -24,10 +24,8 @@ import threading
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class BroadcastMessage:
@@ -48,7 +46,6 @@ class BroadcastMessage:
             "broadcast_id": self.broadcast_id,
         }
 
-
 @dataclass
 class WorkspaceCandidate:
     """A candidate competing for workspace broadcast access (GWT bottleneck).
@@ -61,11 +58,10 @@ class WorkspaceCandidate:
     signal_type: str      # certainty_shift | somatic_flip | trend_reversal | free_energy_spike | disposition
     source_agent: str = ""
 
-
 class GlobalWorkspace:
     """GWT-inspired broadcast mechanism for cross-agent coordination."""
 
-    _instance: Optional["GlobalWorkspace"] = None
+    _instance: "GlobalWorkspace" | None = None
     _lock = threading.Lock()
 
     def __init__(self, max_messages: int = 50):
@@ -206,10 +202,8 @@ class GlobalWorkspace:
         with self._msg_lock:
             return [msg.to_dict() for msg in list(self._messages)[-n:]]
 
-
 def get_workspace() -> GlobalWorkspace:
     return GlobalWorkspace.get_instance()
-
 
 def broadcast(content: str, importance: str = "normal", source_agent: str = "") -> None:
     """Module-level convenience function for broadcasting."""

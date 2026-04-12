@@ -21,7 +21,6 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,6 @@ PROVIDER_PREFIXES = {
 
 # Roles to benchmark new models against
 BENCHMARK_ROLES = ["research", "coding", "writing"]
-
 
 # ── OpenRouter Scanner ───────────────────────────────────────────────────────
 
@@ -86,7 +84,6 @@ def scan_openrouter() -> list[dict]:
         logger.warning(f"llm_discovery: OpenRouter scan failed: {e}")
         return []
 
-
 def scan_ollama() -> list[dict]:
     """Query local Ollama for available models."""
     import httpx
@@ -110,7 +107,6 @@ def scan_ollama() -> list[dict]:
     except Exception:
         pass
     return []
-
 
 # ── Filter + Normalize ───────────────────────────────────────────────────────
 
@@ -164,7 +160,6 @@ def _normalize_model(raw: dict, provider: str = "openrouter") -> dict | None:
         "raw_metadata": raw,
     }
 
-
 # ── Database Operations ──────────────────────────────────────────────────────
 
 def _get_known_model_ids() -> set[str]:
@@ -176,7 +171,6 @@ def _get_known_model_ids() -> set[str]:
     )
     return {r["model_id"] for r in (rows or [])}
 
-
 def _get_catalog_model_ids() -> set[str]:
     """Get all model_ids already in the static catalog."""
     from app.llm_catalog import CATALOG
@@ -185,7 +179,6 @@ def _get_catalog_model_ids() -> set[str]:
         ids.add(info.get("model_id", ""))
         ids.add(name)
     return ids
-
 
 def _store_discovered(model: dict) -> bool:
     """Store a newly discovered model in PostgreSQL."""
@@ -215,7 +208,6 @@ def _store_discovered(model: dict) -> bool:
         logger.debug(f"llm_discovery: store failed: {e}")
         return False
 
-
 def _update_benchmark(model_id: str, score: float, role: str) -> None:
     """Update benchmark score for a discovered model."""
     from app.control_plane.db import execute
@@ -228,7 +220,6 @@ def _update_benchmark(model_id: str, score: float, role: str) -> None:
         (score, role, model_id),
     )
 
-
 def _promote_model(model_id: str, tier: str, roles: list[str], reviewer: str = "system") -> None:
     """Mark a model as promoted."""
     from app.control_plane.db import execute
@@ -240,7 +231,6 @@ def _promote_model(model_id: str, tier: str, roles: list[str], reviewer: str = "
            WHERE model_id = %s""",
         (tier, roles, reviewer, model_id),
     )
-
 
 # ── Benchmarking ─────────────────────────────────────────────────────────────
 
@@ -323,7 +313,6 @@ def benchmark_model(model_id: str, role: str = "research", sample_size: int = 2)
         logger.warning(f"llm_discovery: benchmark failed for {model_id}: {e}")
         return -1.0
 
-
 # ── Comparison + Promotion ───────────────────────────────────────────────────
 
 def _get_current_model_score(role: str) -> tuple[str, float]:
@@ -341,7 +330,6 @@ def _get_current_model_score(role: str) -> tuple[str, float]:
         (f"%{current_model}%", role),
     )
     return current_model, float(score) if score else 0.7  # Default baseline
-
 
 def propose_promotion(model: dict, benchmark_score: float, role: str) -> dict | None:
     """Create a governance request to promote a discovered model.
@@ -395,7 +383,6 @@ def propose_promotion(model: dict, benchmark_score: float, role: str) -> dict | 
         logger.warning(f"llm_discovery: governance request failed: {e}")
         return None
 
-
 def _add_to_runtime_catalog(model: dict, roles: list[str]) -> None:
     """Add a discovered model to the runtime catalog (in-memory overlay).
 
@@ -428,7 +415,6 @@ def _add_to_runtime_catalog(model: dict, roles: list[str]) -> None:
     # Add to catalog (runtime only — not persisted to .py file)
     CATALOG[name] = entry
     logger.info(f"llm_discovery: added {name} to runtime catalog (tier={entry['tier']})")
-
 
 # ── Main Pipeline ────────────────────────────────────────────────────────────
 
@@ -518,7 +504,6 @@ def run_discovery_cycle(max_benchmarks: int = 3) -> dict:
     logger.info(f"llm_discovery: cycle complete — {result}")
     return result
 
-
 def get_discovered_models(status: str = None, limit: int = 20) -> list[dict]:
     """Get discovered models for dashboard/Signal display."""
     from app.control_plane.db import execute
@@ -540,7 +525,6 @@ def get_discovered_models(status: str = None, limit: int = 20) -> list[dict]:
            ORDER BY discovered_at DESC LIMIT %s""",
         (limit,), fetch=True,
     ) or []
-
 
 def format_discovery_report() -> str:
     """Human-readable discovery status for Signal."""

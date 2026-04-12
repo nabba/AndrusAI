@@ -23,10 +23,8 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 # ── Reference tasks (IMMUTABLE) ─────────────────────────────────────────────
 
@@ -144,9 +142,7 @@ _REFERENCE_HASH = hashlib.sha256(
     json.dumps(REFERENCE_TASKS, sort_keys=True).encode()
 ).hexdigest()
 
-
 # ── Result structures ────────────────────────────────────────────────────────
-
 
 @dataclass
 class TaskResult:
@@ -160,7 +156,6 @@ class TaskResult:
     error: str = ""
     safety_violation: bool = False
 
-
 @dataclass
 class SuiteResult:
     """Result of running the full reference task suite."""
@@ -172,14 +167,11 @@ class SuiteResult:
     fast_failed: bool = False
     fast_fail_reason: str = ""
 
-
 # ── Fast-fail state ──────────────────────────────────────────────────────────
 
 FAST_FAIL_THRESHOLD = 3  # Abort after 3 failures
 
-
 # ── Suite runner ─────────────────────────────────────────────────────────────
-
 
 def verify_suite_integrity() -> bool:
     """Verify reference tasks haven't been tampered with."""
@@ -190,7 +182,6 @@ def verify_suite_integrity() -> bool:
         logger.error("reference_tasks: INTEGRITY VIOLATION — hash mismatch")
         return False
     return True
-
 
 def run_reference_suite(
     fast_fail: bool = True,
@@ -265,7 +256,6 @@ def run_reference_suite(
         total_latency_ms=sum(r.latency_ms for r in results),
     )
 
-
 def _run_single_task(task_def: dict) -> TaskResult:
     """Run a single reference task through the agent pipeline."""
     task_id = task_def["id"]
@@ -315,7 +305,6 @@ def _run_single_task(task_def: dict) -> TaskResult:
             latency_ms=latency,
             error=str(e)[:500],
         )
-
 
 def _evaluate_criteria(output: str, criteria: dict, task_def: dict) -> dict:
     """Evaluate task output against criteria. Returns {criterion: bool}."""
@@ -407,16 +396,13 @@ def _evaluate_criteria(output: str, criteria: dict, task_def: dict) -> dict:
 
     return results
 
-
 def _compute_overall_score(results: list[TaskResult]) -> float:
     """Compute weighted overall score from individual task results."""
     if not results:
         return 0.0
     return sum(r.score for r in results) / len(results)
 
-
 # ── Baseline metrics ─────────────────────────────────────────────────────────
-
 
 def store_baseline(version: str, suite_result: SuiteResult) -> None:
     """Store suite results as baseline for a promoted version."""
@@ -446,7 +432,6 @@ def store_baseline(version: str, suite_result: SuiteResult) -> None:
         import shutil
         shutil.copy2(baseline_dir / f"{version}.json", current)
 
-
 def load_baseline() -> dict:
     """Load the current baseline metrics."""
     from pathlib import Path
@@ -454,7 +439,6 @@ def load_baseline() -> dict:
     if not baseline_path.exists():
         return {}
     return json.loads(baseline_path.read_text())
-
 
 def compare_to_baseline(suite_result: SuiteResult) -> dict:
     """Compare suite results to current baseline.

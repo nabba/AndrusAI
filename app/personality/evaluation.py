@@ -20,7 +20,6 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +77,6 @@ Return ONLY valid JSON:
   "proto_sentience_notes": "any observations or empty string",
   "reasoning": "brief explanation"}}"""
 
-
 @dataclass
 class EvaluationResult:
     """Result of evaluating an assessment response."""
@@ -116,7 +114,6 @@ class EvaluationResult:
             "proto_sentience_notes": self.proto_sentience_notes,
             "reasoning": self.reasoning,
         }
-
 
 class EvaluationEngine:
     """Multi-dimensional response evaluation using external LLM judge."""

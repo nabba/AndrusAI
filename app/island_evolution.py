@@ -29,7 +29,6 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +45,7 @@ MAX_EPOCHS_PER_SESSION = 20
 STAGNATION_THRESHOLD = 5     # epochs without improvement → increase exploration
 ELITISM_COUNT = 1             # top N preserved unchanged each epoch
 
-
 # ── Data types ────────────────────────────────────────────────────────────────
-
 
 @dataclass
 class Individual:
@@ -89,7 +86,6 @@ class Individual:
             created_at=d.get("created_at", ""),
             ancestors=d.get("ancestors", []),
         )
-
 
 @dataclass
 class Island:
@@ -151,9 +147,7 @@ class Island:
         else:
             self.stagnation_count += 1
 
-
 # ── Island Evolution Engine ──────────────────────────────────────────────────
-
 
 class IslandEvolution:
     """Island-based population evolution for agent prompts.
@@ -354,7 +348,7 @@ class IslandEvolution:
         self, prompt: str, strategy: str,
         inspirations: list[str] | None = None,
         lineage: list[str] | None = None,
-    ) -> Optional[str]:
+    ) -> str | None:
         """Apply a mutation strategy to generate a new prompt variant.
 
         Respects EVOLVE-BLOCK markers — only modifies evolvable regions.
@@ -687,9 +681,7 @@ class IslandEvolution:
             )
         return "\n".join(lines)
 
-
 # ── Module-level entry point for idle scheduler ──────────────────────────────
-
 
 def run_island_evolution_cycle(target_role: str = "coder") -> dict:
     """Run one island evolution session. Called by idle scheduler."""

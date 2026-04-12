@@ -36,13 +36,10 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-
 # ── Configuration ─────────────────────────────────────────────────────────────
-
 
 @dataclass
 class CompressionConfig:
@@ -77,9 +74,7 @@ class CompressionConfig:
         "premium": 200000,   # Anthropic Claude / Gemini
     })
 
-
 # ── Token estimation ──────────────────────────────────────────────────────────
-
 
 def approximate_tokens(text: str) -> int:
     """~4 chars/token for English. Fast, no tokenizer needed."""
@@ -87,16 +82,13 @@ def approximate_tokens(text: str) -> int:
         return 0
     return max(1, len(text) // 4)
 
-
 # ── Data model: Message → Topic → Bulk ────────────────────────────────────────
-
 
 class MessageRole(str, Enum):
     USER = "user"
     ASSISTANT = "assistant"
     TOOL = "tool"
     SYSTEM = "system"
-
 
 @dataclass
 class Message:
@@ -105,11 +97,11 @@ class Message:
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     role: str = "user"  # Use string for compatibility with existing conversation_store
     content: str = ""
-    summary: Optional[str] = None
+    summary: str | None = None
     timestamp: float = field(default_factory=time.time)
     agent_id: str = ""
     metadata: dict = field(default_factory=dict)
-    _token_cache: Optional[int] = field(default=None, repr=False)
+    _token_cache: int | None = field(default=None, repr=False)
 
     @property
     def effective_content(self) -> str:
@@ -161,14 +153,13 @@ class Message:
         role_map = {"user": "human", "assistant": "ai", "tool": "tool", "system": "system"}
         return {"role": role_map.get(self.role, "human"), "content": self.effective_content}
 
-
 @dataclass
 class Topic:
     """Cluster of related messages — one user request + all responses."""
 
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     messages: list[Message] = field(default_factory=list)
-    summary: Optional[str] = None
+    summary: str | None = None
     created_at: float = field(default_factory=time.time)
 
     @property
@@ -197,7 +188,6 @@ class Topic:
             summary=data.get("summary"),
             created_at=data.get("created_at", time.time()),
         )
-
 
 @dataclass
 class Bulk:
@@ -230,7 +220,6 @@ class Bulk:
             span_end=data.get("span_end", 0.0),
         )
 
-
 # ── Summarizer — uses existing llm_factory ───────────────────────────────────
 
 # IMMUTABLE prompts
@@ -248,7 +237,6 @@ MERGE_TOPICS_PROMPT = """\
 Merge these conversation topic summaries into one ultra-concise overview.
 Preserve: key decisions, technical specifics (paths, names, values), unresolved items.
 Use DECISIONS / DETAILS / ACTIONS / ISSUES sections. Maximum 200 words."""
-
 
 class Summarizer:
     """Calls budget-tier LLM for summarization via existing llm_factory."""
@@ -301,9 +289,7 @@ class Summarizer:
     def _naive_fallback(messages: list[Message]) -> str:
         return " | ".join(m.effective_content[:200] for m in messages)[:500]
 
-
 # ── History: main container with compression engine ──────────────────────────
-
 
 class History:
     """Three-tier conversation history with automatic compression.
@@ -331,14 +317,14 @@ class History:
         history = History.deserialize(json_str, config)
     """
 
-    def __init__(self, config: Optional[CompressionConfig] = None):
+    def __init__(self, config: CompressionConfig | None = None):
         self.config = config or CompressionConfig()
         self.summarizer = Summarizer(max_tokens=self.config.summarizer_max_tokens)
         self.bulks: list[Bulk] = []
         self.topics: list[Topic] = []
         self.current: Topic = Topic()
         self._compress_lock = threading.Lock()
-        self._compress_thread: Optional[threading.Thread] = None
+        self._compress_thread: threading.Thread | None = None
 
     # ── Message operations ────────────────────────────────────────────
 
@@ -419,7 +405,7 @@ class History:
         )
         self._compress_thread.start()
 
-    def wait_for_compression(self, timeout: Optional[float] = None) -> None:
+    def wait_for_compression(self, timeout: float | None = None) -> None:
         """Wait for background compression to finish."""
         if self._compress_thread and self._compress_thread.is_alive():
             self._compress_thread.join(
@@ -544,7 +530,7 @@ class History:
         }, ensure_ascii=False)
 
     @classmethod
-    def deserialize(cls, json_data: str, config: Optional[CompressionConfig] = None) -> "History":
+    def deserialize(cls, json_data: str, config: CompressionConfig | None = None) -> "History":
         """Restore from JSON."""
         data = json.loads(json_data)
         h = cls(config=config)
@@ -573,21 +559,17 @@ class History:
             f"{s['bulks']}B {s['topics']}T {s['current_messages']}M)"
         )
 
-
 # ── Per-sender history management ────────────────────────────────────────────
-
 
 _histories: dict[str, History] = {}
 _histories_lock = threading.Lock()
 
-
-def get_history(sender_id: str, config: Optional[CompressionConfig] = None) -> History:
+def get_history(sender_id: str, config: CompressionConfig | None = None) -> History:
     """Get or create a per-sender compressed history."""
     with _histories_lock:
         if sender_id not in _histories:
             _histories[sender_id] = History(config=config)
         return _histories[sender_id]
-
 
 def clear_history(sender_id: str) -> None:
     """Clear a sender's compressed history."""

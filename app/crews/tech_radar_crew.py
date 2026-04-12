@@ -187,14 +187,13 @@ def _notify_user_discoveries(discoveries: list[dict]) -> None:
         from app.main import signal_client
         from app.config import get_settings
         settings = get_settings()
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.call_soon_threadsafe(
-                asyncio.ensure_future,
-                signal_client.send(settings.signal_owner_number, msg),
-            )
-        else:
-            logger.info(f"Tech radar notification (no event loop): {msg[:200]}")
+        loop = asyncio.get_running_loop()
+        loop.call_soon_threadsafe(
+            asyncio.ensure_future,
+            signal_client.send(settings.signal_owner_number, msg),
+        )
+    except RuntimeError:
+        logger.info(f"Tech radar notification (no event loop): {msg[:200]}")
     except Exception:
         logger.debug("Tech radar Signal notification failed", exc_info=True)
 

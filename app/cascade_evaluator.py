@@ -21,7 +21,6 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +42,7 @@ STAGE_TIMEOUTS = {
     "full": 120,
 }
 
-
 # ── Result types ──────────────────────────────────────────────────────────────
-
 
 @dataclass
 class StageResult:
@@ -60,7 +57,6 @@ class StageResult:
     def __post_init__(self):
         if self.details is None:
             self.details = {}
-
 
 @dataclass
 class CascadeResult:
@@ -93,9 +89,7 @@ class CascadeResult:
             suggestion=self.suggestion,
         )
 
-
 # ── Cascade Evaluator ─────────────────────────────────────────────────────────
-
 
 class CascadeEvaluator:
     """3-stage cascade evaluation for evolved prompt strategies.
@@ -346,9 +340,7 @@ class CascadeEvaluator:
         }
         return tasks.get(self._role, tasks["coder"])
 
-
 # ── Module-level helper ──────────────────────────────────────────────────────
-
 
 def cascade_evaluate(role: str, prompt_content: str) -> CascadeResult:
     """Convenience: run cascade evaluation for a prompt."""

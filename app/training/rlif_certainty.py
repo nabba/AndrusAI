@@ -17,10 +17,8 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 class SelfCertaintyScorer:
     """Computes self-certainty for training data curation.
@@ -72,7 +70,6 @@ class SelfCertaintyScorer:
             return sum(certainties) / len(certainties)
         return 0.5
 
-
 class EntropyCollapseMonitor:
     """Monitors for entropy collapse during RLIF-weighted training.
 
@@ -91,7 +88,7 @@ class EntropyCollapseMonitor:
         self.mean_ceiling = mean_ceiling
         self.window_size = window_size
 
-    def check_batch(self, batch_sc_scores: list[float]) -> Optional[str]:
+    def check_batch(self, batch_sc_scores: list[float]) -> str | None:
         """Check a batch for entropy collapse. Returns warning string or None."""
         if not batch_sc_scores:
             return None
@@ -142,7 +139,6 @@ class EntropyCollapseMonitor:
 
     def reset(self) -> None:
         self.sc_history.clear()
-
 
 class TrajectoryEntropyScorer:
     """Complementary RLIF signal: trajectory-level entropy (Zhang et al. 2025).

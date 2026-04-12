@@ -21,10 +21,8 @@ import logging
 import math
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class HyperModelState:
@@ -67,7 +65,6 @@ class HyperModelState:
             f"Surprise={self.self_prediction_error:.2f} "
             f"FE-trend={self.free_energy_trend}{traj_str}"
         )
-
 
 class HyperModel:
     """Maintains and updates the agent's self-model (singleton per agent)."""

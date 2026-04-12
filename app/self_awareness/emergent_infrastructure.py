@@ -23,10 +23,8 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 class ProposalStatus(str, Enum):
     PENDING = "pending"
@@ -37,7 +35,6 @@ class ProposalStatus(str, Enum):
     REJECTED = "rejected"
     MODIFY_REQUESTED = "modify_requested"
     DEPLOYED = "deployed"
-
 
 @dataclass
 class ToolProposal:
@@ -52,8 +49,8 @@ class ToolProposal:
     triggered_by: str = ""
     frequency_of_need: int = 0
     status: ProposalStatus = ProposalStatus.PENDING
-    human_feedback: Optional[str] = None
-    sandbox_result: Optional[dict] = None
+    human_feedback: str | None = None
+    sandbox_result: dict | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> dict:
@@ -72,7 +69,6 @@ class ToolProposal:
             "created_at": self.created_at.isoformat(),
         }
 
-
 # Forbidden patterns in proposed tool code
 FORBIDDEN_PATTERNS = [
     "os.system", "subprocess", "eval(", "exec(",
@@ -81,7 +77,6 @@ FORBIDDEN_PATTERNS = [
     "DROP TABLE", "DELETE FROM", "TRUNCATE",
     "open('/etc", "open('/mnt",
 ]
-
 
 class EmergentInfrastructureManager:
     """Manages the lifecycle of agent-proposed tools."""
@@ -93,7 +88,7 @@ class EmergentInfrastructureManager:
         task_context: str = "",
         available_tools: list[str] = None,
         meta_cognitive_log: list[dict] = None,
-    ) -> Optional[ToolProposal]:
+    ) -> ToolProposal | None:
         """Agent generates a tool proposal based on a recognized need."""
         # Only propose if need appeared 3+ times
         frequency = sum(

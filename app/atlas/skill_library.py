@@ -27,7 +27,6 @@ import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +57,7 @@ SOURCE_WEIGHTS = {
     "community_example": 0.55,
 }
 
-
 # ── Manifest schema ──────────────────────────────────────────────────────────
-
 
 @dataclass
 class SkillManifest:
@@ -140,9 +137,7 @@ class SkillManifest:
 
         return max(CONFIDENCE_FLOOR, min(1.0, base))
 
-
 # ── Skill Library ────────────────────────────────────────────────────────────
-
 
 class SkillLibrary:
     """Manages the structured skill library with manifests and confidence tracking."""
@@ -231,11 +226,11 @@ class SkillLibrary:
                      f"(confidence={manifest.confidence:.2f})")
         return manifest
 
-    def get_skill(self, skill_id: str) -> Optional[SkillManifest]:
+    def get_skill(self, skill_id: str) -> SkillManifest | None:
         """Look up a skill by ID."""
         return self._index.get(skill_id)
 
-    def get_skill_code(self, skill_id: str) -> Optional[str]:
+    def get_skill_code(self, skill_id: str) -> str | None:
         """Read the code for a skill."""
         code_path = self._dir / skill_id / "code.py"
         if code_path.exists():
@@ -319,12 +314,12 @@ class SkillLibrary:
         if manifest_path.exists():
             from app.safe_io import safe_write_json; safe_write_json(manifest_path, manifest.to_dict())
 
-    def find_api_skill(self, api_name: str) -> Optional[SkillManifest]:
+    def find_api_skill(self, api_name: str) -> SkillManifest | None:
         """Find a tested API client skill by API name."""
         results = self.search(query=api_name, category="apis", min_confidence=0.5)
         return results[0] if results else None
 
-    def find_pattern(self, pattern_name: str) -> Optional[SkillManifest]:
+    def find_pattern(self, pattern_name: str) -> SkillManifest | None:
         """Find a reusable pattern by name."""
         results = self.search(query=pattern_name, category="patterns")
         return results[0] if results else None
@@ -403,11 +398,9 @@ class SkillLibrary:
 
         return "\n".join(lines)
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
 _library: SkillLibrary | None = None
-
 
 def get_library() -> SkillLibrary:
     """Get or create the singleton skill library."""

@@ -20,10 +20,8 @@ import re
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 class SelfRefType(str, Enum):
     SELF_DIRECT = "self_direct"
@@ -31,7 +29,6 @@ class SelfRefType(str, Enum):
     SELF_REFLECTIVE = "self_reflective"
     SELF_COMPARATIVE = "self_comparative"
     NOT_SELF = "not_self"
-
 
 @dataclass
 class SelfRefClassification:
@@ -44,7 +41,6 @@ class SelfRefClassification:
     @property
     def is_self_referential(self) -> bool:
         return self.classification != SelfRefType.NOT_SELF
-
 
 # ── Layer 1: Keyword patterns ─────────────────────────────────────────────────
 
@@ -127,9 +123,7 @@ EXEMPLARS = [
 
 SIMILARITY_THRESHOLD = 0.55
 
-
 # ── Router ────────────────────────────────────────────────────────────────────
-
 
 class SelfRefRouter:
     """Three-layer self-referential query classifier."""

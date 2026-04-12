@@ -20,10 +20,8 @@ import json
 import logging
 import math
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class CompetingPlan:
@@ -51,7 +49,6 @@ class CompetingPlan:
             "composite_score": round(self.composite_score, 3),
         }
 
-
 def _cosine_sim(a: list[float], b: list[float]) -> float:
     """Pure Python cosine similarity, normalized to [0, 1]."""
     if not a or not b or len(a) != len(b):
@@ -62,7 +59,6 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
     if norm_a == 0 or norm_b == 0:
         return 0.5
     return (dot / (norm_a * norm_b) + 1.0) / 2.0
-
 
 class InferentialCompetition:
     """Generates and evaluates competing approach plans."""

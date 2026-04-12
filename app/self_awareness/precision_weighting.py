@@ -15,7 +15,6 @@ IMMUTABLE — infrastructure-level module.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from app.self_awareness.internal_state import CertaintyVector
 
@@ -64,7 +63,6 @@ TASK_TYPE_PRECISION_PROFILES: dict[str, dict[str, float]] = {
         "meta_certainty": 0.7,
     },
 }
-
 
 class PrecisionWeighting:
     """Applies context-dependent precision weights to certainty dimensions."""

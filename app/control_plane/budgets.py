@@ -7,12 +7,10 @@ import logging
 import threading
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional
 
 from app.control_plane.db import execute, execute_one, execute_scalar
 
 logger = logging.getLogger(__name__)
-
 
 class BudgetExceededError(Exception):
     """Raised when an LLM call would exceed the budget."""
@@ -21,11 +19,9 @@ class BudgetExceededError(Exception):
         self.period = period
         super().__init__(reason or f"Budget exceeded for {agent_role} in {period}")
 
-
 def _current_period() -> str:
     """Return current period string: '2026-04'."""
     return datetime.now(timezone.utc).strftime("%Y-%m")
-
 
 class BudgetEnforcer:
     """Atomic budget enforcement integrated at the LLM factory level."""
@@ -46,10 +42,10 @@ class BudgetEnforcer:
         agent_role: str,
         estimated_cost_usd: float,
         estimated_tokens: int = 0,
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """Atomically check budget and record spend.
 
-        Returns (allowed: bool, reason: Optional[str]).
+        Returns (allowed: bool, reason: str | None).
         Called by llm_factory BEFORE every LLM API call.
         """
         period = _current_period()
@@ -181,12 +177,10 @@ class BudgetEnforcer:
             lines.append(f"  {role}: ${spent:.2f}/${limit_usd:.2f} [{bar}] {pct:.0f}% {paused}")
         return "\n".join(lines)
 
-
 # ── Singleton ────────────────────────────────────────────────────────────────
 
-_enforcer: Optional[BudgetEnforcer] = None
+_enforcer: BudgetEnforcer | None = None
 _lock = threading.Lock()
-
 
 def get_budget_enforcer() -> BudgetEnforcer:
     global _enforcer

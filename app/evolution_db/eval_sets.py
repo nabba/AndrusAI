@@ -9,22 +9,19 @@ Seeds default eval sets for coder, researcher, and writer agents.
 
 import json
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 def _get_engine():
     from app.evolution_db.archive_db import _get_engine
     return _get_engine()
 
-
 def create_eval_set(
     agent_name: str,
     name: str,
     tasks: list,
-    rubric: Optional[dict] = None,
-) -> Optional[str]:
+    rubric: dict | None = None,
+) -> str | None:
     """Create an immutable evaluation set. Returns UUID or None if exists."""
     from sqlalchemy import text
     engine = _get_engine()
@@ -52,8 +49,7 @@ def create_eval_set(
         logger.warning(f"eval_sets: failed to create '{name}': {e}")
         return None
 
-
-def load_eval_set(name: str) -> Optional[dict]:
+def load_eval_set(name: str) -> dict | None:
     """Load an evaluation set by name."""
     from sqlalchemy import text
     engine = _get_engine()
@@ -67,7 +63,6 @@ def load_eval_set(name: str) -> Optional[dict]:
             d["rubric"] = json.loads(d["rubric"]) if isinstance(d["rubric"], str) else d["rubric"]
             return d
     return None
-
 
 def seed_default_eval_sets() -> int:
     """Create initial evaluation sets for all agent types. Returns count created."""

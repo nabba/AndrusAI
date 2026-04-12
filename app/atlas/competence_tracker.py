@@ -22,7 +22,6 @@ import threading
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +36,6 @@ DEPTH_NONE = "none"
 DEPTH_SHALLOW = "shallow"     # heard of it, untested
 DEPTH_INTERMEDIATE = "intermediate"  # some usage, partially tested
 DEPTH_EXPERT = "expert"       # extensively used and tested
-
 
 @dataclass
 class CompetenceEntry:
@@ -85,7 +83,6 @@ class CompetenceEntry:
     def from_dict(cls, d: dict) -> "CompetenceEntry":
         valid = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
         return cls(**valid)
-
 
 class CompetenceTracker:
     """Tracks system competence across all knowledge domains."""
@@ -177,7 +174,7 @@ class CompetenceTracker:
             entry.depth = entry.effective_depth()
             self._save()
 
-    def check_competence(self, domain: str, name: str) -> Optional[CompetenceEntry]:
+    def check_competence(self, domain: str, name: str) -> CompetenceEntry | None:
         """Check if we have competence in a specific area."""
         key = f"{domain}:{name}".lower()
         entry = self._entries.get(key)
@@ -301,11 +298,9 @@ class CompetenceTracker:
 
         return "\n".join(lines)
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
 _tracker: CompetenceTracker | None = None
-
 
 def get_tracker() -> CompetenceTracker:
     """Get or create the singleton competence tracker."""

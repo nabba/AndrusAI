@@ -334,11 +334,10 @@ async def lifespan(app: FastAPI):
 
         def _sync_alert_handler(alerts):
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.ensure_future(_on_health_alert(alerts))
-            except Exception:
-                pass
+                loop = asyncio.get_running_loop()
+                asyncio.ensure_future(_on_health_alert(alerts))
+            except RuntimeError:
+                pass  # No running event loop — alert dropped (non-fatal)
 
         monitor.on_alert(_sync_alert_handler)
         logger.info("Health monitor + self-healer initialized")

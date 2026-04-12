@@ -28,7 +28,6 @@ import hashlib
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,6 @@ FREEZE_START = re.compile(r'<!--\s*FREEZE-BLOCK-START\s*-->')
 FREEZE_END = re.compile(r'<!--\s*FREEZE-BLOCK-END\s*-->')
 EVOLVE_START = re.compile(r'<!--\s*EVOLVE-BLOCK-START(?:\s+id="([^"]*)")?\s*-->')
 EVOLVE_END = re.compile(r'<!--\s*EVOLVE-BLOCK-END\s*-->')
-
 
 @dataclass
 class Block:
@@ -53,7 +51,6 @@ class Block:
     def __post_init__(self):
         if self.block_type == "freeze" and not self.content_hash:
             self.content_hash = hashlib.sha256(self.content.encode()).hexdigest()[:32]
-
 
 @dataclass
 class ParsedPrompt:
@@ -79,7 +76,7 @@ class ParsedPrompt:
         """Hash of all frozen content for integrity verification."""
         return hashlib.sha256(self.frozen_content.encode()).hexdigest()[:32]
 
-    def get_evolve_block(self, block_id: str) -> Optional[Block]:
+    def get_evolve_block(self, block_id: str) -> Block | None:
         """Get a specific evolve block by ID."""
         for b in self.evolve_blocks:
             if b.block_id == block_id:
@@ -105,9 +102,7 @@ class ParsedPrompt:
         """Reconstruct the full prompt from blocks."""
         return self.source_text
 
-
 # ── Parser ────────────────────────────────────────────────────────────────────
-
 
 def parse_prompt(text: str) -> ParsedPrompt:
     """Parse a prompt into freeze/evolve/unmarked blocks.
@@ -190,9 +185,7 @@ def parse_prompt(text: str) -> ParsedPrompt:
 
     return ParsedPrompt(blocks=blocks, source_text=text)
 
-
 # ── Validation ────────────────────────────────────────────────────────────────
-
 
 def validate_modification(original: str, proposed: str) -> dict:
     """Validate that a proposed prompt modification only touches EVOLVE-BLOCK content.
@@ -241,7 +234,6 @@ def validate_modification(original: str, proposed: str) -> dict:
 
     return result
 
-
 def extract_evolvable_content(text: str) -> dict[str, str]:
     """Extract all evolvable block contents from a prompt.
 
@@ -250,19 +242,15 @@ def extract_evolvable_content(text: str) -> dict[str, str]:
     parsed = parse_prompt(text)
     return {b.block_id: b.content for b in parsed.evolve_blocks}
 
-
 def has_evolve_blocks(text: str) -> bool:
     """Check if a prompt contains any EVOLVE-BLOCK markers."""
     return bool(EVOLVE_START.search(text))
-
 
 def get_frozen_hash(text: str) -> str:
     """Get the integrity hash of all frozen content in a prompt."""
     return parse_prompt(text).frozen_hash
 
-
 # ── Prompt annotation helper ─────────────────────────────────────────────────
-
 
 def annotate_prompt(text: str, freeze_sections: list[str] | None = None) -> str:
     """Add FREEZE-BLOCK markers around sections matching the given headers.

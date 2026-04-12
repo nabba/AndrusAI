@@ -9,7 +9,7 @@ Three tools:
 
 import json
 import logging
-from typing import Optional, Type
+from typing import Type
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -21,8 +21,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 # Singleton store instance (lazy, shared across all tools)
 # ─────────────────────────────────────────────────────────────────────────────
-_store_instance: Optional[KnowledgeStore] = None
-
+_store_instance: KnowledgeStore | None = None
 
 def get_store() -> KnowledgeStore:
     global _store_instance
@@ -30,11 +29,9 @@ def get_store() -> KnowledgeStore:
         _store_instance = KnowledgeStore()
     return _store_instance
 
-
 def set_store(store: KnowledgeStore) -> None:
     global _store_instance
     _store_instance = store
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tool 1: Knowledge Search
@@ -47,7 +44,7 @@ class KnowledgeSearchInput(BaseModel):
             "Be specific and use domain terminology for best results."
         )
     )
-    category: Optional[str] = Field(
+    category: str | None = Field(
         default=None,
         description=(
             "Optional: filter results by category "
@@ -60,7 +57,6 @@ class KnowledgeSearchInput(BaseModel):
         description="Number of results to return (1-15). Default 6.",
     )
 
-
 class KnowledgeSearchTool(BaseTool):
     name: str = "search_knowledge_base"
     description: str = (
@@ -72,7 +68,7 @@ class KnowledgeSearchTool(BaseTool):
     )
     args_schema: Type[BaseModel] = KnowledgeSearchInput
 
-    def _run(self, query: str, category: Optional[str] = None, top_k: int = 6) -> str:
+    def _run(self, query: str, category: str | None = None, top_k: int = 6) -> str:
         try:
             store = get_store()
         except Exception as e:
@@ -103,7 +99,6 @@ class KnowledgeSearchTool(BaseTool):
         )
         return "\n".join(parts)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Tool 2: Knowledge Ingestion
 # ─────────────────────────────────────────────────────────────────────────────
@@ -119,11 +114,10 @@ class KnowledgeIngestInput(BaseModel):
         default="general",
         description="Category for filtering (e.g., 'policy', 'product', 'finance').",
     )
-    tags: Optional[str] = Field(
+    tags: str | None = Field(
         default=None,
         description="Comma-separated tags (e.g., 'Q1-2026,board').",
     )
-
 
 class KnowledgeIngestTool(BaseTool):
     name: str = "ingest_to_knowledge_base"
@@ -138,7 +132,7 @@ class KnowledgeIngestTool(BaseTool):
         self,
         source: str,
         category: str = "general",
-        tags: Optional[str] = None,
+        tags: str | None = None,
     ) -> str:
         try:
             store = get_store()
@@ -164,7 +158,6 @@ class KnowledgeIngestTool(BaseTool):
         else:
             return f"Failed to ingest '{source}': {result.error}"
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Tool 3: Knowledge Base Status
 # ─────────────────────────────────────────────────────────────────────────────
@@ -174,7 +167,6 @@ class KnowledgeStatusInput(BaseModel):
         default="summary",
         description="'summary' for overview, 'full' for complete document list.",
     )
-
 
 class KnowledgeStatusTool(BaseTool):
     name: str = "knowledge_base_status"
@@ -217,13 +209,12 @@ class KnowledgeStatusTool(BaseTool):
 
         return "\n".join(parts)
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Convenience: Get all tools as a list
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_knowledge_tools(
-    store: Optional[KnowledgeStore] = None,
+    store: KnowledgeStore | None = None,
     include_ingest: bool = False,
 ) -> list[BaseTool]:
     """

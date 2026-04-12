@@ -27,10 +27,8 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class ProbeResult:
@@ -50,7 +48,6 @@ class ProbeResult:
             "samples": self.samples,
         }
 
-
 @dataclass
 class ConsciousnessReport:
     """Composite consciousness indicator report."""
@@ -68,7 +65,6 @@ class ConsciousnessReport:
             "composite_score": round(self.composite_score, 3),
             "summary": self.summary[:500],
         }
-
 
 class ConsciousnessProbeRunner:
     """Runs the 7-indicator consciousness probe battery."""
@@ -461,7 +457,6 @@ class ConsciousnessProbeRunner:
             )
         except Exception:
             pass
-
 
 def run_consciousness_probes() -> ConsciousnessReport:
     """Entry point for idle scheduler."""

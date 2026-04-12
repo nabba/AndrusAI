@@ -38,7 +38,6 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +66,6 @@ TIER_MAP = {
     "phi": ("T1_local", "local_ollama"),
 }
 
-
 def _classify_model(model_name: str) -> tuple[str, str]:
     """Classify a model name into (source_tier, provenance)."""
     lower = model_name.lower()
@@ -76,15 +74,12 @@ def _classify_model(model_name: str) -> tuple[str, str]:
             return tier, prov
     return "T1_local", "local_ollama"
 
-
 def _content_hash(messages: list, response: str) -> str:
     """Dedup key based on content."""
     content = json.dumps(messages, sort_keys=True) + response
     return hashlib.sha256(content.encode()).hexdigest()[:16]
 
-
 # ── Data Collection Hook ──────────────────────────────────────────────────────
-
 
 def create_training_data_hook():
     """Create a lifecycle hook that captures LLM interactions for training.
@@ -149,7 +144,6 @@ def create_training_data_hook():
 
     return collect_training_data
 
-
 def _store_record(record: dict) -> None:
     """Store a training record to JSONL + PostgreSQL."""
     # 1. Append to daily JSONL (crash-safe, always works)
@@ -167,7 +161,6 @@ def _store_record(record: dict) -> None:
         _store_to_postgres(record)
     except Exception:
         logger.debug("training_collector: PostgreSQL write failed", exc_info=True)
-
 
 def _store_to_postgres(record: dict) -> None:
     """Insert training record into PostgreSQL."""
@@ -201,9 +194,7 @@ def _store_to_postgres(record: dict) -> None:
         ))
     conn.close()
 
-
 # ── Curation Pipeline ─────────────────────────────────────────────────────────
-
 
 # IMMUTABLE: Quality scoring prompt (external judge)
 QUALITY_PROMPT = """Rate this AI assistant response on quality (0.0 to 1.0).
@@ -219,7 +210,6 @@ Response:
 
 Score dimensions: accuracy, relevance, completeness, coherence, usefulness.
 Return ONLY a JSON object: {{"overall": 0.X, "reasoning": "brief"}}"""
-
 
 class CurationPipeline:
     """Batch curation of collected training data.
@@ -563,11 +553,9 @@ class CurationPipeline:
         except Exception:
             return {"source": "error"}
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
 _pipeline: CurationPipeline | None = None
-
 
 def get_pipeline() -> CurationPipeline:
     global _pipeline

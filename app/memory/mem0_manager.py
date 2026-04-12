@@ -14,7 +14,6 @@ mem0 disabled), they return empty results and log warnings.
 import logging
 import re
 import threading
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +26,6 @@ _MAX_FACT_LENGTH = 10_000       # max bytes for a single fact
 _MAX_MESSAGE_LENGTH = 50_000    # max bytes for conversation extraction
 _MAX_QUERY_LENGTH = 2_000       # max bytes for search queries
 
-
 def _sanitize_exc(exc: Exception) -> str:
     """Redact connection strings and credentials from exception messages."""
     msg = str(exc)
@@ -35,7 +33,6 @@ def _sanitize_exc(exc: Exception) -> str:
     msg = re.sub(r'bolt://[^\s]+', 'bolt://***', msg)
     msg = re.sub(r'password[=:]\S+', 'password=***', msg, flags=re.IGNORECASE)
     return msg
-
 
 def _validate_text(text: str, max_bytes: int) -> bool:
     """Validate text input: non-empty, within size limit, valid UTF-8, no null bytes."""
@@ -46,7 +43,6 @@ def _validate_text(text: str, max_bytes: int) -> bool:
     if len(text.encode('utf-8', errors='replace')) > max_bytes:
         return False
     return True
-
 
 def _get_config() -> dict:
     """Build Mem0 config from application settings."""
@@ -96,7 +92,6 @@ def _get_config() -> dict:
 
     return config
 
-
 def get_client():
     """Thread-safe singleton Mem0 Memory client."""
     global _client, _init_failed
@@ -126,21 +121,18 @@ def get_client():
             _init_failed = True
             return None
 
-
 def _get_user_id() -> str:
     """Default user_id for the single-user system."""
     from app.config import get_settings
     return get_settings().mem0_user_id
 
-
 # ── Public API ────────────────────────────────────────────────────────────────
-
 
 def store_memory(
     text: str,
-    agent_id: Optional[str] = None,
-    metadata: Optional[dict] = None,
-) -> Optional[dict]:
+    agent_id: str | None = None,
+    metadata: dict | None = None,
+) -> dict | None:
     """Store a fact/finding in Mem0.
 
     Pattern C hybrid scoping:
@@ -167,12 +159,11 @@ def store_memory(
         logger.warning(f"mem0: store failed: {_sanitize_exc(exc)}")
         return None
 
-
 def store_conversation(
     messages: list[dict],
-    agent_id: Optional[str] = None,
-    run_id: Optional[str] = None,
-) -> Optional[dict]:
+    agent_id: str | None = None,
+    run_id: str | None = None,
+) -> dict | None:
     """Store a conversation for automatic fact extraction.
 
     messages format: [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
@@ -204,10 +195,9 @@ def store_conversation(
         logger.warning(f"mem0: conversation store failed: {_sanitize_exc(exc)}")
         return None
 
-
 def search_memory(
     query: str,
-    agent_id: Optional[str] = None,
+    agent_id: str | None = None,
     n: int = 5,
 ) -> list[dict]:
     """Search memories. Returns list of {memory, score, ...} dicts.
@@ -234,18 +224,15 @@ def search_memory(
         logger.warning(f"mem0: search failed: {_sanitize_exc(exc)}")
         return []
 
-
 def search_shared(query: str, n: int = 5) -> list[dict]:
     """Search the shared memory pool (no agent_id filter)."""
     return search_memory(query, agent_id=None, n=n)
-
 
 def search_agent(query: str, agent_id: str, n: int = 5) -> list[dict]:
     """Search an agent's private memory pool."""
     return search_memory(query, agent_id=agent_id, n=n)
 
-
-def get_all_memories(agent_id: Optional[str] = None) -> list[dict]:
+def get_all_memories(agent_id: str | None = None) -> list[dict]:
     """Get all stored memories for a user/agent."""
     client = get_client()
     if not client:

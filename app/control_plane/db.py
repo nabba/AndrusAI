@@ -4,18 +4,16 @@ Reuses the existing Mem0 PostgreSQL instance. Thread-safe singleton pool.
 """
 import logging
 import threading
-from typing import Optional
 
 import psycopg2
 from psycopg2 import pool as pg_pool
 
 logger = logging.getLogger(__name__)
 
-_pool: Optional[pg_pool.ThreadedConnectionPool] = None
+_pool: pg_pool.ThreadedConnectionPool | None = None
 _pool_lock = threading.Lock()
 
-
-def get_pool() -> Optional[pg_pool.ThreadedConnectionPool]:
+def get_pool() -> pg_pool.ThreadedConnectionPool | None:
     """Get or create the connection pool. Thread-safe singleton."""
     global _pool
     if _pool is not None:
@@ -39,7 +37,6 @@ def get_pool() -> Optional[pg_pool.ThreadedConnectionPool]:
             logger.warning(f"control_plane: pool creation failed: {e}")
             return None
 
-
 def _reset_pool() -> None:
     """Destroy and recreate the pool on persistent connection failures."""
     global _pool
@@ -50,7 +47,6 @@ def _reset_pool() -> None:
             except Exception:
                 pass
             _pool = None
-
 
 def execute(query: str, params: tuple = (), fetch: bool = False) -> list | None:
     """Execute a query using the pool. Returns rows if fetch=True.
@@ -95,12 +91,10 @@ def execute(query: str, params: tuple = (), fetch: bool = False) -> list | None:
             except Exception:
                 pass
 
-
 def execute_one(query: str, params: tuple = ()) -> dict | None:
     """Execute and return a single row."""
     rows = execute(query, params, fetch=True)
     return rows[0] if rows else None
-
 
 def execute_scalar(query: str, params: tuple = ()):
     """Execute and return a single value."""

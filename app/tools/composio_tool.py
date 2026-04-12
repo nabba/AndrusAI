@@ -15,13 +15,11 @@ If Composio is not installed or API key not set, tools gracefully degrade.
 
 import logging
 import os
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 _composio_available = None
 _toolset_instance = None
-
 
 def _check_composio() -> bool:
     """Check if Composio SDK is installed and API key is set."""
@@ -41,7 +39,6 @@ def _check_composio() -> bool:
         _composio_available = False
     return _composio_available
 
-
 def _get_toolset():
     """Get or create a singleton ComposioToolSet."""
     global _toolset_instance
@@ -57,11 +54,9 @@ def _get_toolset():
         logger.warning(f"composio_tool: initialization failed — {e}")
         return None
 
-
 def is_available() -> bool:
     """Check if Composio is available."""
     return _check_composio()
-
 
 def get_composio_tools(actions: list[str] | None = None, apps: list[str] | None = None) -> list:
     """Get Composio tools for CrewAI agent assignment.
@@ -90,7 +85,6 @@ def get_composio_tools(actions: list[str] | None = None, apps: list[str] | None 
         logger.warning(f"composio_tool: get_tools failed — {e}")
         return []
 
-
 def list_connected_apps() -> dict:
     """List connected Composio app integrations."""
     if not _check_composio():
@@ -114,7 +108,6 @@ def list_connected_apps() -> dict:
     except Exception as e:
         return {"available": True, "connected": [], "count": 0, "note": str(e)[:200]}
 
-
 def execute_action(action: str, params: dict = None) -> dict:
     """Execute a specific Composio action directly.
 
@@ -136,7 +129,6 @@ def execute_action(action: str, params: dict = None) -> dict:
         return {"success": True, "result": result}
     except Exception as e:
         return {"success": False, "error": str(e)[:300]}
-
 
 def format_status() -> str:
     """Human-readable Composio status for Signal."""

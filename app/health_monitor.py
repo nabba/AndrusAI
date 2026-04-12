@@ -21,13 +21,10 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-
 # ── Per-interaction metrics ──────────────────────────────────────────────────
-
 
 @dataclass
 class InteractionMetrics:
@@ -52,9 +49,7 @@ class InteractionMetrics:
     crew_used: str = ""
     error_type: str = ""
 
-
 # ── Aggregated health state ─────────────────────────────────────────────────
-
 
 @dataclass
 class HealthState:
@@ -69,9 +64,7 @@ class HealthState:
     window_start: str = ""
     window_end: str = ""
 
-
 # ── Health alerts ────────────────────────────────────────────────────────────
-
 
 @dataclass
 class HealthAlert:
@@ -83,7 +76,6 @@ class HealthAlert:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     auto_remediate: bool = True
     message: str = ""
-
 
 # ── IMMUTABLE thresholds ─────────────────────────────────────────────────────
 
@@ -127,7 +119,6 @@ _INVERTED_DIMENSIONS = {"memory_retrieval_accuracy"}
 # Minimum interactions before alerting (avoid noise from small samples)
 MIN_SAMPLE_SIZE = 10
 
-
 # ── SLO-based error budget ──────────────────────────────────────────────────
 
 @dataclass
@@ -138,9 +129,7 @@ class SLOConfig:
     window_minutes: int = 60
     alert_at_budget_pct: float = 80  # Alert when 80% of budget consumed
 
-
 SLO = SLOConfig()
-
 
 def evaluate_slo_budget(error_rate: float, avg_latency_ms: float) -> dict:
     """Evaluate error budget consumption against SLO targets.
@@ -170,9 +159,7 @@ def evaluate_slo_budget(error_rate: float, avg_latency_ms: float) -> dict:
         "severity_escalation": severity,
     }
 
-
 # ── Health Monitor ───────────────────────────────────────────────────────────
-
 
 class HealthMonitor:
     """Continuous health monitoring with dimensional tracking and alerting."""
@@ -343,12 +330,10 @@ class HealthMonitor:
         ]
         return "\n".join(lines)
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
 _monitor: HealthMonitor | None = None
 _monitor_lock = threading.Lock()
-
 
 def get_monitor() -> HealthMonitor:
     """Get or create the singleton health monitor."""
@@ -358,11 +343,9 @@ def get_monitor() -> HealthMonitor:
             _monitor = HealthMonitor()
         return _monitor
 
-
 def record_interaction(metrics: InteractionMetrics) -> None:
     """Convenience: record metrics on the singleton monitor."""
     get_monitor().record(metrics)
-
 
 def evaluate_health() -> list[HealthAlert]:
     """Convenience: evaluate health on the singleton monitor."""

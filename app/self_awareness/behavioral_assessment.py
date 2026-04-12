@@ -22,10 +22,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class BehavioralScorecard:
@@ -72,7 +70,6 @@ class BehavioralScorecard:
             "composite_score": round(self.composite_score, 3),
             "details": self.details,
         }
-
 
 class BehavioralAssessor:
     """Evaluates behavioral markers from accumulated internal state data."""
@@ -266,7 +263,7 @@ class BehavioralAssessor:
         return max(0.0, 0.5 - (hard_mean - easy_mean) * 2.0)
 
     @staticmethod
-    def _find_nearest_outcome(experiences: list[dict], target_time) -> Optional[float]:
+    def _find_nearest_outcome(experiences: list[dict], target_time) -> float | None:
         if not experiences or not target_time:
             return None
         for exp in experiences:
@@ -317,7 +314,6 @@ class BehavioralAssessor:
             )
         except Exception as e:
             logger.debug(f"Failed to persist behavioral scorecard: {e}")
-
 
 def run_behavioral_assessment() -> list[BehavioralScorecard]:
     """Entry point for idle scheduler. Assesses all active agents."""

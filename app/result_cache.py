@@ -13,7 +13,6 @@ import logging
 import threading
 import time
 import uuid
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,6 @@ _MAX_CACHED = 500  # prune beyond this
 
 _lock = threading.Lock()
 
-
 def _get_collection():
     from app.memory.chromadb_manager import get_client
     client = get_client()
@@ -34,13 +32,11 @@ def _get_collection():
         metadata={"hnsw:space": "cosine"},
     )
 
-
 def _embed(text: str) -> list[float]:
     from app.memory.chromadb_manager import embed
     return embed(text)
 
-
-def lookup(crew_name: str, task: str) -> Optional[str]:
+def lookup(crew_name: str, task: str) -> str | None:
     """Check cache for a semantically similar previous result.
 
     Returns the cached result string if found, or None.
@@ -84,7 +80,6 @@ def lookup(crew_name: str, task: str) -> Optional[str]:
         logger.debug("result_cache lookup failed", exc_info=True)
         return None
 
-
 def store(crew_name: str, task: str, result: str, ttl: int = _TTL_SECONDS):
     """Cache a crew result for future semantic lookups."""
     try:
@@ -111,7 +106,6 @@ def store(crew_name: str, task: str, result: str, ttl: int = _TTL_SECONDS):
     except Exception:
         logger.debug("result_cache store failed", exc_info=True)
 
-
 def _prune(col):
     """Remove expired entries from the cache."""
     try:
@@ -128,7 +122,6 @@ def _prune(col):
             logger.debug(f"result_cache pruned {len(to_delete)} expired entries")
     except Exception:
         logger.debug("result_cache prune failed", exc_info=True)
-
 
 def invalidate(crew_name: str = None):
     """Clear cache entries, optionally filtered by crew."""

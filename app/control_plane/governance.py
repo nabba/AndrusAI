@@ -12,7 +12,6 @@ import json
 import logging
 import threading
 from datetime import datetime, timezone, timedelta
-from typing import Optional
 
 from app.control_plane.db import execute, execute_one, execute_scalar
 
@@ -24,7 +23,6 @@ REQUIRES_APPROVAL = {
     "code_change",
     "agent_config",
 }
-
 
 class GovernanceGate:
     """Approval queue for sensitive operations."""
@@ -162,12 +160,10 @@ class GovernanceGate:
             )
         return "\n".join(lines)
 
-
 # ── Singleton ────────────────────────────────────────────────────────────────
 
-_gate: Optional[GovernanceGate] = None
+_gate: GovernanceGate | None = None
 _lock = threading.Lock()
-
 
 def get_governance() -> GovernanceGate:
     global _gate

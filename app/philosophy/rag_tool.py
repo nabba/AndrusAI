@@ -9,13 +9,12 @@ Safety: This tool is READ-ONLY.  No agent can modify the philosophy corpus.
 """
 
 import logging
-from typing import Optional, Type
+from typing import Type
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
-
 
 class PhilosophyRAGInput(BaseModel):
     """Input schema for the PhilosophyRAGTool."""
@@ -29,7 +28,7 @@ class PhilosophyRAGInput(BaseModel):
             "'What are Kant\\'s arguments for human dignity?'"
         )
     )
-    tradition: Optional[str] = Field(
+    tradition: str | None = Field(
         default=None,
         description=(
             "Optional: filter by philosophical tradition. "
@@ -43,7 +42,6 @@ class PhilosophyRAGInput(BaseModel):
         ge=1,
         le=10,
     )
-
 
 class PhilosophyRAGTool(BaseTool):
     """
@@ -74,7 +72,7 @@ class PhilosophyRAGTool(BaseTool):
     def _run(
         self,
         query: str,
-        tradition: Optional[str] = None,
+        tradition: str | None = None,
         n_results: int = 5,
     ) -> str:
         """Execute a retrieval query against the philosophy knowledge base."""

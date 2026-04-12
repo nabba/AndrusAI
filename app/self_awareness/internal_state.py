@@ -19,8 +19,6 @@ import json
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-from typing import Optional
-
 
 # ── Certainty Vector ─────────────────────────────────────────────────────────
 
@@ -90,7 +88,6 @@ class CertaintyVector:
             "meta_certainty": round(self.meta_certainty, 3),
         }
 
-
 # ── Somatic Marker ───────────────────────────────────────────────────────────
 
 @dataclass
@@ -109,7 +106,6 @@ class SomaticMarker:
             "match_count": self.match_count,
         }
 
-
 # ── Meta-Cognitive State ─────────────────────────────────────────────────────
 
 @dataclass
@@ -117,7 +113,7 @@ class MetaCognitiveState:
     """Strategy assessment from the meta-cognitive layer."""
     strategy_assessment: str = "not_assessed"  # effective | uncertain | failing
     modification_proposed: bool = False
-    modification_description: Optional[str] = None
+    modification_description: str | None = None
     compute_phase: str = "early"               # early | mid | late
     compute_budget_remaining_pct: float = 1.0
     reassessment_triggered: bool = False
@@ -132,7 +128,6 @@ class MetaCognitiveState:
             "reassessment_triggered": self.reassessment_triggered,
         }
 
-
 # ── Action Disposition ───────────────────────────────────────────────────────
 
 VALID_DISPOSITIONS = ("proceed", "cautious", "pause", "escalate")
@@ -142,7 +137,6 @@ DISPOSITION_TO_RISK_TIER = {
     "pause": 3,
     "escalate": 4,
 }
-
 
 # ── Unified InternalState ────────────────────────────────────────────────────
 
@@ -169,15 +163,15 @@ class InternalState:
     risk_tier: int = 1                   # 1-4
 
     # Beautiful Loop (Phase 7)
-    hyper_model_state: Optional[dict] = None       # HyperModelState.to_dict()
-    reality_model_summary: Optional[dict] = None   # RealityModel.to_dict()
-    competition_result: Optional[dict] = None      # Winning plan + all candidates
+    hyper_model_state: dict | None = None       # HyperModelState.to_dict()
+    reality_model_summary: dict | None = None   # RealityModel.to_dict()
+    competition_result: dict | None = None      # Winning plan + all candidates
     precision_weighted_certainty: float = 0.5
     free_energy_proxy: float = 0.0
     free_energy_trend: str = "stable"
 
     # Attention Schema (Graziano AST — continuous attention modulation)
-    attention_schema: Optional[dict] = None  # AttentionSchema.to_dict()
+    attention_schema: dict | None = None  # AttentionSchema.to_dict()
 
     # Timestamps
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))

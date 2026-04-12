@@ -1,7 +1,7 @@
 import re
 from pydantic_settings import BaseSettings
 from pydantic import ConfigDict, SecretStr, field_validator
-from functools import lru_cache
+from functools import cache
 
 # Hard caps — prevent a misconfigured or tampered .env from granting runaway resources
 _MAX_SANDBOX_MEMORY_MB = 2048   # 2 GB ceiling
@@ -263,7 +263,7 @@ class Settings(BaseSettings):
         return v
 
 
-@lru_cache
+@cache
 def get_settings() -> Settings:
     return Settings()
 

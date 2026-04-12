@@ -22,7 +22,7 @@ import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Callable
 
 from app.experiment_runner import MutationSpec, generate_experiment_id
 from app.llm_factory import create_specialist_llm
@@ -32,16 +32,14 @@ logger = logging.getLogger(__name__)
 
 _MAX_REPAIR_ATTEMPTS = 3
 
-
 @dataclass
 class AVOResult:
     """Result of an AVO variation pipeline run."""
-    mutation: Optional[MutationSpec] = None
+    mutation: MutationSpec | None = None
     phases_completed: int = 0
     repair_attempts: int = 0
     critique_notes: str = ""
     abandoned_reason: str = ""
-
 
 # ── Phase 1: Planning ────────────────────────────────────────────────────────
 
@@ -136,7 +134,6 @@ def _phase_planning(
 
     return plan
 
-
 # ── File reading for code context ────────────────────────────────────────────
 
 def _read_target_files(target_files: list[str]) -> dict[str, str]:
@@ -172,10 +169,9 @@ def _read_target_files(target_files: list[str]) -> dict[str, str]:
 
     return result
 
-
 # ── Phase 2: Implementation ──────────────────────────────────────────────────
 
-def _phase_implementation(plan: dict, repair_errors: Optional[list] = None) -> Optional[dict]:
+def _phase_implementation(plan: dict, repair_errors: list | None = None) -> dict | None:
     """Fast LLM generates file contents based on the plan.
 
     Returns dict {file_path: content} or None on failure.
@@ -274,7 +270,6 @@ def _phase_implementation(plan: dict, repair_errors: Optional[list] = None) -> O
 
     return files
 
-
 # ── Phase 3: Local Testing ───────────────────────────────────────────────────
 
 def _phase_local_testing(files: dict[str, str]) -> tuple[bool, list[str]]:
@@ -315,7 +310,6 @@ def _phase_local_testing(files: dict[str, str]) -> tuple[bool, list[str]]:
             errors.append(f"Empty file: {fpath}")
 
     return (len(errors) == 0, errors)
-
 
 # ── Phase 4: Self-Critique ───────────────────────────────────────────────────
 
@@ -378,7 +372,6 @@ def _phase_self_critique(
 
     return approved, notes
 
-
 # ── Main Pipeline ────────────────────────────────────────────────────────────
 
 def run_avo_pipeline(
@@ -386,7 +379,7 @@ def run_avo_pipeline(
     tried_hashes: set[str],
     memory_context: str,
     lineage_context: str,
-    yield_check: Optional[Callable] = None,
+    yield_check: Callable | None = None,
 ) -> AVOResult:
     """Execute the full AVO 5-phase variation pipeline.
 

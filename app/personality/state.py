@@ -20,7 +20,6 @@ import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +64,6 @@ DEVELOPMENTAL_STAGES = [
     "role_coherence",            # Identity vs Confusion: consistent cross-context behavior
 ]
 
-
 @dataclass
 class TraitDataPoint:
     """Single trait measurement at a point in time."""
@@ -77,7 +75,6 @@ class TraitDataPoint:
     def to_dict(self) -> dict:
         return {"value": self.value, "timestamp": self.timestamp,
                 "source": self.source, "confidence": self.confidence}
-
 
 @dataclass
 class AssessmentRecord:
@@ -94,7 +91,6 @@ class AssessmentRecord:
 
     def to_dict(self) -> dict:
         return asdict(self)
-
 
 @dataclass
 class PersonalityState:
@@ -182,11 +178,9 @@ class PersonalityState:
             lines.append(f"    {k}: {v:.2f}")
         return "\n".join(lines)
 
-
 # ── Persistence ───────────────────────────────────────────────────────────────
 
 _states: dict[str, PersonalityState] = {}
-
 
 def get_personality(agent_id: str) -> PersonalityState:
     """Get or create persistent personality state for an agent."""
@@ -214,13 +208,11 @@ def get_personality(agent_id: str) -> PersonalityState:
     save_personality(state)
     return state
 
-
 def save_personality(state: PersonalityState) -> None:
     """Persist personality state to disk."""
     path = PERSONALITY_DIR / f"{state.agent_id}.json"
     from app.safe_io import safe_write_json
     safe_write_json(path, state.to_dict())
-
 
 def list_personalities() -> list[str]:
     """List all agents with personality state."""

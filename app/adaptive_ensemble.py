@@ -27,10 +27,8 @@ import random
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 # ── IMMUTABLE: Phase-dependent model weights ─────────────────────────────────
 
@@ -58,9 +56,7 @@ PHASE_WEIGHTS: dict[str, dict[str, float]] = {
     },
 }
 
-
 # ── Weighted Ensemble ─────────────────────────────────────────────────────────
-
 
 class WeightedEnsemble:
     """Probabilistically selects a model tier based on phase weights."""
@@ -122,9 +118,7 @@ class WeightedEnsemble:
             "tier_distribution": dict(self._tier_counts),
         }
 
-
 # ── Adaptive Schedulers ──────────────────────────────────────────────────────
-
 
 class PlateauScheduler:
     """Detects fitness plateaus and adjusts exploration rate.
@@ -180,7 +174,6 @@ class PlateauScheduler:
         self._best_fitness = 0.0
         self._epochs_since_improvement = 0
 
-
 class ExponentialScheduler:
     """Exponentially decays exploration rate over time.
 
@@ -209,7 +202,6 @@ class ExponentialScheduler:
 
     def reset(self) -> None:
         self._rate = self._initial
-
 
 class CosineScheduler:
     """Cosine annealing exploration rate with warm restarts.
@@ -241,9 +233,7 @@ class CosineScheduler:
     def reset(self) -> None:
         self._epoch = 0
 
-
 # ── Combined controller ──────────────────────────────────────────────────────
-
 
 class AdaptiveEvolutionController:
     """Combines weighted ensemble + adaptive scheduling for evolution control.
@@ -327,12 +317,9 @@ class AdaptiveEvolutionController:
             f"   Tier distribution: {stats['ensemble']['tier_distribution']}"
         )
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
-
 _controller: AdaptiveEvolutionController | None = None
-
 
 def get_controller() -> AdaptiveEvolutionController:
     global _controller

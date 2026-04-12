@@ -14,6 +14,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import functools
 import logging
 import threading
 import time
@@ -43,15 +44,12 @@ _llm_cache_lock = threading.Lock()
 # crewai's import chain pulls in its entire framework including litellm,
 # pydantic models, tool registries, etc. Deferring to first use saves ~2s
 # on cold boot and makes the module importable in <10ms.
-_LLM_class = None
-
+# Uses @functools.cache (Python 3.9+) — thread-safe, no manual global needed.
+@functools.cache
 def _get_LLM_class():
     """Lazy-load crewai.LLM on first use."""
-    global _LLM_class
-    if _LLM_class is None:
-        from crewai import LLM as _cls
-        _LLM_class = _cls
-    return _LLM_class
+    from crewai import LLM
+    return LLM
 
 
 def _cached_llm(model_id: str, max_tokens: int = 4096, **kwargs) -> "LLM":

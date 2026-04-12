@@ -14,7 +14,6 @@ import json
 import logging
 import hashlib
 from pathlib import Path
-from typing import Optional
 from app.utils import now_iso
 
 logger = logging.getLogger(__name__)
@@ -22,16 +21,13 @@ logger = logging.getLogger(__name__)
 ARCHIVE_PATH = Path("/app/workspace/variant_archive.json")
 _MAX_VARIANTS = 500
 
-
 def _load() -> list[dict]:
     from app.utils import load_json_file
     return load_json_file(ARCHIVE_PATH, default=[])
 
-
 def _save(variants: list[dict]) -> None:
     from app.utils import save_json_file
     save_json_file(ARCHIVE_PATH, variants, max_entries=_MAX_VARIANTS)
-
 
 def add_variant(
     experiment_id: str,
@@ -72,7 +68,6 @@ def add_variant(
     _save(archive)
     return variant
 
-
 def get_lineage(variant_id: str) -> list[dict]:
     """Get the full ancestry chain of a variant (root → ... → variant)."""
     archive = _load()
@@ -90,14 +85,12 @@ def get_lineage(variant_id: str) -> list[dict]:
     chain.reverse()
     return chain
 
-
 def get_best_variants(n: int = 5, status_filter: str = "keep") -> list[dict]:
     """Get the top N variants by fitness score."""
     archive = _load()
     filtered = [v for v in archive if v.get("status") == status_filter]
     filtered.sort(key=lambda v: v.get("fitness_after", 0), reverse=True)
     return filtered[:n]
-
 
 def get_diverse_sample(n: int = 5) -> list[dict]:
     """Get a diverse sample of variants across different branches.
@@ -124,12 +117,10 @@ def get_diverse_sample(n: int = 5) -> list[dict]:
     representatives.sort(key=lambda v: v.get("fitness_after", 0), reverse=True)
     return representatives[:n]
 
-
 def get_recent_variants(n: int = 10) -> list[dict]:
     """Get the N most recent variants."""
     archive = _load()
     return archive[-n:]
-
 
 def get_last_kept_id() -> str:
     """Get the ID of the most recently kept variant (used as parent for next)."""
@@ -139,7 +130,6 @@ def get_last_kept_id() -> str:
             return v["id"]
     return "root"
 
-
 def get_drift_score() -> float:
     """Compute cumulative drift distance from the root.
 
@@ -148,7 +138,6 @@ def get_drift_score() -> float:
     archive = _load()
     kept = [v for v in archive if v.get("status") == "keep"]
     return len(kept)
-
 
 def format_archive_context(n: int = 8) -> str:
     """Format archive for evolution agent context."""

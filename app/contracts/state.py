@@ -13,8 +13,6 @@ depend on.
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Optional
-
 
 @dataclass
 class CrewStatus:
@@ -28,7 +26,6 @@ class CrewStatus:
     model: str = ""
     last_updated: str = ""
 
-
 @dataclass
 class SystemHealth:
     """Aggregated system health, written to Firestore status/system."""
@@ -40,7 +37,6 @@ class SystemHealth:
     cost_today: float = 0.0
     last_heartbeat: str = ""
 
-
 @dataclass
 class SubsystemStatus:
     """Status of a single subsystem in the System Architecture Monitor."""
@@ -48,7 +44,6 @@ class SubsystemStatus:
     label: str = ""
     modules: list[str] = field(default_factory=list)
     details: dict = field(default_factory=dict)
-
 
 @dataclass
 class ProjectContext:
@@ -58,7 +53,6 @@ class ProjectContext:
     mem0_namespace: str = ""
     chroma_collection: str = ""
 
-
 @dataclass
 class PromptVersion:
     """State of a versioned prompt in the registry."""
@@ -67,7 +61,6 @@ class PromptVersion:
     total_versions: int = 1
     last_modified: str = ""
     last_promoted_by: str = ""
-
 
 @dataclass
 class EvolutionState:

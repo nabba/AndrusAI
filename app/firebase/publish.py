@@ -11,12 +11,10 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from app.firebase.infra import _get_db, _fire, _now_iso, _add_activity
 
 logger = logging.getLogger(__name__)
-
 
 # ── System status ─────────────────────────────────────────────────────────────
 
@@ -44,7 +42,6 @@ def report_system_online(version: str = "1.0") -> None:
             logger.debug("firebase.publish: system online write failed", exc_info=True)
     _fire(_write)
 
-
 def report_system_offline() -> None:
     """Called on graceful shutdown."""
     def _write():
@@ -59,7 +56,6 @@ def report_system_offline() -> None:
         except Exception:
             logger.debug("firebase.publish: system offline write failed", exc_info=True)
     _fire(_write)
-
 
 def heartbeat() -> None:
     """Update last_seen timestamp + all status data — call every 60 s."""
@@ -159,11 +155,9 @@ def heartbeat() -> None:
             pass
     _fire(_write)
 
-
 # ── Skills inventory ─────────────────────────────────────────────────────────
 
 _SKILLS_DIR = Path("/app/workspace/skills")
-
 
 def report_skills() -> None:
     """Push learned skills inventory to Firestore at status/skills."""
@@ -201,10 +195,9 @@ def report_skills() -> None:
     except Exception:
         logger.debug("firebase.publish: skills write failed", exc_info=True)
 
-
 # ── Signal connection health ─────────────────────────────────────────────────
 
-def report_signal_status(connected: bool, last_message_at: Optional[str] = None,
+def report_signal_status(connected: bool, last_message_at: str | None = None,
                          message_count: int = 0) -> None:
     """Push Signal connection health to Firestore at status/signal."""
     def _write():
@@ -222,7 +215,6 @@ def report_signal_status(connected: bool, last_message_at: Optional[str] = None,
             logger.debug("firebase.publish: signal status write failed", exc_info=True)
     _fire(_write)
 
-
 # ── Proposals ─────────────────────────────────────────────────────────────────
 
 def report_proposals(proposals: list[dict]) -> None:
@@ -239,7 +231,6 @@ def report_proposals(proposals: list[dict]) -> None:
         except Exception:
             logger.debug("firebase.publish: proposals write failed", exc_info=True)
     _fire(_write)
-
 
 # ── Fleet status ─────────────────────────────────────────────────────────
 
@@ -259,7 +250,6 @@ def report_fleet_status(fleet_data: list[dict], benchmarks: list[dict] = None) -
             logger.debug("firebase.publish: fleet write failed", exc_info=True)
     _fire(_write)
 
-
 # ── Scheduled jobs ────────────────────────────────────────────────────────────
 
 def report_schedule(jobs: list[dict]) -> None:
@@ -276,7 +266,6 @@ def report_schedule(jobs: list[dict]) -> None:
         except Exception:
             logger.debug("firebase.publish: schedule write failed", exc_info=True)
     _fire(_write)
-
 
 # ── LLM mode control ────────────────────────────────────────────────────────
 
@@ -295,7 +284,6 @@ def report_llm_mode(mode: str) -> None:
             logger.debug("firebase.publish: llm mode write failed", exc_info=True)
     _fire(_write)
 
-
 # ── Metrics ──────────────────────────────────────────────────────────────────
 
 def report_metrics() -> None:
@@ -313,7 +301,6 @@ def report_metrics() -> None:
     except Exception:
         logger.debug("firebase.publish: metrics write failed", exc_info=True)
 
-
 # ── Circuit breakers ─────────────────────────────────────────────────────────
 
 def report_circuit_breakers() -> None:
@@ -330,7 +317,6 @@ def report_circuit_breakers() -> None:
         })
     except Exception:
         logger.debug("firebase.publish: circuit breaker write failed", exc_info=True)
-
 
 # ── Error journal ────────────────────────────────────────────────────────────
 
@@ -351,7 +337,6 @@ def report_errors() -> None:
         })
     except Exception:
         logger.debug("firebase.publish: errors write failed", exc_info=True)
-
 
 # ── Evolution / experiments ──────────────────────────────────────────────────
 
@@ -374,7 +359,6 @@ def report_evolution() -> None:
     except Exception:
         logger.debug("firebase.publish: evolution write failed", exc_info=True)
 
-
 # ── Request cost stats ───────────────────────────────────────────────────────
 
 def report_request_costs() -> None:
@@ -396,7 +380,6 @@ def report_request_costs() -> None:
         })
     except Exception:
         logger.debug("firebase.publish: request costs write failed", exc_info=True)
-
 
 # ── Model catalog ────────────────────────────────────────────────────────────
 
@@ -434,7 +417,6 @@ def report_catalog() -> None:
         })
     except Exception:
         logger.debug("firebase.publish: catalog write failed", exc_info=True)
-
 
 def report_knowledge_base() -> None:
     """Push knowledge base stats to Firestore for the dashboard."""
@@ -501,7 +483,6 @@ def report_knowledge_base() -> None:
     except Exception:
         logger.debug("firebase.publish: knowledge_base write failed", exc_info=True)
 
-
 def report_evolution_stats() -> None:
     """Push evolution DGM-DB stats to Firestore for the dashboard."""
     db = _get_db()
@@ -535,7 +516,6 @@ def report_evolution_stats() -> None:
     except Exception:
         logger.debug("firebase.publish: evolution stats write failed", exc_info=True)
 
-
 def report_philosophy_kb() -> None:
     """Push philosophy knowledge base stats to Firestore for the dashboard."""
     db = _get_db()
@@ -560,7 +540,6 @@ def report_philosophy_kb() -> None:
         })
     except Exception:
         logger.debug("firebase.publish: philosophy_kb write failed", exc_info=True)
-
 
 def report_fiction_library() -> None:
     """Push fiction library stats to Firestore for the dashboard."""
@@ -610,7 +589,6 @@ def report_fiction_library() -> None:
     except Exception:
         logger.debug("firebase.publish: fiction_library write failed", exc_info=True)
 
-
 # ── L5: Ecological awareness stats ────────────────────────────────────────────
 
 def report_ecological_stats() -> None:
@@ -658,7 +636,6 @@ def report_ecological_stats() -> None:
         })
     except Exception:
         logger.debug("firebase.publish: ecology write failed", exc_info=True)
-
 
 # ── Token usage stats ────────────────────────────────────────────────────────
 
@@ -750,7 +727,6 @@ def report_internal_state() -> None:
     except Exception:
         logger.debug("firebase.publish: internal_state write failed", exc_info=True)
 
-
 def report_consciousness_probes(report=None) -> None:
     """Push consciousness probe results to Firestore for the dashboard.
 
@@ -803,7 +779,6 @@ def report_consciousness_probes(report=None) -> None:
     except Exception:
         logger.debug("firebase.publish: consciousness probes write failed", exc_info=True)
 
-
 def report_behavioral_assessment(results=None) -> None:
     """Push behavioral assessment scorecards to Firestore."""
     db = _get_db()
@@ -817,7 +792,6 @@ def report_behavioral_assessment(results=None) -> None:
         db.collection("status").document("behavioral_assessment").set(payload)
     except Exception:
         logger.debug("firebase.publish: behavioral assessment write failed", exc_info=True)
-
 
 def report_token_stats() -> None:
     """Push aggregated token usage to Firestore for the dashboard."""
@@ -838,7 +812,6 @@ def report_token_stats() -> None:
             logger.debug("firebase.publish: token stats write failed", exc_info=True)
     _fire(_write)
 
-
 # ── Self-Healing/Evolving Dashboard Data ─────────────────────────────────────
 
 def report_anomalies() -> None:
@@ -857,7 +830,6 @@ def report_anomalies() -> None:
         except Exception:
             logger.debug("firebase.publish: anomalies write failed", exc_info=True)
     _fire(_write)
-
 
 def report_variants() -> None:
     """Push variant archive summary to Firestore for the dashboard."""
@@ -879,7 +851,6 @@ def report_variants() -> None:
         except Exception:
             logger.debug("firebase.publish: variants write failed", exc_info=True)
     _fire(_write)
-
 
 def report_tech_radar() -> None:
     """Push tech radar discoveries to Firestore for the dashboard."""
@@ -912,7 +883,6 @@ def report_tech_radar() -> None:
             logger.debug("firebase.publish: tech_radar write failed", exc_info=True)
     _fire(_write)
 
-
 def report_deploys() -> None:
     """Push recent deploy log to Firestore for the dashboard."""
     def _write():
@@ -934,7 +904,6 @@ def report_deploys() -> None:
         except Exception:
             logger.debug("firebase.publish: deploys write failed", exc_info=True)
     _fire(_write)
-
 
 def report_proposal_actions() -> None:
     """Poll proposal_actions collection for dashboard-initiated approve/reject."""
@@ -968,7 +937,6 @@ def report_proposal_actions() -> None:
     except Exception:
         logger.debug("firebase.publish: proposal actions poll failed", exc_info=True)
 
-
 # ── Credit / Billing Alerts ────────────────────────────────────────────────
 
 # Provider -> purchase URL mapping
@@ -987,7 +955,6 @@ _CREDIT_PATTERNS = [
 ]
 
 _active_alerts: dict[str, dict] = {}  # provider -> alert dict
-
 
 def detect_credit_error(error: Exception | str) -> str | None:
     """Check if an error indicates credit/billing exhaustion.
@@ -1010,7 +977,6 @@ def detect_credit_error(error: Exception | str) -> str | None:
     if "402" in err:
         return "openrouter"  # most common 402 source
     return None
-
 
 def report_credit_alert(provider: str, error_msg: str = "") -> None:
     """Report a credit exhaustion alert to Firestore for dashboard display."""
@@ -1038,7 +1004,6 @@ def report_credit_alert(provider: str, error_msg: str = "") -> None:
             logger.debug("firebase.publish: credit alert write failed", exc_info=True)
     _fire(_write)
 
-
 def resolve_credit_alert(provider: str) -> None:
     """Mark a provider's credit alert as resolved (successful call after error)."""
     if provider in _active_alerts:
@@ -1055,7 +1020,6 @@ def resolve_credit_alert(provider: str) -> None:
             except Exception:
                 pass
         _fire(_write)
-
 
 # ── Bidirectional chat (dashboard <-> Signal) ────────────────────────────────
 
@@ -1083,7 +1047,6 @@ def report_chat_message(role: str, text: str, source: str = "signal") -> None:
         except Exception:
             logger.debug("firebase.publish: chat message write failed", exc_info=True)
     _fire(_write)
-
 
 def report_system_monitor() -> None:
     """Report comprehensive system architecture status to Firestore.
@@ -1381,7 +1344,6 @@ def report_system_monitor() -> None:
 
     _fire(_write)
 
-
 def _trim_chat_messages(db, max_messages: int = 100) -> None:
     """Keep only the most recent max_messages in chat_messages."""
     try:
@@ -1397,7 +1359,6 @@ def _trim_chat_messages(db, max_messages: int = 100) -> None:
             doc.reference.delete()
     except Exception:
         pass
-
 
 # ── Skills inventory (alias) ─────────────────────────────────────────────────
 # report_skills_inventory is an alias used in the user's spec

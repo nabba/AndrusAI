@@ -11,12 +11,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional
 
 from app.self_awareness.internal_state import InternalState
 
 logger = logging.getLogger(__name__)
-
 
 class InternalStateLogger:
     """Persists InternalState objects to PostgreSQL."""
@@ -170,10 +168,8 @@ class InternalStateLogger:
         except Exception:
             return "stable"
 
-
 # Module-level singleton
-_logger: Optional[InternalStateLogger] = None
-
+_logger: InternalStateLogger | None = None
 
 def get_state_logger() -> InternalStateLogger:
     global _logger

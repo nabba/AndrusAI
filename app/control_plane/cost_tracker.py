@@ -4,13 +4,11 @@ Estimates the cost of an LLM call BEFORE it happens, so budget enforcement
 can reject calls that would exceed limits.
 """
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 # Rough token estimates per prompt length (chars → tokens ≈ chars/4)
 _CHARS_PER_TOKEN = 4
-
 
 def estimate_tokens(prompt: str, max_output_tokens: int = 1024) -> tuple[int, int]:
     """Estimate input and output tokens.
@@ -19,7 +17,6 @@ def estimate_tokens(prompt: str, max_output_tokens: int = 1024) -> tuple[int, in
     """
     input_tokens = max(len(prompt) // _CHARS_PER_TOKEN, 10)
     return input_tokens, max_output_tokens
-
 
 def estimate_cost(
     model: str,

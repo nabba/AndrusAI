@@ -20,13 +20,10 @@ IMMUTABLE — infrastructure-level module.
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-
 # ── Auth pattern definitions ─────────────────────────────────────────────────
-
 
 @dataclass
 class AuthPattern:
@@ -39,9 +36,7 @@ class AuthPattern:
     code_template: str = ""     # Python code template
     detection_signals: list[str] = field(default_factory=list)  # signals in API docs
 
-
 # ── Built-in patterns ────────────────────────────────────────────────────────
-
 
 PATTERNS: dict[str, AuthPattern] = {
 
@@ -283,9 +278,7 @@ class WebhookSignatureVerifier:
     ),
 }
 
-
 # ── Detection ─────────────────────────────────────────────────────────────────
-
 
 def detect_auth_pattern(api_docs_text: str) -> list[tuple[str, float]]:
     """Detect which auth patterns an API likely uses from its documentation text.
@@ -307,17 +300,14 @@ def detect_auth_pattern(api_docs_text: str) -> list[tuple[str, float]]:
     results.sort(key=lambda x: x[1], reverse=True)
     return results
 
-
-def get_pattern(pattern_id: str) -> Optional[AuthPattern]:
+def get_pattern(pattern_id: str) -> AuthPattern | None:
     """Get an auth pattern by ID."""
     return PATTERNS.get(pattern_id)
-
 
 def get_pattern_code(pattern_id: str) -> str:
     """Get the code template for an auth pattern."""
     pattern = PATTERNS.get(pattern_id)
     return pattern.code_template.strip() if pattern else ""
-
 
 def list_patterns() -> list[str]:
     """List all available pattern IDs."""

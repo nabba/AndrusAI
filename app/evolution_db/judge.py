@@ -10,12 +10,10 @@ Constitutional compliance scoring queries the philosophy RAG layer.
 
 import json
 import logging
-from typing import Optional
 
 from app.llm_factory import create_specialist_llm
 
 logger = logging.getLogger(__name__)
-
 
 class LLMJudge:
     """Evaluates agent variant outputs using an independent LLM judge.

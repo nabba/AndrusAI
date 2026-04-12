@@ -34,7 +34,6 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +60,7 @@ DEFAULT_BATCH_SIZE = 4
 DEFAULT_LEARNING_RATE = 1e-5
 MIN_TRAINING_EXAMPLES = 100
 
-
 # ── Model Collapse Detection ──────────────────────────────────────────────────
-
 
 def distinct_n(texts: list[str], n: int = 2) -> float:
     """Distinct n-gram ratio — lower means less diverse (collapse indicator)."""
@@ -76,7 +73,6 @@ def distinct_n(texts: list[str], n: int = 2) -> float:
         return 0.0
     return len(set(all_ngrams)) / len(all_ngrams)
 
-
 def vocabulary_size(texts: list[str]) -> int:
     """Count unique words across all texts."""
     words = set()
@@ -84,13 +80,11 @@ def vocabulary_size(texts: list[str]) -> int:
         words.update(t.lower().split())
     return len(words)
 
-
 def avg_length(texts: list[str]) -> float:
     """Average word count."""
     if not texts:
         return 0.0
     return sum(len(t.split()) for t in texts) / len(texts)
-
 
 def detect_collapse(current_outputs: list[str], baseline_outputs: list[str]) -> dict:
     """Monitor for model collapse indicators.
@@ -121,9 +115,7 @@ def detect_collapse(current_outputs: list[str], baseline_outputs: list[str]) -> 
         "passes_gate": d2_ratio >= DIVERSITY_GATE,
     }
 
-
 # ── Adapter Registry ──────────────────────────────────────────────────────────
-
 
 @dataclass
 class AdapterInfo:
@@ -152,20 +144,15 @@ class AdapterInfo:
             "agent_roles": self.agent_roles,
         }
 
-
 _adapters: dict[str, AdapterInfo] = {}
-
 
 def list_adapters() -> list[AdapterInfo]:
     return list(_adapters.values())
 
-
-def get_active_adapter(name: str = "general_specialist") -> Optional[AdapterInfo]:
+def get_active_adapter(name: str = "general_specialist") -> AdapterInfo | None:
     return _adapters.get(name)
 
-
 # ── Training Orchestrator ─────────────────────────────────────────────────────
-
 
 class TrainingOrchestrator:
     """Orchestrates the full self-training loop.
@@ -268,7 +255,7 @@ class TrainingOrchestrator:
 
         return result
 
-    def _find_latest_curated(self) -> Optional[Path]:
+    def _find_latest_curated(self) -> Path | None:
         """Find the latest curated training data directory."""
         if not CURATED_DIR.exists():
             return None
@@ -696,18 +683,15 @@ class TrainingOrchestrator:
 
         return "\n".join(lines)
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
 _orchestrator: TrainingOrchestrator | None = None
-
 
 def get_orchestrator() -> TrainingOrchestrator:
     global _orchestrator
     if _orchestrator is None:
         _orchestrator = TrainingOrchestrator()
     return _orchestrator
-
 
 def run_training_cycle(adapter_name: str = "general_specialist") -> dict:
     """Entry point for idle scheduler."""

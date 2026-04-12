@@ -32,13 +32,11 @@ import threading
 import traceback
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-
 # ── Hook points ───────────────────────────────────────────────────────────────
-
 
 class HookPoint(str, Enum):
     PRE_TASK = "pre_task"
@@ -50,9 +48,7 @@ class HookPoint(str, Enum):
     ON_ERROR = "on_error"
     ON_COMPLETE = "on_complete"
 
-
 # ── Hook context ──────────────────────────────────────────────────────────────
-
 
 @dataclass
 class HookContext:
@@ -79,12 +75,10 @@ class HookContext:
         """Write to modified_data (preserves original data)."""
         self.modified_data[key] = value
 
-
 # ── Hook function type (sync — matches existing system architecture) ─────────
 
 # Hooks are synchronous callables: fn(ctx: HookContext) -> HookContext
 HookFn = Callable[[HookContext], HookContext]
-
 
 @dataclass
 class RegisteredHook:
@@ -98,9 +92,7 @@ class RegisteredHook:
     enabled: bool = True
     description: str = ""
 
-
 # ── Hook Registry ─────────────────────────────────────────────────────────────
-
 
 class HookRegistry:
     """Central registry for lifecycle hooks. Hooks ordered by priority (lower = first).
@@ -235,9 +227,7 @@ class HookRegistry:
                 })
         return result
 
-
 # ── Pre-built hooks ───────────────────────────────────────────────────────────
-
 
 def create_humanist_safety_hook() -> HookFn:
     """PRE_TOOL_USE / PRE_LLM_CALL at priority=0, immutable=True.
@@ -284,7 +274,6 @@ def create_humanist_safety_hook() -> HookFn:
         return ctx
     return check_humanist_principles
 
-
 def create_dangerous_action_hook() -> HookFn:
     """PRE_TOOL_USE at priority=1, immutable=True.
 
@@ -306,7 +295,6 @@ def create_dangerous_action_hook() -> HookFn:
                 break
         return ctx
     return block_dangerous_ops
-
 
 def create_history_compression_hook(history=None) -> HookFn:
     """PRE_LLM_CALL at priority=20. Triggers compression if needed.
@@ -331,7 +319,6 @@ def create_history_compression_hook(history=None) -> HookFn:
         return ctx
     return compress_history
 
-
 def create_self_correction_hook() -> HookFn:
     """POST_LLM_CALL at priority=10. Flags malformed outputs for retry."""
     def self_correct_output(ctx: HookContext) -> HookContext:
@@ -355,7 +342,6 @@ def create_self_correction_hook() -> HookFn:
         return ctx
     return self_correct_output
 
-
 def create_tool_memorizer_hook() -> HookFn:
     """POST_TOOL_USE at priority=50. Stores successful tool results in Mem0."""
     def memorize_tool_result(ctx: HookContext) -> HookContext:
@@ -375,7 +361,6 @@ def create_tool_memorizer_hook() -> HookFn:
                 pass
         return ctx
     return memorize_tool_result
-
 
 def _create_budget_hook() -> HookFn:
     """PRE_LLM_CALL at priority=2. Checks budget before API call.
@@ -415,7 +400,6 @@ def _create_budget_hook() -> HookFn:
         return ctx
     return check_budget
 
-
 def create_health_metrics_hook() -> HookFn:
     """ON_COMPLETE at priority=60. Records interaction metrics."""
     def record_metrics(ctx: HookContext) -> HookContext:
@@ -435,13 +419,10 @@ def create_health_metrics_hook() -> HookFn:
         return ctx
     return record_metrics
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
-
 
 _registry: HookRegistry | None = None
 _registry_lock = threading.Lock()
-
 
 def get_registry() -> HookRegistry:
     """Get or create the singleton hook registry with default hooks."""
@@ -451,7 +432,6 @@ def get_registry() -> HookRegistry:
             _registry = HookRegistry()
             _register_defaults(_registry)
         return _registry
-
 
 def _register_defaults(registry: HookRegistry) -> None:
     """Register the default safety and operational hooks."""

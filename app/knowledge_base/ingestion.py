@@ -10,7 +10,6 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 import app.knowledge_base.config as config  # direct module import (avoids circular via __init__)
 
@@ -18,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 # Max characters to extract from any single document (safety cap).
 _MAX_EXTRACT_CHARS = 500_000
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Data classes
@@ -37,7 +35,6 @@ class DocumentChunk:
         raw = f"{source}::chunk::{idx}"
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
-
 @dataclass
 class IngestionResult:
     source: str
@@ -47,7 +44,6 @@ class IngestionResult:
     success: bool
     error: str = ""
     document_id: str = ""
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Format detection
@@ -61,7 +57,6 @@ def detect_format(source: str) -> str:
     if ext in config.SUPPORTED_EXTENSIONS:
         return ext
     return ext or "unknown"
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Text extractors
@@ -77,7 +72,6 @@ def extract_pdf(path: str) -> str:
             pages.append(text)
     return "\n\n".join(pages)[:_MAX_EXTRACT_CHARS]
 
-
 def extract_docx(path: str) -> str:
     import docx
     doc = docx.Document(path)
@@ -88,7 +82,6 @@ def extract_docx(path: str) -> str:
             if cells:
                 parts.append(" | ".join(cells))
     return "\n\n".join(parts)[:_MAX_EXTRACT_CHARS]
-
 
 def extract_pptx(path: str) -> str:
     from pptx import Presentation
@@ -105,7 +98,6 @@ def extract_pptx(path: str) -> str:
         if texts:
             slides.append(f"--- Slide {i + 1} ---\n" + "\n".join(texts))
     return "\n\n".join(slides)[:_MAX_EXTRACT_CHARS]
-
 
 def extract_xlsx(path: str) -> str:
     import openpyxl
@@ -125,7 +117,6 @@ def extract_xlsx(path: str) -> str:
     wb.close()
     return "\n\n".join(sheets)[:_MAX_EXTRACT_CHARS]
 
-
 def extract_csv(path: str) -> str:
     import csv
     rows = []
@@ -138,11 +129,9 @@ def extract_csv(path: str) -> str:
             rows.append(" | ".join(row))
     return "\n".join(rows)[:_MAX_EXTRACT_CHARS]
 
-
 def extract_text(path: str) -> str:
     with open(path, encoding="utf-8", errors="replace") as f:
         return f.read()[:_MAX_EXTRACT_CHARS]
-
 
 def extract_html(path: str) -> str:
     try:
@@ -160,12 +149,10 @@ def extract_html(path: str) -> str:
         soup = BeautifulSoup(raw, "html.parser")
         return soup.get_text(separator="\n")
 
-
 def extract_json(path: str) -> str:
     with open(path, encoding="utf-8", errors="replace") as f:
         data = json.load(f)
     return json.dumps(data, indent=2, ensure_ascii=False)[:_MAX_EXTRACT_CHARS]
-
 
 def extract_url(url: str) -> str:
     try:
@@ -185,7 +172,6 @@ def extract_url(url: str) -> str:
         soup = BeautifulSoup(resp.text, "html.parser")
         return soup.get_text(separator="\n")[:_MAX_EXTRACT_CHARS]
 
-
 # Extractor registry
 EXTRACTORS = {
     ".pdf": extract_pdf,
@@ -199,7 +185,6 @@ EXTRACTORS = {
     ".htm": extract_html,
     ".json": extract_json,
 }
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Chunking
@@ -236,7 +221,6 @@ def chunk_text(
     chunks = splitter.split_text(text)
     return [c for c in chunks if len(c.strip()) > 50]
 
-
 def _simple_chunk(text: str, size: int, overlap: int) -> list[str]:
     """Fallback chunker without langchain dependency."""
     chunks = []
@@ -249,7 +233,6 @@ def _simple_chunk(text: str, size: int, overlap: int) -> list[str]:
         start = end - overlap
     return chunks
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Main ingestion function
 # ─────────────────────────────────────────────────────────────────────────────
@@ -257,7 +240,7 @@ def _simple_chunk(text: str, size: int, overlap: int) -> list[str]:
 def ingest_document(
     source: str,
     category: str = "general",
-    tags: Optional[list[str]] = None,
+    tags: list[str] | None = None,
     chunk_size: int = config.CHUNK_SIZE,
     chunk_overlap: int = config.CHUNK_OVERLAP,
 ) -> tuple[list[DocumentChunk], IngestionResult]:

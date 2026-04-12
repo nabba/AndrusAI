@@ -41,7 +41,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Type
+from typing import Type
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,6 @@ CHUNK_OVERLAP_CHARS = 800      # ~200 tokens
 CHAPTER_PATTERN = re.compile(r"^#{1,2}\s+", re.MULTILINE)
 SCENE_BREAK_PATTERN = re.compile(r"\n\s*(?:---|\*\*\*|___)\s*\n")
 PARAGRAPH_BREAK = "\n\n"
-
 
 # ── IMMUTABLE epistemic framing ───────────────────────────────────────────────
 
@@ -118,9 +117,7 @@ ABSOLUTE RULES:
    A concept appearing in fiction does NOT make it real or feasible.
 """
 
-
 # ── Front-matter extraction ──────────────────────────────────────────────────
-
 
 def _extract_frontmatter(text: str) -> tuple[dict, str]:
     """Extract YAML front-matter from .md file."""
@@ -141,7 +138,6 @@ def _extract_frontmatter(text: str) -> tuple[dict, str]:
         metadata = {}
 
     return metadata, body
-
 
 def _metadata_from_filename(filepath: Path) -> dict:
     """Fallback metadata from filename patterns."""
@@ -175,7 +171,6 @@ def _metadata_from_filename(filepath: Path) -> dict:
     # Strip leading numbers like "1  Foundation  Isaac Asimov"
     clean = re.sub(r'^\d+\s+', '', clean)
     return {"title": clean}
-
 
 def _enrich_metadata(filepath: Path, frontmatter: dict, body: str) -> dict:
     """3-stage metadata extraction: regex → LLM → web search.
@@ -363,9 +358,7 @@ def _enrich_metadata(filepath: Path, frontmatter: dict, body: str) -> dict:
 
     return result
 
-
 # ── Narrative-aware chunking ─────────────────────────────────────────────────
-
 
 def _chunk_fiction(text: str) -> list[dict]:
     """Split fiction into chunks respecting chapter/scene/paragraph boundaries.
@@ -433,9 +426,7 @@ def _chunk_fiction(text: str) -> list[dict]:
 
     return chunks
 
-
 # ── Ingestion ─────────────────────────────────────────────────────────────────
-
 
 def _get_collection():
     """Get the fiction_inspiration ChromaDB collection."""
@@ -451,7 +442,6 @@ def _get_collection():
             "hnsw:space": "cosine",
         },
     )
-
 
 def ingest_book(filepath: Path, extract_concepts: bool = False) -> dict:
     """Ingest a single .md fiction book into ChromaDB.
@@ -572,7 +562,6 @@ def ingest_book(filepath: Path, extract_concepts: bool = False) -> dict:
     logger.info(f"fiction_inspiration: ingested {len(ids)} chunks from '{book_title}'")
     return {"ingested": len(ids), "title": book_title, "author": author}
 
-
 def _extract_concepts_llm(text: str, themes: list) -> dict:
     """Optional: use budget LLM to extract speculative concepts."""
     try:
@@ -593,7 +582,6 @@ def _extract_concepts_llm(text: str, themes: list) -> dict:
     except Exception:
         pass
     return {}
-
 
 def ingest_library(library_dir: Path = FICTION_LIBRARY_DIR,
                    extract_concepts: bool = False) -> dict:
@@ -616,9 +604,7 @@ def ingest_library(library_dir: Path = FICTION_LIBRARY_DIR,
     logger.info(f"fiction_inspiration: ingested {total} chunks from {len(results)} books")
     return {"books_ingested": len(results), "total_chunks": total, "books": results}
 
-
 # ── Retrieval with epistemic framing ─────────────────────────────────────────
-
 
 def _format_result(document: str, metadata: dict) -> str:
     """Wrap a retrieval result in the epistemic framing envelope.
@@ -655,7 +641,6 @@ def _format_result(document: str, metadata: dict) -> str:
 {document}
 ║
 {footer}"""
-
 
 def search_fiction(query: str, n_results: int = 3,
                    theme_filter: str = "") -> str:
@@ -703,7 +688,6 @@ def search_fiction(query: str, n_results: int = 3,
     separator = "\n\n" + "─" * 60 + "\n\n"
     return separator.join(formatted)
 
-
 def random_inspiration(theme_filter: str = "") -> str:
     """Get a random piece of fiction for serendipitous creativity."""
     try:
@@ -731,7 +715,6 @@ def random_inspiration(theme_filter: str = "") -> str:
         return "No fiction found matching the filter."
     except Exception as e:
         return f"Fiction library error: {e}"
-
 
 def list_fiction_catalog() -> str:
     """List all books in the fiction library."""
@@ -777,11 +760,9 @@ def list_fiction_catalog() -> str:
     except Exception as e:
         return f"Fiction catalog error: {e}"
 
-
 # ── CrewAI Tools ──────────────────────────────────────────────────────────────
 
 # These are imported lazily to avoid circular deps at module load time.
-
 
 def get_fiction_tools():
     """Get all fiction inspiration tools for CrewAI agent configuration.
@@ -845,7 +826,6 @@ def get_fiction_tools():
         logger.debug("fiction_inspiration: CrewAI not available for tool creation")
         return []
 
-
 # ── Which agents get fiction access ──────────────────────────────────────────
 
 # IMMUTABLE: only creative agents get fiction. Factual and self-improvement
@@ -863,14 +843,11 @@ FICTION_DISABLED_AGENTS = frozenset({
     "critic",        # must evaluate against reality
 })
 
-
 def agent_has_fiction_access(agent_name: str) -> bool:
     """Check if an agent should have fiction tools."""
     return agent_name.lower() in FICTION_ENABLED_AGENTS
 
-
 # ── Module-level initialization ──────────────────────────────────────────────
-
 
 def initialize() -> dict:
     """Initialize fiction library — ingest any books in the library dir."""

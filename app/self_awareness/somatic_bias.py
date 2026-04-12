@@ -17,12 +17,10 @@ IMMUTABLE — infrastructure-level module.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from app.self_awareness.internal_state import SomaticMarker, DISPOSITION_TO_RISK_TIER
 
 logger = logging.getLogger(__name__)
-
 
 class SomaticBiasInjector:
     """Injects somatic bias into task context before reasoning begins."""
@@ -54,7 +52,7 @@ class SomaticBiasInjector:
 
         return task_context
 
-    def _compute_bias(self, somatic: SomaticMarker) -> Optional[dict]:
+    def _compute_bias(self, somatic: SomaticMarker) -> dict | None:
         v = somatic.valence
 
         if v <= self.STRONG_NEGATIVE_THRESHOLD:
@@ -104,7 +102,7 @@ class SomaticBiasInjector:
         return None
 
     @staticmethod
-    def get_disposition_floor(task_context: dict) -> Optional[str]:
+    def get_disposition_floor(task_context: dict) -> str | None:
         """Extract the highest disposition floor from all somatic advisories."""
         advisories = task_context.get("_somatic_advisories", [])
         floors = [a["disposition_floor"] for a in advisories if a.get("disposition_floor")]

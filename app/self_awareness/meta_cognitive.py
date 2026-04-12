@@ -19,12 +19,10 @@ import json
 import logging
 from collections import deque
 from datetime import datetime, timezone
-from typing import Optional
 
 from app.self_awareness.internal_state import InternalState, MetaCognitiveState
 
 logger = logging.getLogger(__name__)
-
 
 class MetaCognitiveLayer:
     """Lightweight meta-cognitive wrapper for CrewAI agents."""
@@ -44,7 +42,7 @@ class MetaCognitiveLayer:
     def pre_reasoning_hook(
         self,
         task_context: dict,
-        previous_state: Optional[InternalState] = None,
+        previous_state: InternalState | None = None,
     ) -> tuple[dict, MetaCognitiveState]:
         """Runs BEFORE each reasoning step. Can modify context, not code."""
         meta = MetaCognitiveState()
@@ -94,7 +92,7 @@ class MetaCognitiveLayer:
 
         return task_context, meta
 
-    def _should_reassess(self, previous_state: Optional[InternalState], compute_phase: str) -> bool:
+    def _should_reassess(self, previous_state: InternalState | None, compute_phase: str) -> bool:
         """Conservative: only reassess when signals warrant it."""
         if compute_phase == "late":
             return False
@@ -112,7 +110,7 @@ class MetaCognitiveLayer:
                 return True
         return False
 
-    def _assess_strategy(self, task_context: dict, previous_state: Optional[InternalState]) -> dict:
+    def _assess_strategy(self, task_context: dict, previous_state: InternalState | None) -> dict:
         """Use local LLM to assess strategy effectiveness. ~100ms."""
         try:
             from app.llm_factory import create_specialist_llm
@@ -139,7 +137,7 @@ class MetaCognitiveLayer:
             logger.debug(f"Strategy assessment failed for {self.agent_id}: {e}")
             return {"assessment": "uncertain", "reason": "assessment_error"}
 
-    def _generate_modification(self, task_context: dict, assessment: dict, compute_phase: str) -> Optional[dict]:
+    def _generate_modification(self, task_context: dict, assessment: dict, compute_phase: str) -> dict | None:
         """Generate context modification proposal. APPEND-ONLY, never delete."""
         allowed = ["refine_task_description", "adjust_tool_selection", "add_strategy_hint"]
         if compute_phase == "mid":

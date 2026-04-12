@@ -19,10 +19,8 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class ActionSelectionRecord:
@@ -34,7 +32,7 @@ class ActionSelectionRecord:
     alternatives_considered: list[dict] = field(default_factory=list)
     selection_reasoning: str = ""
     outcome_assessed: bool = False
-    outcome_matched_prediction: Optional[bool] = None
+    outcome_matched_prediction: bool | None = None
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_dict(self) -> dict:
@@ -46,7 +44,6 @@ class ActionSelectionRecord:
             "outcome_assessed": self.outcome_assessed,
             "outcome_matched_prediction": self.outcome_matched_prediction,
         }
-
 
 class MetacognitiveMonitor:
     """Dual-timescale metacognitive monitor for HOT-3.
@@ -232,11 +229,9 @@ class MetacognitiveMonitor:
         except Exception:
             logger.debug("metacognitive_monitor: action record persist failed", exc_info=True)
 
-
 # ── Module-level singleton ──────────────────────────────────────────────────
 
-_monitor: Optional[MetacognitiveMonitor] = None
-
+_monitor: MetacognitiveMonitor | None = None
 
 def get_monitor() -> MetacognitiveMonitor:
     global _monitor

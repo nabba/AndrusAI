@@ -19,7 +19,7 @@ IMMUTABLE — tool-level module.
 import json
 import logging
 import os
-from typing import Optional, Type
+from typing import Type
 
 from pydantic import BaseModel, Field
 
@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 _firecrawl_client = None
 _FIRECRAWL_AVAILABLE = True
-
 
 def get_firecrawl_client():
     """Returns a singleton Firecrawl client pointed at the self-hosted instance."""
@@ -54,11 +53,9 @@ def get_firecrawl_client():
         _FIRECRAWL_AVAILABLE = False
         return None
 
-
 def is_available() -> bool:
     """Check if Firecrawl is available."""
     return get_firecrawl_client() is not None
-
 
 # ── Tool 1: Smart Scrape (single page → markdown) ───────────────────────────
 
@@ -89,13 +86,12 @@ def firecrawl_scrape(url: str, only_main_content: bool = True) -> str:
         logger.error(f"Firecrawl scrape failed for {url}: {e}")
         return f"Error scraping {url}: {str(e)[:200]}"
 
-
 # ── Tool 2: Structured Extract (page → typed JSON via LLM) ──────────────────
 
 class ExtractInput(BaseModel):
     url: str = Field(description="The URL to extract structured data from")
     prompt: str = Field(description="What to extract (natural language)")
-    schema_json: Optional[str] = Field(default=None, description="Optional JSON schema for output")
+    schema_json: str | None = Field(default=None, description="Optional JSON schema for output")
 
 def firecrawl_extract(url: str, prompt: str, schema_json: str = None) -> str:
     """Extract structured data from a web page using LLM-powered extraction.
@@ -121,14 +117,13 @@ def firecrawl_extract(url: str, prompt: str, schema_json: str = None) -> str:
         logger.error(f"Firecrawl extract failed for {url}: {e}")
         return f"Error extracting from {url}: {str(e)[:200]}"
 
-
 # ── Tool 3: Crawl (multi-page → markdown corpus) ────────────────────────────
 
 class CrawlInput(BaseModel):
     url: str = Field(description="Starting URL to crawl from")
     max_pages: int = Field(default=20, description="Max pages to crawl (keep low)")
-    include_patterns: Optional[list[str]] = Field(default=None, description="URL glob patterns to include")
-    exclude_patterns: Optional[list[str]] = Field(default=None, description="URL glob patterns to exclude")
+    include_patterns: list[str] | None = Field(default=None, description="URL glob patterns to include")
+    exclude_patterns: list[str] | None = Field(default=None, description="URL glob patterns to exclude")
 
 def firecrawl_crawl(url: str, max_pages: int = 20,
                     include_patterns: list[str] = None,
@@ -176,7 +171,6 @@ def firecrawl_crawl(url: str, max_pages: int = 20,
         logger.error(f"Firecrawl crawl failed for {url}: {e}")
         return f"Error crawling {url}: {str(e)[:200]}"
 
-
 # ── Tool 4: Web Search (search + scrape in one) ─────────────────────────────
 
 class SearchInput(BaseModel):
@@ -220,7 +214,6 @@ def firecrawl_search(query: str, limit: int = 5) -> str:
         logger.error(f"Firecrawl search failed for '{query}': {e}")
         return f"Error searching '{query}': {str(e)[:200]}"
 
-
 # ── Tool 5: Site Map (URL discovery) ─────────────────────────────────────────
 
 class MapInput(BaseModel):
@@ -241,7 +234,6 @@ def firecrawl_map(url: str) -> str:
     except Exception as e:
         logger.error(f"Firecrawl map failed for {url}: {e}")
         return f"Error mapping {url}: {str(e)[:200]}"
-
 
 # ── RAG Pipeline: Firecrawl → ChromaDB ingestion ────────────────────────────
 
@@ -318,7 +310,6 @@ def ingest_url_to_chromadb(
         "page_title": getattr(meta, "title", "") if meta else "",
     }
 
-
 def ingest_crawl_to_chromadb(
     url: str,
     max_pages: int = 20,
@@ -387,7 +378,6 @@ def ingest_crawl_to_chromadb(
         "total_chunks": total_chunks,
         "source_url": url,
     }
-
 
 # ── CrewAI Tool wrappers (for tool registration with agents) ─────────────────
 

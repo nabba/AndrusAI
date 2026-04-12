@@ -10,7 +10,6 @@ import logging
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import chromadb
 
@@ -25,7 +24,6 @@ from app.knowledge_base.ingestion import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class KnowledgeStore:
     """
@@ -114,7 +112,7 @@ class KnowledgeStore:
         self,
         source: str,
         category: str = "general",
-        tags: Optional[list[str]] = None,
+        tags: list[str] | None = None,
         chunk_size: int = config.CHUNK_SIZE,
         chunk_overlap: int = config.CHUNK_OVERLAP,
     ) -> IngestionResult:
@@ -159,7 +157,7 @@ class KnowledgeStore:
         text: str,
         source_name: str = "manual_entry",
         category: str = "general",
-        tags: Optional[list[str]] = None,
+        tags: list[str] | None = None,
     ) -> IngestionResult:
         """Add raw text directly to the knowledge base (no file needed)."""
         tags = tags or []
@@ -228,8 +226,8 @@ class KnowledgeStore:
         self,
         question: str,
         top_k: int = config.DEFAULT_TOP_K,
-        category: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        category: str | None = None,
+        tags: list[str] | None = None,
         min_score: float = config.MIN_RELEVANCE_SCORE,
     ) -> list[dict]:
         """Query the knowledge base and return relevant chunks with metadata."""

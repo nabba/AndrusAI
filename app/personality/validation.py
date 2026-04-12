@@ -24,7 +24,6 @@ import logging
 import random
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,6 @@ PROTO_SENTIENCE_THRESHOLDS = {
     "metacognitive_accuracy": 0.8,        # Self-assessment vs behavioral match
 }
 
-
 @dataclass
 class BehavioralObservation:
     """A single observed behavior during a real task."""
@@ -62,7 +60,6 @@ class BehavioralObservation:
         if not self.timestamp:
             self.timestamp = datetime.now(timezone.utc).isoformat()
 
-
 @dataclass
 class SayDoReport:
     """Say-do alignment report for an agent."""
@@ -71,7 +68,6 @@ class SayDoReport:
     overall_alignment: float = 0.5
     gaming_risk: str = "low"
     inconsistency_flags: list[str] = field(default_factory=list)
-
 
 class BehavioralValidationLayer:
     """Infrastructure-level behavioral observer. Agents cannot access internals."""
@@ -298,11 +294,9 @@ class BehavioralValidationLayer:
         except Exception:
             pass
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
 _bvl: BehavioralValidationLayer | None = None
-
 
 def get_bvl() -> BehavioralValidationLayer:
     global _bvl

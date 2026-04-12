@@ -31,7 +31,6 @@ import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +90,6 @@ Extract the following as JSON:
 
 Be thorough. Return ONLY valid JSON."""
 
-
 @dataclass
 class VideoContent:
     """Raw extracted content from a video."""
@@ -106,7 +104,6 @@ class VideoContent:
     key_frames: list[dict] = field(default_factory=list)  # [{timestamp, path, description}]
     extracted_code: list[str] = field(default_factory=list)
     video_type: str = ""
-
 
 @dataclass
 class ExtractedKnowledge:
@@ -124,7 +121,6 @@ class ExtractedKnowledge:
 
     def to_dict(self) -> dict:
         return asdict(self)
-
 
 class VideoLearner:
     """Extracts actionable knowledge from YouTube videos."""
@@ -458,11 +454,9 @@ class VideoLearner:
         except Exception:
             pass
 
-
 # ── Module-level singleton ───────────────────────────────────────────────────
 
 _learner: VideoLearner | None = None
-
 
 def get_learner() -> VideoLearner:
     """Get or create the singleton video learner."""

@@ -11,10 +11,8 @@ import json
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 def log_external_call(
     agent: str,
@@ -59,7 +57,6 @@ def log_external_call(
     # Always log structurally
     logger.info(f"ATLAS_AUDIT: {agent}/{action} → {target} "
                 f"[{result}] {execution_time_ms:.0f}ms")
-
 
 def _store_to_db(record: dict) -> None:
     """Store audit record in PostgreSQL."""

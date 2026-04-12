@@ -12,14 +12,12 @@ Usage:
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import chromadb
 
 from app.philosophy import config
 
 logger = logging.getLogger(__name__)
-
 
 class PhilosophyStore:
     """
@@ -89,7 +87,7 @@ class PhilosophyStore:
         self,
         chunks: list[str],
         metadatas: list[dict],
-        ids: Optional[list[str]] = None,
+        ids: list[str] | None = None,
     ) -> int:
         """Add document chunks with metadata to the philosophy collection.
 
@@ -135,7 +133,7 @@ class PhilosophyStore:
         self,
         query_text: str,
         n_results: int = config.DEFAULT_TOP_K,
-        where_filter: Optional[dict] = None,
+        where_filter: dict | None = None,
         min_score: float = config.MIN_RELEVANCE_SCORE,
     ) -> list[dict]:
         """Query the philosophy collection.
@@ -262,10 +260,8 @@ class PhilosophyStore:
 
         return sorted(by_source.values(), key=lambda d: d["title"])
 
-
 # ── Singleton accessor ────────────────────────────────────────────────────────
-_store: Optional[PhilosophyStore] = None
-
+_store: PhilosophyStore | None = None
 
 def get_store() -> PhilosophyStore:
     """Lazy-singleton accessor for the philosophy store."""

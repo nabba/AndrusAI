@@ -23,10 +23,8 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class AttentionState:
@@ -41,7 +39,7 @@ class AttentionState:
     source_trigger: str = "GOAL_DRIVEN"  # GOAL_DRIVEN | STIMULUS_DRIVEN | SCHEMA_DIRECTED
     is_stuck: bool = False
     is_captured: bool = False
-    capturing_item_id: Optional[str] = None
+    capturing_item_id: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -53,17 +51,15 @@ class AttentionState:
             "cycle": self.cycle_number,
         }
 
-
 @dataclass
 class AttentionPrediction:
     """Prediction of next workspace focus."""
     prediction_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     predicted_focus_ids: list[str] = field(default_factory=list)
     predicted_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    actual_focus_ids: Optional[list[str]] = None
-    accuracy: Optional[float] = None
+    actual_focus_ids: list[str] | None = None
+    accuracy: float | None = None
     cycle_number: int = 0
-
 
 @dataclass
 class AttentionShift:
@@ -71,10 +67,9 @@ class AttentionShift:
     shift_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     trigger: str = ""        # stuck_detection | capture_detection | schema_recommendation | surprise_redirect
     shift_cost: float = 0.0
-    utility_delta: Optional[float] = None
+    utility_delta: float | None = None
     cooldown_until_cycle: int = 0
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-
 
 class AttentionController:
     """Detects stuck/capture states and recommends shifts."""
@@ -105,7 +100,7 @@ class AttentionController:
                 return False
         return True
 
-    def detect_capture(self, state: AttentionState) -> tuple[bool, Optional[str]]:
+    def detect_capture(self, state: AttentionState) -> tuple[bool, str | None]:
         """True if one item dominates salience distribution."""
         if not state.salience_distribution:
             return False, None
@@ -137,7 +132,6 @@ class AttentionController:
     def reset_period(self) -> None:
         """Reset shift counter for new slow-loop period."""
         self._shifts_this_period = 0
-
 
 class AttentionPredictor:
     """Predicts next workspace focus and tracks accuracy."""
@@ -192,7 +186,6 @@ class AttentionPredictor:
             return 0.5
         return sum(self._accuracy_history) / len(self._accuracy_history)
 
-
 class AttentionSchema:
     """Full attention schema: state tracking, prediction, control."""
 
@@ -200,7 +193,7 @@ class AttentionSchema:
         self.controller = AttentionController()
         self.predictor = AttentionPredictor()
         self._history: deque[AttentionState] = deque(maxlen=50)
-        self._current: Optional[AttentionState] = None
+        self._current: AttentionState | None = None
         self._cycle: int = 0
         self._shifts: list[AttentionShift] = []
 
@@ -259,7 +252,7 @@ class AttentionSchema:
 
         return state
 
-    def recommend_intervention(self) -> Optional[dict]:
+    def recommend_intervention(self) -> dict | None:
         """If stuck or captured, recommend intervention for workspace gate.
 
         Returns dict with suppression/boost directives, or None.
@@ -349,11 +342,9 @@ class AttentionSchema:
         except Exception:
             pass
 
-
 # ── Module-level singleton ──────────────────────────────────────────────────
 
-_schema: Optional[AttentionSchema] = None
-
+_schema: AttentionSchema | None = None
 
 def get_attention_schema() -> AttentionSchema:
     global _schema

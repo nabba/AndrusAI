@@ -27,13 +27,10 @@ import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-
 # ── API Knowledge Model ──────────────────────────────────────────────────────
-
 
 @dataclass
 class EndpointSpec:
@@ -46,7 +43,6 @@ class EndpointSpec:
     response_schema: dict = field(default_factory=dict)    # {format, fields, example}
     rate_limit: str = ""
     requires_auth: bool = True
-
 
 @dataclass
 class APIKnowledge:
@@ -77,9 +73,7 @@ class APIKnowledge:
         obj.endpoints = endpoints
         return obj
 
-
 # ── API Scout Pipeline ───────────────────────────────────────────────────────
-
 
 # Discovery search priority order
 SEARCH_PRIORITY = [
@@ -144,7 +138,6 @@ Requirements:
 
 Generate ONLY the Python code. No markdown fences, no explanation.
 The code should be a single file that can be imported and used directly."""
-
 
 class APIScout:
     """Autonomous API discovery, analysis, and client generation pipeline."""
@@ -501,7 +494,7 @@ Generate ONLY Python test code. No markdown fences."""
             confidence=0.3,
         )
 
-    def _parse_openapi_spec(self, api_name: str, spec: dict) -> Optional[APIKnowledge]:
+    def _parse_openapi_spec(self, api_name: str, spec: dict) -> APIKnowledge | None:
         """Parse an OpenAPI/Swagger spec directly into APIKnowledge."""
         if not spec or not isinstance(spec, dict):
             return None
@@ -586,15 +579,13 @@ Generate ONLY Python test code. No markdown fences."""
         """Return list of APIs we have knowledge about."""
         return list(self._knowledge_cache.keys())
 
-    def get_api_knowledge(self, api_name: str) -> Optional[APIKnowledge]:
+    def get_api_knowledge(self, api_name: str) -> APIKnowledge | None:
         """Look up cached API knowledge."""
         return self._knowledge_cache.get(api_name.lower())
-
 
 # ── Module-level singleton ───────────────────────────────────────────────────
 
 _scout: APIScout | None = None
-
 
 def get_scout() -> APIScout:
     """Get or create the singleton API scout."""

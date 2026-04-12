@@ -21,13 +21,12 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
 _last_run: float = 0.0
 _MIN_INTERVAL = 86400  # 24 hours between chaos runs
-
 
 @dataclass
 class ChaosTestResult:
@@ -35,8 +34,7 @@ class ChaosTestResult:
     injected: bool
     recovered: bool
     duration_ms: float
-    error: Optional[str] = None
-
+    error: str | None = None
 
 def _test_circuit_breaker_recovery() -> ChaosTestResult:
     """Simulate Ollama circuit breaker trip and verify auto-recovery."""
@@ -63,7 +61,6 @@ def _test_circuit_breaker_recovery() -> ChaosTestResult:
     except Exception as e:
         return ChaosTestResult("circuit_breaker_recovery", True, False, 0, str(e))
 
-
 def _test_db_connection_recovery() -> ChaosTestResult:
     """Simulate database pool reset and verify reconnection."""
     t0 = time.monotonic()
@@ -81,7 +78,6 @@ def _test_db_connection_recovery() -> ChaosTestResult:
         )
     except Exception as e:
         return ChaosTestResult("db_connection_recovery", True, False, 0, str(e))
-
 
 def _test_embedding_recovery() -> ChaosTestResult:
     """Simulate embedding backend failure and verify recovery attempt."""
@@ -105,7 +101,6 @@ def _test_embedding_recovery() -> ChaosTestResult:
         )
     except Exception as e:
         return ChaosTestResult("embedding_recovery", True, False, 0, str(e))
-
 
 def _test_provider_exhaustion_detection() -> ChaosTestResult:
     """Simulate all providers down and verify detection."""
@@ -138,14 +133,12 @@ def _test_provider_exhaustion_detection() -> ChaosTestResult:
     except Exception as e:
         return ChaosTestResult("provider_exhaustion_detection", True, False, 0, str(e))
 
-
 CHAOS_TESTS = [
     _test_circuit_breaker_recovery,
     _test_db_connection_recovery,
     _test_embedding_recovery,
     _test_provider_exhaustion_detection,
 ]
-
 
 def run_chaos_suite() -> dict:
     """Run all chaos tests. Returns summary dict.
