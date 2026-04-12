@@ -45,6 +45,9 @@ class HyperModelState:
     # Level 3: Trajectory uncertainty (knows how much to trust forecasts)
     trajectory_uncertainty: float = 0.0  # Variance of trajectory errors
     trajectory_trustworthy: bool = True  # False = forecasts unreliable → explore more
+    # Beautiful Loop closure (self-referential fixed point)
+    loop_closure_error: float = 0.0       # How well system predicted its own processing
+    loop_closure_convergence: float = 0.5 # How close to fixed point (1.0 = perfect)
 
     def to_dict(self) -> dict:
         return {
@@ -63,6 +66,8 @@ class HyperModelState:
             "meta_confidence": round(self.meta_confidence, 3),
             "trajectory_uncertainty": round(self.trajectory_uncertainty, 4),
             "trajectory_trustworthy": self.trajectory_trustworthy,
+            "loop_closure_error": round(self.loop_closure_error, 3),
+            "loop_closure_convergence": round(self.loop_closure_convergence, 3),
         }
 
     def to_context_string(self) -> str:
@@ -432,4 +437,13 @@ class HyperModel:
         # Level 3: Untrustworthy trajectory → bias toward exploration
         if not last.trajectory_trustworthy:
             pressure += 0.1
+        # Beautiful Loop: low loop convergence → bias toward exploration
+        if last.loop_closure_convergence < 0.3:
+            pressure += 0.1
         return max(0.0, min(1.0, pressure))
+
+    def record_loop_closure(self, error: float, convergence: float) -> None:
+        """Record Beautiful Loop closure metrics into latest state."""
+        if self.history:
+            self.history[-1].loop_closure_error = error
+            self.history[-1].loop_closure_convergence = convergence

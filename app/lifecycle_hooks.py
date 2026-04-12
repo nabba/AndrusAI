@@ -492,6 +492,67 @@ def _register_defaults(registry: HookRegistry) -> None:
     except Exception:
         logger.debug("lifecycle_hooks: training collector hook not available", exc_info=True)
 
+    # Priority 58: Beautiful Loop closure — compare processing path after execution
+    def _loop_closure_compare_hook(ctx: HookContext) -> HookContext:
+        try:
+            prediction = ctx.metadata.get("_loop_prediction")
+            if not prediction:
+                return ctx
+            from app.self_awareness.loop_closure import get_loop_closure
+            agent_id = ctx.agent_id or "default"
+            lc = get_loop_closure(agent_id)
+
+            # Extract actuals from the processing path
+            internal_state = ctx.metadata.get("_internal_state")
+            actual_certainty = 0.5
+            actual_valence = 0.0
+            if internal_state:
+                if hasattr(internal_state, "certainty"):
+                    c = internal_state.certainty
+                    actual_certainty = getattr(c, "adjusted_certainty", 0.5) if c else 0.5
+                if hasattr(internal_state, "somatic"):
+                    s = internal_state.somatic
+                    actual_valence = getattr(s, "valence", 0.0) if s else 0.0
+
+            competition = ctx.metadata.get("_competition_result", {})
+            actual_plan = competition.get("winner", {}).get("approach", "") if isinstance(competition, dict) else ""
+
+            actual_fe = "stable"
+            try:
+                from app.self_awareness.hyper_model import HyperModel
+                hm = HyperModel.get_instance(agent_id)
+                if hm.history:
+                    actual_fe = hm.history[-1].free_energy_trend
+            except Exception:
+                pass
+
+            state = lc.close_loop(
+                actual_plan_type=actual_plan,
+                actual_certainty=actual_certainty,
+                actual_somatic_valence=actual_valence,
+                actual_fe_trend=actual_fe,
+            )
+
+            # Feed back into HyperModel
+            try:
+                from app.self_awareness.hyper_model import HyperModel
+                hm = HyperModel.get_instance(agent_id)
+                hm.record_loop_closure(state.composite_error, state.loop_coherence)
+            except Exception:
+                pass
+
+            ctx.metadata["_loop_closure_state"] = state.to_dict()
+        except Exception:
+            pass
+        return ctx
+
+    registry.register(
+        "loop_closure_compare", HookPoint.ON_COMPLETE,
+        _loop_closure_compare_hook,
+        priority=58,
+        description="Beautiful Loop: close self-referential loop, compute convergence",
+    )
+
     # Priority 60: Health metrics recording
     registry.register(
         "health_metrics", HookPoint.ON_COMPLETE,
@@ -593,6 +654,30 @@ def _register_defaults(registry: HookRegistry) -> None:
         _hierarchy_compare_hook,
         priority=12,
         description="Hierarchical PP: compare predictions, propagate errors across 4 levels",
+    )
+
+    # Priority 13: Beautiful Loop closure — predict processing path BEFORE execution
+    def _loop_closure_predict_hook(ctx: HookContext) -> HookContext:
+        try:
+            from app.self_awareness.loop_closure import get_loop_closure
+            from app.self_awareness.hyper_model import HyperModel
+            agent_id = ctx.agent_id or "default"
+            hm = HyperModel.get_instance(agent_id)
+            lc = get_loop_closure(agent_id)
+            prediction = lc.predict_path(
+                task_description=ctx.task_description or "",
+                hyper_model=hm,
+            )
+            ctx.metadata["_loop_prediction"] = prediction
+        except Exception:
+            pass
+        return ctx
+
+    registry.register(
+        "loop_closure_predict", HookPoint.PRE_TASK,
+        _loop_closure_predict_hook,
+        priority=13,
+        description="Beautiful Loop: predict entire processing path (self-referential)",
     )
 
     # Priority 5: Inject previous internal state into task prompt (C3 fix: recursive self-awareness)
