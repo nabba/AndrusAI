@@ -522,6 +522,79 @@ def _register_defaults(registry: HookRegistry) -> None:
         description="Log errors to control plane audit trail",
     )
 
+    # Priority 6: Hierarchical prediction — PRE_LLM_CALL (generate predictions at Level 0+1)
+    def _hierarchy_predict_hook(ctx: HookContext) -> HookContext:
+        try:
+            from app.consciousness.prediction_hierarchy import get_prediction_hierarchy
+            agent_id = ctx.agent_id or "default"
+            prompt = ctx.task_description or ""
+            if len(prompt) > 20:
+                hierarchy = get_prediction_hierarchy(agent_id)
+                pred_info = hierarchy.generate_predictions(prompt)
+                ctx.metadata["_hierarchy_predicted"] = True
+        except Exception:
+            pass
+        return ctx
+
+    registry.register(
+        "hierarchy_predict", HookPoint.PRE_LLM_CALL,
+        _hierarchy_predict_hook,
+        priority=6,
+        description="Hierarchical PP: generate Level 0+1 predictions before LLM call",
+    )
+
+    # Priority 12: Hierarchical prediction — POST_LLM_CALL (compare + propagate errors)
+    def _hierarchy_compare_hook(ctx: HookContext) -> HookContext:
+        try:
+            if not ctx.metadata.get("_hierarchy_predicted"):
+                return ctx  # No prediction was generated
+            from app.consciousness.prediction_hierarchy import get_prediction_hierarchy
+            agent_id = ctx.agent_id or "default"
+            response = ctx.data.get("llm_response", "") or ctx.data.get("result", "")
+            if not response or len(str(response)) < 10:
+                return ctx
+
+            hierarchy = get_prediction_hierarchy(agent_id)
+
+            # Get Level 2 error from LLMOutputPredictor (if available)
+            level2_err = ctx.metadata.get("_llm_prediction_error", 0.0)
+
+            # Get Level 3 error from HyperModel online buffer (if available)
+            level3_err = 0.0
+            try:
+                from app.self_awareness.hyper_model import HyperModel
+                hm = HyperModel.get_instance(agent_id)
+                if hm._online_buffer:
+                    level3_err = hm._online_buffer[-1].get("error", 0.0)
+            except Exception:
+                pass
+
+            state = hierarchy.compare_and_propagate(
+                str(response)[:2000],
+                level2_error=level2_err,
+                level3_error=level3_err,
+            )
+            ctx.metadata["_hierarchy_state"] = state.to_dict()
+
+            # Feed composite surprise into HyperModel for recurrence integration
+            try:
+                from app.self_awareness.hyper_model import HyperModel
+                hm = HyperModel.get_instance(agent_id)
+                # Use 1 - composite_surprise as certainty proxy
+                hm.update_online(max(0.0, 1.0 - state.composite_surprise))
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return ctx
+
+    registry.register(
+        "hierarchy_compare", HookPoint.POST_LLM_CALL,
+        _hierarchy_compare_hook,
+        priority=12,
+        description="Hierarchical PP: compare predictions, propagate errors across 4 levels",
+    )
+
     # Priority 5: Inject previous internal state into task prompt (C3 fix: recursive self-awareness)
     def _inject_internal_state_hook(ctx: HookContext) -> HookContext:
         try:
