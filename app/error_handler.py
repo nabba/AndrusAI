@@ -115,9 +115,15 @@ def report_error(
     with _counter_lock:
         _counters[key] = _counters.get(key, 0) + 1
 
-    # Build structured log entry
+    # Build structured log entry (with trace_id for correlation)
+    try:
+        from app.trace import get_trace_id
+        _tid = get_trace_id()
+    except Exception:
+        _tid = ""
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
+        "trace_id": _tid,
         "category": category.value,
         "message": message[:500],
         "exception": f"{type(exc).__name__}: {exc}" if exc else None,

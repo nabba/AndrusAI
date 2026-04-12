@@ -102,6 +102,10 @@ class Settings(BaseSettings):
     safety_max_negative_before_rollback: int = 2   # negative reactions before rollback
 
     # ── Fast deployment infrastructure ───────────────────────────────────
+    # ── Canary deployment (synthetic eval before promotion) ────────────
+    canary_deploy_enabled: bool = True       # route auto-deploys through canary eval
+    canary_regression_tolerance: float = 0.05  # 5% regression allowed
+
     sandbox_evolution_enabled: bool = True    # use Docker sandbox for code mutations
     sandbox_parallel_count: int = 2           # max parallel sandbox instances
     health_monitor_enabled: bool = True       # continuous health monitoring
@@ -125,6 +129,7 @@ class Settings(BaseSettings):
     ticket_system_enabled: bool = True      # create tickets from Signal messages
     default_budget_per_agent_usd: float = 50.0  # monthly budget per agent
     autonomous_mode: bool = False           # 24/7 heartbeat-driven ticket processing
+    load_shed_threshold: int = 0            # 0 = auto (max_parallel_crews + 1)
 
     # ── ATLAS: Autonomous Tool-Learning & Adaptive Skills ──────────────
     atlas_enabled: bool = True           # enable ATLAS capability layer

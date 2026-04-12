@@ -337,7 +337,17 @@ def schedule_deploy(reason: str) -> None:
         global _deploy_scheduled
         time.sleep(5)  # wait for all file writes to complete
         try:
-            run_deploy(reason)
+            # Route through canary if enabled — synthetic eval before promotion
+            try:
+                from app.config import get_settings as _cdgs
+                if _cdgs().canary_deploy_enabled:
+                    from app.canary_deploy import CanaryDeployer
+                    result = CanaryDeployer().run_canary(reason)
+                    logger.info(f"auto_deployer: canary result: {result.get('status')} — {result.get('reason', '')[:100]}")
+                else:
+                    run_deploy(reason)
+            except ImportError:
+                run_deploy(reason)  # Fallback if canary module unavailable
         finally:
             with _deploy_lock:
                 _deploy_scheduled = False

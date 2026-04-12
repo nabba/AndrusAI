@@ -1121,6 +1121,38 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: prediction slow loop failed", exc_info=True)
     jobs.append(("prediction-slow-loop", _prediction_slow_loop, JobWeight.MEDIUM))
 
+    # ── Dead letter queue: retry failed messages ─────────────────────
+    def _dead_letter_retry():
+        try:
+            from app.dead_letter import dequeue_retryable, mark_success, mark_permanent_failure
+            retryable = dequeue_retryable()
+            for entry in retryable[:1]:  # Process at most 1 per idle cycle
+                try:
+                    from app.agents.commander.orchestrator import Commander
+                    c = Commander()
+                    result = c.handle(entry["text"], entry["sender"])
+                    if result:
+                        from app.signal_client import send_message
+                        from app.config import get_settings
+                        send_message(entry["sender"], f"[Retry] {result[:3000]}")
+                        mark_success(entry["_key"])
+                        logger.info(f"idle_scheduler: DLQ retry succeeded for {entry['_key']}")
+                except Exception as exc:
+                    logger.warning(f"idle_scheduler: DLQ retry failed: {exc}")
+                    mark_permanent_failure(entry["_key"])
+                    try:
+                        from app.signal_client import send_message
+                        send_message(
+                            entry["sender"],
+                            "I tried to re-process your earlier message but it failed again. "
+                            "Please try rephrasing your request."
+                        )
+                    except Exception:
+                        pass
+        except Exception:
+            logger.debug("idle_scheduler: dead letter retry failed", exc_info=True)
+    jobs.append(("dead-letter-retry", _dead_letter_retry, JobWeight.LIGHT))
+
     return jobs
 
 

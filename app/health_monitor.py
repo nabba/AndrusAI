@@ -48,6 +48,7 @@ class InteractionMetrics:
     # Optional detail
     crew_used: str = ""
     error_type: str = ""
+    trace_id: str = ""  # Correlation ID for request tracing
 
 # ── Aggregated health state ─────────────────────────────────────────────────
 
@@ -171,6 +172,7 @@ class HealthMonitor:
         self._last_alerts: list[HealthAlert] = []
         self._alert_cooldown: dict[str, float] = {}  # dimension → last alert time
         self._cooldown_seconds = 300  # 5 minutes between alerts per dimension
+        self._last_slo_budget: dict = {}  # SLO budget evaluation result
 
     def record(self, metrics: InteractionMetrics) -> None:
         """Record metrics from a single interaction."""
@@ -193,6 +195,22 @@ class HealthMonitor:
         state = self._aggregate(window)
         alerts = []
         now = time.monotonic()
+
+        # SLO budget evaluation (wires the previously orphaned function)
+        self._last_slo_budget = evaluate_slo_budget(state.error_rate, state.avg_latency_ms)
+        if self._last_slo_budget.get("severity_escalation"):
+            slo_severity = self._last_slo_budget["severity_escalation"]
+            slo_cooldown = self._alert_cooldown.get("slo_budget", 0)
+            if (now - slo_cooldown) >= self._cooldown_seconds:
+                alerts.append(HealthAlert(
+                    severity=slo_severity,
+                    dimension="slo_budget",
+                    current_value=self._last_slo_budget["max_consumed_pct"],
+                    threshold=SLO.alert_at_budget_pct,
+                    auto_remediate=(slo_severity != "emergency"),
+                    message=f"SLO budget {self._last_slo_budget['max_consumed_pct']:.0f}% consumed ({slo_severity})",
+                ))
+                self._alert_cooldown["slo_budget"] = now
 
         for dimension, thresholds in THRESHOLDS.items():
             value = getattr(state, dimension, None)
@@ -350,3 +368,7 @@ def record_interaction(metrics: InteractionMetrics) -> None:
 def evaluate_health() -> list[HealthAlert]:
     """Convenience: evaluate health on the singleton monitor."""
     return get_monitor().evaluate()
+
+def get_slo_budget() -> dict:
+    """Convenience: get last SLO budget evaluation from the singleton monitor."""
+    return get_monitor()._last_slo_budget

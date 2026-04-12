@@ -635,18 +635,38 @@ async def handle_task(sender: str, text: str, attachments: list = None,
             return
 
     _task_start = _time.monotonic()
+
+    # Request tracing: generate correlation ID for this request lifecycle
+    from app.trace import new_trace_id, get_trace_id
+    trace_id = new_trace_id()
+
     # Start task tracking for metrics
     task_row_id = start_task(sender)
 
     # 👀 reaction is already sent in receive_signal() — no need to send again here
 
-    # Track activity for idle scheduler
+    # ── Load shedding: reject if at capacity ─────────────────────────────────
+    _settings = get_settings()
+    _shed_threshold = _settings.load_shed_threshold or (_settings.max_parallel_crews + 1)
+    with _inflight_lock:
+        currently_running = _inflight_tasks
+        if currently_running >= _shed_threshold:
+            logger.warning(f"Load shedding: rejecting request ({currently_running} inflight, threshold={_shed_threshold})")
+            try:
+                await signal_client.send(
+                    sender,
+                    f"I'm currently handling {currently_running} tasks and at capacity. "
+                    f"Please try again in a minute or two."
+                )
+            except Exception:
+                pass
+            return
+        _inflight_tasks += 1
+
+    # Track activity for idle scheduler (only if accepted)
     idle_scheduler.notify_task_start()
 
     # Notify user if other tasks are already in progress
-    with _inflight_lock:
-        currently_running = _inflight_tasks
-        _inflight_tasks += 1
     if currently_running > 0:
         try:
             await signal_client.send(
@@ -846,6 +866,13 @@ async def handle_task(sender: str, text: str, attachments: list = None,
             error=exc,
             context=f"attachments={len(attachments or [])}",
         )
+
+        # Dead letter queue: persist for retry after self-heal has time to fix
+        try:
+            from app.dead_letter import enqueue as dlq_enqueue
+            dlq_enqueue(sender, text[:2000], type(exc).__name__, trace_id)
+        except Exception:
+            pass
         # Generic error — do not leak internals to Signal
         await signal_client.send(
             sender,

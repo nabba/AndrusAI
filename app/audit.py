@@ -73,8 +73,14 @@ def log_response_sent(sender_redacted: str, response_length: int) -> None:
 
 
 def _emit(event_type: str, data: dict[str, Any]) -> None:
+    try:
+        from app.trace import get_trace_id
+        _tid = get_trace_id()
+    except Exception:
+        _tid = ""
     record = {
         "ts": datetime.now(timezone.utc).isoformat(),
+        "trace_id": _tid,
         "event": event_type,
         **data,
     }
