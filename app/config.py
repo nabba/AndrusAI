@@ -214,6 +214,11 @@ class Settings(BaseSettings):
     idle_heavy_time_cap_s: int = 600
     idle_training_interval_s: int = 3600
 
+    # Consciousness indicators (Butlin et al. 2025)
+    consciousness_enabled: bool = True
+    workspace_capacity: int = 5
+    belief_store_enabled: bool = True
+
     model_config = ConfigDict(env_file=".env")
 
     @field_validator("sandbox_memory_limit")

@@ -376,3 +376,48 @@ def _claude_fallback(role: str, max_tokens: int) -> LLM:
     _set_last("deepseek-v3.2", "budget")
     logger.warning(f"llm_factory: role={role} → FALLBACK deepseek-v3.2 (Anthropic key missing)")
     return _cached_llm("openrouter/deepseek/deepseek-chat", max_tokens=max_tokens, api_key=get_openrouter_api_key())
+
+
+# ── Provider health check for graceful degradation ──────────────────────────
+
+_all_providers_exhausted = False
+_exhaustion_alerted = False
+
+
+def check_all_providers_health() -> bool:
+    """Return True if at least one LLM provider is available.
+
+    If ALL providers are exhausted (circuit breakers open), returns False
+    and reports to dashboard + Signal (once). Caller should return a
+    graceful error message instead of attempting LLM calls.
+    """
+    global _all_providers_exhausted, _exhaustion_alerted
+    from app.circuit_breaker import is_available
+
+    anthropic_ok = is_available("anthropic")
+    openrouter_ok = is_available("openrouter")
+    ollama_ok = is_available("ollama")
+
+    any_available = anthropic_ok or openrouter_ok or ollama_ok
+
+    if not any_available and not _all_providers_exhausted:
+        _all_providers_exhausted = True
+        logger.critical("ALL LLM PROVIDERS EXHAUSTED — system cannot process requests")
+        if not _exhaustion_alerted:
+            _exhaustion_alerted = True
+            try:
+                from app.signal_client import send_message
+                from app.config import get_settings
+                send_message(
+                    get_settings().signal_owner_number,
+                    "🔴 ALL LLM providers exhausted. System cannot answer questions. "
+                    "Check Anthropic/OpenRouter credits and Ollama status.",
+                )
+            except Exception:
+                pass
+    elif any_available and _all_providers_exhausted:
+        _all_providers_exhausted = False
+        _exhaustion_alerted = False
+        logger.info("LLM provider recovered — system back online")
+
+    return any_available

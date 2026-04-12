@@ -162,6 +162,17 @@ class Commander:
         active_llm = self.llm
         _routing_provider = "anthropic"
 
+        # Graceful degradation: if ALL providers exhausted, return error without attempting
+        try:
+            from app.llm_factory import check_all_providers_health
+            if not check_all_providers_health():
+                return [{"crew": "direct", "task": (
+                    "I'm currently unable to process requests — all LLM providers "
+                    "are unavailable. Please check API credits and try again shortly."
+                ), "difficulty": 1}]
+        except Exception:
+            pass
+
         # Circuit breaker: fast-switch to fallback if primary provider is down
         from app.circuit_breaker import is_available as _cb_available, record_success as _cb_success, record_failure as _cb_failure
         if not _cb_available("anthropic"):
@@ -268,13 +279,18 @@ class Commander:
         try:
             from app.self_awareness.homeostasis import get_behavioral_modifiers
             modifiers = get_behavioral_modifiers()
-            tier_boost = modifiers.get("tier_boost", 0)
-            if tier_boost:
-                for d in decisions:
-                    d["difficulty"] = min(10, d["difficulty"] + tier_boost)
-                logger.info(f"Homeostasis: tier_boost={tier_boost}, adjusted difficulties")
-        except Exception:
-            pass
+            if modifiers:
+                tier_boost = modifiers.get("tier_boost", 0)
+                if tier_boost:
+                    for d in decisions:
+                        d["difficulty"] = min(10, d["difficulty"] + tier_boost)
+                    logger.info(f"Homeostasis: tier_boost={tier_boost}, adjusted difficulties")
+                # Log active drives for observability
+                for k, v in modifiers.items():
+                    if k != "tier_boost" and v:
+                        logger.debug(f"Homeostasis drive: {k}={v}")
+        except Exception as e:
+            logger.warning(f"Homeostasis evaluation failed (routing unaffected): {e}")
 
         # L10: Theory of Mind — prefer crews with proven track records at this difficulty
         try:
@@ -415,6 +431,108 @@ class Commander:
                         )
         except Exception:
             pass
+
+        # ── Consciousness: GWT-2 workspace submission + GWT-3 broadcast + HOT-3 consultation ──
+        try:
+            from app.config import get_settings as _gs
+            if _gs().consciousness_enabled:
+                from app.consciousness.workspace_buffer import (
+                    WorkspaceItem, get_workspace_gate, get_salience_scorer,
+                )
+                from app.consciousness.global_broadcast import get_broadcast_engine
+
+                # Create workspace item from the task
+                try:
+                    from app.memory.chromadb_manager import embed as _embed
+                    _task_emb = _embed(crew_task[:300])
+                except Exception:
+                    _task_emb = []
+
+                _ws_item = WorkspaceItem(
+                    content=crew_task[:500],
+                    content_embedding=_task_emb,
+                    source_agent="commander",
+                    source_channel="user_input",
+                    agent_urgency=min(1.0, difficulty / 10.0),
+                )
+
+                # PP-1: Generate prediction BEFORE processing (anticipatory coding)
+                _surprise = 0.0
+                try:
+                    from app.consciousness.predictive_layer import get_predictive_layer
+                    _pp1 = get_predictive_layer()
+                    _pp1_error = _pp1.predict_and_compare(
+                        channel="user_input",
+                        context=conversation_history[:200] if conversation_history else "",
+                        actual_content=crew_task[:300],
+                        actual_embedding=_task_emb,
+                    )
+                    _surprise = _pp1_error.effective_surprise
+                    _ws_item.surprise_signal = _surprise
+                    # PARADIGM_VIOLATION → trigger immediate slow loop
+                    if _pp1_error.surprise_level == "PARADIGM_VIOLATION":
+                        logger.warning(f"PP-1: PARADIGM_VIOLATION on user_input (error={_pp1_error.error_magnitude:.2f})")
+                except Exception:
+                    pass
+
+                # Score salience (now includes PP-1 surprise signal)
+                _scorer = get_salience_scorer()
+                _scorer.score(_ws_item, goal_embeddings=[], recent_items=get_workspace_gate().active_items)
+
+                # Compete for workspace
+                _gate = get_workspace_gate()
+                _gate_result = _gate.evaluate(_ws_item)
+                _gate.persist_transition(_gate_result, _ws_item)
+
+                # AST-1: Monitor workspace state (parallel with gating, per spec)
+                _ast_intervention = None
+                try:
+                    from app.consciousness.attention_schema import get_attention_schema
+                    _ast = get_attention_schema()
+                    _ast.update(_gate.active_items, cycle=_gate._cycle)
+                    _ast_intervention = _ast.recommend_intervention()
+                    if _ast_intervention:
+                        # Apply attention schema intervention to workspace
+                        if _ast_intervention.get("action") == "suppress" and _ast_intervention.get("target_item_id"):
+                            for _active_item in _gate.active_items:
+                                if _active_item.item_id == _ast_intervention["target_item_id"]:
+                                    _active_item.salience_score *= (1.0 - _ast_intervention.get("salience_reduction", 0.3))
+                                    logger.info(f"AST-1: suppressed capturing item {_active_item.item_id[:8]}")
+                                    break
+                except Exception:
+                    pass
+
+                # If admitted, broadcast to all agents
+                if _gate_result.admitted:
+                    _engine = get_broadcast_engine()
+                    _engine.update_listener_context(crew_name, _task_emb)
+                    _broadcast_event = _engine.broadcast(_ws_item)
+                    # Inject integration info into context
+                    if _broadcast_event.integration_score > 0.3:
+                        context += (
+                            f"\n<workspace_broadcast integration={_broadcast_event.integration_score:.2f}>"
+                            f"This task was relevant to {int(_broadcast_event.integration_score * 100)}% of agents."
+                            f"</workspace_broadcast>\n"
+                        )
+
+                # HOT-3: Consult beliefs for this task
+                try:
+                    if _gs().belief_store_enabled:
+                        from app.consciousness.metacognitive_monitor import get_monitor
+                        _action_rec = get_monitor().consult_beliefs(crew_task[:300], crew_name)
+                        if _action_rec.beliefs_consulted:
+                            context += (
+                                f"\n<beliefs_consulted count={len(_action_rec.beliefs_consulted)}>"
+                                f"{_action_rec.selection_reasoning[:200]}"
+                                f"</beliefs_consulted>\n"
+                            )
+                except Exception:
+                    pass
+
+                _gate.advance_cycle()
+                _engine.advance_cycle() if _gate_result.admitted else None
+        except Exception:
+            logger.debug("Consciousness indicators failed (non-fatal)", exc_info=True)
 
         # Context pruning: compress injected context to a token budget.
         context = _prune_context(context, difficulty)

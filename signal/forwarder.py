@@ -75,13 +75,38 @@ def _check_signal_cli_alive() -> bool:
 
 
 def _wait_for_signal_cli():
-    """Block until signal-cli responds (reuses startup logic)."""
+    """Block until signal-cli responds, with exponential backoff.
+
+    Starts at 5s, backs off to max 60s. After 5 minutes of failure,
+    reports to Firebase dashboard so the owner has visibility.
+    """
     log("Waiting for signal-cli to come back...")
+    wait = 5
+    max_wait = 60
+    start = time.time()
+    alerted = False
+
     while True:
         if _check_signal_cli_alive():
-            log("signal-cli reconnected")
+            elapsed = time.time() - start
+            log(f"signal-cli reconnected after {elapsed:.0f}s")
             return
-        time.sleep(5)
+
+        # Alert after 5 minutes of continuous failure
+        if not alerted and (time.time() - start) > 300:
+            alerted = True
+            log("WARNING: signal-cli down for >5 minutes — reporting to dashboard")
+            try:
+                _gateway_session.post(
+                    GATEWAY_URL.replace("/signal/inbound", "/location"),
+                    json={"signal_cli_down": True, "down_since": start},
+                    timeout=5,
+                )
+            except Exception:
+                pass
+
+        time.sleep(wait)
+        wait = min(max_wait, wait * 1.5)  # Exponential backoff, cap at 60s
 
 
 def _process_envelope(envelope: dict) -> None:

@@ -107,8 +107,21 @@ def is_enabled() -> bool:
         return _enabled
 
 
-def _run_single_job(name: str, fn: Callable, timeout_s: int = 60) -> None:
-    """Run a single job with time cap enforcement via _job_timeout event."""
+_job_failure_counts: dict[str, int] = {}  # Per-job consecutive failure counter
+_job_skip_until: dict[str, float] = {}    # Per-job skip-until timestamp (monotonic)
+
+
+def _run_single_job(name: str, fn: Callable, timeout_s: int = 60) -> bool:
+    """Run a single job with time cap, retry on failure, and skip-after-3-failures.
+
+    Returns True if job succeeded, False if failed.
+    Jobs that fail 3 consecutive times are skipped for 1 hour.
+    """
+    # Check if job is in skip cooldown
+    skip_until = _job_skip_until.get(name, 0)
+    if skip_until and time.monotonic() < skip_until:
+        return False
+
     _job_timeout.clear()
     timer = threading.Timer(timeout_s, _job_timeout.set)
     timer.daemon = True
@@ -118,9 +131,19 @@ def _run_single_job(name: str, fn: Callable, timeout_s: int = 60) -> None:
         fn()
         logger.info(f"idle_scheduler: '{name}' completed")
         _report_background_activity(name, "completed")
+        _job_failure_counts[name] = 0  # Reset on success
+        return True
     except Exception as exc:
-        logger.warning(f"idle_scheduler: '{name}' failed: {exc}")
+        _job_failure_counts[name] = _job_failure_counts.get(name, 0) + 1
+        consec = _job_failure_counts[name]
+        logger.warning(f"idle_scheduler: '{name}' failed ({consec} consecutive): {exc}")
         _report_background_activity(name, "failed")
+
+        # After 3 consecutive failures, skip job for 1 hour
+        if consec >= 3:
+            _job_skip_until[name] = time.monotonic() + 3600
+            logger.warning(f"idle_scheduler: '{name}' skipped for 1h after {consec} consecutive failures")
+
         try:
             from app.firebase_reporter import detect_credit_error, report_credit_alert
             provider = detect_credit_error(exc)
@@ -128,6 +151,7 @@ def _run_single_job(name: str, fn: Callable, timeout_s: int = 60) -> None:
                 report_credit_alert(provider, str(exc)[:300])
         except Exception:
             pass
+        return False
     finally:
         timer.cancel()
         _job_timeout.clear()
@@ -961,7 +985,83 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
 
         if any(v for v in pruned.values() if v):
             logger.info(f"idle_scheduler: data retention: {pruned}")
+
+        # Post-commit regression check (auto-rollback if health degraded)
+        try:
+            from app.workspace_versioning import check_post_commit_regression
+            check_post_commit_regression()
+        except Exception:
+            pass
     jobs.append(("data-retention", _data_retention, JobWeight.LIGHT))
+
+    # ── Ollama memory management: unload idle models to free VRAM ─────
+    def _ollama_memory():
+        try:
+            from app.ollama_native import unload_idle_models
+            unloaded = unload_idle_models(idle_minutes=30)
+            if unloaded:
+                logger.info(f"idle_scheduler: freed VRAM — unloaded {len(unloaded)} idle models: {unloaded}")
+        except Exception:
+            logger.debug("idle_scheduler: ollama memory management failed", exc_info=True)
+    jobs.append(("ollama-memory", _ollama_memory, JobWeight.LIGHT))
+
+    # ── Chaos testing: verify self-healing paths (max once per 24h) ───
+    def _chaos_testing():
+        try:
+            from app.chaos_tester import run_chaos_suite
+            result = run_chaos_suite()
+            if result.get("status") == "completed":
+                logger.info(
+                    f"idle_scheduler: chaos tests {result['passed']}/{result['total']} passed"
+                )
+                if result.get("failed", 0) > 0:
+                    logger.warning("idle_scheduler: CHAOS TEST FAILURES detected — self-healing paths degraded")
+        except Exception:
+            logger.debug("idle_scheduler: chaos testing failed", exc_info=True)
+    jobs.append(("chaos-testing", _chaos_testing, JobWeight.HEAVY))
+
+    # ── Consciousness slow loop: belief updating + mandatory review ───
+    def _consciousness_slow_loop():
+        try:
+            from app.config import get_settings
+            if not get_settings().consciousness_enabled:
+                return
+            from app.consciousness.metacognitive_monitor import get_monitor
+            monitor = get_monitor()
+            result = monitor.run_slow_loop()
+            if any(v for v in result.values() if v):
+                logger.info(f"idle_scheduler: consciousness slow loop: {result}")
+        except Exception:
+            logger.debug("idle_scheduler: consciousness slow loop failed", exc_info=True)
+    jobs.append(("consciousness-slow-loop", _consciousness_slow_loop, JobWeight.MEDIUM))
+
+    # ── AST-1 slow loop: attention pattern evaluation ─────────────────
+    def _attention_slow_loop():
+        try:
+            from app.config import get_settings
+            if not get_settings().consciousness_enabled:
+                return
+            from app.consciousness.attention_schema import get_attention_schema
+            result = get_attention_schema().run_slow_loop()
+            if result.get("is_stuck") or result.get("is_captured"):
+                logger.warning(f"idle_scheduler: AST-1 attention alert: {result}")
+        except Exception:
+            logger.debug("idle_scheduler: attention slow loop failed", exc_info=True)
+    jobs.append(("attention-slow-loop", _attention_slow_loop, JobWeight.MEDIUM))
+
+    # ── PP-1 slow loop: prediction model recalibration ────────────────
+    def _prediction_slow_loop():
+        try:
+            from app.config import get_settings
+            if not get_settings().consciousness_enabled:
+                return
+            from app.consciousness.predictive_layer import get_predictive_layer
+            result = get_predictive_layer().run_slow_loop()
+            if result.get("recent_major_surprises", 0) > 3:
+                logger.warning(f"idle_scheduler: PP-1 systematic surprises: {result}")
+        except Exception:
+            logger.debug("idle_scheduler: prediction slow loop failed", exc_info=True)
+    jobs.append(("prediction-slow-loop", _prediction_slow_loop, JobWeight.MEDIUM))
 
     return jobs
 

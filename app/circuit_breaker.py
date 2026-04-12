@@ -100,6 +100,7 @@ _breakers: dict[str, CircuitBreaker] = {
     "ollama": CircuitBreaker("ollama", failure_threshold=3, cooldown_seconds=60),
     "openrouter": CircuitBreaker("openrouter", failure_threshold=3, cooldown_seconds=60),
     "anthropic": CircuitBreaker("anthropic", failure_threshold=5, cooldown_seconds=120),
+    "self_healer": CircuitBreaker("self_healer", failure_threshold=3, cooldown_seconds=600),
 }
 
 

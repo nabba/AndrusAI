@@ -54,46 +54,110 @@ class SelfHealer:
                 pass
         return self._signal_client
 
+    # Remediation verification log
+    _verification_log: list[dict] = []
+
     async def handle_alerts(self, alerts: list) -> list[dict]:
         """Process health alerts and trigger appropriate remediation.
 
-        Args:
-            alerts: list of HealthAlert objects
-
-        Returns:
-            list of remediation results
+        Protected by circuit breaker: if self-healer fails 3 consecutive times,
+        stops attempting remediation for 10 minutes (prevents cascading failures).
+        After each fix, schedules background verification to confirm it worked.
         """
-        # Sort by severity: emergency first
+        # Circuit breaker: stop if healer itself is broken
+        from app.circuit_breaker import is_available as _cb_ok, record_success as _cb_ok_fn, record_failure as _cb_fail
+        if not _cb_ok("self_healer"):
+            logger.warning("self_healer: circuit breaker open — skipping remediation for 10 min")
+            return []
+
         severity_order = {"emergency": 0, "critical": 1, "warning": 2}
         sorted_alerts = sorted(alerts, key=lambda a: severity_order.get(a.severity, 3))
 
         results = []
         for alert in sorted_alerts:
-            # Notify owner
             await self._notify_alert(alert)
 
-            # Emergency = immediate rollback, stop processing
             if alert.severity == "emergency":
                 result = await self._emergency_protocol(alert)
                 results.append(result)
-                return results  # Stop all other processing
+                return results
 
-            # Check rate limit
             if not self._check_rate_limit(alert.dimension):
                 logger.info(f"self_healer: rate limited for {alert.dimension}")
                 continue
 
-            # Auto-remediate for warning/critical
             if alert.auto_remediate:
                 strategy_name = self.STRATEGIES.get(alert.dimension)
                 if strategy_name:
                     strategy_fn = getattr(self, strategy_name, None)
                     if strategy_fn:
-                        result = await strategy_fn(alert)
-                        results.append(result)
-                        _log_remediation(alert.dimension, strategy_name, result)
+                        try:
+                            result = await strategy_fn(alert)
+                            _cb_ok_fn("self_healer")
+                            results.append(result)
+                            _log_remediation(alert.dimension, strategy_name, result)
+                            # Schedule verification (5 min later)
+                            self._schedule_verification(alert, result)
+                        except Exception as exc:
+                            _cb_fail("self_healer")
+                            logger.error(f"self_healer: strategy {strategy_name} failed: {exc}")
 
         return results
+
+    def _schedule_verification(self, alert, result, delay_s: int = 300) -> None:
+        """Schedule background verification that a fix actually worked.
+
+        Waits delay_s, then re-checks the health dimension. Logs whether
+        the remediation was effective.
+        """
+        import threading
+
+        def _verify():
+            import time as _t
+            _t.sleep(delay_s)
+            try:
+                from app.health_monitor import get_monitor
+                monitor = get_monitor()
+                state = monitor.get_health_state()
+                current = getattr(state, alert.dimension, None)
+                if current is None:
+                    return
+
+                # Check improvement (lower is better for most, except accuracy)
+                if alert.dimension in ("memory_retrieval_accuracy",):
+                    improved = current > alert.current_value
+                else:
+                    improved = current < alert.current_value
+
+                entry = {
+                    "dimension": alert.dimension,
+                    "strategy": result.get("strategy", "?"),
+                    "before": alert.current_value,
+                    "after": current,
+                    "improved": improved,
+                    "ts": __import__("datetime").datetime.now(
+                        __import__("datetime").timezone.utc
+                    ).isoformat(),
+                }
+                self._verification_log.append(entry)
+                if len(self._verification_log) > 100:
+                    self._verification_log.pop(0)
+
+                if improved:
+                    logger.info(
+                        f"self_healer: VERIFIED fix for {alert.dimension}: "
+                        f"{alert.current_value:.3f} → {current:.3f}"
+                    )
+                else:
+                    logger.warning(
+                        f"self_healer: fix FAILED for {alert.dimension}: "
+                        f"{alert.current_value:.3f} → {current:.3f} (no improvement)"
+                    )
+            except Exception:
+                pass
+
+        t = threading.Thread(target=_verify, daemon=True, name=f"heal-verify-{alert.dimension}")
+        t.start()
 
     async def _emergency_protocol(self, alert) -> dict:
         """Immediate rollback + human notification. NEVER auto-fix safety issues."""
@@ -166,18 +230,23 @@ class SelfHealer:
                     "action": "failed", "error": str(e)[:200]}
 
     async def optimize_performance(self, alert) -> dict:
-        """Propose performance optimizations for high latency."""
+        """Reduce latency by tightening context loading and skipping slow paths.
+
+        Direct fix: increase slow_path_trigger_threshold so the expensive
+        LLM-based certainty assessment triggers less often.
+        """
         try:
-            # Queue a performance optimization task for evolution
-            from pathlib import Path
-            queue_file = Path("/app/workspace/skills/learning_queue.md")
-            queue_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(queue_file, "a") as f:
-                f.write(f"\nAUTO-HEAL: Optimize latency ({alert.current_value:.0f}ms avg) — "
-                        f"investigate slow paths, reduce unnecessary LLM calls\n")
+            from app.self_awareness.sentience_config import load_config, apply_change
+            config = load_config()
+            current = config.get("slow_path_trigger_threshold", 0.4)
+            # Higher threshold = fewer slow-path triggers = lower latency
+            new_val = min(0.6, current + 0.03)
+            applied = apply_change("slow_path_trigger_threshold", new_val)
+            action = "applied_directly" if applied else "bounded_rejected"
+            logger.info(f"self_healer: optimize_performance: slow_path_trigger {current:.2f} → {new_val:.2f} ({action})")
 
             return {"dimension": "avg_latency_ms", "strategy": "optimize_performance",
-                    "action": "queued_for_evolution"}
+                    "action": action, "old": current, "new": new_val}
         except Exception as e:
             return {"dimension": "avg_latency_ms", "strategy": "optimize_performance",
                     "action": "failed", "error": str(e)[:200]}
@@ -223,39 +292,66 @@ class SelfHealer:
                     "action": "failed", "error": str(e)[:200]}
 
     async def rebalance_cascade(self, alert) -> dict:
-        """Adjust LLM cascade to reduce premium tier fallback on simple tasks."""
+        """Adjust LLM cascade to reduce premium tier fallback on simple tasks.
+
+        Direct fix: lower the certainty_low_threshold by 0.02 so more tasks
+        stay on budget tier instead of escalating to premium.
+        """
         try:
-            # Queue for evolution — cascade rebalancing is a config change
-            from pathlib import Path
-            queue_file = Path("/app/workspace/skills/learning_queue.md")
-            queue_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(queue_file, "a") as f:
-                f.write(f"\nAUTO-HEAL: Rebalance LLM cascade "
-                        f"(fallback rate: {alert.current_value:.1%}) — "
-                        f"route simple tasks to budget tier more aggressively\n")
+            from app.self_awareness.sentience_config import load_config, apply_change
+            config = load_config()
+            current = config.get("certainty_low_threshold", 0.4)
+            # Lower threshold = more tasks classified as "mid certainty" = fewer escalations
+            new_val = max(0.2, current - 0.02)
+            applied = apply_change("certainty_low_threshold", new_val)
+            action = "applied_directly" if applied else "bounded_rejected"
+            logger.info(f"self_healer: rebalance_cascade: certainty_low {current:.2f} → {new_val:.2f} ({action})")
 
             return {"dimension": "cascade_fallback_rate", "strategy": "rebalance_cascade",
-                    "action": "queued_for_evolution"}
+                    "action": action, "old": current, "new": new_val}
         except Exception as e:
             return {"dimension": "cascade_fallback_rate", "strategy": "rebalance_cascade",
                     "action": "failed", "error": str(e)[:200]}
 
     async def rebuild_memory_index(self, alert) -> dict:
-        """Rebuild memory indices for better retrieval accuracy."""
+        """Rebuild memory indices for better retrieval accuracy.
+
+        Direct fix: trigger skill re-indexing and clear stale result cache.
+        """
         try:
-            # Trigger ChromaDB collection optimization
+            rebuilt = []
+            # 1. Re-index skills into ChromaDB
             try:
-                from app.memory.chromadb_manager import get_client
-                client = get_client()
-                collections = client.list_collections()
-                for col in collections:
-                    # ChromaDB doesn't have explicit reindex, but we can
-                    # log the state for debugging
-                    count = col.count()
-                    logger.info(f"self_healer: ChromaDB collection '{col.name}': {count} items")
+                from app.idle_scheduler import _default_jobs
+                # Find and run the skill-index job directly
+                for name, fn, *_ in _default_jobs():
+                    if name == "skill-index":
+                        fn()
+                        rebuilt.append("skills")
+                        break
             except Exception:
                 pass
 
+            # 2. Clear stale result cache entries (force fresh lookups)
+            try:
+                from app.memory.chromadb_manager import get_client
+                client = get_client()
+                if client:
+                    try:
+                        cache = client.get_or_create_collection("result_cache")
+                        count = cache.count()
+                        if count > 100:
+                            # Delete oldest entries to force fresh cache
+                            oldest = cache.get(limit=count // 2, include=[])
+                            if oldest and oldest.get("ids"):
+                                cache.delete(ids=oldest["ids"])
+                                rebuilt.append(f"result_cache({len(oldest['ids'])} purged)")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            logger.info(f"self_healer: rebuild_memory_index: {rebuilt}")
             return {"dimension": "memory_retrieval_accuracy", "strategy": "rebuild_memory_index",
                     "action": "index_checked"}
 

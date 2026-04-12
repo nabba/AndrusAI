@@ -292,3 +292,29 @@ class SignalClient:
                     sock.close()
                 except Exception:
                     pass
+
+
+# ── Module-level convenience function ────────────────────────────────────────
+# Used by: self_healer, auditor, self_heal, auto_deployer, evolution,
+#          workspace_versioning, llm_factory — all call send_message() synchronously.
+
+def send_message(recipient: str, text: str, attachments: list | None = None) -> None:
+    """Send a Signal message (synchronous wrapper for async SignalClient.send).
+
+    Called by self-healing, escalation, and alerting modules throughout the system.
+    Non-fatal — silently logs on failure (alerting must never crash the caller).
+    """
+    try:
+        import asyncio
+        client = SignalClient()
+
+        # Try to get a running event loop (if called from async context)
+        try:
+            loop = asyncio.get_running_loop()
+            # Already in async context — schedule as task
+            loop.create_task(client.send(recipient, text, attachments))
+        except RuntimeError:
+            # No running loop — create one (sync context, e.g. background threads)
+            asyncio.run(client.send(recipient, text, attachments))
+    except Exception as e:
+        logger.warning(f"send_message failed (non-fatal): {e}")

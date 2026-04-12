@@ -128,6 +128,49 @@ _INVERTED_DIMENSIONS = {"memory_retrieval_accuracy"}
 MIN_SAMPLE_SIZE = 10
 
 
+# ── SLO-based error budget ──────────────────────────────────────────────────
+
+@dataclass
+class SLOConfig:
+    """Service Level Objective configuration."""
+    target_success_rate: float = 0.995  # 99.5% uptime = 0.5% error budget
+    target_p99_latency_ms: float = 10000
+    window_minutes: int = 60
+    alert_at_budget_pct: float = 80  # Alert when 80% of budget consumed
+
+
+SLO = SLOConfig()
+
+
+def evaluate_slo_budget(error_rate: float, avg_latency_ms: float) -> dict:
+    """Evaluate error budget consumption against SLO targets.
+
+    Returns dict with: error_budget_consumed_pct, latency_budget_consumed_pct,
+    overall_budget_ok, severity_escalation (None | 'warning' | 'critical' | 'emergency').
+    """
+    error_budget_target = 1.0 - SLO.target_success_rate  # 0.005
+    error_consumed = (error_rate / error_budget_target * 100) if error_budget_target > 0 else 0
+    latency_consumed = (avg_latency_ms / SLO.target_p99_latency_ms * 100)
+
+    max_consumed = max(error_consumed, latency_consumed)
+
+    severity = None
+    if max_consumed >= 100:
+        severity = "emergency"  # Budget exhausted
+    elif max_consumed >= SLO.alert_at_budget_pct:
+        severity = "critical"  # Budget nearly exhausted
+    elif max_consumed >= SLO.alert_at_budget_pct * 0.6:
+        severity = "warning"  # Budget being consumed fast
+
+    return {
+        "error_budget_consumed_pct": round(error_consumed, 1),
+        "latency_budget_consumed_pct": round(latency_consumed, 1),
+        "max_consumed_pct": round(max_consumed, 1),
+        "budget_ok": max_consumed < SLO.alert_at_budget_pct,
+        "severity_escalation": severity,
+    }
+
+
 # ── Health Monitor ───────────────────────────────────────────────────────────
 
 

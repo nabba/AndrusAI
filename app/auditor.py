@@ -273,7 +273,23 @@ def _run_error_resolution_locked() -> str:
             continue
 
         if track["attempts"] >= MAX_FIX_ATTEMPTS:
-            continue  # Give up after max attempts
+            # Escalate to human: send Signal alert with pattern details
+            if not track.get("escalated"):
+                try:
+                    from app.signal_client import send_message
+                    from app.config import get_settings
+                    send_message(
+                        get_settings().signal_owner_number,
+                        f"⚠️ Error auto-fix gave up after {MAX_FIX_ATTEMPTS} attempts:\n"
+                        f"Pattern: {pattern_key}\n"
+                        f"Occurrences: {len(matching)}\n"
+                        f"Please investigate manually.",
+                    )
+                    track["escalated"] = True
+                    _save_tracker(tracker)
+                except Exception:
+                    pass
+            continue
 
         # H3: Check if last fix worked — require 24h cooldown with no recurrence.
         # Previously any absence of errors was treated as "resolved", which
