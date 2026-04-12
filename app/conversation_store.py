@@ -169,8 +169,9 @@ def get_history(sender: str, n: int = 10) -> str:
         # Skip internal system responses from conversation history
         if role == "assistant" and any(content.strip().startswith(p) for p in _INTERNAL_PREFIXES):
             continue
-        # Truncate assistant responses more aggressively to prevent context pollution
-        max_len = 300 if role == "assistant" else 600
+        # Truncate assistant responses to prevent context pollution
+        # but keep enough for follow-up context (was 300, raised to 500)
+        max_len = 500 if role == "assistant" else 600
         snippet = content[:max_len] + ("…" if len(content) > max_len else "")
         lines.append(f"{label}: {snippet}")
     return "\n".join(lines)

@@ -84,7 +84,8 @@ class Commander:
         def _fetch_history():
             if not sender:
                 return ""
-            h = get_history(sender, n=3)
+            from app.config import get_settings as _cfg
+            h = get_history(sender, n=_cfg().conversation_history_turns)
             return h if h else ""
 
         def _fetch_mem0():
@@ -145,14 +146,17 @@ class Commander:
         except Exception:
             spatial_block = ""
 
+        # CRITICAL: Conversation history and user request MUST appear BEFORE
+        # temporal/spatial context. Short follow-ups ("what is listed?") need
+        # conversation context to be high-salience for the routing LLM.
+        # Temporal narrative (seasons, nature) is reference-only and goes last.
         prompt = (
             f"{ROUTING_PROMPT}\n\n"
-            f"{temporal_block}"
-            f"{spatial_block}"
-            f"{mem0_block}"
             f"{history_block}"
             f"{attachment_context}"
-            f"User request:\n\n{wrap_user_input(user_input)}"
+            f"User request:\n\n{wrap_user_input(user_input)}\n\n"
+            f"{mem0_block}"
+            f"<reference_context>\n{temporal_block}{spatial_block}</reference_context>\n"
         )
 
         # Direct LLM call — no Agent/Task/Crew overhead for simple classification
