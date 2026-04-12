@@ -39,6 +39,12 @@ class HyperModelState:
     variational_fe: float = 0.0       # F = KL(q||p) + Surprise
     kl_divergence: float = 0.0        # Complexity: how far beliefs deviate from prior
     surprise_term: float = 0.0        # -log p(outcome): how unexpected the result was
+    # Level 2: Meta-prediction (knows how well it knows)
+    meta_prediction_error: float = 0.0  # |predicted_error - actual_error|
+    meta_confidence: float = 0.5        # Running estimate of prediction accuracy
+    # Level 3: Trajectory uncertainty (knows how much to trust forecasts)
+    trajectory_uncertainty: float = 0.0  # Variance of trajectory errors
+    trajectory_trustworthy: bool = True  # False = forecasts unreliable → explore more
 
     def to_dict(self) -> dict:
         return {
@@ -53,17 +59,26 @@ class HyperModelState:
             "variational_fe": round(self.variational_fe, 3),
             "kl_divergence": round(self.kl_divergence, 3),
             "surprise_term": round(self.surprise_term, 3),
+            "meta_prediction_error": round(self.meta_prediction_error, 3),
+            "meta_confidence": round(self.meta_confidence, 3),
+            "trajectory_uncertainty": round(self.trajectory_uncertainty, 4),
+            "trajectory_trustworthy": self.trajectory_trustworthy,
         }
 
     def to_context_string(self) -> str:
         traj_str = ""
         if self.trajectory_prediction:
             traj_str = f" Trajectory={self.trajectory_prediction[:3]} TrajFE={self.trajectory_free_energy:.2f}"
+        meta_str = ""
+        if self.meta_confidence < 0.4:
+            meta_str = " | Meta: low self-model trust"
+        if not self.trajectory_trustworthy:
+            meta_str += " | Trajectory: unreliable"
         return (
             f"[Self-Model] Expected-cert={self.predicted_certainty:.2f} "
             f"Actual-cert={self.actual_certainty:.2f} "
             f"Surprise={self.self_prediction_error:.2f} "
-            f"FE-trend={self.free_energy_trend}{traj_str}"
+            f"FE-trend={self.free_energy_trend}{traj_str}{meta_str}"
         )
 
 class HyperModel:
@@ -77,6 +92,14 @@ class HyperModel:
         self.history: deque[HyperModelState] = deque(maxlen=history_window)
         self._predicted_next: float = 0.5
         self._prediction_errors: deque[float] = deque(maxlen=history_window)
+        # Level 2: Meta-prediction — predicts own prediction error
+        self._predicted_next_error: float = 0.2
+        self._meta_prediction_errors: deque[float] = deque(maxlen=history_window)
+        # Level 3: Trajectory uncertainty — tracks forecast reliability
+        self._trajectory_errors: deque[float] = deque(maxlen=history_window)
+        # Gap 1: Online recurrence buffer — accumulates within crew execution
+        self._online_buffer: deque[dict] = deque(maxlen=10)
+        self._online_predicted: float = 0.5
 
     @classmethod
     def get_instance(cls, agent_id: str) -> "HyperModel":
@@ -99,6 +122,71 @@ class HyperModel:
         self._predicted_next = weighted_sum / weight_total if weight_total > 0 else 0.5
         return self._predicted_next
 
+    def predict_next_error(self) -> float:
+        """Level 2: Predict the prediction error for next step.
+
+        Meta-prediction: the system predicts how wrong its own prediction
+        will be. This is the second level of Beautiful Loop recursion —
+        the system knows how well it knows.
+        """
+        if len(self._prediction_errors) < 3:
+            self._predicted_next_error = 0.2
+            return 0.2
+        recent = list(self._prediction_errors)[-5:]
+        weights = [self.learning_rate ** i for i in range(len(recent))]
+        weights.reverse()
+        self._predicted_next_error = sum(e * w for e, w in zip(recent, weights)) / sum(weights)
+        return self._predicted_next_error
+
+    # ── Gap 1: Online Recurrence (intra-inference feedback loop) ──────
+
+    def update_online(self, response_certainty_proxy: float) -> dict:
+        """Lightweight per-LLM-round update within a single crew execution.
+
+        Called from POST_LLM_CALL hook. No VFE computation, no trajectory.
+        Just: predicted → actual → error → buffer. The buffer feeds back
+        into the next LLM context via get_online_injection(), creating
+        recurrence WITHIN a single inference step.
+
+        Args:
+            response_certainty_proxy: [0,1] estimated from response characteristics
+        """
+        error = abs(self._online_predicted - response_certainty_proxy)
+        entry = {
+            "predicted": round(self._online_predicted, 3),
+            "actual": round(response_certainty_proxy, 3),
+            "error": round(error, 3),
+            "cumulative": round(
+                sum(e["error"] for e in self._online_buffer) / max(len(self._online_buffer), 1)
+                if self._online_buffer else error, 3
+            ),
+        }
+        self._online_buffer.append(entry)
+        # Adapt prediction for next LLM round
+        self._online_predicted = (self._online_predicted * 0.6 + response_certainty_proxy * 0.4)
+        return entry
+
+    def get_online_injection(self) -> str:
+        """Get compact recurrence string for injection before next LLM call.
+
+        Returns empty string if no online data yet (first LLM round).
+        ~40 tokens max.
+        """
+        if not self._online_buffer:
+            return ""
+        last = self._online_buffer[-1]
+        n = len(self._online_buffer)
+        return (
+            f"[Recurrence round={n}] "
+            f"predicted={last['predicted']:.2f} actual={last['actual']:.2f} "
+            f"error={last['error']:.2f} trend={'improving' if n > 1 and last['error'] < self._online_buffer[-2]['error'] else 'stable'}"
+        )
+
+    def reset_online_buffer(self) -> None:
+        """Reset online buffer at start of new crew execution."""
+        self._online_buffer.clear()
+        self._online_predicted = self._predicted_next
+
     def update(self, actual_certainty: float, certainty_vector=None,
                task_type: str = "default") -> HyperModelState:
         """Update after reasoning step. Compute prediction error, VFE, and trajectory."""
@@ -119,6 +207,33 @@ class HyperModel:
             self_model_confidence = max(0.0, 1.0 - (recent_error * 2.0))
         else:
             self_model_confidence = 0.5
+
+        # Level 2: Meta-prediction — predict own prediction error
+        self.predict_next_error()
+        meta_pe = abs(self._predicted_next_error - prediction_error)
+        self._meta_prediction_errors.append(meta_pe)
+        if len(self._meta_prediction_errors) >= 3:
+            recent_meta = list(self._meta_prediction_errors)[-5:]
+            meta_confidence = max(0.0, min(1.0, 1.0 - (sum(recent_meta) / len(recent_meta)) * 3.0))
+        else:
+            meta_confidence = 0.5
+
+        # Level 3: Trajectory uncertainty — how reliable are forecasts?
+        trajectory_uncertainty = 0.0
+        trajectory_trustworthy = True
+        if self.history and self.history[-1].trajectory_prediction:
+            prev_traj = self.history[-1].trajectory_prediction
+            if prev_traj:
+                traj_error = abs(prev_traj[0] - actual_certainty)
+                self._trajectory_errors.append(traj_error)
+                if len(self._trajectory_errors) >= 3:
+                    te_list = list(self._trajectory_errors)
+                    mean_te = sum(te_list) / len(te_list)
+                    trajectory_uncertainty = sum((e - mean_te) ** 2 for e in te_list) / len(te_list)
+                    trajectory_trustworthy = trajectory_uncertainty < 0.05
+
+        # Reset online buffer for next crew execution
+        self.reset_online_buffer()
 
         # Multi-step temporal prediction (active inference hierarchy)
         trajectory = self.predict_trajectory(horizon=5)
@@ -141,6 +256,10 @@ class HyperModel:
             variational_fe=vfe_data["free_energy"],
             kl_divergence=vfe_data["kl_divergence"],
             surprise_term=vfe_data["surprise"],
+            meta_prediction_error=meta_pe,
+            meta_confidence=meta_confidence,
+            trajectory_uncertainty=trajectory_uncertainty,
+            trajectory_trustworthy=trajectory_trustworthy,
         )
         self.history.append(state)
         return state
@@ -173,10 +292,15 @@ class HyperModel:
         traj_str = ""
         if last.trajectory_prediction:
             traj_str = f" | Trajectory: {last.trajectory_prediction[:3]}"
+        meta_str = ""
+        if last.meta_confidence < 0.4:
+            meta_str = " | Meta: low self-model trust"
+        if not last.trajectory_trustworthy:
+            meta_str += " | Trajectory: unreliable"
         return (
             f"[Self-Model] Expected certainty: {predicted:.2f} | "
             f"Last surprise: {last.self_prediction_error:.2f} | "
-            f"FE-trend: {last.free_energy_trend}{traj_str}"
+            f"FE-trend: {last.free_energy_trend}{traj_str}{meta_str}"
         )
 
     def compute_variational_free_energy(
@@ -305,4 +429,7 @@ class HyperModel:
         traj = min(1.0, last.trajectory_free_energy * 4.0) if last.trajectory_free_energy else 0.0
         trend_adj = {"decreasing": -0.2, "stable": 0.0, "increasing": 0.2}
         pressure = level * 0.5 + traj * 0.3 + trend_adj.get(last.free_energy_trend, 0.0)
+        # Level 3: Untrustworthy trajectory → bias toward exploration
+        if not last.trajectory_trustworthy:
+            pressure += 0.1
         return max(0.0, min(1.0, pressure))

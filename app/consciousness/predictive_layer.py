@@ -316,8 +316,97 @@ class PredictiveLayer:
 
 _layer: PredictiveLayer | None = None
 
+
 def get_predictive_layer() -> PredictiveLayer:
     global _layer
     if _layer is None:
         _layer = PredictiveLayer()
     return _layer
+
+
+# ── Online LLM Output Prediction (Gap 4: intra-inference prediction error) ──
+
+@dataclass
+class LLMPrediction:
+    """Prediction about an LLM call's output characteristics."""
+    prediction_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    predicted_response_length: int = 500
+    predicted_tool_usage: bool = False
+    predicted_certainty_level: float = 0.5
+    agent_id: str = ""
+
+
+@dataclass
+class LLMPredictionError:
+    """Error between predicted and actual LLM output."""
+    prediction_id: str = ""
+    length_error: float = 0.0
+    tool_usage_error: float = 0.0
+    certainty_error: float = 0.0
+    composite_error: float = 0.0
+    surprise_level: str = "EXPECTED"
+
+
+class LLMOutputPredictor:
+    """Predicts LLM output characteristics per-agent (online, during inference)."""
+
+    def __init__(self):
+        self._history: dict[str, deque] = {}
+        self._pending: dict[str, LLMPrediction] = {}
+
+    def predict(self, agent_id: str, prompt_length: int = 0) -> LLMPrediction:
+        """Generate prediction before LLM call."""
+        history = self._history.setdefault(agent_id, deque(maxlen=20))
+        if len(history) < 3:
+            pred = LLMPrediction(agent_id=agent_id)
+        else:
+            recent = list(history)[-5:]
+            avg_len = sum(r[0] for r in recent) / len(recent)
+            tool_rate = sum(1 for r in recent if r[1]) / len(recent)
+            avg_cert = sum(r[2] for r in recent) / len(recent)
+            pred = LLMPrediction(
+                agent_id=agent_id,
+                predicted_response_length=int(avg_len),
+                predicted_tool_usage=tool_rate > 0.5,
+                predicted_certainty_level=avg_cert,
+            )
+        self._pending[agent_id] = pred
+        return pred
+
+    def compare(self, agent_id: str, response_text: str) -> LLMPredictionError | None:
+        """Compare prediction against actual response."""
+        pred = self._pending.pop(agent_id, None)
+        if not pred:
+            return None
+        actual_len = len(response_text.split())
+        actual_tool = "Action:" in response_text or "Tool:" in response_text
+        _hedges = ("might", "possibly", "uncertain", "unclear", "perhaps", "maybe",
+                    "not sure", "approximate", "roughly")
+        hedge_count = sum(1 for w in _hedges if w in response_text.lower())
+        actual_certainty = max(0.1, 1.0 - hedge_count * 0.12)
+        max_len = max(pred.predicted_response_length, actual_len, 1)
+        len_error = abs(pred.predicted_response_length - actual_len) / max_len
+        tool_error = 0.0 if pred.predicted_tool_usage == actual_tool else 1.0
+        cert_error = abs(pred.predicted_certainty_level - actual_certainty)
+        composite = len_error * 0.3 + tool_error * 0.3 + cert_error * 0.4
+        level = classify_surprise(composite)
+        history = self._history.setdefault(agent_id, deque(maxlen=20))
+        history.append((actual_len, actual_tool, actual_certainty))
+        return LLMPredictionError(
+            prediction_id=pred.prediction_id,
+            length_error=round(len_error, 3),
+            tool_usage_error=round(tool_error, 3),
+            certainty_error=round(cert_error, 3),
+            composite_error=round(composite, 3),
+            surprise_level=level,
+        )
+
+
+_llm_predictor: LLMOutputPredictor | None = None
+
+
+def get_llm_predictor() -> LLMOutputPredictor:
+    global _llm_predictor
+    if _llm_predictor is None:
+        _llm_predictor = LLMOutputPredictor()
+    return _llm_predictor

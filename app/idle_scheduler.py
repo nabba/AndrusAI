@@ -1153,6 +1153,18 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: dead letter retry failed", exc_info=True)
     jobs.append(("dead-letter-retry", _dead_letter_retry, JobWeight.LIGHT))
 
+    # ── Adversarial probes: stress-test consciousness infrastructure ──
+    def _adversarial_probes():
+        try:
+            from app.consciousness.adversarial_probes import run_adversarial_probes
+            results = run_adversarial_probes()
+            if results:
+                passed = sum(1 for r in results if r.passed)
+                logger.info(f"idle_scheduler: adversarial probes {passed}/{len(results)} passed")
+        except Exception:
+            logger.debug("idle_scheduler: adversarial probes failed", exc_info=True)
+    jobs.append(("adversarial-probes", _adversarial_probes, JobWeight.HEAVY))
+
     return jobs
 
 
