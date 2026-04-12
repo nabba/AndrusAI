@@ -141,6 +141,20 @@ class CompetitiveGate:
     def peripheral_items(self) -> list[WorkspaceItem]:
         return list(self._peripheral)
 
+    def set_dynamic_capacity(self, capacity: int,
+                              novelty_floor_pct: float | None = None,
+                              consumption_decay: float | None = None) -> None:
+        """Set personality-driven workspace parameters for this cycle.
+
+        Called before evaluate() when PDS integration is active.
+        Capacity bounded to [2, 9] for safety.
+        """
+        self.capacity = max(2, min(9, capacity))
+        if novelty_floor_pct is not None:
+            self.novelty_floor_pct = max(0.05, min(0.50, novelty_floor_pct))
+        if consumption_decay is not None:
+            self.consumption_decay = max(0.10, min(0.90, consumption_decay))
+
     def advance_cycle(self) -> None:
         """Advance workspace cycle. Apply decay to all active items."""
         with self._lock:

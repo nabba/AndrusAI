@@ -445,6 +445,19 @@ class Commander:
                 )
                 from app.consciousness.global_broadcast import get_broadcast_engine
 
+                # PDS integration: personality-driven workspace capacity
+                try:
+                    from app.consciousness.personality_workspace import compute_workspace_profile
+                    _ws_profile = compute_workspace_profile(crew_name)
+                    _gate_for_profile = get_workspace_gate()
+                    _gate_for_profile.set_dynamic_capacity(
+                        _ws_profile.capacity,
+                        _ws_profile.novelty_floor_pct,
+                        _ws_profile.consumption_decay,
+                    )
+                except Exception:
+                    pass
+
                 # Create workspace item from the task
                 try:
                     from app.memory.chromadb_manager import embed as _embed
