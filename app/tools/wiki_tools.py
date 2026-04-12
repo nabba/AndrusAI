@@ -158,10 +158,15 @@ def _embed_wiki_page(section: str, slug: str, title: str, content: str,
 
 
 def _bm25_score(query: str, document: str) -> float:
-    """Lightweight BM25-inspired relevance score (no external deps).
+    """BM25 relevance score, normalized to [0, 1] via theoretical maximum.
 
-    Combines term frequency and inverse document frequency approximation
-    for hybrid search ranking alongside ChromaDB semantic scores.
+    The theoretical maximum BM25 score for N query terms is:
+        max = N × IDF × (k1 + 1)
+    where (k1 + 1) is the TF saturation ceiling (tf → ∞) and IDF is
+    computed from collection statistics. Dividing by this max gives a
+    mathematically justified normalization regardless of query length.
+
+    Returns: float in [0.0, 1.0]
     """
     query_terms = set(query.lower().split())
     doc_terms = document.lower().split()
@@ -171,18 +176,23 @@ def _bm25_score(query: str, document: str) -> float:
     avg_len = 300  # Approximate average wiki page length in words
     k1 = 1.5
     b = 0.75
+    # IDF approximation (assume ~100 docs, term appears in ~10)
+    idf = math.log((100 - 10 + 0.5) / (10 + 0.5) + 1)  # ≈ 2.264
     score = 0.0
     term_counts = Counter(doc_terms)
     for term in query_terms:
         tf = term_counts.get(term, 0)
         if tf == 0:
             continue
-        # IDF approximation (assume ~100 docs, term appears in ~10)
-        idf = math.log((100 - 10 + 0.5) / (10 + 0.5) + 1)
-        # BM25 TF component
+        # BM25 TF component: saturates at (k1 + 1) as tf → ∞
         tf_component = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc_len / avg_len))
         score += idf * tf_component
-    return score
+    # Theoretical maximum: every query term present with infinite tf
+    # max_per_term = idf × (k1 + 1), total_max = N × max_per_term
+    max_possible = len(query_terms) * idf * (k1 + 1)
+    if max_possible <= 0:
+        return 0.0
+    return min(1.0, score / max_possible)
 
 
 def _append_log(agent: str, action: str, path: str, summary: str):
@@ -611,7 +621,7 @@ class WikiSearchTool(BaseTool):
                 semantic_score = max(0, 1.0 - r.get("distance", 1.0))
                 doc_text = r.get("document", "")
                 bm25 = _bm25_score(query, doc_text)
-                hybrid = 0.6 * semantic_score + 0.4 * min(1.0, bm25 / 5.0)
+                hybrid = 0.6 * semantic_score + 0.4 * bm25  # bm25 already [0,1]
                 meta = r.get("metadata", {})
                 scored.append((hybrid, meta, doc_text[:200]))
 

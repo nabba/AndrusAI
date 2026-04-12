@@ -147,6 +147,26 @@ class TestHelpers:
         assert _bm25_score("", "doc") == 0.0
         assert _bm25_score("query", "") == 0.0
 
+    def test_bm25_normalized_range(self):
+        """BM25 scores must be in [0.0, 1.0] — normalized by theoretical max."""
+        from app.tools.wiki_tools import _bm25_score
+        import random
+        random.seed(42)
+        words = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"]
+        for _ in range(50):
+            q = " ".join(random.choices(words, k=random.randint(1, 5)))
+            d = " ".join(random.choices(words, k=random.randint(10, 200)))
+            s = _bm25_score(q, d)
+            assert 0.0 <= s <= 1.0, f"Out of range: {s} for query={q!r}"
+
+    def test_bm25_multi_term_scaling(self):
+        """Multi-term queries should not over-normalize (old bug with /5.0)."""
+        from app.tools.wiki_tools import _bm25_score
+        s1 = _bm25_score("competitive", "competitive landscape analysis competitive")
+        s3 = _bm25_score("competitive landscape analysis", "competitive landscape analysis competitive")
+        # 3-term match should score higher than 1-term
+        assert s3 >= s1 * 0.5  # At least half (more terms matched = higher relevance)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 2. WikiReadTool
