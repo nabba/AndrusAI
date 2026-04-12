@@ -476,6 +476,20 @@ class Commander:
                     # PARADIGM_VIOLATION → trigger immediate slow loop
                     if _pp1_error.surprise_level == "PARADIGM_VIOLATION":
                         logger.warning(f"PP-1: PARADIGM_VIOLATION on user_input (error={_pp1_error.error_magnitude:.2f})")
+                        try:
+                            from app.consciousness.metacognitive_monitor import get_monitor as _get_hot3
+                            _get_hot3().run_slow_loop()
+                            logger.info("PP-1: PARADIGM_VIOLATION → forced immediate HOT-3 slow loop")
+                        except Exception:
+                            pass
+                    # 3+ MAJOR_SURPRISE → trigger belief review
+                    if _pp1.should_trigger_belief_review("user_input"):
+                        try:
+                            from app.consciousness.metacognitive_monitor import get_monitor as _get_hot3_br
+                            _get_hot3_br().run_slow_loop()
+                            logger.info("PP-1: systematic surprises → triggered belief review via slow loop")
+                        except Exception:
+                            pass
                 except Exception:
                     pass
 

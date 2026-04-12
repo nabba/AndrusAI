@@ -95,10 +95,28 @@ class BeliefStore:
         self._config = load_config()
 
     def form_belief(self, content: str, domain: str, confidence: float = 0.5,
-                    evidence: list[dict] = None) -> Belief | None:
-        """Create a new belief from evidence. Returns Belief or None on failure."""
+                    evidence: list[dict] = None,
+                    min_evidence: int = 1, dedup_threshold: float = 0.85,
+                    ) -> Belief | None:
+        """Create a new belief from evidence, with dedup + evidence threshold.
+
+        Anti-proliferation measures:
+        1. Similarity dedup: if existing belief in same domain has cosine > dedup_threshold,
+           merge evidence and update confidence instead of creating new belief.
+        2. Evidence threshold: require at least min_evidence sources OR confidence >= 0.5.
+
+        Returns Belief (new or updated) or None on failure.
+        """
         if domain not in VALID_DOMAINS:
             logger.warning(f"belief_store: invalid domain '{domain}'")
+            return None
+
+        evidence = evidence or []
+
+        # Evidence threshold: reject beliefs with insufficient grounding
+        if len(evidence) < min_evidence and confidence < 0.5:
+            logger.debug(f"belief_store: rejected belief [{domain}] — "
+                         f"evidence={len(evidence)} < {min_evidence} and conf={confidence:.2f} < 0.5")
             return None
 
         try:
@@ -107,12 +125,41 @@ class BeliefStore:
         except Exception:
             embedding = []
 
+        # Similarity dedup: check for existing similar belief in same domain
+        if embedding:
+            try:
+                existing = self.query_relevant(content[:500], domain=domain, n=1,
+                                               min_confidence=0.0)
+                if existing:
+                    from app.consciousness.workspace_buffer import _cosine_sim
+                    sim = _cosine_sim(embedding, existing[0].content_embedding)
+                    if sim >= dedup_threshold:
+                        # Merge: update existing belief instead of creating new
+                        merged = existing[0]
+                        # Combine evidence (dedup by source)
+                        existing_sources = {str(e): e for e in (merged.evidence_sources or [])}
+                        for e in evidence:
+                            existing_sources[str(e)] = e
+                        merged.evidence_sources = list(existing_sources.values())
+                        # Nudge confidence toward new value (weighted average)
+                        merged.confidence = round(
+                            min(1.0, merged.confidence * 0.7 + confidence * 0.3), 3
+                        )
+                        self._persist_belief(merged)
+                        logger.info(
+                            f"belief_store: merged into existing [{domain}] "
+                            f"sim={sim:.2f} conf={merged.confidence:.2f}: {content[:40]}"
+                        )
+                        return merged
+            except Exception:
+                pass  # Dedup check failed — proceed with new belief
+
         belief = Belief(
             content=content,
             content_embedding=embedding,
             domain=domain,
             confidence=max(0.0, min(1.0, confidence)),
-            evidence_sources=evidence or [],
+            evidence_sources=evidence,
         )
 
         self._persist_belief(belief)

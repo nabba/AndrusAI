@@ -373,6 +373,98 @@ def inspect_self_model() -> dict:
     return result
 
 
+# ── Tool 7: Belief Inspection (HOT-3) ──────────────────────────────────────────
+
+def inspect_beliefs(domain: str | None = None, min_confidence: float = 0.0,
+                    status: str = "ACTIVE", limit: int = 20) -> dict:
+    """Retrieve beliefs from the epistemic belief store (HOT-3).
+
+    Allows agents to introspect on their own belief state — a higher-order
+    operation connecting HOT-2 (metacognitive monitoring) to HOT-3 (beliefs).
+
+    Args:
+        domain: Filter by domain (task_strategy, user_model, self_model, etc.)
+        min_confidence: Minimum confidence threshold
+        status: Belief status filter (ACTIVE, SUSPENDED, RETRACTED)
+        limit: Maximum beliefs to return
+    """
+    result = {"beliefs": [], "total": 0, "domains": {}}
+    try:
+        from app.consciousness.belief_store import get_belief_store
+        store = get_belief_store()
+        beliefs = store.query_relevant(
+            query="",  # Empty query returns all
+            domain=domain,
+            n=limit,
+            min_confidence=min_confidence,
+        )
+        result["total"] = len(beliefs)
+        for b in beliefs[:limit]:
+            result["beliefs"].append({
+                "belief_id": b.belief_id[:8],
+                "content": b.content[:200],
+                "domain": b.domain,
+                "confidence": round(b.confidence, 3),
+                "status": b.belief_status,
+                "evidence_count": len(b.evidence_sources) if b.evidence_sources else 0,
+            })
+            result["domains"][b.domain] = result["domains"].get(b.domain, 0) + 1
+    except Exception as e:
+        result["error"] = str(e)[:200]
+    return result
+
+
+# ── Tool 8: Attention State Inspection (AST-1) ────────────────────────────────
+
+def inspect_attention_state() -> dict:
+    """Inspect the current attention schema state (AST-1).
+
+    Returns:
+        current_focus: what items are in the workspace now
+        attending_because: why these items won the competition
+        is_stuck: boolean — same items for 5+ cycles
+        is_captured: boolean — one item dominates >70% salience
+        prediction_accuracy: running accuracy of attention predictions
+        social_attention: Theory of Mind summary for other agents
+    """
+    result = {
+        "current_focus": [],
+        "attending_because": "",
+        "is_stuck": False,
+        "is_captured": False,
+        "prediction_accuracy": 0.0,
+        "shifts_this_period": 0,
+        "workspace_size": 0,
+        "social_attention": {},
+    }
+    try:
+        from app.consciousness.attention_schema import get_attention_schema
+        schema = get_attention_schema()
+        summary = schema.get_state_summary()
+        result.update({
+            "is_stuck": summary.get("is_stuck", False),
+            "is_captured": summary.get("is_captured", False),
+            "prediction_accuracy": summary.get("prediction_accuracy", 0.0),
+            "shifts_this_period": summary.get("shifts_this_period", 0),
+            "workspace_size": summary.get("workspace_size", 0),
+        })
+        if schema._current:
+            result["attending_because"] = schema._current.attending_because[:200]
+            result["current_focus"] = list(schema._current.workspace_item_ids)[:5]
+    except Exception as e:
+        result["error"] = str(e)[:200]
+
+    # Social attention (Theory of Mind)
+    try:
+        from app.consciousness.attention_schema import get_social_attention_model
+        social = get_social_attention_model()
+        result["social_attention"] = social.get_summary()
+    except Exception:
+        pass
+
+    return result
+
+
 # ── All tools as a dict for easy access ───────────────────────────────────────
 
 ALL_INSPECT_TOOLS = {
@@ -382,11 +474,13 @@ ALL_INSPECT_TOOLS = {
     "inspect_runtime": inspect_runtime,
     "inspect_memory": inspect_memory,
     "inspect_self_model": inspect_self_model,
+    "inspect_beliefs": inspect_beliefs,
+    "inspect_attention_state": inspect_attention_state,
 }
 
 
 def run_all_inspections() -> dict:
-    """Run all 6 inspection tools and return combined results."""
+    """Run all 8 inspection tools and return combined results."""
     results = {}
     for name, fn in ALL_INSPECT_TOOLS.items():
         try:

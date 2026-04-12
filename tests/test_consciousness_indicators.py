@@ -537,7 +537,9 @@ class TestBeliefStore:
         store = BeliefStore()
         belief = store.form_belief("Test", domain="world_model", confidence=1.5)
         assert belief.confidence == 1.0
-        belief2 = store.form_belief("Test2", domain="world_model", confidence=-0.5)
+        # Provide evidence to pass min_evidence threshold (confidence < 0.5)
+        belief2 = store.form_belief("Test2", domain="world_model", confidence=-0.5,
+                                    evidence=[{"source": "test"}])
         assert belief2.confidence == 0.0
 
     def test_confidence_decay(self):
