@@ -10,12 +10,16 @@ Four tools for managing the AndrusAI Knowledge Wiki:
 WIKI_ROOT defaults to /app/wiki (Docker) with fallback to repo-relative wiki/.
 """
 
+import json
+import math
 import os
 import re
 import glob
 import time
 import fcntl
 import hashlib
+import threading
+from collections import Counter
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -41,8 +45,19 @@ REQUIRED_FRONTMATTER = {
 }
 VALID_STATUSES = {"draft", "active", "deprecated"}
 VALID_CONFIDENCE = {"low", "medium", "high", "verified"}
+VALID_RELATIONSHIP_TYPES = {
+    "supports", "contradicts", "supersedes", "prerequisite",
+    "tested_by", "refines", "extends",
+}
 
 LOCKS_DIR = os.path.join(WIKI_ROOT, ".locks")
+SLIDES_DIR = os.path.join(WIKI_ROOT, ".slides")
+
+# Multi-agent write coordination: max 3 concurrent writers
+_WRITE_SEMAPHORE = threading.Semaphore(3)
+
+# ChromaDB collection for semantic search (Phase 2)
+_WIKI_COLLECTION = "andrusai_wiki_pages"
 
 
 # ---------------------------------------------------------------------------
@@ -121,6 +136,53 @@ def _cleanup_stale_locks(max_age_s: int = 300):
                     pass
     except Exception:
         pass
+
+
+def _embed_wiki_page(section: str, slug: str, title: str, content: str,
+                      tags: list = None, confidence: str = "medium"):
+    """Embed a wiki page into ChromaDB for semantic search (Phase 2)."""
+    try:
+        from app.memory.chromadb_manager import store
+        # Embedding text: title + first 500 chars of content + tags
+        embed_text = f"{title}\n{content[:500]}\n{' '.join(tags or [])}"
+        doc_id = f"{section}/{slug}"
+        store(_WIKI_COLLECTION, embed_text, metadata={
+            "section": section,
+            "slug": slug,
+            "title": title,
+            "confidence": confidence,
+            "doc_id": doc_id,
+        })
+    except Exception:
+        pass  # ChromaDB unavailable — grep fallback still works
+
+
+def _bm25_score(query: str, document: str) -> float:
+    """Lightweight BM25-inspired relevance score (no external deps).
+
+    Combines term frequency and inverse document frequency approximation
+    for hybrid search ranking alongside ChromaDB semantic scores.
+    """
+    query_terms = set(query.lower().split())
+    doc_terms = document.lower().split()
+    if not query_terms or not doc_terms:
+        return 0.0
+    doc_len = len(doc_terms)
+    avg_len = 300  # Approximate average wiki page length in words
+    k1 = 1.5
+    b = 0.75
+    score = 0.0
+    term_counts = Counter(doc_terms)
+    for term in query_terms:
+        tf = term_counts.get(term, 0)
+        if tf == 0:
+            continue
+        # IDF approximation (assume ~100 docs, term appears in ~10)
+        idf = math.log((100 - 10 + 0.5) / (10 + 0.5) + 1)
+        # BM25 TF component
+        tf_component = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc_len / avg_len))
+        score += idf * tf_component
+    return score
 
 
 def _append_log(agent: str, action: str, path: str, summary: str):
@@ -364,10 +426,15 @@ class WikiWriteTool(BaseTool):
                 "in venture sections. Use section='philosophy' or 'meta' instead."
             )
 
-        # Acquire lock
+        # Multi-agent coordination: acquire global write semaphore first
+        if not _WRITE_SEMAPHORE.acquire(timeout=15):
+            return "Error: wiki write queue full (3 concurrent writers). Try again shortly."
+
+        # Acquire page-level lock
         lock_key = f"{section}_{slug}"
         lock_fh = _acquire_lock(lock_key)
         if lock_fh is None:
+            _WRITE_SEMAPHORE.release()
             return f"Error: could not acquire lock for {page_ref} — another agent may be writing."
 
         try:
@@ -384,10 +451,12 @@ class WikiWriteTool(BaseTool):
                     "section": section,
                     "created_at": now,
                     "updated_at": now,
+                    "date": now[:10],  # Dataview-compatible ISO date
                     "author": author,
                     "status": "active",
                     "confidence": confidence,
                     "tags": tag_list,
+                    "aliases": [slug.replace("-", " ")],  # Dataview: alternative names
                     "related": related_list,
                     "source": source,
                     "version": 1,
@@ -401,6 +470,8 @@ class WikiWriteTool(BaseTool):
                 _append_log(author, "CREATE", page_ref, f"Created: {title}")
                 _rebuild_section_index(section)
                 _rebuild_master_index()
+                # ChromaDB: embed page for semantic search (Phase 2)
+                _embed_wiki_page(section, slug, title, content, tag_list, confidence)
                 return f"Created {page_ref} (v1)."
 
             elif action == "update":
@@ -465,6 +536,7 @@ class WikiWriteTool(BaseTool):
 
         finally:
             _release_lock(lock_fh)
+            _WRITE_SEMAPHORE.release()
 
 
 # ---------------------------------------------------------------------------
@@ -485,14 +557,66 @@ class WikiSearchTool(BaseTool):
             return "Error: query is required."
 
         query = query.strip()
-        keywords = query.lower().split()
-        if not keywords:
+        if not query:
             return "Error: query must contain at least one keyword."
 
         section = (section or "").strip().lower()
         if section and section not in VALID_SECTIONS:
             return f"Error: section must be one of {sorted(VALID_SECTIONS)} or empty for all."
 
+        # Phase 2: Try ChromaDB semantic search first (hybrid with BM25)
+        semantic_results = self._semantic_search(query, section, max_results)
+        if semantic_results:
+            return semantic_results
+
+        # Fallback: grep-based keyword search
+        return self._grep_search(query, section, max_results)
+
+    def _semantic_search(self, query: str, section: str, max_results: int) -> str | None:
+        """ChromaDB semantic + BM25 hybrid search. Returns None if unavailable."""
+        try:
+            from app.memory.chromadb_manager import retrieve_with_metadata
+            where = {"section": section} if section else None
+            raw = retrieve_with_metadata(_WIKI_COLLECTION, query, n=max_results * 2)
+            if not raw:
+                return None
+
+            # Filter by section if needed
+            if section:
+                raw = [r for r in raw if r.get("metadata", {}).get("section") == section]
+
+            # Hybrid scoring: 0.6 × semantic + 0.4 × BM25
+            scored = []
+            for r in raw:
+                semantic_score = max(0, 1.0 - r.get("distance", 1.0))
+                doc_text = r.get("document", "")
+                bm25 = _bm25_score(query, doc_text)
+                hybrid = 0.6 * semantic_score + 0.4 * min(1.0, bm25 / 5.0)
+                meta = r.get("metadata", {})
+                scored.append((hybrid, meta, doc_text[:200]))
+
+            scored.sort(key=lambda x: x[0], reverse=True)
+            scored = scored[:max_results]
+
+            if not scored:
+                return None
+
+            results = [f"Found {len(scored)} page(s) matching '{query}' (semantic+BM25 hybrid):\n"]
+            for score, meta, snippet in scored:
+                page_ref = meta.get("doc_id", "?")
+                results.append(
+                    f"### {page_ref} (relevance: {score:.2f})\n"
+                    f"- **Title**: {meta.get('title', '?')}\n"
+                    f"- **Confidence**: {meta.get('confidence', '?')}\n"
+                    f"- **Snippet**: {snippet}\n"
+                )
+            return "\n".join(results)
+        except Exception:
+            return None  # Fall back to grep
+
+    def _grep_search(self, query: str, section: str, max_results: int) -> str:
+        """Grep-based keyword search (Phase 1 fallback)."""
+        keywords = query.lower().split()
         search_dirs = [section] if section else sorted(VALID_SECTIONS)
         results = []
 
@@ -510,33 +634,23 @@ class WikiSearchTool(BaseTool):
                 except Exception:
                     continue
 
-                content_lower = content.lower()
-                if not all(kw in content_lower for kw in keywords):
+                if not all(kw in content.lower() for kw in keywords):
                     continue
 
                 fm, body = _parse_frontmatter(content)
                 slug = fname[:-3]
-
-                # Extract matching snippet (first occurrence context)
                 snippet = ""
                 for line in body.split("\n"):
                     if any(kw in line.lower() for kw in keywords):
                         snippet = line.strip()[:200]
                         break
 
-                result_entry = (
+                results.append(
                     f"### {sec}/{slug}\n"
                     f"- **Title**: {fm.get('title', slug)}\n"
-                    f"- **Status**: {fm.get('status', '?')} | "
-                    f"**Confidence**: {fm.get('confidence', '?')}\n"
-                    f"- **Tags**: {', '.join(fm.get('tags', []))}\n"
-                    f"- **Updated**: {fm.get('updated_at', '?')}\n"
+                    f"- **Confidence**: {fm.get('confidence', '?')}\n"
+                    f"- **Snippet**: {snippet}\n"
                 )
-                if snippet:
-                    result_entry += f"- **Snippet**: {snippet}\n"
-
-                results.append(result_entry)
-
                 if len(results) >= max_results:
                     break
             if len(results) >= max_results:
@@ -544,9 +658,7 @@ class WikiSearchTool(BaseTool):
 
         if not results:
             return f"No wiki pages matched query: {query}"
-
-        header = f"Found {len(results)} page(s) matching '{query}':\n\n"
-        return header + "\n".join(results)
+        return f"Found {len(results)} page(s) matching '{query}' (keyword):\n\n" + "\n".join(results)
 
 
 # ---------------------------------------------------------------------------
@@ -748,3 +860,103 @@ class WikiLintTool(BaseTool):
                     report_lines.append(f"  - {item}")
 
         return "\n".join(report_lines)
+
+
+# ---------------------------------------------------------------------------
+# WikiSlidesTool — Generate Marp-compatible presentations from wiki content
+# ---------------------------------------------------------------------------
+
+class WikiSlidesTool(BaseTool):
+    name: str = "wiki_slides"
+    description: str = (
+        "Generate a Marp-compatible slide deck from a wiki page. "
+        "Args: page_path (str) — wiki page path (e.g., 'archibal/competitive-landscape'); "
+        "title (str, optional) — override slide deck title; "
+        "max_slides (int, default 10) — maximum slides to generate."
+    )
+
+    def _run(self, page_path: str, title: str = "", max_slides: int = 10) -> str:
+        """Convert a wiki page into Marp slide markdown."""
+        page_path = page_path.strip()
+        if not page_path.endswith(".md"):
+            page_path += ".md"
+
+        try:
+            file_path = _safe_path(page_path)
+        except ValueError as e:
+            return f"Error: {e}"
+
+        if not os.path.isfile(file_path):
+            return f"Error: page not found — {page_path}"
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            return f"Error reading {page_path}: {e}"
+
+        fm, body = _parse_frontmatter(content)
+        deck_title = title or fm.get("title", page_path)
+
+        # Marp header
+        slides = [
+            "---",
+            "marp: true",
+            "theme: default",
+            f"title: {deck_title}",
+            f"author: AndrusAI",
+            "paginate: true",
+            "---",
+            "",
+            f"# {deck_title}",
+            "",
+            f"*{fm.get('confidence', 'medium')} confidence | {fm.get('source', 'wiki')}*",
+            f"*Generated from wiki/{page_path}*",
+            "",
+        ]
+
+        # Split body into slides by ## headers
+        sections = re.split(r"\n## ", body)
+        slide_count = 1  # Title slide counts as 1
+
+        for sec in sections:
+            if not sec.strip():
+                continue
+            if slide_count >= max_slides:
+                break
+
+            # Get section title and content
+            lines = sec.strip().split("\n")
+            sec_title = lines[0].strip().lstrip("#").strip()
+            sec_body = "\n".join(lines[1:]).strip()
+
+            if not sec_title or sec_title.lower() in ("change history",):
+                continue  # Skip metadata sections
+
+            slides.append("---")
+            slides.append("")
+            slides.append(f"## {sec_title}")
+            slides.append("")
+
+            # Truncate long sections to fit slides
+            body_lines = sec_body.split("\n")
+            for line in body_lines[:15]:  # Max 15 lines per slide
+                slides.append(line)
+            if len(body_lines) > 15:
+                slides.append("")
+                slides.append("*(continued...)*")
+            slides.append("")
+            slide_count += 1
+
+        # Save to .slides directory
+        os.makedirs(SLIDES_DIR, exist_ok=True)
+        slug = os.path.basename(page_path).replace(".md", "")
+        slides_path = os.path.join(SLIDES_DIR, f"{slug}.md")
+        with open(slides_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(slides))
+
+        return (
+            f"Generated {slide_count} slides from {page_path}.\n"
+            f"Saved to wiki/.slides/{slug}.md\n"
+            f"Render with: marp wiki/.slides/{slug}.md --pdf"
+        )

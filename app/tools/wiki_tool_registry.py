@@ -12,6 +12,7 @@ from app.tools.wiki_tools import (
     WikiWriteTool,
     WikiSearchTool,
     WikiLintTool,
+    WikiSlidesTool,
 )
 
 
@@ -20,6 +21,7 @@ _TOOL_MAP = {
     "write": WikiWriteTool,
     "search": WikiSearchTool,
     "lint": WikiLintTool,
+    "slides": WikiSlidesTool,
 }
 
 

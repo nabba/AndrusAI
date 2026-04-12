@@ -1199,6 +1199,15 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: wiki lint failed", exc_info=True)
     jobs.append(("wiki-lint", _wiki_lint, JobWeight.MEDIUM))
 
+    # ── Wiki hot cache: update session context file ───────────────────
+    def _wiki_hot_cache():
+        try:
+            from app.tools.wiki_hot_cache import update_hot_cache
+            update_hot_cache()
+        except Exception:
+            logger.debug("idle_scheduler: wiki hot cache update failed", exc_info=True)
+    jobs.append(("wiki-hot-cache", _wiki_hot_cache, JobWeight.LIGHT))
+
     return jobs
 
 

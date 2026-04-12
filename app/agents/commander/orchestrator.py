@@ -143,6 +143,13 @@ class Commander:
             if os.path.isfile(wiki_index):
                 with open(wiki_index, "r", encoding="utf-8") as f:
                     wiki_content = f.read()
+                # Also read hot cache for quick context
+                hot_path = os.path.join(WIKI_ROOT, "hot.md")
+                if os.path.isfile(hot_path):
+                    with open(hot_path, "r", encoding="utf-8") as hf:
+                        hot_content = hf.read()
+                    if hot_content and "Total pages: 0" not in hot_content:
+                        wiki_content = hot_content  # Hot cache is more useful than raw index
                 # Only include if wiki has actual pages (not empty)
                 if "total_pages: 0" not in wiki_content:
                     # Extract just the page listings (skip frontmatter)

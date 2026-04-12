@@ -1,0 +1,27 @@
+{
+  "collapse-filter": false,
+  "search": "",
+  "showTags": true,
+  "showAttachments": false,
+  "hideUnresolved": false,
+  "showOrphans": true,
+  "collapse-color-groups": false,
+  "colorGroups": [
+    {"query": "path:meta", "color": {"a": 1, "rgb": 6724095}},
+    {"query": "path:self", "color": {"a": 1, "rgb": 10092543}},
+    {"query": "path:philosophy", "color": {"a": 1, "rgb": 16776960}},
+    {"query": "path:plg", "color": {"a": 1, "rgb": 65280}},
+    {"query": "path:archibal", "color": {"a": 1, "rgb": 255}},
+    {"query": "path:kaicart", "color": {"a": 1, "rgb": 16711680}}
+  ],
+  "collapse-display": false,
+  "showArrow": true,
+  "textFadeMultiplier": 0,
+  "nodeSizeMultiplier": 1,
+  "lineSizeMultiplier": 1,
+  "collapse-forces": true,
+  "centerStrength": 0.5,
+  "repelStrength": 10,
+  "linkStrength": 1,
+  "linkDistance": 250
+}
