@@ -178,6 +178,7 @@ class SubIALoop:
         mem0_curated: Any | None = None,
         mem0_full: Any | None = None,
         neo4j_client: Any | None = None,
+        scorecard_fn: Callable[[], dict] | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
         self.kernel = kernel
@@ -192,6 +193,7 @@ class SubIALoop:
         self._mem0_curated = mem0_curated
         self._mem0_full = mem0_full
         self._neo4j_client = neo4j_client
+        self._scorecard_fn = scorecard_fn
         self._now = now
         self._current_domain = ""   # set in pre_task; read by cascade step
 
@@ -267,6 +269,7 @@ class SubIALoop:
                       task_description=task_description,
                       crew_name=agent_role,
                       goal_context=goal_context,
+                      operation_type=operation_type,
                   ))
 
         result.context_for_agent = self._build_full_context()
@@ -415,6 +418,21 @@ class SubIALoop:
                 pool.extend(getattr(self._gate, "_peripheral", []))
         except Exception:
             pool = []
+
+        # Phase 8: before tier-building, let social models nudge
+        # salience — items matching an entity's inferred_focus
+        # (especially Andrus) get a small upward boost. This is how
+        # "Andrus cares about X" actually reaches the attentional
+        # bottleneck.
+        social_boost_report = None
+        try:
+            from app.subia.social.salience_boost import apply_salience_boost
+            social_boost_report = apply_salience_boost(
+                pool, self.kernel.social_models,
+            )
+        except Exception:
+            logger.debug("social salience_boost failed", exc_info=True)
+
         pool.sort(
             key=lambda i: float(getattr(i, "salience_score", 0.0)),
             reverse=True,
@@ -430,13 +448,16 @@ class SubIALoop:
         )
         self._tiers = tiers
 
-        return {
+        details = {
             "admitted": admitted,
             "rejected": rejected,
             "focal": len(tiers.focal),
             "peripheral": len(tiers.peripheral),
             "alerts": len(tiers.peripheral_alerts),
         }
+        if social_boost_report is not None:
+            details["social_boost"] = social_boost_report.to_dict()
+        return details
 
     def _step_own(self) -> dict:
         """Step 4: tag admitted items with ownership — deterministic."""
@@ -512,44 +533,84 @@ class SubIALoop:
         task_description: str,
         crew_name: str,
         goal_context: str,
+        operation_type: str = "",
     ) -> dict:
-        """Step 6: monitor + belief-gated dispatch decision.
+        """Step 6: monitor + belief-gated dispatch decision + social update.
 
         Uses the Phase-2-closed HOT-3 dispatch_gate. Beliefs come from
         the injected consult_fn; if no consult_fn is wired, we skip
         the gate and ALLOW by default (loop continues functioning
         even when the belief subsystem is inert).
+
+        Phase 8 addition: periodic social-model update for the default
+        'andrus' human entity. Uses focal-scene topics as the
+        "topics touched" signal so Andrus's inferred_focus tracks
+        what the system has been attending to on his behalf.
         """
+        # ── Belief-gated dispatch (Phase 2) ─────────────────────
+        details: dict
         if self._consult_fn is None:
             self._dispatch_decision = None
-            return {"dispatch": "no_consult_fn"}
+            details = {"dispatch": "no_consult_fn"}
+        else:
+            try:
+                beliefs = list(self._consult_fn(
+                    task_description=task_description,
+                    crew_name=crew_name,
+                    goal_context=goal_context,
+                ))
+            except Exception:
+                logger.debug("consult_fn raised", exc_info=True)
+                beliefs = []
 
-        try:
-            beliefs = list(self._consult_fn(
+            decider = self._dispatch_decider
+            if decider is None:
+                from app.subia.belief.dispatch_gate import decide_dispatch
+                decider = decide_dispatch
+
+            decision = decider(
+                consulted_beliefs=beliefs,
+                suspended_candidates=(),
                 task_description=task_description,
                 crew_name=crew_name,
-                goal_context=goal_context,
-            ))
+            )
+            self._dispatch_decision = decision
+            details = {
+                "verdict": getattr(decision, "verdict", "ALLOW"),
+                "belief_count": getattr(decision, "belief_count", 0),
+            }
+
+        # ── Phase 8 social-model update ─────────────────────────
+        try:
+            from app.subia.social.model import (
+                SocialModel,
+                humans_of_interest,
+                should_update_this_cycle,
+            )
+            if should_update_this_cycle(self.kernel.loop_count):
+                topics = [
+                    str(getattr(i, "content",
+                                getattr(i, "summary", "")))[:80]
+                    for i in (self.kernel.focal_scene() or [])
+                ]
+                manager = SocialModel(self.kernel)
+                # Update Andrus specifically when the operation type
+                # suggests a user-facing interaction; otherwise still
+                # refresh the focus digest but don't count it as a
+                # real interaction for trust purposes.
+                is_user_op = str(operation_type).lower() == "user_interaction"
+                for entity_id in humans_of_interest():
+                    manager.update_from_interaction(
+                        entity_id,
+                        topics_touched=topics,
+                        outcome_ok=True if is_user_op else None,
+                        entity_type="human",
+                    )
+                details["social_models_updated"] = len(humans_of_interest())
         except Exception:
-            logger.debug("consult_fn raised", exc_info=True)
-            beliefs = []
+            logger.debug("social model update failed", exc_info=True)
 
-        decider = self._dispatch_decider
-        if decider is None:
-            from app.subia.belief.dispatch_gate import decide_dispatch
-            decider = decide_dispatch
-
-        decision = decider(
-            consulted_beliefs=beliefs,
-            suspended_candidates=(),  # Wired in Phase 8 with real DB query
-            task_description=task_description,
-            crew_name=crew_name,
-        )
-        self._dispatch_decision = decision
-        return {
-            "verdict": getattr(decision, "verdict", "ALLOW"),
-            "belief_count": getattr(decision, "belief_count", 0),
-        }
+        return details
 
     def _step_compare(
         self,
@@ -690,14 +751,63 @@ class SubIALoop:
         """Step 11: periodic self-narrative reflection.
 
         Gates on NARRATIVE_DRIFT_CHECK_FREQUENCY. When the current
-        loop_count is divisible by the frequency, run a narrative
-        audit. Until the narrative_audit module is fully wired
-        (Phase 8), record that the check would have fired.
+        loop_count is divisible by the frequency:
+
+          1. Run drift detection against kernel + accuracy tracker
+             (Phase 8). Findings are appended to the immutable
+             narrative audit log.
+          2. Regenerate the strange-loop consciousness-state.md page
+             so the self-model tracks current state. Surface it as
+             a SceneItem for the next cycle's scene.
+
+        Runs even without an attached scorecard / wiki / tracker —
+        each step degrades gracefully to a partial-report.
         """
         frequency = int(SUBIA_CONFIG["NARRATIVE_DRIFT_CHECK_FREQUENCY"])
         should_audit = (self.kernel.loop_count > 0
                         and self.kernel.loop_count % frequency == 0)
-        return {"audit_due": should_audit, "loop_count": self.kernel.loop_count}
+        result: dict = {
+            "audit_due": should_audit,
+            "loop_count": self.kernel.loop_count,
+        }
+        if not should_audit:
+            return result
+
+        # Narrative drift detection + immutable audit
+        try:
+            from app.subia.wiki_surface.drift_detection import (
+                append_findings_to_audit,
+                detect_drift,
+            )
+            report = detect_drift(
+                self.kernel,
+                accuracy_tracker=self._accuracy_tracker,
+            )
+            written = append_findings_to_audit(
+                report, self.kernel.loop_count,
+            )
+            result["drift_has"] = report.has_drift
+            result["drift_findings"] = len(report.findings)
+            result["drift_written"] = written
+        except Exception:
+            logger.debug("drift_detection failed", exc_info=True)
+
+        # Strange-loop page refresh + scene surface
+        try:
+            from app.subia.wiki_surface.consciousness_state import (
+                write_and_surface,
+            )
+            _content, item = write_and_surface(
+                self.kernel,
+                gate=self._gate,
+                scorecard=self._scorecard_fn,
+            )
+            result["strange_loop"] = bool(item)
+        except Exception:
+            logger.debug("consciousness_state refresh failed",
+                         exc_info=True)
+
+        return result
 
     # ── Context injection ────────────────────────────────────────
 

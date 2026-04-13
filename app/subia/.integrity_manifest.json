@@ -93,8 +93,8 @@
       "size": 8472
     },
     "app/subia/loop.py": {
-      "sha256": "84b48c3bd5b303334a38700b346d5e4a3be391e25023a5ac1ab754783fa62dcf",
-      "size": 31750
+      "sha256": "299c8f6242a48b4b2f10bf517660ec5ce7f3939c2072064bef125f87f10c87eb",
+      "size": 36400
     },
     "app/subia/memory/__init__.py": {
       "sha256": "f0074922981104b9498b0b4fccd4ffcb071e9951d6797cd147f302ba4354df8d",
@@ -280,9 +280,25 @@
       "sha256": "dc436eb009ef7530b5d13708fabc1cb0d93dd627a8cb06f37b048a96264b5f29",
       "size": 83
     },
+    "app/subia/social/model.py": {
+      "sha256": "15d219761acff38cef0e52be6b020efc88ff790c49e9a97ec50b4a5816bd1b42",
+      "size": 8985
+    },
+    "app/subia/social/salience_boost.py": {
+      "sha256": "778dc05571426469130576883088e1458532e162499e8567c1c58551f6151e62",
+      "size": 5171
+    },
     "app/subia/wiki_surface/__init__.py": {
       "sha256": "80133232f47be47767f6c42328d56a025b7dbf91b1b55932ed7dc1c48fb54161",
       "size": 89
+    },
+    "app/subia/wiki_surface/consciousness_state.py": {
+      "sha256": "eb73bfe13994193abdf1c4bf641c057abe3786ded5b47d1caa812a70c0c1a346",
+      "size": 10710
+    },
+    "app/subia/wiki_surface/drift_detection.py": {
+      "sha256": "22aa63fbb0380b76454ad879421508aa899f67514b1f9a805cc29a5e6e9dbaa7",
+      "size": 9747
     }
   },
   "version": 1

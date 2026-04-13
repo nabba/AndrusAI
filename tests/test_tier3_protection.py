@@ -223,6 +223,23 @@ class TestTier3Coverage:
         ):
             assert path in TIER3_FILES, f"not protected: {path}"
 
+    def test_phase8_social_and_strange_loop_protected(self):
+        """Phase 8 social + strange loop: ToM manager, salience boost,
+        consciousness-state page, drift detection must all be Tier-3.
+        An agent-modifiable ToM manager could fabricate positive trust
+        on its own; agent-modifiable drift detection could suppress
+        capability-claim mismatches; agent-modifiable strange-loop
+        generator could write a self-flattering page.
+        """
+        from app.safety_guardian import TIER3_FILES
+        for path in (
+            "app/subia/social/model.py",
+            "app/subia/social/salience_boost.py",
+            "app/subia/wiki_surface/consciousness_state.py",
+            "app/subia/wiki_surface/drift_detection.py",
+        ):
+            assert path in TIER3_FILES, f"not protected: {path}"
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.

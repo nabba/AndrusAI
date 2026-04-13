@@ -143,6 +143,10 @@ TIER3_FILES = [
     "app/subia/memory/dual_tier.py",             # Phase 7 differentiated access
     "app/subia/memory/spontaneous.py",           # Phase 7 associative surfacing
     "app/subia/memory/retrospective.py",         # Phase 7 retrospective promotion
+    "app/subia/social/model.py",                 # Phase 8 Theory-of-Mind
+    "app/subia/social/salience_boost.py",        # Phase 8 social salience
+    "app/subia/wiki_surface/consciousness_state.py",  # Phase 8 strange loop
+    "app/subia/wiki_surface/drift_detection.py", # Phase 8 narrative drift
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",
