@@ -747,7 +747,9 @@ class TestMigrationVerification:
         assert "tempfile.mkstemp" not in src  # Old pattern removed
 
     def test_agent_state_uses_safe_io(self):
-        src = Path(os.path.join(os.path.dirname(__file__), "..", "app", "self_awareness", "agent_state.py")).read_text()
+        # Post-Phase-1 migration: implementation lives at app/subia/self/agent_state.py;
+        # the self_awareness path is now a sys.modules-alias shim.
+        src = Path(os.path.join(os.path.dirname(__file__), "..", "app", "subia", "self", "agent_state.py")).read_text()
         assert "safe_write_json" in src
 
     def test_sentience_config_uses_safe_io(self):

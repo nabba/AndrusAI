@@ -105,6 +105,33 @@ TIER3_FILES = [
     "app/subia/self/temporal_identity.py",
     "app/subia/self/agent_state.py",
     "app/subia/self/loop_closure.py",
+    # (e) Phase 1 batch 4: remaining self_awareness migration targets
+    "app/subia/sentience_config.py",
+    "app/subia/belief/cogito.py",
+    "app/subia/belief/dual_channel.py",
+    "app/subia/belief/internal_state.py",
+    "app/subia/belief/meta_cognitive_layer.py",
+    "app/subia/belief/state_logger.py",
+    "app/subia/belief/world_model.py",
+    "app/subia/scene/global_workspace.py",
+    "app/subia/self/grounding.py",
+    "app/subia/self/query_router.py",
+    "app/subia/prediction/inferential_competition.py",
+    "app/subia/prediction/precision_weighting.py",
+    "app/subia/prediction/reality_model.py",
+    # Corresponding shim paths in app/self_awareness/
+    "app/self_awareness/cogito.py",
+    "app/self_awareness/dual_channel.py",
+    "app/self_awareness/global_workspace.py",
+    "app/self_awareness/grounding.py",
+    "app/self_awareness/inferential_competition.py",
+    "app/self_awareness/internal_state.py",
+    "app/self_awareness/meta_cognitive.py",
+    "app/self_awareness/precision_weighting.py",
+    "app/self_awareness/query_router.py",
+    "app/self_awareness/reality_model.py",
+    "app/self_awareness/state_logger.py",
+    "app/self_awareness/world_model.py",
 ]
 
 # ── IMMUTABLE: Drift detection thresholds ─────────────────────────────────

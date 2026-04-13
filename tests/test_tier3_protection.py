@@ -108,6 +108,20 @@ class TestTier3Coverage:
             ("app/self_awareness/certainty_vector.py",      "app/subia/belief/certainty.py"),
             ("app/self_awareness/consciousness_probe.py",   "app/subia/probes/consciousness_probe.py"),
             ("app/self_awareness/behavioral_assessment.py", "app/subia/probes/behavioral_assessment.py"),
+            # batch 4 (triage-pass migrations)
+            ("app/self_awareness/cogito.py",                  "app/subia/belief/cogito.py"),
+            ("app/self_awareness/dual_channel.py",            "app/subia/belief/dual_channel.py"),
+            ("app/self_awareness/global_workspace.py",        "app/subia/scene/global_workspace.py"),
+            ("app/self_awareness/grounding.py",               "app/subia/self/grounding.py"),
+            ("app/self_awareness/inferential_competition.py", "app/subia/prediction/inferential_competition.py"),
+            ("app/self_awareness/internal_state.py",          "app/subia/belief/internal_state.py"),
+            ("app/self_awareness/meta_cognitive.py",          "app/subia/belief/meta_cognitive_layer.py"),
+            ("app/self_awareness/precision_weighting.py",     "app/subia/prediction/precision_weighting.py"),
+            ("app/self_awareness/query_router.py",            "app/subia/self/query_router.py"),
+            ("app/self_awareness/reality_model.py",           "app/subia/prediction/reality_model.py"),
+            ("app/self_awareness/sentience_config.py",        "app/subia/sentience_config.py"),
+            ("app/self_awareness/state_logger.py",            "app/subia/belief/state_logger.py"),
+            ("app/self_awareness/world_model.py",             "app/subia/belief/world_model.py"),
         ]
         for old, new in phase1_pairs:
             assert old in TIER3_FILES, f"shim not protected: {old}"
