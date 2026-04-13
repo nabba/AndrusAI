@@ -99,6 +99,15 @@ class TestTier3Coverage:
         from app.safety_guardian import TIER3_FILES
         assert "app/subia/belief/dispatch_gate.py" in TIER3_FILES
 
+    def test_phase2_certainty_hedging_protected(self):
+        """Phase 2 certainty → response-hedging closure: the
+        post-processor that applies [Inferred]/[Uncertain] tags must be
+        Tier-3. An agent-modifiable hedger could be rewritten to skip
+        hedging, which would silently re-open the half-circuit.
+        """
+        from app.safety_guardian import TIER3_FILES
+        assert "app/subia/belief/response_hedging.py" in TIER3_FILES
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.

@@ -121,6 +121,7 @@ TIER3_FILES = [
     "app/subia/prediction/reality_model.py",
     "app/subia/prediction/surprise_routing.py",  # Phase 2 PP-1 closure
     "app/subia/belief/dispatch_gate.py",         # Phase 2 HOT-3 closure
+    "app/subia/belief/response_hedging.py",      # Phase 2 certainty closure
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",
