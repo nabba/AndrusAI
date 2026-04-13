@@ -25,7 +25,29 @@ from __future__ import annotations
 
 # ── Module-object identity ──────────────────────────────────────────
 
+MIGRATION_PAIRS = [
+    # (old_path, new_path) — every Phase 1 shim must resolve to target
+    ("app.consciousness.workspace_buffer",      "app.subia.scene.buffer"),
+    ("app.consciousness.attention_schema",      "app.subia.scene.attention_schema"),
+    ("app.consciousness.global_broadcast",      "app.subia.scene.broadcast"),
+    ("app.consciousness.meta_workspace",        "app.subia.scene.meta_workspace"),
+    ("app.consciousness.personality_workspace", "app.subia.scene.personality_workspace"),
+    ("app.consciousness.belief_store",          "app.subia.belief.store"),
+    ("app.consciousness.metacognitive_monitor", "app.subia.belief.metacognition"),
+    ("app.consciousness.prediction_hierarchy",  "app.subia.prediction.hierarchy"),
+    ("app.consciousness.predictive_layer",      "app.subia.prediction.layer"),
+    ("app.consciousness.adversarial_probes",    "app.subia.probes.adversarial"),
+]
+
+
 class TestModuleIdentity:
+    def test_all_shims_alias_to_target(self):
+        import importlib
+        for old_path, new_path in MIGRATION_PAIRS:
+            old = importlib.import_module(old_path)
+            new = importlib.import_module(new_path)
+            assert old is new, f"{old_path} does not alias to {new_path}"
+
     def test_workspace_buffer_aliased(self):
         import app.consciousness.workspace_buffer as old
         import app.subia.scene.buffer as new

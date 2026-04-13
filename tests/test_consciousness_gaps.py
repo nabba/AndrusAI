@@ -421,8 +421,13 @@ class TestAdversarialProbes:
         assert "run_adversarial_probes" in source
 
     def test_rate_limiting(self):
-        """Should only run once per 7 days."""
-        source = (Path(__file__).parent.parent / "app" / "consciousness" / "adversarial_probes.py").read_text()
+        """Should only run once per 7 days.
+
+        Post-Phase-1 migration, the implementation lives at
+        app/subia/probes/adversarial.py. app/consciousness/adversarial_probes.py
+        is a sys.modules-alias shim.
+        """
+        source = (Path(__file__).parent.parent / "app" / "subia" / "probes" / "adversarial.py").read_text()
         assert "604800" in source  # 7 days in seconds
 
 

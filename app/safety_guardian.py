@@ -68,6 +68,8 @@ TIER3_FILES = [
     "app/consciousness/workspace_buffer.py",
     "app/consciousness/attention_schema.py",
     "app/consciousness/global_broadcast.py",
+    "app/consciousness/meta_workspace.py",
+    "app/consciousness/personality_workspace.py",
     "app/consciousness/prediction_hierarchy.py",
     "app/consciousness/predictive_layer.py",
     # (c) SubIA infrastructure — consciousness-program config and kernel
@@ -77,7 +79,14 @@ TIER3_FILES = [
     # Old paths above remain protected as shims. See PROGRAM.md Phase 1.
     "app/subia/scene/buffer.py",
     "app/subia/scene/attention_schema.py",
+    "app/subia/scene/broadcast.py",
+    "app/subia/scene/meta_workspace.py",
+    "app/subia/scene/personality_workspace.py",
     "app/subia/belief/store.py",
+    "app/subia/belief/metacognition.py",
+    "app/subia/prediction/hierarchy.py",
+    "app/subia/prediction/layer.py",
+    "app/subia/probes/adversarial.py",
 ]
 
 # ── IMMUTABLE: Drift detection thresholds ─────────────────────────────────

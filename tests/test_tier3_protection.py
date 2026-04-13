@@ -85,14 +85,21 @@ class TestTier3Coverage:
         Old shim paths remain in TIER3_FILES to protect the redirection.
         """
         from app.safety_guardian import TIER3_FILES
-        # New canonical locations
-        assert "app/subia/scene/buffer.py" in TIER3_FILES
-        assert "app/subia/scene/attention_schema.py" in TIER3_FILES
-        assert "app/subia/belief/store.py" in TIER3_FILES
-        # Shims still protected (to prevent redirect hijacking)
-        assert "app/consciousness/workspace_buffer.py" in TIER3_FILES
-        assert "app/consciousness/attention_schema.py" in TIER3_FILES
-        assert "app/consciousness/belief_store.py" in TIER3_FILES
+        phase1_pairs = [
+            ("app/consciousness/workspace_buffer.py",      "app/subia/scene/buffer.py"),
+            ("app/consciousness/attention_schema.py",      "app/subia/scene/attention_schema.py"),
+            ("app/consciousness/global_broadcast.py",      "app/subia/scene/broadcast.py"),
+            ("app/consciousness/meta_workspace.py",        "app/subia/scene/meta_workspace.py"),
+            ("app/consciousness/personality_workspace.py", "app/subia/scene/personality_workspace.py"),
+            ("app/consciousness/belief_store.py",          "app/subia/belief/store.py"),
+            ("app/consciousness/metacognitive_monitor.py", "app/subia/belief/metacognition.py"),
+            ("app/consciousness/prediction_hierarchy.py",  "app/subia/prediction/hierarchy.py"),
+            ("app/consciousness/predictive_layer.py",      "app/subia/prediction/layer.py"),
+            ("app/consciousness/adversarial_probes.py",    "app/subia/probes/adversarial.py"),
+        ]
+        for old, new in phase1_pairs:
+            assert old in TIER3_FILES, f"shim not protected: {old}"
+            assert new in TIER3_FILES, f"target not protected: {new}"
 
     def test_all_listed_files_exist_on_disk(self):
         """Every declared Tier-3 file must actually exist. Otherwise the

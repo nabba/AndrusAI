@@ -229,9 +229,14 @@ class TestSocialAttentionWiring:
     """Verify social attention is wired to GWT-3 broadcast."""
 
     def test_broadcast_updates_social_model(self):
-        """GWT-3 broadcast should call social attention model."""
+        """GWT-3 broadcast should call social attention model.
+
+        Post-Phase-1 migration, the implementation lives at
+        app/subia/scene/broadcast.py. app/consciousness/global_broadcast.py
+        is a sys.modules-alias shim.
+        """
         from pathlib import Path
-        source = (Path(__file__).parent.parent / "app" / "consciousness" / "global_broadcast.py").read_text()
+        source = (Path(__file__).parent.parent / "app" / "subia" / "scene" / "broadcast.py").read_text()
         assert "get_social_attention_model" in source
         assert "update_from_broadcast_reaction" in source
         assert "evaluate_prediction_accuracy" in source
