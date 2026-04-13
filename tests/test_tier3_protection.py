@@ -136,6 +136,27 @@ class TestTier3Coverage:
         from app.safety_guardian import TIER3_FILES
         assert "app/subia/integrity.py" in TIER3_FILES
 
+    def test_phase4_cil_loop_and_hooks_protected(self):
+        """Phase 4 CIL sequencer + lifecycle hook integration must be
+        Tier-3. The loop orchestrates every consciousness signal that
+        gates behavior; an agent-modifiable loop could silently skip
+        a gate or inject its own injection context.
+        """
+        from app.safety_guardian import TIER3_FILES
+        assert "app/subia/loop.py" in TIER3_FILES
+        assert "app/subia/hooks.py" in TIER3_FILES
+
+    def test_phase4_deferred_safety_protected(self):
+        """SubIA Part I §0.4 invariants #2 (setpoint immutability) and
+        #3 (audit immutability) must be Tier-3. These are the single
+        write paths for their respective invariants; if agent-
+        modifiable, an agent could widen the allow-list (invariant #2)
+        or add a delete function (invariant #3).
+        """
+        from app.safety_guardian import TIER3_FILES
+        assert "app/subia/safety/setpoint_guard.py" in TIER3_FILES
+        assert "app/subia/safety/narrative_audit.py" in TIER3_FILES
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.

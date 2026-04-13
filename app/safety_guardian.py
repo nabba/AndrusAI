@@ -125,6 +125,10 @@ TIER3_FILES = [
     "app/subia/scene/intervention_guard.py",     # Phase 2 AST-1 DGM verifier
     "app/subia/prediction/injection_harness.py", # Phase 2 PH-injection A/B
     "app/subia/integrity.py",                    # Phase 3 integrity verifier
+    "app/subia/loop.py",                         # Phase 4 CIL sequencer
+    "app/subia/hooks.py",                        # Phase 4 lifecycle integration
+    "app/subia/safety/setpoint_guard.py",        # Phase 4 DGM invariant #2
+    "app/subia/safety/narrative_audit.py",       # Phase 4 DGM invariant #3
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",
