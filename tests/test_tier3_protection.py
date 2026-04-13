@@ -80,6 +80,15 @@ class TestTier3Coverage:
         assert "app/subia/config.py" in TIER3_FILES
         assert "app/subia/kernel.py" in TIER3_FILES
 
+    def test_phase2_pp1_closure_protected(self):
+        """Phase 2 PP-1 half-circuit closure: surprise_routing must be
+        Tier-3 because it is the only path by which computed prediction
+        errors actually reach the scene. If it were agent-modifiable,
+        the Self-Improver could silently re-open the half-circuit.
+        """
+        from app.safety_guardian import TIER3_FILES
+        assert "app/subia/prediction/surprise_routing.py" in TIER3_FILES
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.

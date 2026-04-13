@@ -119,6 +119,7 @@ TIER3_FILES = [
     "app/subia/prediction/inferential_competition.py",
     "app/subia/prediction/precision_weighting.py",
     "app/subia/prediction/reality_model.py",
+    "app/subia/prediction/surprise_routing.py",  # Phase 2 PP-1 closure
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

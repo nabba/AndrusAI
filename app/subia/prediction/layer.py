@@ -209,6 +209,19 @@ class PredictiveLayer:
         self._surprises_this_cycle: int = 0
         self._error_log: deque[PredictionError] = deque(maxlen=200)
         self._recent_major: deque[PredictionError] = deque(maxlen=20)
+        # Phase 2 PP-1 closure: optional CompetitiveGate. When set via
+        # set_gate(), predict_and_compare() will auto-route high-surprise
+        # errors into the scene as WorkspaceItems. Callers that do not
+        # wire a gate fall back to the legacy flag-set-and-nothing-else
+        # behaviour (no regression). See PROGRAM.md Phase 2.
+        self._gate = None
+
+    def set_gate(self, gate) -> None:
+        """Attach a CompetitiveGate for surprise routing. One-shot: any
+        subsequent high-surprise prediction error will be submitted to
+        the gate as a WorkspaceItem via the surprise_routing bridge.
+        """
+        self._gate = gate
 
     def get_predictor(self, channel: str) -> ChannelPredictor:
         """Get or create predictor for a channel."""
@@ -237,6 +250,30 @@ class PredictiveLayer:
             if self._surprises_this_cycle < self.surprise_budget:
                 error.routed_to_workspace = True
                 self._surprises_this_cycle += 1
+                # Phase 2 PP-1 closure: if a gate is attached, actually
+                # submit this surprise as a WorkspaceItem so it competes
+                # for attention. Before Phase 2 this flag was set and
+                # then ignored (half-circuit). See surprise_routing.py.
+                if self._gate is not None:
+                    try:
+                        from app.subia.prediction.surprise_routing import (
+                            route_surprise_to_gate,
+                        )
+                        route_surprise_to_gate(
+                            error=error,
+                            gate=self._gate,
+                            context=context,
+                            content_embedding=actual_embedding,
+                        )
+                    except Exception:
+                        # Routing must never crash prediction. Log and
+                        # fall through; the flag remains set for any
+                        # other consumer that might be watching.
+                        logger.exception(
+                            "PP-1 surprise_routing failed on %s; "
+                            "error.routed_to_workspace flag retained",
+                            error.error_id,
+                        )
 
         # 4. Track major surprises for belief review trigger
         if error.surprise_level in ("MAJOR_SURPRISE", "PARADIGM_VIOLATION"):
