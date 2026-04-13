@@ -73,6 +73,11 @@ TIER3_FILES = [
     # (c) SubIA infrastructure — consciousness-program config and kernel
     "app/subia/config.py",
     "app/subia/kernel.py",
+    # (d) Migrated consciousness modules (new canonical locations).
+    # Old paths above remain protected as shims. See PROGRAM.md Phase 1.
+    "app/subia/scene/buffer.py",
+    "app/subia/scene/attention_schema.py",
+    "app/subia/belief/store.py",
 ]
 
 # ── IMMUTABLE: Drift detection thresholds ─────────────────────────────────

@@ -80,6 +80,20 @@ class TestTier3Coverage:
         assert "app/subia/config.py" in TIER3_FILES
         assert "app/subia/kernel.py" in TIER3_FILES
 
+    def test_phase1_migrations_protected(self):
+        """Migrated modules (Phase 1) are protected at the NEW canonical path.
+        Old shim paths remain in TIER3_FILES to protect the redirection.
+        """
+        from app.safety_guardian import TIER3_FILES
+        # New canonical locations
+        assert "app/subia/scene/buffer.py" in TIER3_FILES
+        assert "app/subia/scene/attention_schema.py" in TIER3_FILES
+        assert "app/subia/belief/store.py" in TIER3_FILES
+        # Shims still protected (to prevent redirect hijacking)
+        assert "app/consciousness/workspace_buffer.py" in TIER3_FILES
+        assert "app/consciousness/attention_schema.py" in TIER3_FILES
+        assert "app/consciousness/belief_store.py" in TIER3_FILES
+
     def test_all_listed_files_exist_on_disk(self):
         """Every declared Tier-3 file must actually exist. Otherwise the
         checksum machinery silently tracks a non-existent path.
