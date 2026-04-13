@@ -98,6 +98,7 @@ TIER3_FILES = [
     "app/subia/probes/consciousness_probe.py",
     "app/subia/probes/behavioral_assessment.py",
     "app/subia/homeostasis/state.py",
+    "app/subia/README.md",
     "app/subia/homeostasis/somatic_marker.py",
     "app/subia/homeostasis/somatic_bias.py",
     "app/subia/self/model.py",

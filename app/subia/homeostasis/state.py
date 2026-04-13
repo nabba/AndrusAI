@@ -1,11 +1,15 @@
-from __future__ import annotations
-
 """
 homeostasis.py — System-level homeostatic self-regulation (Layer 6).
 
-Tracks internal state variables that function as proto-emotions — not
-subjective feelings, but functional signals that influence decision-making.
-Analogous to Damasio's somatic markers.
+Tracks internal state variables that function as control signals — NOT
+subjective feelings. The legacy keys (`frustration`, `curiosity`,
+`cognitive_energy`) are phenomenal-adjacent for historical reasons; their
+neutral aliases (`task_failure_pressure`, `exploration_bonus`,
+`resource_budget`) are written in lockstep and are the preferred names for
+new code. See Phase 11 of `PROGRAM.md`.
+
+These are functional signals that influence decision-making — analogous in
+function (not in subjective character) to Damasio's somatic markers.
 
 NOTE ON CONFIDENCE: The `confidence` value here (0.0-1.0) is a SYSTEM-WIDE
 proto-emotional signal reflecting overall operational confidence. It is
@@ -27,6 +31,8 @@ Agents cannot modify them. The self-improver cannot access this module's
 internals — only the behavioral modifiers it produces.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -45,6 +51,31 @@ TARGETS = {
     "confidence": 0.65,         # Ideal: cautiously confident
     "curiosity": 0.5,           # Ideal: moderately exploratory
 }
+
+# Phase 11: neutral aliases for phenomenal-adjacent legacy keys.
+# Reads/writes through `_sync_aliases()` mirror these in both directions so
+# existing call sites keep working while new code prefers neutral names.
+NEUTRAL_ALIASES = {
+    "frustration": "task_failure_pressure",
+    "curiosity": "exploration_bonus",
+    "cognitive_energy": "resource_budget",
+}
+
+
+def _sync_aliases(state: dict) -> dict:
+    """Mirror legacy keys ↔ neutral aliases so both stay in sync.
+
+    If both are present, legacy wins (back-compat). If only one is present,
+    the other is populated from it.
+    """
+    for legacy, neutral in NEUTRAL_ALIASES.items():
+        if legacy in state and neutral not in state:
+            state[neutral] = state[legacy]
+        elif neutral in state and legacy not in state:
+            state[legacy] = state[neutral]
+        elif legacy in state and neutral in state:
+            state[neutral] = state[legacy]
+    return state
 
 # Decay rate toward targets (0.0 = no regulation, 1.0 = instant snap)
 _DECAY_RATE = 0.05
@@ -65,10 +96,10 @@ def _load() -> dict:
     """Load homeostatic state from disk."""
     try:
         if _STATE_PATH.exists():
-            return json.loads(_STATE_PATH.read_text())
+            return _sync_aliases(json.loads(_STATE_PATH.read_text()))
     except Exception:
         logger.debug("homeostasis: load failed", exc_info=True)
-    return {
+    return _sync_aliases({
         "cognitive_energy": 0.7,
         "frustration": 0.1,
         "confidence": 0.5,
@@ -76,14 +107,14 @@ def _load() -> dict:
         "tasks_since_rest": 0,
         "consecutive_failures": 0,
         "last_updated": "",
-    }
+    })
 
 
 def _save(state: dict) -> None:
     """Atomic write via shared safe_io utility."""
     try:
         from app.safe_io import safe_write_json
-        safe_write_json(_STATE_PATH, state)
+        safe_write_json(_STATE_PATH, _sync_aliases(state))
     except Exception:
         logger.debug("homeostasis: save failed", exc_info=True)
 
