@@ -103,6 +103,12 @@ class HomeostaticState:
     deviations: dict = field(default_factory=dict)         # var → signed deviation
     restoration_queue: list = field(default_factory=list)  # vars ordered by |deviation|
     last_updated: str = ""
+    # Phase 14 — Temporal Synchronization (Proposal §3.1).
+    # Per-variable trajectory: {var: {"direction": "rising"|"falling"|"stable",
+    #                                  "rate": float, "previous": float}}.
+    # Computed by app.subia.temporal.momentum.update_momentum() after each
+    # FEEL/UPDATE step. Empty until first call.
+    momentum: dict = field(default_factory=dict)
 
 
 # ── Prediction ───────────────────────────────────────────────────────
@@ -188,6 +194,22 @@ class SubjectivityKernel:
     loop_count: int = 0
     last_loop_at: str = ""
     session_id: str = ""
+
+    # Phase 14 — Temporal Synchronization.
+    # SpeciousPresent is a SubjectivityKernel attribute (not a separate
+    # store) because it must be SIMULTANEOUSLY present with the current
+    # moment, not loaded on demand (Proposal §3.1, §7 "from sequence to
+    # duration"). Defaults to None for backward-compat; populated by
+    # `app.subia.temporal.specious_present.update_specious_present()` on
+    # each loop entry.
+    #
+    # Type is `Any` to avoid a forward-reference cycle with the temporal
+    # subpackage (kernel.py is imported very early; temporal/ depends on
+    # kernel). Concrete type is `app.subia.temporal.SpeciousPresent`.
+    specious_present: Any = None
+    # TemporalContext: clock + circadian mode + processing density +
+    # discovered external rhythms. Populated by the same temporal hook.
+    temporal_context: Any = None
 
     def touch(self) -> None:
         """Mark the kernel as updated now."""

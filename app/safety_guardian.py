@@ -191,6 +191,17 @@ TIER3_FILES = [
     "app/subia/tsal/evolution_feasibility.py",# Phase 13 Self-Improver gate
     "app/subia/tsal/refresh.py",             # Phase 13 idle scheduler registration
     "app/subia/connections/tsal_subia_bridge.py",  # Phase 13 TSAL → SubIA bridges
+    # ── Phase 14 — Temporal Synchronization ──────────────────────────
+    "app/subia/temporal/__init__.py",
+    "app/subia/temporal/specious_present.py",  # Husserl/James felt-now
+    "app/subia/temporal/momentum.py",          # rising/falling/stable trajectory
+    "app/subia/temporal/circadian.py",         # processing-mode table (Tier-3)
+    "app/subia/temporal/density.py",           # felt-time (subjective duration)
+    "app/subia/temporal/binding.py",           # temporal_bind reducer
+    "app/subia/temporal/rhythm_discovery.py",  # external rhythm mining
+    "app/subia/temporal/context.py",           # TemporalContext aggregate
+    "app/subia/temporal_hooks.py",             # CIL hot-path entry points
+    "app/subia/connections/temporal_subia_bridge.py",  # 5 closed-loop bridges
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

@@ -96,6 +96,10 @@
       "sha256": "925c37187836b3bdae9ff47ab1e6298607b99004b7d89e80b0c76a717dfd0f0d",
       "size": 4922
     },
+    "app/subia/connections/temporal_subia_bridge.py": {
+      "sha256": "9e35f6194d9f6558070df0fd53088b949f697b66d5735e1527ff0d9972607a82",
+      "size": 7375
+    },
     "app/subia/connections/training_signal.py": {
       "sha256": "e9cb6bff71c5cffa93981f922061f9812b33f8bed9a31b048a8ef9ba8413f158",
       "size": 6436
@@ -141,8 +145,8 @@
       "size": 9440
     },
     "app/subia/kernel.py": {
-      "sha256": "c2194b76180efcfa2269d66aeb0fe96b217ed8592ead27e117b2f793f6eef526",
-      "size": 9427
+      "sha256": "b85bbcd39dfac4eef7b19d8645b39e81bdbff83e3082739c8712926136ed39fb",
+      "size": 10674
     },
     "app/subia/live_integration.py": {
       "sha256": "39160ff929d855bc9cb22718c78ab664efa15dabdd7257cfd335cbbf9e8ff3b4",
@@ -387,6 +391,42 @@
     "app/subia/social/salience_boost.py": {
       "sha256": "778dc05571426469130576883088e1458532e162499e8567c1c58551f6151e62",
       "size": 5171
+    },
+    "app/subia/temporal/__init__.py": {
+      "sha256": "6fc9630095c606eb69ab321144254de79ca60d1dcef977025feed7477a5131ee",
+      "size": 2329
+    },
+    "app/subia/temporal/binding.py": {
+      "sha256": "be613f0cdb2a3d7228f6bd531c700ff0aa43ff2b67754ade2bac9c5704e6aa21",
+      "size": 5430
+    },
+    "app/subia/temporal/circadian.py": {
+      "sha256": "8f6784a023a2b8099e02bd11dcd3234dde990185ea0cd1144b92d5a51ebd41fa",
+      "size": 4904
+    },
+    "app/subia/temporal/context.py": {
+      "sha256": "86b1e2b97222c13e5bc0abbd40bde3d2139df98ed7cdef5b5c0b74548cea4c0f",
+      "size": 3608
+    },
+    "app/subia/temporal/density.py": {
+      "sha256": "4b94abc81e1598a52d0572f16b5f060059111aad0219660fe5aeae46a14c7db3",
+      "size": 2093
+    },
+    "app/subia/temporal/momentum.py": {
+      "sha256": "3703a62c7490d1629be6c279a2010afdbb32d14ac1feb6e5b8b8db91337128e3",
+      "size": 2444
+    },
+    "app/subia/temporal/rhythm_discovery.py": {
+      "sha256": "2fbb781f9b3bfbce7d8aa826f1fdb32643cecc1b1e3a62c76c0ea5a55feb7ed2",
+      "size": 4593
+    },
+    "app/subia/temporal/specious_present.py": {
+      "sha256": "c2aceef30365840efa55d88ba6a4b1bda52cddfac31ca4741c086e197a522886",
+      "size": 7651
+    },
+    "app/subia/temporal_hooks.py": {
+      "sha256": "bd97feda19b50db9e4ba0601b8d4fd77ddf27f8a762311f0abc3155d7927541b",
+      "size": 3494
     },
     "app/subia/tsal/__init__.py": {
       "sha256": "22fe57efe687fca557540e5169aadb14d0f01045f2a6075f7d0109f72a95a145",
