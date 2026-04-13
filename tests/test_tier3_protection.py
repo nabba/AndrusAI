@@ -96,6 +96,18 @@ class TestTier3Coverage:
             ("app/consciousness/prediction_hierarchy.py",  "app/subia/prediction/hierarchy.py"),
             ("app/consciousness/predictive_layer.py",      "app/subia/prediction/layer.py"),
             ("app/consciousness/adversarial_probes.py",    "app/subia/probes/adversarial.py"),
+            # self_awareness batch
+            ("app/self_awareness/self_model.py",            "app/subia/self/model.py"),
+            ("app/self_awareness/hyper_model.py",           "app/subia/self/hyper_model.py"),
+            ("app/self_awareness/temporal_identity.py",     "app/subia/self/temporal_identity.py"),
+            ("app/self_awareness/agent_state.py",           "app/subia/self/agent_state.py"),
+            ("app/self_awareness/loop_closure.py",          "app/subia/self/loop_closure.py"),
+            ("app/self_awareness/homeostasis.py",           "app/subia/homeostasis/state.py"),
+            ("app/self_awareness/somatic_marker.py",        "app/subia/homeostasis/somatic_marker.py"),
+            ("app/self_awareness/somatic_bias.py",          "app/subia/homeostasis/somatic_bias.py"),
+            ("app/self_awareness/certainty_vector.py",      "app/subia/belief/certainty.py"),
+            ("app/self_awareness/consciousness_probe.py",   "app/subia/probes/consciousness_probe.py"),
+            ("app/self_awareness/behavioral_assessment.py", "app/subia/probes/behavioral_assessment.py"),
         ]
         for old, new in phase1_pairs:
             assert old in TIER3_FILES, f"shim not protected: {old}"

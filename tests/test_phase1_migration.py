@@ -37,6 +37,18 @@ MIGRATION_PAIRS = [
     ("app.consciousness.prediction_hierarchy",  "app.subia.prediction.hierarchy"),
     ("app.consciousness.predictive_layer",      "app.subia.prediction.layer"),
     ("app.consciousness.adversarial_probes",    "app.subia.probes.adversarial"),
+    # self_awareness batch
+    ("app.self_awareness.self_model",            "app.subia.self.model"),
+    ("app.self_awareness.hyper_model",           "app.subia.self.hyper_model"),
+    ("app.self_awareness.temporal_identity",     "app.subia.self.temporal_identity"),
+    ("app.self_awareness.agent_state",           "app.subia.self.agent_state"),
+    ("app.self_awareness.loop_closure",          "app.subia.self.loop_closure"),
+    ("app.self_awareness.homeostasis",           "app.subia.homeostasis.state"),
+    ("app.self_awareness.somatic_marker",        "app.subia.homeostasis.somatic_marker"),
+    ("app.self_awareness.somatic_bias",          "app.subia.homeostasis.somatic_bias"),
+    ("app.self_awareness.certainty_vector",      "app.subia.belief.certainty"),
+    ("app.self_awareness.consciousness_probe",   "app.subia.probes.consciousness_probe"),
+    ("app.self_awareness.behavioral_assessment", "app.subia.probes.behavioral_assessment"),
 ]
 
 

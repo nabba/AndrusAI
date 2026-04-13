@@ -469,15 +469,25 @@ class TestArchitecture:
                 assert "ARCHITECTURAL REFERENCE" in content
 
     def test_homeostasis_confidence_documented(self):
-        """Homeostasis should document the confidence metric distinction."""
-        path = Path(__file__).parent.parent / "app" / "self_awareness" / "homeostasis.py"
+        """Homeostasis should document the confidence metric distinction.
+
+        Post-Phase-1 migration, the implementation lives at
+        app/subia/homeostasis/state.py; app/self_awareness/homeostasis.py
+        is a sys.modules-alias shim.
+        """
+        path = Path(__file__).parent.parent / "app" / "subia" / "homeostasis" / "state.py"
         content = path.read_text()
         assert "NOTE ON CONFIDENCE" in content
         assert "system-wide" in content.lower() or "SYSTEM-WIDE" in content
 
     def test_agent_state_confidence_documented(self):
-        """Agent state should document the confidence metric distinction."""
-        path = Path(__file__).parent.parent / "app" / "self_awareness" / "agent_state.py"
+        """Agent state should document the confidence metric distinction.
+
+        Post-Phase-1 migration, the implementation lives at
+        app/subia/self/agent_state.py; app/self_awareness/agent_state.py
+        is a sys.modules-alias shim.
+        """
+        path = Path(__file__).parent.parent / "app" / "subia" / "self" / "agent_state.py"
         content = path.read_text()
         assert "NOTE ON CONFIDENCE" in content
         assert "per-agent" in content.lower() or "PER-AGENT" in content

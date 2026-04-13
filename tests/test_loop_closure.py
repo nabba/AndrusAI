@@ -212,5 +212,7 @@ class TestHookWiring:
         assert hasattr(state, "loop_closure_convergence")
 
     def test_fe_pressure_includes_loop_convergence(self):
-        src = (Path(__file__).parent.parent / "app" / "self_awareness" / "hyper_model.py").read_text()
+        # Post-Phase-1 migration, hyper_model lives at app/subia/self/hyper_model.py.
+        # app/self_awareness/hyper_model.py is a sys.modules-alias shim.
+        src = (Path(__file__).parent.parent / "app" / "subia" / "self" / "hyper_model.py").read_text()
         assert "loop_closure_convergence" in src
