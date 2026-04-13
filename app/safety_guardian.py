@@ -180,6 +180,17 @@ TIER3_FILES = [
     "app/subia/idle/scheduler.py",               # Phase 12 idle dispatch
     "app/subia/phase12_hooks.py",                # Phase 12 hot-path hooks
     "app/subia/connections/six_proposals_bridges.py",  # Phase 12 inter-proposal bridges
+    # ── Phase 13 — Technical Self-Awareness Layer (TSAL) ─────────────
+    "app/subia/tsal/__init__.py",
+    "app/subia/tsal/inspect_tools.py",       # Phase 13 canonical (consolidated from app/self_awareness/)
+    "app/subia/tsal/probers.py",             # Phase 13 host + resource probing
+    "app/subia/tsal/inspectors.py",          # Phase 13 code analyst + component discovery
+    "app/subia/tsal/self_model.py",          # Phase 13 aggregate dataclass
+    "app/subia/tsal/generators.py",          # Phase 13 wiki page generators
+    "app/subia/tsal/operating_principles.py",# Phase 13 Tier-1 LLM inference
+    "app/subia/tsal/evolution_feasibility.py",# Phase 13 Self-Improver gate
+    "app/subia/tsal/refresh.py",             # Phase 13 idle scheduler registration
+    "app/subia/connections/tsal_subia_bridge.py",  # Phase 13 TSAL → SubIA bridges
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

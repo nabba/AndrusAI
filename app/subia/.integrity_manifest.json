@@ -100,6 +100,10 @@
       "sha256": "e9cb6bff71c5cffa93981f922061f9812b33f8bed9a31b048a8ef9ba8413f158",
       "size": 6436
     },
+    "app/subia/connections/tsal_subia_bridge.py": {
+      "sha256": "36db50a2061b68172190fa4f93e47440cc2f704b5ceaf62254a23f86c2a3a5f6",
+      "size": 6216
+    },
     "app/subia/homeostasis/__init__.py": {
       "sha256": "09bd8383f16149b2d3edfb6c762f6eac3325dedd7b40af25180d61271e9c057f",
       "size": 88
@@ -383,6 +387,42 @@
     "app/subia/social/salience_boost.py": {
       "sha256": "778dc05571426469130576883088e1458532e162499e8567c1c58551f6151e62",
       "size": 5171
+    },
+    "app/subia/tsal/__init__.py": {
+      "sha256": "22fe57efe687fca557540e5169aadb14d0f01045f2a6075f7d0109f72a95a145",
+      "size": 1933
+    },
+    "app/subia/tsal/evolution_feasibility.py": {
+      "sha256": "0fe74e7fbf3bcbd1627e0924009772dddcff646948ac5d13b29dfe20a2e1a63d",
+      "size": 3374
+    },
+    "app/subia/tsal/generators.py": {
+      "sha256": "7990245291820af910c2a69fc791be220a51282c0545b1d228de32a0748b73ec",
+      "size": 14290
+    },
+    "app/subia/tsal/inspect_tools.py": {
+      "sha256": "71ba53f97833329101a0d26a2d3194446f2012f6405d3a5dfb6586181270e756",
+      "size": 18870
+    },
+    "app/subia/tsal/inspectors.py": {
+      "sha256": "203e418709814396acb18bff21a09165654311a90028effd56a62b9006c094e4",
+      "size": 13893
+    },
+    "app/subia/tsal/operating_principles.py": {
+      "sha256": "70940a54eec55b5682c2c50763800000b3b0ed4646ad3bfb78466954cf0adc63",
+      "size": 2392
+    },
+    "app/subia/tsal/probers.py": {
+      "sha256": "2ddbd190a991bf455445ab3aa6e519863ab7b8368924f9d563e296108e2241c0",
+      "size": 10259
+    },
+    "app/subia/tsal/refresh.py": {
+      "sha256": "0fdde497845e1aa78596e7f68b6cb30bf4815e182a5ad320f6cbfb838e70dceb",
+      "size": 4969
+    },
+    "app/subia/tsal/self_model.py": {
+      "sha256": "f700d15d4b672ecf7ea182b3a1a8f862da73185ce2ad747828f13a09de697aa5",
+      "size": 1829
     },
     "app/subia/understanding/__init__.py": {
       "sha256": "365db90e2835d3c7f588fc333361645912fb3a6242e8433504972d15a3c7a7c5",
