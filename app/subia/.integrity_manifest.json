@@ -60,6 +60,10 @@
       "sha256": "09bd8383f16149b2d3edfb6c762f6eac3325dedd7b40af25180d61271e9c057f",
       "size": 88
     },
+    "app/subia/homeostasis/engine.py": {
+      "sha256": "0c66e8b03056d1563f8b6fab315393b24ace2efb22393a602eacd145935a10e8",
+      "size": 8410
+    },
     "app/subia/homeostasis/somatic_bias.py": {
       "sha256": "668136a16c897d9487719fcf03d624a6a9c797ba015e857939fe970819921e81",
       "size": 4140
@@ -84,17 +88,29 @@
       "sha256": "81e89b7c105eaf8b605e1fdfbf09dc51948b4eff56f295f6fe796898b9972c51",
       "size": 8475
     },
+    "app/subia/live_integration.py": {
+      "sha256": "39160ff929d855bc9cb22718c78ab664efa15dabdd7257cfd335cbbf9e8ff3b4",
+      "size": 8472
+    },
     "app/subia/loop.py": {
-      "sha256": "40d7a326539bd17379972c34eebc0939c325fbb8dcfc24def0991fc4b329a633",
-      "size": 24280
+      "sha256": "ad90c5a0c47b116e26186c2c51415c8bd6c6160b828e112b02d28a50cd12ac20",
+      "size": 24458
     },
     "app/subia/memory/__init__.py": {
       "sha256": "f0074922981104b9498b0b4fccd4ffcb071e9951d6797cd147f302ba4354df8d",
       "size": 83
     },
+    "app/subia/persistence.py": {
+      "sha256": "0637867bc51bfa68ce1af0e70823c8524b5394afaf4df483c239257e09a62961",
+      "size": 27366
+    },
     "app/subia/prediction/__init__.py": {
       "sha256": "4bdfbac2f0f354e28e653dc31dac84bd13bb27b30786e1c4423477c8aa2cc1c0",
       "size": 87
+    },
+    "app/subia/prediction/cache.py": {
+      "sha256": "ab6ae07addc45e041202e48d29fdda0ca6c15d3e131d73e51df081bd100b415e",
+      "size": 10578
     },
     "app/subia/prediction/hierarchy.py": {
       "sha256": "eeeae596d5ad752b869a1d3f2688e6432c8fb40261b3b2b266b41432a8d4c958",
@@ -111,6 +127,10 @@
     "app/subia/prediction/layer.py": {
       "sha256": "9c4f64047023a186eeabee76497c468976dd0d2e86eb14c8c4c95ef01fa95a44",
       "size": 18565
+    },
+    "app/subia/prediction/llm_predict.py": {
+      "sha256": "667c2f13f79a6ff0a7427899cdb5d2f0e8d0d3789c0257aca023f1cb7ae06d0b",
+      "size": 11135
     },
     "app/subia/prediction/precision_weighting.py": {
       "sha256": "a70a6061c86c31858ce52b11f97421abcecdd2306e27f7d529ae7fdfdc486854",

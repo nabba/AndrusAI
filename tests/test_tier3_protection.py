@@ -157,6 +157,24 @@ class TestTier3Coverage:
         assert "app/subia/safety/setpoint_guard.py" in TIER3_FILES
         assert "app/subia/safety/narrative_audit.py" in TIER3_FILES
 
+    def test_phase4_finish_modules_protected(self):
+        """Phase 4 finish: persistence, prediction cache, LLM predict,
+        homeostasis engine, and live_integration must all be Tier-3.
+        An agent-modifiable persistence layer could silently drop
+        kernel fields; an agent-modifiable LLM predict could always
+        return high-confidence fallback; an agent-modifiable
+        live_integration could skip registration without logging.
+        """
+        from app.safety_guardian import TIER3_FILES
+        for path in (
+            "app/subia/persistence.py",
+            "app/subia/prediction/cache.py",
+            "app/subia/prediction/llm_predict.py",
+            "app/subia/homeostasis/engine.py",
+            "app/subia/live_integration.py",
+        ):
+            assert path in TIER3_FILES, f"not protected: {path}"
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.

@@ -129,6 +129,11 @@ TIER3_FILES = [
     "app/subia/hooks.py",                        # Phase 4 lifecycle integration
     "app/subia/safety/setpoint_guard.py",        # Phase 4 DGM invariant #2
     "app/subia/safety/narrative_audit.py",       # Phase 4 DGM invariant #3
+    "app/subia/persistence.py",                  # Phase 4 kernel serialization
+    "app/subia/prediction/cache.py",             # Phase 4 prediction cache (Amendment B.4)
+    "app/subia/prediction/llm_predict.py",       # Phase 4 live LLM predict_fn
+    "app/subia/homeostasis/engine.py",           # Phase 4 homeostatic arithmetic
+    "app/subia/live_integration.py",             # Phase 4 feature-flagged wire-in
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

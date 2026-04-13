@@ -328,23 +328,17 @@ class SubIALoop:
         return {"candidates": count}
 
     def _step_feel(self) -> dict:
-        """Step 2: homeostasis update (deterministic stub).
+        """Step 2: deterministic homeostatic update from candidates.
 
-        Full homeostatic arithmetic lives in subia.homeostasis.state.
-        We do not call it here to keep the loop independent of the
-        homeostasis backend until Phase 7/8 wires it in. For now,
-        touch last_updated to mark activity.
+        Delegates to subia.homeostasis.engine.update_homeostasis
+        which computes per-variable deltas from the scene candidates
+        and recomputes deviations + restoration_queue.
         """
-        h = self.kernel.homeostasis
-        from datetime import datetime, timezone
-        h.last_updated = datetime.now(timezone.utc).isoformat()
-        return {
-            "variables": len(h.variables),
-            "deviations_above_threshold": sum(
-                1 for d in h.deviations.values()
-                if abs(d) > SUBIA_CONFIG["HOMEOSTATIC_DEVIATION_THRESHOLD"]
-            ),
-        }
+        from app.subia.homeostasis.engine import update_homeostasis
+        return update_homeostasis(
+            self.kernel,
+            new_items=getattr(self, "_candidates", []),
+        )
 
     def _step_attend(self) -> dict:
         """Step 3: submit candidates to the scene gate (admits/rejects)."""
@@ -489,7 +483,12 @@ class SubIALoop:
         }
 
     def _step_update(self, task_result: dict) -> dict:
-        """Step 9: deterministic kernel updates based on the task outcome."""
+        """Step 9: deterministic kernel updates from the task outcome.
+
+        Two pieces: record agency (append to agency_log with cap),
+        and apply outcome-driven homeostatic deltas via
+        subia.homeostasis.engine.
+        """
         success = bool(task_result.get("success", True))
         summary = str(task_result.get("summary", ""))[:120]
         # Record agency
@@ -502,7 +501,15 @@ class SubIALoop:
         # Cap log size
         if len(self.kernel.self_state.agency_log) > 200:
             del self.kernel.self_state.agency_log[:-200]
-        return {"agency_log_len": len(self.kernel.self_state.agency_log)}
+
+        # Apply outcome-driven homeostatic update.
+        from app.subia.homeostasis.engine import update_homeostasis
+        homeo = update_homeostasis(self.kernel, task_result=task_result)
+
+        return {
+            "agency_log_len": len(self.kernel.self_state.agency_log),
+            **{f"homeo_{k}": v for k, v in homeo.items()},
+        }
 
     def _step_consolidate(self, task_result: dict) -> dict:
         """Step 10: consolidator stub.
