@@ -19,6 +19,7 @@ Idle scheduling is opportunistic: it fills dead time between user requests.
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 logger = logging.getLogger(__name__)
