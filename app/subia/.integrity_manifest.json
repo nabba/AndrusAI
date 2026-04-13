@@ -52,9 +52,21 @@
       "sha256": "acbf50e5fba7568f6d1a8d8e3ec0bddf630f1a629861c952821dcd935c48d646",
       "size": 4351
     },
+    "app/subia/boundary/__init__.py": {
+      "sha256": "34fe86720f4fe18fda4f41e7388c6d524622c977df744adcf0599c4d63430628",
+      "size": 1179
+    },
+    "app/subia/boundary/classifier.py": {
+      "sha256": "724b73cc0e75a1368af2c6efbb83b5b7bf003d48f1f7ee65ff83bf2b446deb7f",
+      "size": 2710
+    },
+    "app/subia/boundary/differential.py": {
+      "sha256": "0874a575c649f7c0c8288c86d3a3fa50f543d473a47587198cf719f5d988796b",
+      "size": 1896
+    },
     "app/subia/config.py": {
-      "sha256": "7a9ccaabd559508ce752441c053f4d1a679b0281669b61b7f553da442313d1db",
-      "size": 4942
+      "sha256": "7041b68a91015cda4dbbb81a310ec7fc2f9ba825a4c693661d2b06de51926477",
+      "size": 7015
     },
     "app/subia/connections/__init__.py": {
       "sha256": "24ca69df4407e345d9fbfbccdc368a9854af40ed07a5f9be2367070950bb1f09",
@@ -80,6 +92,10 @@
       "sha256": "183c4ea778b86121eb382b32c58d6c1aabc1e02f4ab782322bafbde28a08da19",
       "size": 8616
     },
+    "app/subia/connections/six_proposals_bridges.py": {
+      "sha256": "925c37187836b3bdae9ff47ab1e6298607b99004b7d89e80b0c76a717dfd0f0d",
+      "size": 4922
+    },
     "app/subia/connections/training_signal.py": {
       "sha256": "e9cb6bff71c5cffa93981f922061f9812b33f8bed9a31b048a8ef9ba8413f158",
       "size": 6436
@@ -89,8 +105,8 @@
       "size": 88
     },
     "app/subia/homeostasis/engine.py": {
-      "sha256": "0c66e8b03056d1563f8b6fab315393b24ace2efb22393a602eacd145935a10e8",
-      "size": 8410
+      "sha256": "29c788c60ee88570f0baad4f79298e57ca0a426c83f1d61d6d23e4a7d73c1fb5",
+      "size": 8508
     },
     "app/subia/homeostasis/somatic_bias.py": {
       "sha256": "668136a16c897d9487719fcf03d624a6a9c797ba015e857939fe970819921e81",
@@ -108,13 +124,21 @@
       "sha256": "94e2df574d46daf2f9805af70b5579dbc1f4d96ff0f5de38a66e304ebcce9be1",
       "size": 9350
     },
+    "app/subia/idle/__init__.py": {
+      "sha256": "ce74d997a6c7fce0325f5f9291326959ade74293e7f85ba8be410fc5cc579728",
+      "size": 834
+    },
+    "app/subia/idle/scheduler.py": {
+      "sha256": "752977bdca4e63c724daeae1a2ef421f2fda7088ed8ebdfab470b175b12aa6cf",
+      "size": 2814
+    },
     "app/subia/integrity.py": {
       "sha256": "7c6b6d0bab73c9b684cb20df93594510d067ecd2862692e55499da73f7921e80",
       "size": 9440
     },
     "app/subia/kernel.py": {
-      "sha256": "81e89b7c105eaf8b605e1fdfbf09dc51948b4eff56f295f6fe796898b9972c51",
-      "size": 8475
+      "sha256": "c2194b76180efcfa2269d66aeb0fe96b217ed8592ead27e117b2f793f6eef526",
+      "size": 9427
     },
     "app/subia/live_integration.py": {
       "sha256": "39160ff929d855bc9cb22718c78ab664efa15dabdd7257cfd335cbbf9e8ff3b4",
@@ -147,6 +171,10 @@
     "app/subia/persistence.py": {
       "sha256": "0637867bc51bfa68ce1af0e70823c8524b5394afaf4df483c239257e09a62961",
       "size": 27366
+    },
+    "app/subia/phase12_hooks.py": {
+      "sha256": "58e04974804febe82c1ad43348cd9f0fde776dd34c22db085db6f114bd56b1f9",
+      "size": 2350
     },
     "app/subia/prediction/__init__.py": {
       "sha256": "4bdfbac2f0f354e28e653dc31dac84bd13bb27b30786e1c4423477c8aa2cc1c0",
@@ -231,6 +259,14 @@
     "app/subia/probes/sk.py": {
       "sha256": "ddb4884d5c18115bd4a90964c4ef5035635eadc5e27da7acf563f428cfee8e0e",
       "size": 6854
+    },
+    "app/subia/reverie/__init__.py": {
+      "sha256": "0ae110037b29e086ca33f9417901210470500754b4df769f8fa86216e4cb2025",
+      "size": 786
+    },
+    "app/subia/reverie/engine.py": {
+      "sha256": "719eaa2b0a81fa4e65b4f3863ba4d2b970f3b36959ae94a07db6617a7dd06e38",
+      "size": 7086
     },
     "app/subia/safety/__init__.py": {
       "sha256": "b3293872c109e2dc2ded432802bd114dff7a9d7f6d66e921dad28f2b3e6e1d00",
@@ -324,6 +360,18 @@
       "sha256": "24ea0f319f4b809809520e8eb134e8709b637681b2a50efbbad4e23b9b0b0b8f",
       "size": 4219
     },
+    "app/subia/shadow/__init__.py": {
+      "sha256": "15429395cbf3974693e367972b2bfcc2eb0df736acf03798858453da5de483a1",
+      "size": 784
+    },
+    "app/subia/shadow/biases.py": {
+      "sha256": "bf104b0929ac23597a9307ff805d9155afd48ff91d64f8b8fcc9dea9ff2494c4",
+      "size": 4961
+    },
+    "app/subia/shadow/miner.py": {
+      "sha256": "f6ee06b7a2614883a3d826dbd5558b0498ddd52605056a6342fc604874c0584b",
+      "size": 3991
+    },
     "app/subia/social/__init__.py": {
       "sha256": "dc436eb009ef7530b5d13708fabc1cb0d93dd627a8cb06f37b048a96264b5f29",
       "size": 83
@@ -336,6 +384,26 @@
       "sha256": "778dc05571426469130576883088e1458532e162499e8567c1c58551f6151e62",
       "size": 5171
     },
+    "app/subia/understanding/__init__.py": {
+      "sha256": "365db90e2835d3c7f588fc333361645912fb3a6242e8433504972d15a3c7a7c5",
+      "size": 659
+    },
+    "app/subia/understanding/pass_runner.py": {
+      "sha256": "02299f45e14b8a56f0a2a425cd29c61042da1b28be7a09f305ad779375ec3dc5",
+      "size": 6055
+    },
+    "app/subia/values/__init__.py": {
+      "sha256": "100f0c7c86c05fcf2b6b41127b969dcfc6d5a65d15ff278e25022bbe46ecb130",
+      "size": 1063
+    },
+    "app/subia/values/perceptual_lens.py": {
+      "sha256": "d55bdf1d88969c51ded64ac6e030ee7dc1d8da8a6ab7cd05f9ada72f2bb443d8",
+      "size": 3296
+    },
+    "app/subia/values/resonance.py": {
+      "sha256": "bbe18cc7618c69e6ef5f13cc49ea91db28db707d570bbb7efa9fc81e4154d0ed",
+      "size": 3847
+    },
     "app/subia/wiki_surface/__init__.py": {
       "sha256": "80133232f47be47767f6c42328d56a025b7dbf91b1b55932ed7dc1c48fb54161",
       "size": 89
@@ -347,6 +415,18 @@
     "app/subia/wiki_surface/drift_detection.py": {
       "sha256": "22aa63fbb0380b76454ad879421508aa899f67514b1f9a805cc29a5e6e9dbaa7",
       "size": 9747
+    },
+    "app/subia/wonder/__init__.py": {
+      "sha256": "1c6235a55a8d26f00cd29f9270aa12a0e4e128cd33345251890b618bf2675de5",
+      "size": 1048
+    },
+    "app/subia/wonder/detector.py": {
+      "sha256": "fa35a43fcbdf3c674223ac0a356d4e4882832d2906bdf6d525e1831eba0568be",
+      "size": 3411
+    },
+    "app/subia/wonder/register.py": {
+      "sha256": "5159eb4e0a115571e2bdd80082b455d50f07b3bc5f88228f5616f7a6f40f8f3e",
+      "size": 2777
     }
   },
   "version": 1

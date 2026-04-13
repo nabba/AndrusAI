@@ -42,6 +42,16 @@ class SceneItem:
     conflicts_with: list = field(default_factory=list)
     action_options: list = field(default_factory=list)
     tier: str = "focal"          # 'focal' | 'peripheral'
+    # Phase 12 — Boundary Sense (Proposal 5): phenomenological origin.
+    # Optional and defaulted None for backward-compat; populated by
+    # `app.subia.boundary.classifier.classify_scene_item()` at scene
+    # admission. Downstream consumers (consolidator, homeostasis, value
+    # resonance) treat None as "unclassified" and route conservatively.
+    processing_mode: Optional[str] = None
+    # Phase 12 — Wonder Register (Proposal 4): per-item depth signal.
+    # Set by understanding+wonder pipeline; freezes salience decay when
+    # > WONDER_FREEZE_THRESHOLD.
+    wonder_intensity: float = 0.0
 
 
 # ── Self-state ───────────────────────────────────────────────────────
@@ -76,6 +86,11 @@ class SelfState:
     })
     autobiographical_pointers: list = field(default_factory=list)
     agency_log: list = field(default_factory=list)
+    # Phase 12 — Shadow Self (Proposal 3) writes here. Distinct from
+    # `limitations` so the discovered-via-behavior layer is structurally
+    # separated from declared/known limitations. Append-only at the
+    # bridge level (see app.subia.connections.six_proposals_bridges).
+    discovered_limitations: list = field(default_factory=list)
 
 
 # ── Homeostasis ──────────────────────────────────────────────────────

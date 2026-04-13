@@ -65,11 +65,12 @@ def ensure_variables(kernel: SubjectivityKernel) -> None:
     """
     h = kernel.homeostasis
     default_sp = float(SUBIA_CONFIG["HOMEOSTATIC_DEFAULT_SETPOINT"])
+    overrides = SUBIA_CONFIG.get("HOMEOSTATIC_SETPOINT_OVERRIDES", {})
     for var in SUBIA_CONFIG["HOMEOSTATIC_VARIABLES"]:
         if var not in h.variables:
             h.variables[var] = _INITIAL_VALUE
         if var not in h.set_points:
-            h.set_points[var] = default_sp
+            h.set_points[var] = float(overrides.get(var, default_sp))
 
 
 def update_homeostasis(

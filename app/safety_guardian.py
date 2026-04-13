@@ -159,6 +159,27 @@ TIER3_FILES = [
     "app/subia/connections/firecrawl_predictor.py",  # Phase 10 SIA #6
     "app/subia/connections/dgm_felt_constraint.py",  # Phase 10 SIA #7
     "app/subia/connections/service_health.py",   # Phase 10 circuit-breaker
+    # ── Phase 12 — Six Proposals integration ─────────────────────────
+    "app/subia/boundary/__init__.py",
+    "app/subia/boundary/classifier.py",          # Phase 12 Proposal 5
+    "app/subia/boundary/differential.py",        # Phase 12 Proposal 5
+    "app/subia/wonder/__init__.py",
+    "app/subia/wonder/detector.py",              # Phase 12 Proposal 4 (depth weights)
+    "app/subia/wonder/register.py",              # Phase 12 Proposal 4 (closed-loop)
+    "app/subia/values/__init__.py",
+    "app/subia/values/resonance.py",             # Phase 12 Proposal 6 (keyword weights)
+    "app/subia/values/perceptual_lens.py",       # Phase 12 Proposal 6 (Phronesis lenses)
+    "app/subia/reverie/__init__.py",
+    "app/subia/reverie/engine.py",               # Phase 12 Proposal 1
+    "app/subia/understanding/__init__.py",
+    "app/subia/understanding/pass_runner.py",    # Phase 12 Proposal 2
+    "app/subia/shadow/__init__.py",
+    "app/subia/shadow/biases.py",                # Phase 12 Proposal 3
+    "app/subia/shadow/miner.py",                 # Phase 12 Proposal 3
+    "app/subia/idle/__init__.py",
+    "app/subia/idle/scheduler.py",               # Phase 12 idle dispatch
+    "app/subia/phase12_hooks.py",                # Phase 12 hot-path hooks
+    "app/subia/connections/six_proposals_bridges.py",  # Phase 12 inter-proposal bridges
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

@@ -62,8 +62,44 @@ SUBIA_CONFIG: dict = {
         "novelty_balance",
         "social_alignment",
         "commitment_load",
+        # Phase 12 (Six Proposals): epistemic-affect + identity-integrity.
+        "wonder",            # Proposal 4 — depth-sensitive epistemic affect
+        "self_coherence",    # Proposal 3 — alignment of self-model with behavioral evidence
     ],
     "HOMEOSTATIC_DEFAULT_SETPOINT": 0.5,
+    # Per-variable setpoint overrides. PDS-derivable in production; the
+    # defaults below are doc-grounded placeholders (Proposals §3, §4).
+    "HOMEOSTATIC_SETPOINT_OVERRIDES": {
+        "wonder": 0.4,           # mid-low — wonder is salient when present, not baseline
+        "self_coherence": 0.75,  # high — identity integrity is preferred-state
+    },
+    # Phase 12 — Wonder Register thresholds (Proposal 4 §4.2).
+    "WONDER_INHIBIT_THRESHOLD": 0.3,   # above this, task-completion is inhibited
+    "WONDER_EVENT_THRESHOLD":   0.7,   # above this, store as Mem0 curated wonder_event
+    "WONDER_FREEZE_THRESHOLD":  0.5,   # above this, scene salience decay is suspended for the item
+    # Phase 12 — Value Resonance salience boost (Proposal 6 §6.2).
+    "VALUE_RESONANCE_SALIENCE_BOOST": 0.15,
+    # Phase 12 — Boundary Sense source→mode mapping (Proposal 5 §5.1).
+    # Externalised so DGM cannot retag introspective sources as perceptual.
+    "BOUNDARY_MODE_MAP": {
+        "wiki/self":              "introspective",
+        "wiki/self/":             "introspective",
+        "homeostasis":            "introspective",
+        "self_state":             "introspective",
+        "mem0":                   "memorial",
+        "mem0_curated":           "memorial",
+        "mem0_full":              "memorial",
+        "memory":                 "memorial",
+        "firecrawl":              "perceptual",
+        "raw":                    "perceptual",
+        "user":                   "perceptual",
+        "agent":                  "perceptual",
+        "fiction_inspiration":    "imaginative",
+        "reverie":                "imaginative",
+        "wiki/meta/reverie":      "imaginative",
+        "social_model":           "social",
+        "internal":               "introspective",
+    },
     "HOMEOSTATIC_DEVIATION_THRESHOLD": 0.3,
 
     # ── Prediction ───────────────────────────────────────────────────
