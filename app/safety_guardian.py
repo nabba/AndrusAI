@@ -134,6 +134,9 @@ TIER3_FILES = [
     "app/subia/prediction/llm_predict.py",       # Phase 4 live LLM predict_fn
     "app/subia/homeostasis/engine.py",           # Phase 4 homeostatic arithmetic
     "app/subia/live_integration.py",             # Phase 4 feature-flagged wire-in
+    "app/subia/scene/tiers.py",                  # Phase 5 three-tier + orphan guard
+    "app/subia/scene/strategic_scan.py",         # Phase 5 wide-view scan
+    "app/subia/scene/compact_context.py",        # Phase 5 compact injection (B.5)
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

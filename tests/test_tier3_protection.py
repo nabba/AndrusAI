@@ -175,6 +175,21 @@ class TestTier3Coverage:
         ):
             assert path in TIER3_FILES, f"not protected: {path}"
 
+    def test_phase5_scene_upgrades_protected(self):
+        """Phase 5 scene upgrades: tier builder, commitment-orphan
+        protection, strategic scan, compact context all Tier-3. An
+        agent-modifiable tier builder could silently downgrade an
+        orphaned commitment; an agent-modifiable scan could hide
+        items it doesn't want surfaced.
+        """
+        from app.safety_guardian import TIER3_FILES
+        for path in (
+            "app/subia/scene/tiers.py",
+            "app/subia/scene/strategic_scan.py",
+            "app/subia/scene/compact_context.py",
+        ):
+            assert path in TIER3_FILES, f"not protected: {path}"
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.

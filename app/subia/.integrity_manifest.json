@@ -93,8 +93,8 @@
       "size": 8472
     },
     "app/subia/loop.py": {
-      "sha256": "ad90c5a0c47b116e26186c2c51415c8bd6c6160b828e112b02d28a50cd12ac20",
-      "size": 24458
+      "sha256": "66d51a00c1e687eb7a335b0ccb4206ec39e524ede723b01665ed1af4f5868e9b",
+      "size": 27838
     },
     "app/subia/memory/__init__.py": {
       "sha256": "f0074922981104b9498b0b4fccd4ffcb071e9951d6797cd147f302ba4354df8d",
@@ -188,6 +188,10 @@
       "sha256": "c92c3d880e07097dc86c947ec183f3386e9b00bb224cabbb65de000b1dff5195",
       "size": 13344
     },
+    "app/subia/scene/compact_context.py": {
+      "sha256": "55cee6e6a157a0aad01f141188427271e713af46b3981def7974ae6f383e3048",
+      "size": 6647
+    },
     "app/subia/scene/global_workspace.py": {
       "sha256": "d9d865553c2470a4cc5b8e23fb811c3ba28357074441d2cdb043f3afbf29acdb",
       "size": 7442
@@ -203,6 +207,14 @@
     "app/subia/scene/personality_workspace.py": {
       "sha256": "cd6c6324ee6d3978f543114e8d77c8802b6978b6f521e5f9192e58a7a42ea75f",
       "size": 5322
+    },
+    "app/subia/scene/strategic_scan.py": {
+      "sha256": "6b1edb6a28b0bff05b6a45d39c5204f24d1c62e905af4504d4d3d9c5b856cc1e",
+      "size": 8586
+    },
+    "app/subia/scene/tiers.py": {
+      "sha256": "7ea6cee6542ed2607ccdab11bf11fea134d773cb114165807c75bdfb53906dff",
+      "size": 12543
     },
     "app/subia/self/__init__.py": {
       "sha256": "31983ea5c1fdb13d817c6f6d1d3d3e9a7e885512834176759acbdacc534971e4",

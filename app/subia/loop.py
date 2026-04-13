@@ -49,6 +49,17 @@ from app.subia.kernel import (
 logger = logging.getLogger(__name__)
 
 
+class _NullLock:
+    """Fallback context manager when a gate has no _lock attribute
+    (e.g. tests with stub gates). Never raises.
+    """
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
 # ── Result types ───────────────────────────────────────────────────
 
 @dataclass
@@ -341,14 +352,25 @@ class SubIALoop:
         )
 
     def _step_attend(self) -> dict:
-        """Step 3: submit candidates to the scene gate (admits/rejects)."""
+        """Step 3: admissions + Amendment A three-tier attentional build.
+
+        1. Submit each candidate to the gate (focal admissions).
+        2. Build focal + peripheral tiers from the combined
+           active + peripheral pool.
+        3. Enforce commitment-orphan protection: any active
+           commitment without representation is force-injected
+           into peripheral with an alert.
+
+        The tiers are stored on the loop instance so context
+        builders can render them without re-walking the gate.
+        """
         if self._gate is None:
+            self._tiers = None
             return {"gate": "not_attached"}
+
         admitted = 0
         rejected = 0
         for candidate in getattr(self, "_candidates", []):
-            # Translate SceneItem to the buffer's WorkspaceItem shape
-            # lazily; if mismatched types, skip.
             try:
                 result = self._gate.evaluate(candidate)
                 if getattr(result, "admitted", False):
@@ -357,7 +379,42 @@ class SubIALoop:
                     rejected += 1
             except Exception:
                 logger.debug("scene gate evaluate failed", exc_info=True)
-        return {"admitted": admitted, "rejected": rejected}
+
+        # Amendment A: build the three-tier structure from the gate's
+        # current active + peripheral pools. Sort by salience so
+        # focal takes the top N regardless of insertion order.
+        from app.subia.scene.tiers import (
+            build_attentional_tiers,
+            protect_commitment_items,
+        )
+        try:
+            with getattr(self._gate, "_lock", _NullLock()):
+                pool = list(getattr(self._gate, "_active", []))
+                pool.extend(getattr(self._gate, "_peripheral", []))
+        except Exception:
+            pool = []
+        pool.sort(
+            key=lambda i: float(getattr(i, "salience_score", 0.0)),
+            reverse=True,
+        )
+
+        tiers = build_attentional_tiers(pool)
+        # Commitment-orphan protection
+        tiers = protect_commitment_items(
+            tiers,
+            scored_items=pool,
+            commitments=getattr(self.kernel.self_state,
+                                "active_commitments", []),
+        )
+        self._tiers = tiers
+
+        return {
+            "admitted": admitted,
+            "rejected": rejected,
+            "focal": len(tiers.focal),
+            "peripheral": len(tiers.peripheral),
+            "alerts": len(tiers.peripheral_alerts),
+        }
 
     def _step_own(self) -> dict:
         """Step 4: tag admitted items with ownership — deterministic."""
@@ -544,19 +601,37 @@ class SubIALoop:
     # ── Context injection ────────────────────────────────────────
 
     def _build_compressed_context(self) -> dict:
-        """Context block for compressed loop: scene digest only."""
-        return {
-            "scene_summary": [
-                {"summary": getattr(i, "summary", "")[:60],
-                 "salience": round(getattr(i, "salience", 0.0), 2)}
-                for i in self.kernel.focal_scene()
-            ],
+        """Context block for compressed loop.
+
+        Carries the three-tier structure if Step 3 built it, plus a
+        compact render under the `compact` key so callers can inject
+        a ~120-token string directly (Amendment B.5).
+        """
+        tiers = getattr(self, "_tiers", None)
+        scene_summary = [
+            {"summary": str(
+                getattr(i, "content", "") or getattr(i, "summary", "")
+            )[:60],
+             "salience": round(
+                float(getattr(i, "salience_score", 0.0)
+                      or getattr(i, "salience", 0.0)), 2,
+             )}
+            for i in (tiers.focal if tiers else [])
+        ]
+        ctx: dict = {
+            "scene_summary": scene_summary,
             "loop_type": "compressed",
         }
+        if tiers is not None:
+            ctx["tiers"] = tiers.to_dict()
+            ctx["peripheral_alerts"] = list(tiers.peripheral_alerts)
+        ctx["compact"] = self._render_compact_block()
+        return ctx
 
     def _build_full_context(self) -> dict:
-        """Context block for full loop: scene, affect, prediction,
-        cascade recommendation, dispatch verdict.
+        """Context block for full loop: tiers, affect, prediction,
+        cascade recommendation, dispatch verdict. Also emits compact
+        text block via Amendment B.5.
         """
         ctx = self._build_compressed_context()
         ctx["loop_type"] = "full"
@@ -565,6 +640,7 @@ class SubIALoop:
             ctx["prediction"] = {
                 "confidence": round(getattr(last_pred, "confidence", 0.5), 2),
                 "expected": getattr(last_pred, "predicted_outcome", {}),
+                "cached": bool(getattr(last_pred, "cached", False)),
             }
         ctx["cascade_recommendation"] = getattr(
             self, "_cascade_recommendation", "maintain",
@@ -582,7 +658,24 @@ class SubIALoop:
         }
         if over_threshold:
             ctx["homeostatic_deviations"] = over_threshold
+        # Refresh compact block so it reflects the full ctx.
+        ctx["compact"] = self._render_compact_block()
         return ctx
+
+    def _render_compact_block(self) -> str:
+        """Build the Amendment B.5 compact text block."""
+        from app.subia.scene.compact_context import build_compact_context
+        last_pred = self.kernel.predictions[-1] if self.kernel.predictions else None
+        return build_compact_context(
+            tiers=getattr(self, "_tiers", None),
+            homeostasis=self.kernel.homeostasis,
+            prediction=last_pred,
+            meta_state=self.kernel.meta_monitor,
+            cascade_recommendation=getattr(
+                self, "_cascade_recommendation", "maintain",
+            ),
+            dispatch=getattr(self, "_dispatch_decision", None),
+        )
 
     # ── Plumbing: step runner with error containment ─────────────
 
