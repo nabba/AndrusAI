@@ -89,6 +89,16 @@ class TestTier3Coverage:
         from app.safety_guardian import TIER3_FILES
         assert "app/subia/prediction/surprise_routing.py" in TIER3_FILES
 
+    def test_phase2_hot3_closure_protected(self):
+        """Phase 2 HOT-3 half-circuit closure: dispatch_gate must be
+        Tier-3. It is the policy module that decides whether consulted
+        beliefs ALLOW, ESCALATE, or BLOCK crew dispatch. Agent-modifiable
+        gating policy would let the Self-Improver weaken its own
+        refusal criteria.
+        """
+        from app.safety_guardian import TIER3_FILES
+        assert "app/subia/belief/dispatch_gate.py" in TIER3_FILES
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.
