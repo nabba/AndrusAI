@@ -80,6 +80,10 @@
       "sha256": "d0193509655098fbcaab70f40d17e2385ead34e00fcac7c7ae11b1588bfbc9fc",
       "size": 4980
     },
+    "app/subia/connections/grounding_chat_bridge.py": {
+      "sha256": "c543c4e64c21ee4164bd43c7b0306384e32423600b7215a6b46094e173851e09",
+      "size": 3027
+    },
     "app/subia/connections/pds_bridge.py": {
       "sha256": "8cbe767bcf9f0170c777d1a0e0a4f3b733d2478a2da52cece948562cd7a3de41",
       "size": 7496
@@ -107,6 +111,38 @@
     "app/subia/connections/tsal_subia_bridge.py": {
       "sha256": "36db50a2061b68172190fa4f93e47440cc2f704b5ceaf62254a23f86c2a3a5f6",
       "size": 6216
+    },
+    "app/subia/grounding/__init__.py": {
+      "sha256": "b13f835a4cc17ce439c65fef571caaa63ff5ddfb00a33e3a620d5b9da9ac918f",
+      "size": 2939
+    },
+    "app/subia/grounding/belief_adapter.py": {
+      "sha256": "4105f04e3aaf4432c23211c462d6b44f0070caa43ad10c21745f2de9497620a9",
+      "size": 9644
+    },
+    "app/subia/grounding/claims.py": {
+      "sha256": "5e12baf46c95c8c34570bf5340aa1d98761e15d7f571820f2a1dc890b70d9f22",
+      "size": 5224
+    },
+    "app/subia/grounding/correction.py": {
+      "sha256": "60fec51f0edf95a82edbcc9688a5590f710c962cce60374358f0751be7e74f14",
+      "size": 11727
+    },
+    "app/subia/grounding/evidence.py": {
+      "sha256": "41fced9e30df5e7b47ee5e48a2fb3ca9fef6c8596296ab4e8457af4b616b1ef3",
+      "size": 6161
+    },
+    "app/subia/grounding/pipeline.py": {
+      "sha256": "045aa8e7a5aa0585398d3d16a6486f6cc4031978ff2ca239daaf22056823e41e",
+      "size": 7704
+    },
+    "app/subia/grounding/rewriter.py": {
+      "sha256": "df23165bf1ca222f0dd3696991a79cd18c2e1f4d63debbc5ecdcc3757f179945",
+      "size": 4254
+    },
+    "app/subia/grounding/source_registry.py": {
+      "sha256": "9ad8d5affd1e65036013f39e20fb3c507e647abe5c6562bb758851d08cd9a16e",
+      "size": 4765
     },
     "app/subia/homeostasis/__init__.py": {
       "sha256": "09bd8383f16149b2d3edfb6c762f6eac3325dedd7b40af25180d61271e9c057f",

@@ -202,6 +202,16 @@ TIER3_FILES = [
     "app/subia/temporal/context.py",           # TemporalContext aggregate
     "app/subia/temporal_hooks.py",             # CIL hot-path entry points
     "app/subia/connections/temporal_subia_bridge.py",  # 5 closed-loop bridges
+    # ── Phase 15 — Factual Grounding & Correction Memory ─────────────
+    "app/subia/grounding/__init__.py",
+    "app/subia/grounding/claims.py",                # claim extractor (regex weights)
+    "app/subia/grounding/source_registry.py",       # authoritative source map
+    "app/subia/grounding/evidence.py",              # decision logic
+    "app/subia/grounding/rewriter.py",              # response transformer
+    "app/subia/grounding/correction.py",            # correction patterns + persist
+    "app/subia/grounding/pipeline.py",              # public orchestrator
+    "app/subia/grounding/belief_adapter.py",        # adapter interface
+    "app/subia/connections/grounding_chat_bridge.py",  # feature-flagged hook
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",
