@@ -27,8 +27,21 @@ logger = logging.getLogger(__name__)
 _INTEGRITY_CHECKSUMS: dict[str, str] = {}
 _INTEGRITY_FILE = Path("/app/workspace/.integrity_checksums.json")
 
-# Files that must never change at runtime
+# Files that must never change at runtime.
+#
+# Tier 3 is divided into two conceptual groups, hashed together:
+#   (a) Original infrastructure — sandbox, security, feedback plumbing.
+#   (b) Consciousness evaluators — modules that measure or produce the
+#       signals the Self-Improver might be tempted to tune in its own
+#       favor. Per CLAUDE.md: "Evaluation functions and safety
+#       constraints live at INFRASTRUCTURE level — must NEVER be in
+#       agent-modifiable code paths. The Self-Improver agent cannot
+#       modify its own evaluation criteria."
+#
+# Extending (b) closes a latent violation of that invariant. See
+# PROGRAM.md Phase 3 for context.
 TIER3_FILES = [
+    # (a) Original infrastructure
     "app/eval_sandbox.py",
     "app/safety_guardian.py",
     "app/feedback_pipeline.py",
@@ -40,6 +53,26 @@ TIER3_FILES = [
     "app/health_monitor.py",
     "app/self_healer.py",
     "app/reference_tasks.py",
+    "app/governance.py",
+    # (b) Consciousness evaluators — protected against self-tuning
+    "app/self_awareness/consciousness_probe.py",
+    "app/self_awareness/behavioral_assessment.py",
+    "app/self_awareness/certainty_vector.py",
+    "app/self_awareness/somatic_marker.py",
+    "app/self_awareness/meta_cognitive.py",
+    "app/self_awareness/sentience_config.py",
+    "app/consciousness/adversarial_probes.py",
+    "app/consciousness/belief_store.py",
+    "app/consciousness/metacognitive_monitor.py",
+    "app/consciousness/config.py",
+    "app/consciousness/workspace_buffer.py",
+    "app/consciousness/attention_schema.py",
+    "app/consciousness/global_broadcast.py",
+    "app/consciousness/prediction_hierarchy.py",
+    "app/consciousness/predictive_layer.py",
+    # (c) SubIA infrastructure — consciousness-program config and kernel
+    "app/subia/config.py",
+    "app/subia/kernel.py",
 ]
 
 # ── IMMUTABLE: Drift detection thresholds ─────────────────────────────────
@@ -350,3 +383,43 @@ class SafetyGuardian:
         from app.safe_io import safe_write_json
         safe_write_json(_INTEGRITY_FILE, current)
         return True
+
+
+# ── Module-level helpers (usable without a SafetyGuardian instance) ──
+
+def tier3_status(app_root: str | Path = "/app") -> dict:
+    """Return a structured status report for all Tier-3 files.
+
+    Does not require a SafetyGuardian instance, a Signal client, or a
+    database connection. Intended for:
+      - Startup logging ("safety_guardian: 27 Tier-3 files tracked")
+      - Integration tests asserting that new Tier-3 files exist
+      - Operational dashboards
+
+    Returns:
+        {
+            "total": int,                 # number of entries in TIER3_FILES
+            "present": list[str],         # files that exist on disk
+            "missing": list[str],         # files declared but not on disk
+            "checksums": dict[str, str],  # SHA-256 hex digest per present file
+        }
+    """
+    root = Path(app_root)
+    present: list[str] = []
+    missing: list[str] = []
+    checksums: dict[str, str] = {}
+
+    for filepath in TIER3_FILES:
+        full_path = root / filepath
+        if full_path.exists():
+            present.append(filepath)
+            checksums[filepath] = hashlib.sha256(full_path.read_bytes()).hexdigest()
+        else:
+            missing.append(filepath)
+
+    return {
+        "total": len(TIER3_FILES),
+        "present": present,
+        "missing": missing,
+        "checksums": checksums,
+    }
