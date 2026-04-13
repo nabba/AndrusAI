@@ -253,8 +253,8 @@
       "size": 19393
     },
     "app/subia/probes/indicator_result.py": {
-      "sha256": "2e934e5aaef1476622864458c364ac2d2bab1dfe2ded0fc9f2276523c34e6312",
-      "size": 7055
+      "sha256": "7b38d98bab77bd87c6a326197ff63d3004ee17f0e7a67b6b222d431402b052c8",
+      "size": 9130
     },
     "app/subia/probes/rsm.py": {
       "sha256": "5596f406bd0c236d35173e5f94aac392f4a0b43006bb694ad8a65ef5ad3321d9",
