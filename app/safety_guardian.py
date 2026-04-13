@@ -139,6 +139,10 @@ TIER3_FILES = [
     "app/subia/scene/compact_context.py",        # Phase 5 compact injection (B.5)
     "app/subia/prediction/accuracy_tracker.py",  # Phase 6 per-domain accuracy
     "app/subia/prediction/cascade.py",           # Phase 6 escalation policy
+    "app/subia/memory/consolidator.py",          # Phase 7 dual-tier write
+    "app/subia/memory/dual_tier.py",             # Phase 7 differentiated access
+    "app/subia/memory/spontaneous.py",           # Phase 7 associative surfacing
+    "app/subia/memory/retrospective.py",         # Phase 7 retrospective promotion
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

@@ -175,6 +175,9 @@ class SubIALoop:
         dispatch_decider: Callable[..., Any] | None = None,
         hedger: Callable[..., tuple] | None = None,
         accuracy_tracker: Any | None = None,
+        mem0_curated: Any | None = None,
+        mem0_full: Any | None = None,
+        neo4j_client: Any | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
         self.kernel = kernel
@@ -186,6 +189,9 @@ class SubIALoop:
         self._dispatch_decider = dispatch_decider
         self._hedger = hedger
         self._accuracy_tracker = accuracy_tracker
+        self._mem0_curated = mem0_curated
+        self._mem0_full = mem0_full
+        self._neo4j_client = neo4j_client
         self._now = now
         self._current_domain = ""   # set in pre_task; read by cascade step
 
@@ -312,9 +318,13 @@ class SubIALoop:
             self.kernel.touch()
             return result
 
-        # Step 10: CONSOLIDATE (stub — implemented in Phase 7)
+        # Step 10: CONSOLIDATE (Phase 7 — dual-tier memory)
         self._run(result, "10_consolidate",
-                  lambda: self._step_consolidate(task_result))
+                  lambda: self._step_consolidate(
+                      task_result,
+                      agent_role=agent_role,
+                      operation_type=operation_type,
+                  ))
 
         # Step 11: REFLECT (periodic narrative audit — placeholder)
         self._run(result, "11_reflect", self._step_reflect)
@@ -623,22 +633,58 @@ class SubIALoop:
             **{f"homeo_{k}": v for k, v in homeo.items()},
         }
 
-    def _step_consolidate(self, task_result: dict) -> dict:
-        """Step 10: consolidator stub.
+    def _step_consolidate(
+        self, task_result: dict,
+        *,
+        agent_role: str = "",
+        operation_type: str = "",
+    ) -> dict:
+        """Step 10: dual-tier consolidation (Amendment C.2).
 
-        Full dual-tier memory implementation is Phase 7. For now we
-        stage the task result in the kernel's consolidation buffer
-        so downstream code can see what WOULD be written.
+        Always writes a lightweight record to the full tier (when
+        a client is attached). Writes an enriched episode to the
+        curated tier only when significance > threshold. Neo4j
+        relations are written for curated episodes that pass the
+        relation threshold.
+
+        Callers that don't wire memory clients still get a working
+        loop: the kernel's consolidation_buffer is mirrored so
+        downstream inspection sees the pending episodes.
         """
-        self.kernel.consolidation_buffer.pending_episodes.append(
-            {"result_summary": str(task_result.get("summary", ""))[:200]}
+        from app.subia.memory.consolidator import consolidate
+
+        outcome = consolidate(
+            self.kernel,
+            task_result,
+            agent_role=agent_role,
+            operation_type=operation_type,
+            mem0_curated=self._mem0_curated,
+            mem0_full=self._mem0_full,
+            neo4j_client=self._neo4j_client,
         )
-        # Cap buffer to avoid unbounded growth before Phase 7 drains it.
+
+        # Keep the kernel's pending-episodes buffer in sync so
+        # existing inspection code works unchanged.
+        self.kernel.consolidation_buffer.pending_episodes.append(
+            {
+                "result_summary": str(task_result.get("summary", ""))[:200],
+                "significance": outcome.significance,
+                "wrote_full": outcome.wrote_full,
+                "wrote_curated": outcome.wrote_curated,
+            }
+        )
         if len(self.kernel.consolidation_buffer.pending_episodes) > 100:
             del self.kernel.consolidation_buffer.pending_episodes[:-100]
-        return {"pending_episodes": len(
-            self.kernel.consolidation_buffer.pending_episodes
-        )}
+
+        return {
+            "significance": round(outcome.significance, 3),
+            "wrote_full": outcome.wrote_full,
+            "wrote_curated": outcome.wrote_curated,
+            "relations_written": outcome.relations_written,
+            "pending_episodes": len(
+                self.kernel.consolidation_buffer.pending_episodes
+            ),
+        }
 
     def _step_reflect(self) -> dict:
         """Step 11: periodic self-narrative reflection.

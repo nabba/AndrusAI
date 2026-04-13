@@ -204,6 +204,25 @@ class TestTier3Coverage:
         ):
             assert path in TIER3_FILES, f"not protected: {path}"
 
+    def test_phase7_dual_tier_memory_protected(self):
+        """Phase 7 dual-tier memory: consolidator, dual_tier access,
+        spontaneous surfacing, and retrospective promotion must all
+        be Tier-3. An agent-modifiable consolidator could silently
+        drop significant records; an agent-modifiable dual-tier
+        access could route `recall()` to the full tier (leaking
+        noise into the conscious channel); an agent-modifiable
+        retrospective could promote junk to curated or hide genuinely
+        significant records.
+        """
+        from app.safety_guardian import TIER3_FILES
+        for path in (
+            "app/subia/memory/consolidator.py",
+            "app/subia/memory/dual_tier.py",
+            "app/subia/memory/spontaneous.py",
+            "app/subia/memory/retrospective.py",
+        ):
+            assert path in TIER3_FILES, f"not protected: {path}"
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.
