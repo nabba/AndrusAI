@@ -123,6 +123,7 @@ TIER3_FILES = [
     "app/subia/belief/dispatch_gate.py",         # Phase 2 HOT-3 closure
     "app/subia/belief/response_hedging.py",      # Phase 2 certainty closure
     "app/subia/scene/intervention_guard.py",     # Phase 2 AST-1 DGM verifier
+    "app/subia/prediction/injection_harness.py", # Phase 2 PH-injection A/B
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

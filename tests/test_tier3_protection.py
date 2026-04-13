@@ -117,6 +117,16 @@ class TestTier3Coverage:
         from app.safety_guardian import TIER3_FILES
         assert "app/subia/scene/intervention_guard.py" in TIER3_FILES
 
+    def test_phase2_injection_harness_protected(self):
+        """Phase 2 prediction-hierarchy injection A/B harness: the
+        measurement module that certifies injection actually shifts
+        output must be Tier-3. If agent-modifiable, the Self-Improver
+        could patch the threshold to always PASS and hide a dead
+        injection path.
+        """
+        from app.safety_guardian import TIER3_FILES
+        assert "app/subia/prediction/injection_harness.py" in TIER3_FILES
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.
