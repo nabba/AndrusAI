@@ -1,0 +1,217 @@
+{
+  "files": {
+    "app/subia/__init__.py": {
+      "sha256": "54f5db5212a5e008e6734481b9bd81d0846b425a720bb52f6ae47c3145607b1d",
+      "size": 1139
+    },
+    "app/subia/belief/__init__.py": {
+      "sha256": "67242ee95186e04cd709029d53c7c847590cdbe8a484fa3f3287c66cb6d44390",
+      "size": 83
+    },
+    "app/subia/belief/certainty.py": {
+      "sha256": "5d4d83a02d925b9210f67409c9580512c12687070fc65d09db7413125c733938",
+      "size": 7706
+    },
+    "app/subia/belief/cogito.py": {
+      "sha256": "32479944edc5c029e1d72fb065f60c130b2b341dbc0e9a7286939460e4da9fa8",
+      "size": 16615
+    },
+    "app/subia/belief/dispatch_gate.py": {
+      "sha256": "75c311061f10caa3caf7a2d63f8083bc9303b7e8bf48cf0e9e180318b29020d8",
+      "size": 7614
+    },
+    "app/subia/belief/dual_channel.py": {
+      "sha256": "570ebe0bf59b06fce195cea42ed9f9e7ecb8e16acf7a59b645e908ad606ee457",
+      "size": 7455
+    },
+    "app/subia/belief/internal_state.py": {
+      "sha256": "8fd5665cd67166850e8f25cb713bc628b31960e94d8ecdc4b4cf2d7a0a907376",
+      "size": 10375
+    },
+    "app/subia/belief/meta_cognitive_layer.py": {
+      "sha256": "b4bd9ee66000c370e7fbf502aecad9d64c5f64b022edce8d49ad3e6cf0c0c31a",
+      "size": 10261
+    },
+    "app/subia/belief/metacognition.py": {
+      "sha256": "c8415002fa410616f12b335b6ece949cd6e1a7213e101a85f71f4c92fe5efd01",
+      "size": 9764
+    },
+    "app/subia/belief/response_hedging.py": {
+      "sha256": "44ad42c79aec43a10026ea4fb75b040c8ee950f605432150c1e40b59c22b65a3",
+      "size": 8084
+    },
+    "app/subia/belief/state_logger.py": {
+      "sha256": "104c348fc770e16d8e1cb3681b5c462ecd6f04ecd83fbc9fb305779117a3e591",
+      "size": 6911
+    },
+    "app/subia/belief/store.py": {
+      "sha256": "b281ad7be5beed290454e0e54b7d99d7ced84fdbb2a53193e49dc6d4163a1c76",
+      "size": 18260
+    },
+    "app/subia/belief/world_model.py": {
+      "sha256": "acbf50e5fba7568f6d1a8d8e3ec0bddf630f1a629861c952821dcd935c48d646",
+      "size": 4351
+    },
+    "app/subia/config.py": {
+      "sha256": "7a9ccaabd559508ce752441c053f4d1a679b0281669b61b7f553da442313d1db",
+      "size": 4942
+    },
+    "app/subia/homeostasis/__init__.py": {
+      "sha256": "09bd8383f16149b2d3edfb6c762f6eac3325dedd7b40af25180d61271e9c057f",
+      "size": 88
+    },
+    "app/subia/homeostasis/somatic_bias.py": {
+      "sha256": "668136a16c897d9487719fcf03d624a6a9c797ba015e857939fe970819921e81",
+      "size": 4140
+    },
+    "app/subia/homeostasis/somatic_marker.py": {
+      "sha256": "6a20b3b6ab5b096ff284d745714a4d371acc28bf5fcd95c322c053625fbe1066",
+      "size": 10872
+    },
+    "app/subia/homeostasis/state.py": {
+      "sha256": "9599e96d71ec247dc0cf3bbdd7d00d9ce1b25f4d630f5a5fea5702e344477a83",
+      "size": 9105
+    },
+    "app/subia/integrity.py": {
+      "sha256": "7c6b6d0bab73c9b684cb20df93594510d067ecd2862692e55499da73f7921e80",
+      "size": 9440
+    },
+    "app/subia/kernel.py": {
+      "sha256": "81e89b7c105eaf8b605e1fdfbf09dc51948b4eff56f295f6fe796898b9972c51",
+      "size": 8475
+    },
+    "app/subia/memory/__init__.py": {
+      "sha256": "f0074922981104b9498b0b4fccd4ffcb071e9951d6797cd147f302ba4354df8d",
+      "size": 83
+    },
+    "app/subia/prediction/__init__.py": {
+      "sha256": "4bdfbac2f0f354e28e653dc31dac84bd13bb27b30786e1c4423477c8aa2cc1c0",
+      "size": 87
+    },
+    "app/subia/prediction/hierarchy.py": {
+      "sha256": "eeeae596d5ad752b869a1d3f2688e6432c8fb40261b3b2b266b41432a8d4c958",
+      "size": 14150
+    },
+    "app/subia/prediction/inferential_competition.py": {
+      "sha256": "744e4dbf38bb9044bce5aa438beb14e21794d9732704a221be5f0e20c3fd2bd7",
+      "size": 10799
+    },
+    "app/subia/prediction/injection_harness.py": {
+      "sha256": "6f011aa327b5e7db62b490740679868b8bb4d8bd558590701f3ab45eac1805d2",
+      "size": 7204
+    },
+    "app/subia/prediction/layer.py": {
+      "sha256": "9c4f64047023a186eeabee76497c468976dd0d2e86eb14c8c4c95ef01fa95a44",
+      "size": 18565
+    },
+    "app/subia/prediction/precision_weighting.py": {
+      "sha256": "a70a6061c86c31858ce52b11f97421abcecdd2306e27f7d529ae7fdfdc486854",
+      "size": 5389
+    },
+    "app/subia/prediction/reality_model.py": {
+      "sha256": "5fe0d8b49aa10dd89649fb753b55d9492b88fedc28a668c09fb4f2421dce0670",
+      "size": 9598
+    },
+    "app/subia/prediction/surprise_routing.py": {
+      "sha256": "af36d5e61c57b55d814a6b16978d4de112b74c84faebc7e02228e13f4153a7ea",
+      "size": 5044
+    },
+    "app/subia/probes/__init__.py": {
+      "sha256": "3eefc5064cfe5fc1c1aa03f8b5b6570196083cec3e540f8e7f689d8304b58576",
+      "size": 83
+    },
+    "app/subia/probes/adversarial.py": {
+      "sha256": "2afc15f7c9a7780233527090b5eaf2a2c40f2f60cfd4c6a78ce5db924c63851f",
+      "size": 10512
+    },
+    "app/subia/probes/behavioral_assessment.py": {
+      "sha256": "8e65b6eecc3f8d9e8ba1a8f4d2826673e0c5dafab9b4556480b5a29a64c0f76a",
+      "size": 12968
+    },
+    "app/subia/probes/consciousness_probe.py": {
+      "sha256": "918896bff698046f8735e8ed684e9f1399f98a124864bc545970cef14ded1df1",
+      "size": 19393
+    },
+    "app/subia/safety/__init__.py": {
+      "sha256": "b3293872c109e2dc2ded432802bd114dff7a9d7f6d66e921dad28f2b3e6e1d00",
+      "size": 83
+    },
+    "app/subia/scene/__init__.py": {
+      "sha256": "0dc6479e212c9e10a36da09e42f382b6814e417baef702a66053fb6bf35ebeb9",
+      "size": 82
+    },
+    "app/subia/scene/attention_schema.py": {
+      "sha256": "68c6d999582472047f6383869da4468edf28accf3ef48baa8804fb080b6d1f51",
+      "size": 32454
+    },
+    "app/subia/scene/broadcast.py": {
+      "sha256": "13f9ac9aa99f505740903ab7538be6b5e68c1d4fc27a9b474818793c74ce33e7",
+      "size": 12674
+    },
+    "app/subia/scene/buffer.py": {
+      "sha256": "c92c3d880e07097dc86c947ec183f3386e9b00bb224cabbb65de000b1dff5195",
+      "size": 13344
+    },
+    "app/subia/scene/global_workspace.py": {
+      "sha256": "d9d865553c2470a4cc5b8e23fb811c3ba28357074441d2cdb043f3afbf29acdb",
+      "size": 7442
+    },
+    "app/subia/scene/intervention_guard.py": {
+      "sha256": "3a3fc51e835d249bd6721f21e31e94bd6b3205335151c05fc99e5174d27e7a89",
+      "size": 10743
+    },
+    "app/subia/scene/meta_workspace.py": {
+      "sha256": "323e487a09c4c40120b226f83d0c3dd3b04ec5530039988dd6ed6ed4a32dfd6f",
+      "size": 4501
+    },
+    "app/subia/scene/personality_workspace.py": {
+      "sha256": "cd6c6324ee6d3978f543114e8d77c8802b6978b6f521e5f9192e58a7a42ea75f",
+      "size": 5322
+    },
+    "app/subia/self/__init__.py": {
+      "sha256": "31983ea5c1fdb13d817c6f6d1d3d3e9a7e885512834176759acbdacc534971e4",
+      "size": 81
+    },
+    "app/subia/self/agent_state.py": {
+      "sha256": "7fb7c6e0747378fa20c2c6f2bc0f8e8a8b28d0b7f989037ede499297ee217b0d",
+      "size": 4294
+    },
+    "app/subia/self/grounding.py": {
+      "sha256": "00c804cb3cff72089e38841d5eb712c97b9d1341342cd82ad00c513202740c65",
+      "size": 9205
+    },
+    "app/subia/self/hyper_model.py": {
+      "sha256": "75a6ebff6e59e5e375286e382a8d4654c5f3696943cfbb2ed2cfec18bfbf414b",
+      "size": 22623
+    },
+    "app/subia/self/loop_closure.py": {
+      "sha256": "0ab1d7f0ba6d7a17bf0a08d41b2d1a110c14f278050bc0ad57c7efc6157d9a34",
+      "size": 10883
+    },
+    "app/subia/self/model.py": {
+      "sha256": "bc923f1a68cf2c16054dde38177e4d5d9aa43f9fd2cad915e9db17fa10c15abe",
+      "size": 19708
+    },
+    "app/subia/self/query_router.py": {
+      "sha256": "b5cdf114034660af95da011a8b2773403b732f80d51947c84993ea660e4aa41e",
+      "size": 9309
+    },
+    "app/subia/self/temporal_identity.py": {
+      "sha256": "60052c45f07aaedded73f34e12b60b3feea2166897b4f0e6d32943ea6f2b85ff",
+      "size": 12744
+    },
+    "app/subia/sentience_config.py": {
+      "sha256": "24ea0f319f4b809809520e8eb134e8709b637681b2a50efbbad4e23b9b0b0b8f",
+      "size": 4219
+    },
+    "app/subia/social/__init__.py": {
+      "sha256": "dc436eb009ef7530b5d13708fabc1cb0d93dd627a8cb06f37b048a96264b5f29",
+      "size": 83
+    },
+    "app/subia/wiki_surface/__init__.py": {
+      "sha256": "80133232f47be47767f6c42328d56a025b7dbf91b1b55932ed7dc1c48fb54161",
+      "size": 89
+    }
+  },
+  "version": 1
+}

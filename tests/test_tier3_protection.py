@@ -127,6 +127,15 @@ class TestTier3Coverage:
         from app.safety_guardian import TIER3_FILES
         assert "app/subia/prediction/injection_harness.py" in TIER3_FILES
 
+    def test_phase3_integrity_module_protected(self):
+        """Phase 3 integrity verifier must itself be Tier-3.
+        If the verifier were agent-modifiable, it could be rewritten
+        to always return ok=True, defeating the entire integrity
+        mechanism.
+        """
+        from app.safety_guardian import TIER3_FILES
+        assert "app/subia/integrity.py" in TIER3_FILES
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.
