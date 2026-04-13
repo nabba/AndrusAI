@@ -108,6 +108,15 @@ class TestTier3Coverage:
         from app.safety_guardian import TIER3_FILES
         assert "app/subia/belief/response_hedging.py" in TIER3_FILES
 
+    def test_phase2_ast1_intervention_guard_protected(self):
+        """Phase 2 AST-1 DGM runtime verifier: the module that audits
+        every intervention for DGM compliance must be Tier-3. If
+        agent-modifiable, the Self-Improver could neutralize the
+        verifier to let violating interventions pass silently.
+        """
+        from app.safety_guardian import TIER3_FILES
+        assert "app/subia/scene/intervention_guard.py" in TIER3_FILES
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.
