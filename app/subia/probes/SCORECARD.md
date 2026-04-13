@@ -3,7 +3,7 @@ title: "AndrusAI Consciousness Scorecard"
 section: subia
 page_type: scorecard
 status: active
-generated_at: "2026-04-13T20:52:40.812907+00:00"
+generated_at: "2026-04-13T21:17:38.516485+00:00"
 auto_generated: true
 replaces: reports/andrusai-sentience-verdict.pdf
 ---

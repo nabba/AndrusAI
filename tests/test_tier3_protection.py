@@ -258,6 +258,27 @@ class TestTier3Coverage:
         ):
             assert path in TIER3_FILES, f"not protected: {path}"
 
+    def test_phase10_connections_protected(self):
+        """Phase 10 inter-system bridges must all be Tier-3.
+
+        Agent-modifiable PDS bridge could widen per-loop/per-week
+        caps; agent-modifiable phronesis bridge could zero out
+        normative penalties; agent-modifiable DGM felt-constraint
+        could suppress integrity-drift signals. Each bridge is a
+        single write path to a felt-safety variable and must be
+        infrastructure-level.
+        """
+        from app.safety_guardian import TIER3_FILES
+        for path in (
+            "app/subia/connections/pds_bridge.py",
+            "app/subia/connections/phronesis_bridge.py",
+            "app/subia/connections/training_signal.py",
+            "app/subia/connections/firecrawl_predictor.py",
+            "app/subia/connections/dgm_felt_constraint.py",
+            "app/subia/connections/service_health.py",
+        ):
+            assert path in TIER3_FILES, f"not protected: {path}"
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.

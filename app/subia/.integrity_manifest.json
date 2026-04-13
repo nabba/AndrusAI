@@ -56,6 +56,34 @@
       "sha256": "7a9ccaabd559508ce752441c053f4d1a679b0281669b61b7f553da442313d1db",
       "size": 4942
     },
+    "app/subia/connections/__init__.py": {
+      "sha256": "24ca69df4407e345d9fbfbccdc368a9854af40ed07a5f9be2367070950bb1f09",
+      "size": 65
+    },
+    "app/subia/connections/dgm_felt_constraint.py": {
+      "sha256": "cccaec86467e9de88c0a0f24d80671ccde70ac529fe36677b8269f5df12a0ca4",
+      "size": 7120
+    },
+    "app/subia/connections/firecrawl_predictor.py": {
+      "sha256": "d0193509655098fbcaab70f40d17e2385ead34e00fcac7c7ae11b1588bfbc9fc",
+      "size": 4980
+    },
+    "app/subia/connections/pds_bridge.py": {
+      "sha256": "8cbe767bcf9f0170c777d1a0e0a4f3b733d2478a2da52cece948562cd7a3de41",
+      "size": 7496
+    },
+    "app/subia/connections/phronesis_bridge.py": {
+      "sha256": "9cde96448071d440483473754eb18ba2b2006210f6e7b6fecf707d835b50436b",
+      "size": 4847
+    },
+    "app/subia/connections/service_health.py": {
+      "sha256": "183c4ea778b86121eb382b32c58d6c1aabc1e02f4ab782322bafbde28a08da19",
+      "size": 8616
+    },
+    "app/subia/connections/training_signal.py": {
+      "sha256": "e9cb6bff71c5cffa93981f922061f9812b33f8bed9a31b048a8ef9ba8413f158",
+      "size": 6436
+    },
     "app/subia/homeostasis/__init__.py": {
       "sha256": "09bd8383f16149b2d3edfb6c762f6eac3325dedd7b40af25180d61271e9c057f",
       "size": 88
@@ -93,8 +121,8 @@
       "size": 8472
     },
     "app/subia/loop.py": {
-      "sha256": "299c8f6242a48b4b2f10bf517660ec5ce7f3939c2072064bef125f87f10c87eb",
-      "size": 36400
+      "sha256": "e16aa87d6932a056f8c946c09299031001aef280ec0dc01cce18bff6c881b051",
+      "size": 37907
     },
     "app/subia/memory/__init__.py": {
       "sha256": "f0074922981104b9498b0b4fccd4ffcb071e9951d6797cd147f302ba4354df8d",

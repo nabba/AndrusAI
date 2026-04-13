@@ -807,6 +807,41 @@ class SubIALoop:
             logger.debug("consciousness_state refresh failed",
                          exc_info=True)
 
+        # Phase 10: DGM felt-constraint (SIA #7). Translate Tier-3
+        # integrity + probe FAIL count into a bounded safety delta.
+        try:
+            from app.subia.connections.dgm_felt_constraint import (
+                apply_dgm_felt_constraint,
+            )
+            dgm = apply_dgm_felt_constraint(self.kernel)
+            result["dgm_felt"] = dgm.to_dict()
+        except Exception:
+            logger.debug("dgm_felt_constraint failed", exc_info=True)
+
+        # Phase 10: external-service health → homeostatic signal.
+        try:
+            from app.subia.connections.service_health import (
+                apply_service_health_signal,
+            )
+            health = apply_service_health_signal(self.kernel)
+            result["service_health"] = health
+        except Exception:
+            logger.debug("service_health pump failed", exc_info=True)
+
+        # Phase 10: emit LoRA training signals for sustained-error
+        # domains (SIA #4). Dedupes per-domain within 24h window.
+        try:
+            if self._accuracy_tracker is not None:
+                from app.subia.connections.training_signal import (
+                    get_emitter,
+                )
+                signals = get_emitter().emit_from_tracker(
+                    self._accuracy_tracker, self.kernel.loop_count,
+                )
+                result["training_signals_emitted"] = len(signals)
+        except Exception:
+            logger.debug("training_signal emit failed", exc_info=True)
+
         return result
 
     # ── Context injection ────────────────────────────────────────

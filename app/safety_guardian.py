@@ -152,6 +152,12 @@ TIER3_FILES = [
     "app/subia/probes/rsm.py",                   # Phase 9 RSM signatures
     "app/subia/probes/sk.py",                    # Phase 9 SK evaluations
     "app/subia/probes/scorecard.py",             # Phase 9 aggregator
+    "app/subia/connections/pds_bridge.py",       # Phase 10 SIA #1
+    "app/subia/connections/phronesis_bridge.py", # Phase 10 SIA #2
+    "app/subia/connections/training_signal.py",  # Phase 10 SIA #4
+    "app/subia/connections/firecrawl_predictor.py",  # Phase 10 SIA #6
+    "app/subia/connections/dgm_felt_constraint.py",  # Phase 10 SIA #7
+    "app/subia/connections/service_health.py",   # Phase 10 circuit-breaker
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",
