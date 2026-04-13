@@ -174,6 +174,7 @@ class SubIALoop:
         consult_fn: Callable[..., list] | None = None,
         dispatch_decider: Callable[..., Any] | None = None,
         hedger: Callable[..., tuple] | None = None,
+        accuracy_tracker: Any | None = None,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
         self.kernel = kernel
@@ -184,7 +185,9 @@ class SubIALoop:
         self._consult_fn = consult_fn
         self._dispatch_decider = dispatch_decider
         self._hedger = hedger
+        self._accuracy_tracker = accuracy_tracker
         self._now = now
+        self._current_domain = ""   # set in pre_task; read by cascade step
 
         # Attach gate to predictive_layer so PP-1 routing fires.
         if self._predictive_layer is not None and self._gate is not None:
@@ -218,6 +221,14 @@ class SubIALoop:
             loop_type=loop_type, phase="pre_task", budget_ms=budget_ms,
         )
         t_start = self._now()
+
+        # Phase 6: pin the current domain so Step 5b cascade can look
+        # up sustained-error for this (agent_role, operation_type) pair.
+        try:
+            from app.subia.prediction.accuracy_tracker import domain_key
+            self._current_domain = domain_key(agent_role, operation_type)
+        except Exception:
+            self._current_domain = f"{agent_role}:{operation_type}"
 
         # Step 1: PERCEIVE (deterministic)
         self._run(result, "1_perceive", lambda: self._step_perceive(input_items))
@@ -285,6 +296,7 @@ class SubIALoop:
                   lambda: self._step_compare(
                       agent_role=agent_role,
                       task_description=task_description,
+                      operation_type=operation_type,
                       actual_content=actual_content,
                       actual_embedding=actual_embedding,
                   ))
@@ -448,19 +460,41 @@ class SubIALoop:
         }
 
     def _step_cascade(self) -> dict:
-        """Step 5b: cascade tier modulation — deterministic recommendation."""
+        """Step 5b: cascade tier modulation via subia.prediction.cascade.
+
+        Combines three signals: single-prediction confidence, homeostatic
+        coherence deviation, and per-domain sustained-error flag from
+        the accuracy tracker. See subia/prediction/cascade.py.
+        """
+        from app.subia.prediction.accuracy_tracker import (
+            domain_key,
+            get_tracker,
+        )
+        from app.subia.prediction.cascade import decide_cascade
+
         last_pred = self.kernel.predictions[-1] if self.kernel.predictions else None
-        confidence = getattr(last_pred, "confidence", 0.5) if last_pred else 0.5
-        threshold = float(SUBIA_CONFIG["CASCADE_CONFIDENCE_THRESHOLD"])
-        premium = float(SUBIA_CONFIG["CASCADE_PREMIUM_CONFIDENCE_FLOOR"])
-        if confidence < premium:
-            recommendation = "escalate_premium"
-        elif confidence < threshold:
-            recommendation = "escalate"
-        else:
-            recommendation = "maintain"
-        self._cascade_recommendation = recommendation
-        return {"recommendation": recommendation, "confidence": confidence}
+        confidence = float(getattr(last_pred, "confidence", 0.5) if last_pred else 0.5)
+        coherence_dev = float(
+            self.kernel.homeostasis.deviations.get("coherence", 0.0)
+        )
+        domain = getattr(self, "_current_domain", "")
+        tracker = self._accuracy_tracker or get_tracker()
+        sustained = tracker.has_sustained_error(domain) if domain else False
+
+        decision = decide_cascade(
+            prediction_confidence=confidence,
+            homeostatic_coherence_deviation=coherence_dev,
+            domain=domain,
+            sustained_error=sustained,
+        )
+        self._cascade_recommendation = decision.recommendation
+        self._cascade_decision = decision
+        return {
+            "recommendation": decision.recommendation,
+            "confidence": confidence,
+            "sustained_error": sustained,
+            "reasons": list(decision.reasons),
+        }
 
     def _step_monitor(
         self,
@@ -512,14 +546,20 @@ class SubIALoop:
         *,
         agent_role: str,
         task_description: str,
+        operation_type: str,
         actual_content: str,
         actual_embedding: list[float] | None,
     ) -> dict:
-        """Step 8: prediction-error computation. PP-1 routing fires
-        automatically if the predictive_layer has a gate attached
-        (set in __init__).
+        """Step 8: prediction-error computation + accuracy tracking.
+
+        PP-1 routing fires automatically if the predictive_layer has a
+        gate attached (set in __init__). Phase 6: the resulting error
+        magnitude is also recorded against the per-domain accuracy
+        tracker so subsequent cascade calls can see sustained error.
         """
         if self._predictive_layer is None:
+            # Still record a null outcome so domain accuracy stays honest
+            # when the PP-1 layer is inactive (treat as no signal).
             return {"predictive_layer": "not_attached"}
         try:
             error = self._predictive_layer.predict_and_compare(
@@ -532,6 +572,21 @@ class SubIALoop:
             logger.debug("predictive_layer.predict_and_compare failed",
                          exc_info=True)
             return {"error": "predict_and_compare_failed"}
+
+        # Phase 6: feed the per-domain accuracy tracker.
+        try:
+            from app.subia.prediction.accuracy_tracker import (
+                domain_key,
+                get_tracker,
+            )
+            tracker = self._accuracy_tracker or get_tracker()
+            tracker.record_outcome(
+                domain_key(agent_role, operation_type),
+                float(getattr(error, "error_magnitude", 0.5)),
+            )
+        except Exception:
+            logger.debug("accuracy_tracker record_outcome failed",
+                         exc_info=True)
 
         return {
             "error_magnitude": getattr(error, "error_magnitude", 0.0),

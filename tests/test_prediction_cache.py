@@ -176,10 +176,13 @@ class TestHitRate:
     def test_stats_shape(self):
         cache = PredictionCache()
         stats = cache.stats()
-        assert set(stats) == {
+        # Phase 6 added accuracy_evictions + eviction_floor to the shape.
+        required = {
             "entries", "hits", "misses", "hit_rate",
             "max_entries", "min_uses",
+            "accuracy_evictions", "eviction_floor",
         }
+        assert required.issubset(set(stats))
 
 
 # ── cached_predict_fn wrapper ───────────────────────────────────

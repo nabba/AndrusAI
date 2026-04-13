@@ -190,6 +190,20 @@ class TestTier3Coverage:
         ):
             assert path in TIER3_FILES, f"not protected: {path}"
 
+    def test_phase6_prediction_refinements_protected(self):
+        """Phase 6 prediction refinements: accuracy_tracker and cascade
+        policy must be Tier-3. An agent-modifiable accuracy_tracker
+        could silently report false high accuracy and prevent cascade
+        escalation on genuinely failing domains; an agent-modifiable
+        cascade policy could be rewritten to never escalate.
+        """
+        from app.safety_guardian import TIER3_FILES
+        for path in (
+            "app/subia/prediction/accuracy_tracker.py",
+            "app/subia/prediction/cascade.py",
+        ):
+            assert path in TIER3_FILES, f"not protected: {path}"
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.

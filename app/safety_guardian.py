@@ -137,6 +137,8 @@ TIER3_FILES = [
     "app/subia/scene/tiers.py",                  # Phase 5 three-tier + orphan guard
     "app/subia/scene/strategic_scan.py",         # Phase 5 wide-view scan
     "app/subia/scene/compact_context.py",        # Phase 5 compact injection (B.5)
+    "app/subia/prediction/accuracy_tracker.py",  # Phase 6 per-domain accuracy
+    "app/subia/prediction/cascade.py",           # Phase 6 escalation policy
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

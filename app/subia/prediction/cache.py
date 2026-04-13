@@ -67,6 +67,8 @@ class PredictionCache:
         max_entries: int | None = None,
         min_uses: int | None = None,
         confidence_dampener: float = 1.0,
+        eviction_floor: float = 0.30,
+        eviction_min_uses: int = 5,
     ) -> None:
         self._entries: dict[str, _Entry] = {}
         self.max_entries = int(
@@ -78,8 +80,12 @@ class PredictionCache:
             else SUBIA_CONFIG["PREDICTION_CACHE_MIN_USES"]
         )
         self.confidence_dampener = float(confidence_dampener)
+        self._eviction_floor = float(eviction_floor)
+        self._eviction_min_uses = int(eviction_min_uses)
         self.hit_count = 0
         self.miss_count = 0
+        # Phase 6: count of entries evicted due to sustained low accuracy.
+        self.accuracy_evictions = 0
 
     # ── Signature ────────────────────────────────────────────────
 
@@ -139,7 +145,10 @@ class PredictionCache:
         """Feed back an observed accuracy (1 - error) for the entry.
 
         Rolling alpha-0.3 EMA. Kept cheap — called from the
-        consolidator or the post-task step.
+        consolidator or the post-task step. Phase 6: entries whose
+        recent_accuracy falls below `bad_accuracy_evict_floor` are
+        evicted so the next call goes through the live LLM and
+        refreshes the template.
         """
         entry = self._entries.get(signature)
         if entry is None:
@@ -147,6 +156,25 @@ class PredictionCache:
         alpha = 0.3
         new_accuracy = max(0.0, min(1.0, float(observed_accuracy)))
         entry.recent_accuracy = (1 - alpha) * entry.recent_accuracy + alpha * new_accuracy
+
+        # Phase 6: accuracy-driven eviction. A cache entry that
+        # keeps producing bad predictions must be refreshed from
+        # live LLM. Only evict after the entry has been tested
+        # enough times to be statistically meaningful.
+        if (
+            entry.use_count >= self._eviction_min_uses
+            and entry.recent_accuracy < self._eviction_floor
+        ):
+            logger.info(
+                "prediction_cache: accuracy-eviction for signature=%s "
+                "(recent_accuracy=%.3f < floor=%.3f, use_count=%d)",
+                signature, entry.recent_accuracy,
+                self._eviction_floor, entry.use_count,
+            )
+            self._entries.pop(signature, None)
+            self.accuracy_evictions = getattr(
+                self, "accuracy_evictions", 0,
+            ) + 1
 
     # ── Metrics ──────────────────────────────────────────────────
 
@@ -165,6 +193,8 @@ class PredictionCache:
             "hit_rate":  round(self.hit_rate, 4),
             "max_entries": self.max_entries,
             "min_uses":  self.min_uses,
+            "accuracy_evictions": self.accuracy_evictions,
+            "eviction_floor":     self._eviction_floor,
         }
 
     def clear(self) -> None:
