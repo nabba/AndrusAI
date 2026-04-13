@@ -240,6 +240,24 @@ class TestTier3Coverage:
         ):
             assert path in TIER3_FILES, f"not protected: {path}"
 
+    def test_phase9_scorecard_protected(self):
+        """Phase 9 scorecard evaluators must all be Tier-3.
+
+        An agent-modifiable scorecard is an evaluation function in
+        the CLAUDE.md sense. If the Self-Improver could rewrite
+        butlin.eval_pp1() to always return STRONG, the scorecard's
+        entire integrity guarantee collapses.
+        """
+        from app.safety_guardian import TIER3_FILES
+        for path in (
+            "app/subia/probes/indicator_result.py",
+            "app/subia/probes/butlin.py",
+            "app/subia/probes/rsm.py",
+            "app/subia/probes/sk.py",
+            "app/subia/probes/scorecard.py",
+        ):
+            assert path in TIER3_FILES, f"not protected: {path}"
+
     def test_phase1_migrations_protected(self):
         """Migrated modules (Phase 1) are protected at the NEW canonical path.
         Old shim paths remain in TIER3_FILES to protect the redirection.

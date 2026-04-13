@@ -147,6 +147,11 @@ TIER3_FILES = [
     "app/subia/social/salience_boost.py",        # Phase 8 social salience
     "app/subia/wiki_surface/consciousness_state.py",  # Phase 8 strange loop
     "app/subia/wiki_surface/drift_detection.py", # Phase 8 narrative drift
+    "app/subia/probes/indicator_result.py",      # Phase 9 scorecard types
+    "app/subia/probes/butlin.py",                # Phase 9 Butlin scorecard
+    "app/subia/probes/rsm.py",                   # Phase 9 RSM signatures
+    "app/subia/probes/sk.py",                    # Phase 9 SK evaluations
+    "app/subia/probes/scorecard.py",             # Phase 9 aggregator
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",
