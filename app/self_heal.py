@@ -228,6 +228,35 @@ def _diagnose_background(entry: dict) -> None:
         tb_text = "\n".join(entry.get("traceback", []))
         safe_user_input = sanitize_input(entry.get("user_input", "")[:300])
 
+        # Healing knowledge lookup — reuse proven fixes instead of LLM diagnosis
+        try:
+            from app.healing_knowledge import get_best_known_fix
+            known_fix = get_best_known_fix(
+                f"{entry['error_type']}: {entry['error_msg']}", entry.get("crew", "")
+            )
+            if known_fix:
+                logger.info(
+                    f"self_heal: reusing known fix (applied {known_fix.times_applied}x) — "
+                    f"skipping LLM diagnosis"
+                )
+                fix = {
+                    "diagnosis": f"Known fix (applied {known_fix.times_applied}x previously)",
+                    "fix_type": known_fix.fix_type,
+                    "title": f"Known fix: {known_fix.fix_applied[:60]}",
+                    "description": known_fix.fix_applied,
+                }
+                # Jump to the fix application logic (skip LLM call)
+                # The existing code below handles fix_type routing
+                if fix and isinstance(fix, dict):
+                    fix_type = fix.get("fix_type", "")
+                    if fix_type == "transient":
+                        if task_id:
+                            crew_completed(task_id, "Transient error — self-healed (known fix)")
+                        return
+                    # For code/skill fixes, fall through to the existing handler below
+        except Exception:
+            pass  # Graceful: if healing KB fails, proceed with LLM diagnosis
+
         # H5/H7: Direct LLM call — no CrewAI overhead (saves 60-90s)
         llm = create_specialist_llm(max_tokens=2048, role="architecture")
 

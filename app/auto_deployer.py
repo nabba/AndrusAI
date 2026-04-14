@@ -122,6 +122,10 @@ TIER_IMMUTABLE = frozenset({
     "app/external_benchmarks.py",
     # ShinkaEvolve integration (evolution infrastructure)
     "app/shinka_engine.py",
+    # Error resilience (safety-critical classification + isolation)
+    "app/failure_taxonomy.py",
+    "app/confidence_tracker.py",
+    "app/fault_isolator.py",
 })
 
 # ── TIER_GATED (~25 files — evolution engine + soul prompts) ────────────────

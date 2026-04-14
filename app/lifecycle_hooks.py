@@ -464,6 +464,60 @@ def _register_defaults(registry: HookRegistry) -> None:
     except Exception:
         logger.debug("lifecycle_hooks: budget enforcement hook not available", exc_info=True)
 
+    # ── Error resilience hooks (6 modules closing research gaps) ─────────
+
+    # Priority 3: MAST failure taxonomy classifier (immutable)
+    try:
+        from app.failure_taxonomy import create_failure_classifier_hook
+        registry.register(
+            "failure_classifier", HookPoint.ON_ERROR,
+            create_failure_classifier_hook(),
+            priority=3, immutable=True,
+            description="MAST agent-level failure classification (14 modes)",
+        )
+    except Exception:
+        logger.debug("lifecycle_hooks: failure_taxonomy not available", exc_info=True)
+
+    # Priority 5: AUQ confidence tracking (immutable)
+    try:
+        from app.confidence_tracker import (
+            create_confidence_gate_hook, create_confidence_reset_hook,
+        )
+        registry.register(
+            "confidence_gate", HookPoint.POST_LLM_CALL,
+            create_confidence_gate_hook(),
+            priority=5, immutable=True,
+            description="AUQ dual-process hallucination cascade prevention",
+        )
+        registry.register(
+            "confidence_reset", HookPoint.PRE_TASK,
+            create_confidence_reset_hook(),
+            priority=5, immutable=True,
+            description="Reset confidence chain at task start",
+        )
+    except Exception:
+        logger.debug("lifecycle_hooks: confidence_tracker not available", exc_info=True)
+
+    # Priority 8: Hierarchical fault isolation (immutable)
+    try:
+        from app.fault_isolator import (
+            create_fault_isolation_gate_hook, create_fault_isolation_handler_hook,
+        )
+        registry.register(
+            "fault_isolation_gate", HookPoint.ON_DELEGATION,
+            create_fault_isolation_gate_hook(),
+            priority=8, immutable=True,
+            description="Reroute tasks away from quarantined agents",
+        )
+        registry.register(
+            "fault_isolation_handler", HookPoint.ON_ERROR,
+            create_fault_isolation_handler_hook(),
+            priority=8, immutable=True,
+            description="Per-agent error budget tracking and quarantine",
+        )
+    except Exception:
+        logger.debug("lifecycle_hooks: fault_isolator not available", exc_info=True)
+
     # Priority 10: Self-correction for malformed outputs
     registry.register(
         "self_correct", HookPoint.POST_LLM_CALL,
@@ -471,6 +525,45 @@ def _register_defaults(registry: HookRegistry) -> None:
         priority=10,
         description="Flag malformed LLM outputs for retry",
     )
+
+    # Priority 15: Adaptive backup planner (mutable)
+    try:
+        from app.backup_planner import create_backup_planner_hook
+        registry.register(
+            "backup_planner", HookPoint.POST_TOOL_USE,
+            create_backup_planner_hook(),
+            priority=15,
+            description="Formulate alternative plans after repeated tool failures",
+        )
+    except Exception:
+        logger.debug("lifecycle_hooks: backup_planner not available", exc_info=True)
+
+    # Priority 22: Crew state checkpointing (mutable)
+    try:
+        from app.crew_checkpointer import (
+            create_checkpoint_pre_hook, create_checkpoint_post_hook,
+            create_checkpoint_error_hook,
+        )
+        registry.register(
+            "checkpoint_pre", HookPoint.PRE_TASK,
+            create_checkpoint_pre_hook(),
+            priority=22,
+            description="Load existing checkpoint for resume",
+        )
+        registry.register(
+            "checkpoint_post", HookPoint.ON_COMPLETE,
+            create_checkpoint_post_hook(),
+            priority=22,
+            description="Save checkpoint after successful step",
+        )
+        registry.register(
+            "checkpoint_error", HookPoint.ON_ERROR,
+            create_checkpoint_error_hook(),
+            priority=22,
+            description="Save partial checkpoint for recovery",
+        )
+    except Exception:
+        logger.debug("lifecycle_hooks: crew_checkpointer not available", exc_info=True)
 
     # Priority 50: Tool result memorization
     registry.register(
@@ -582,6 +675,18 @@ def _register_defaults(registry: HookRegistry) -> None:
         priority=65,
         description="Log errors to control plane audit trail",
     )
+
+    # Priority 70: Healing knowledge lookup (SHIELD pattern, mutable)
+    try:
+        from app.healing_knowledge import create_healing_lookup_hook
+        registry.register(
+            "healing_knowledge_lookup", HookPoint.ON_ERROR,
+            create_healing_lookup_hook(),
+            priority=70,
+            description="Search healing KB for known fixes before LLM diagnosis",
+        )
+    except Exception:
+        logger.debug("lifecycle_hooks: healing_knowledge not available", exc_info=True)
 
     # Priority 6: Hierarchical prediction — PRE_LLM_CALL (generate predictions at Level 0+1)
     def _hierarchy_predict_hook(ctx: HookContext) -> HookContext:
