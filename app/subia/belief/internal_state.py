@@ -128,6 +128,88 @@ class MetaCognitiveState:
             "reassessment_triggered": self.reassessment_triggered,
         }
 
+# ── Metacognitive State Vector (MCSV — Sethi 2025) ──────────────────────────
+#
+# Five orthogonal dimensions capturing HOW the agent experiences a task,
+# complementing CertaintyVector (WHAT the agent knows about the task).
+# Populated from existing signals — no new data sources needed:
+#   emotional_awareness   ← SomaticMarker.intensity (strength of experiential echo)
+#   correctness_evaluation ← CertaintyVector.factual_grounding (grounded vs. asserted)
+#   experience_matching   ← Mem0 hit rate for task features (0 = novel, 1 = seen before)
+#   conflict_detection    ← CertaintyVector.variance (high = dimensions disagree)
+#   complexity_assessment ← token count + tool-call depth normalized [0, 1]
+#
+# IMMUTABLE — infrastructure-level module. Agents cannot modify these dimensions.
+
+@dataclass
+class MetacognitiveStateVector:
+    """Five-dimensional experiential state per task (research synthesis §3.3)."""
+
+    emotional_awareness: float = 0.0   # How strongly prior experiences resonate
+    correctness_evaluation: float = 0.5  # Confidence that claims are grounded
+    experience_matching: float = 0.0   # Similarity to previously handled tasks
+    conflict_detection: float = 0.0    # Disagreement across epistemic dimensions
+    complexity_assessment: float = 0.5  # Estimated cognitive load of the task
+
+    @property
+    def novelty(self) -> float:
+        """High when task is unfamiliar AND internal signals disagree."""
+        return (1.0 - self.experience_matching) * (0.5 + 0.5 * self.conflict_detection)
+
+    @property
+    def requires_observer(self) -> bool:
+        """Heuristic: should the Observer agent be activated for this task?
+
+        True when correctness is low (high risk of false evidence) or
+        conflict is high (internal signals disagree, suggesting confusion).
+        """
+        return self.correctness_evaluation < 0.4 or self.conflict_detection > 0.6
+
+    @classmethod
+    def from_state(
+        cls,
+        certainty: "CertaintyVector",
+        somatic: "SomaticMarker",
+        mem0_hit_rate: float = 0.0,
+        token_depth_ratio: float = 0.5,
+    ) -> "MetacognitiveStateVector":
+        """Construct MCSV from existing internal signals.
+
+        Args:
+            certainty: Current CertaintyVector for the step.
+            somatic: Current SomaticMarker for the step.
+            mem0_hit_rate: Fraction of Mem0 queries that returned results [0, 1].
+            token_depth_ratio: (tokens_used / max_tokens) clamped to [0, 1].
+        """
+        return cls(
+            emotional_awareness=min(1.0, somatic.intensity),
+            correctness_evaluation=certainty.factual_grounding,
+            experience_matching=min(1.0, max(0.0, mem0_hit_rate)),
+            conflict_detection=min(1.0, certainty.variance * 10),  # scale variance → [0, 1]
+            complexity_assessment=min(1.0, max(0.0, token_depth_ratio)),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "emotional_awareness": round(self.emotional_awareness, 3),
+            "correctness_evaluation": round(self.correctness_evaluation, 3),
+            "experience_matching": round(self.experience_matching, 3),
+            "conflict_detection": round(self.conflict_detection, 3),
+            "complexity_assessment": round(self.complexity_assessment, 3),
+            "novelty": round(self.novelty, 3),
+            "requires_observer": self.requires_observer,
+        }
+
+    def to_context_string(self) -> str:
+        """Compact injection (~20 tokens) for agent context."""
+        return (
+            f"[MCSV] correct={self.correctness_evaluation:.1f} "
+            f"novel={self.novelty:.1f} "
+            f"conflict={self.conflict_detection:.1f} "
+            f"complex={self.complexity_assessment:.1f}"
+        )
+
+
 # ── Action Disposition ───────────────────────────────────────────────────────
 
 VALID_DISPOSITIONS = ("proceed", "cautious", "pause", "escalate")
@@ -156,6 +238,7 @@ class InternalState:
     certainty: CertaintyVector = field(default_factory=CertaintyVector)
     somatic: SomaticMarker = field(default_factory=SomaticMarker)
     meta: MetaCognitiveState = field(default_factory=MetaCognitiveState)
+    mcsv: MetacognitiveStateVector = field(default_factory=MetacognitiveStateVector)
 
     # Derived
     certainty_trend: str = "stable"      # rising | stable | falling
@@ -197,6 +280,8 @@ class InternalState:
                 f"surprise={hm.get('self_prediction_error', 0):.1f} "
                 f"FE={hm.get('free_energy_trend', 'stable')}"
             )
+        if self.mcsv.conflict_detection > 0.3 or self.mcsv.novelty > 0.5:
+            parts.append(self.mcsv.to_context_string())
         parts.append(f"Disposition={self.action_disposition}")
         if self.attention_schema:
             a = self.attention_schema
@@ -230,6 +315,7 @@ class InternalState:
             "free_energy_proxy": self.free_energy_proxy,
             "free_energy_trend": self.free_energy_trend,
             "attention_schema": self.attention_schema,
+            "mcsv": self.mcsv.to_dict(),
             "created_at": self.created_at.isoformat(),
         }, default=str)
 

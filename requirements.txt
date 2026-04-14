@@ -28,5 +28,6 @@ psycopg2-binary>=2.9.9
 reportlab>=4.0
 firecrawl-py>=1.0
 neo4j>=5.0
+mcp>=1.0  # Model Context Protocol — SSE server for cross-agent context
 # langchain-neo4j removed — causes resolution-too-deep with crewai's langchain
 # composio-crewai removed — deep dependency tree conflicts with crewai resolver

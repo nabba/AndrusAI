@@ -225,7 +225,7 @@ class ResearchCrew:
 
     def _run_single(self, topic: str, task_id: str, force_tier: str | None = None) -> str:
         """Single-agent research for simple topics."""
-        researcher = create_researcher(force_tier=force_tier)
+        researcher = create_researcher(force_tier=force_tier, task_id=task_id)
         # S6: Policy loading moved to commander._run_crew() parallel context fetch
         task = Task(
             description=RESEARCH_TASK_TEMPLATE.format(user_input=wrap_user_input(topic)),
@@ -314,7 +314,7 @@ class ResearchCrew:
                 last_exc = None
                 for attempt in range(1, max_retries + 1):
                     try:
-                        researcher = create_researcher()
+                        researcher = create_researcher(task_id=parent_task_id)
                         task = Task(
                             description=(
                                 f"Research this specific subtopic thoroughly:\n\n"
@@ -323,6 +323,8 @@ class ResearchCrew:
                                 f"IMPORTANT: Focus ONLY on your assigned subtopic. "
                                 f"Do not attempt to cover the broader topic.\n\n"
                                 f"Search the web, read at least 2 sources. "
+                                f"Deposit key findings to the blackboard (if available) "
+                                f"before writing your summary. "
                                 f"Return a concise summary with sources."
                             ),
                             expected_output="Research findings with sources.",

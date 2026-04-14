@@ -168,6 +168,48 @@ def _build_style_instructions() -> str:
         return ""
 
 
+# ── Reasoning method preambles (Mechanism 1 — DMAD) ─────────────────────────
+# Parsed from reasoning_methods.md. Each section is keyed by the method name
+# declared in the `## METHOD: <name>` header line.
+_reasoning_methods_cache: dict[str, str] | None = None
+
+
+def _load_reasoning_methods() -> dict[str, str]:
+    """Parse reasoning_methods.md into {method_name: preamble_text}.
+
+    Returns an empty dict if the file is missing, keeping creative mode a
+    strictly additive feature.
+    """
+    global _reasoning_methods_cache
+    if _reasoning_methods_cache is not None:
+        return _reasoning_methods_cache
+    raw = _load_file("reasoning_methods.md")
+    result: dict[str, str] = {}
+    if not raw:
+        _reasoning_methods_cache = result
+        return result
+    current_name: str | None = None
+    current_lines: list[str] = []
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## METHOD:"):
+            if current_name is not None:
+                result[current_name] = "\n".join(current_lines).strip()
+            current_name = stripped.removeprefix("## METHOD:").strip()
+            current_lines = []
+        elif current_name is not None:
+            current_lines.append(line)
+    if current_name is not None:
+        result[current_name] = "\n".join(current_lines).strip()
+    _reasoning_methods_cache = result
+    return result
+
+
+def get_reasoning_method(name: str) -> str:
+    """Return the preamble for a named reasoning method, or '' if unknown."""
+    return _load_reasoning_methods().get(name, "")
+
+
 # ── Cache with generation-aware invalidation ───────────────────────────────
 _backstory_cache: dict[str, str] = {}
 _cache_generation: int = -1  # force initial build
@@ -188,7 +230,7 @@ def _check_cache_valid() -> bool:
         return True  # if registry unavailable, keep cache
 
 
-def compose_backstory(role: str) -> str:
+def compose_backstory(role: str, reasoning_method: str | None = None) -> str:
     """Compose a full agent backstory from soul files + self-model + metacognition.
 
     Layers (in order):
@@ -196,6 +238,7 @@ def compose_backstory(role: str) -> str:
       2. Role-specific soul (identity, personality, expertise)
       3. Agents protocol (coordination rules)
       4. Style guide (shared communication conventions)
+      4.5. Reasoning method preamble (creative mode only — Mechanism 1)
       5. Self-model block (functional self-awareness from Phase 1)
       6. Metacognitive preamble (L1 self-awareness protocol)
       7. Few-shot examples (from versioned registry)
@@ -203,11 +246,16 @@ def compose_backstory(role: str) -> str:
 
     If no soul files exist, falls back to just the self-model block.
     Cache is invalidated when prompt_registry generation changes.
+
+    `reasoning_method` (creative mode) is looked up in reasoning_methods.md
+    and inserted as layer 4.5. When None, legacy behavior is preserved and
+    the existing cache identity is used.
     """
     _check_cache_valid()
 
-    if role in _backstory_cache:
-        return _backstory_cache[role]
+    cache_key = role if reasoning_method is None else f"{role}::{reasoning_method}"
+    if cache_key in _backstory_cache:
+        return _backstory_cache[cache_key]
 
     parts = []
 
@@ -226,6 +274,17 @@ def compose_backstory(role: str) -> str:
     style = load_style()
     if style:
         parts.append(style)
+
+    # Layer 4.5: reasoning-method preamble (creative mode only)
+    if reasoning_method:
+        method_text = get_reasoning_method(reasoning_method)
+        if method_text:
+            parts.append(method_text)
+        else:
+            logger.warning(
+                f"compose_backstory: unknown reasoning_method {reasoning_method!r} "
+                f"for role={role}; continuing without it."
+            )
 
     # Always append the self-model block (preserves Phase 1 self-awareness)
     self_model = format_self_model_block(role)
@@ -246,5 +305,5 @@ def compose_backstory(role: str) -> str:
         parts.append(style_instructions)
 
     result = "\n\n".join(parts) if parts else ""
-    _backstory_cache[role] = result
+    _backstory_cache[cache_key] = result
     return result

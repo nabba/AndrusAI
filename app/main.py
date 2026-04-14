@@ -915,6 +915,19 @@ try:
 except Exception:
     logger.debug("Control Plane API not available", exc_info=True)
 
+# ── MCP Server (Model Context Protocol — P6) ──────────────────────────────
+# Exposes philosophical RAG, MCSV, blackboard, personality, and Mem0
+# as MCP resources + tools via SSE at /mcp/sse. Gracefully disabled if
+# the mcp SDK is not installed.
+try:
+    from app.mcp_server import mount_mcp_routes
+    if mount_mcp_routes(app):
+        logger.info("MCP server mounted at /mcp/sse")
+    else:
+        logger.info("MCP server not available (mcp SDK not installed)")
+except Exception:
+    logger.debug("MCP server mount failed", exc_info=True)
+
 # ── React Dashboard (self-hosted, replaces Firebase) ─────────────────────
 # Mount LAST so API routes take precedence. Serves the React SPA build.
 from pathlib import Path as _Path

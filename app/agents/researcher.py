@@ -28,13 +28,14 @@ _COMPACT_RESEARCHER_BACKSTORY = (
 )
 
 
-def create_researcher(force_tier: str | None = None, light: bool = False) -> Agent:
+def create_researcher(force_tier: str | None = None, light: bool = False, task_id: str = "") -> Agent:
     """Create a researcher agent.
 
     Args:
         force_tier: Override model tier selection.
         light: If True, use minimal tools and compact backstory (S8/S9).
                Used for difficulty ≤ 3 simple factual questions.
+        task_id: If set, adds blackboard tools scoped to this task.
     """
     llm = create_specialist_llm(max_tokens=4096, role="research", force_tier=force_tier)
 
@@ -82,6 +83,14 @@ def create_researcher(force_tier: str | None = None, light: bool = False) -> Age
                 tools.extend(wiki_tools)
         except Exception:
             pass
+        # Blackboard tools (deposit/read findings — P1 research synthesis)
+        if task_id:
+            try:
+                from app.tools.blackboard_tool import create_blackboard_tools
+                bb_tools = create_blackboard_tools(task_id, "researcher")
+                tools.extend(bb_tools)
+            except Exception:
+                pass
         backstory = RESEARCHER_BACKSTORY
 
     return Agent(

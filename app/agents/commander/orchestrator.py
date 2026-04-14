@@ -658,6 +658,53 @@ class Commander:
         except Exception:
             logger.debug("PRE_LLM_CALL hooks failed (non-fatal)", exc_info=True)
 
+        # ── Metacognitive Observer (§4.3) ──────────────────────────────────
+        # Activated when MCSV signals doubt (requires_observer=True).
+        # The Observer predicts failure modes BEFORE the crew runs.
+        # If high-confidence failure predicted, log it and optionally abort.
+        try:
+            from app.subia.belief.internal_state import (
+                MetacognitiveStateVector, CertaintyVector, SomaticMarker,
+            )
+            # Build MCSV from the latest internal state if available
+            _cv = getattr(self, "_last_certainty", None) or CertaintyVector()
+            _sm = getattr(self, "_last_somatic", None) or SomaticMarker()
+            _mcsv = MetacognitiveStateVector.from_state(
+                _cv, _sm,
+                mem0_hit_rate=0.5,  # default; live value from Mem0 query count
+                token_depth_ratio=min(difficulty / 10.0, 1.0),
+            )
+            if _mcsv.requires_observer:
+                from app.agents.observer import predict_failure
+                _history = []
+                try:
+                    _history = [str(h)[:200] for h in (getattr(self, "_recent_results", None) or [])[-5:]]
+                except Exception:
+                    pass
+                prediction = predict_failure(
+                    agent_id=crew_name,
+                    task_description=enriched_task[:500],
+                    next_action=f"dispatch to {crew_name} crew (difficulty={difficulty})",
+                    recent_history=_history,
+                    mcsv=_mcsv,
+                )
+                _predicted = prediction.get("predicted_failure_mode")
+                _conf = prediction.get("confidence", 0.0)
+                if _predicted and _conf > 0.7:
+                    logger.warning(
+                        f"Observer: HIGH confidence ({_conf:.0%}) prediction of "
+                        f"'{_predicted}' for {crew_name} — recommendation: "
+                        f"{prediction.get('recommendation', '?')}"
+                    )
+                    from app.benchmarks import record_metric as _rm
+                    _rm("observer_prediction", 1, {
+                        "mode": _predicted, "confidence": _conf, "crew": crew_name,
+                    })
+                elif _predicted:
+                    logger.info(f"Observer: low-confidence prediction of '{_predicted}' ({_conf:.0%}) for {crew_name}")
+        except Exception:
+            logger.debug("Observer check failed (non-fatal)", exc_info=True)
+
         result = ""
         success = True
         crew_error = None
@@ -674,6 +721,21 @@ class Commander:
             elif crew_name == "media":
                 from app.crews.media_crew import MediaCrew
                 result = MediaCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
+            elif crew_name == "creative":
+                # Multi-agent 3-phase divergent/discussion/convergence pipeline.
+                # Routed here when the router tagged the task as requiring
+                # genuine creative synthesis (creativity_required: high|medium).
+                # The creativity level defaults to "high"; finer-grained
+                # routing (from router metadata) can be wired later.
+                from app.crews.creative_crew import run_creative_crew
+                run_result = run_creative_crew(
+                    enriched_task,
+                    creativity="high",
+                    parent_task_id=parent_task_id,
+                )
+                result = run_result.final_output
+                if run_result.aborted_reason:
+                    result = f"{result}\n\n[Note: {run_result.aborted_reason}]"
             else:
                 return crew_task
         except Exception as e:

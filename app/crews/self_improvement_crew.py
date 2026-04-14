@@ -30,6 +30,65 @@ class SelfImprovementCrew:
     def _make_llm(self):
         return create_specialist_llm(max_tokens=4096, role="research")
 
+    def _get_map_elites_context(self, topic: str) -> str:
+        """Query MAP-Elites for high-fitness strategies relevant to this topic.
+
+        Returns a context block for the learner prompt, or '' if unavailable.
+        This wires the latent MAP-Elites infrastructure into the self-improvement
+        loop: each learning cycle benefits from the best prior strategies, and
+        successful outcomes are archived back via _archive_to_map_elites.
+        """
+        try:
+            from app.map_elites import get_db
+            db = get_db("self_improve")
+            ctx = db.get_mutation_context(island_id=0)
+            if ctx and len(ctx) > 50:
+                return (
+                    "\n## Prior Strategy Context (from MAP-Elites archive)\n"
+                    f"{ctx[:2000]}\n\n"
+                    "Use this as inspiration — do NOT copy verbatim. Adapt the "
+                    "best techniques to the current topic.\n"
+                )
+        except Exception as exc:
+            logger.debug(f"MAP-Elites context unavailable: {exc}")
+        return ""
+
+    def _archive_to_map_elites(self, topic: str, result: str, success: bool) -> None:
+        """Archive a completed learning run as a MAP-Elites strategy entry.
+
+        Closes the loop: self-improvement → archive → future inspiration.
+        """
+        try:
+            from app.map_elites import (
+                get_db, StrategyEntry, Artifact, extract_features,
+            )
+            import hashlib
+            from datetime import datetime, timezone
+
+            db = get_db("self_improve")
+            entry = StrategyEntry(
+                strategy_id=hashlib.sha256(topic.encode()).hexdigest()[:12],
+                role="self_improve",
+                prompt_content=topic[:1000],
+                fitness_score=0.7 if success else 0.2,
+                feature_vector=extract_features(topic),
+                generation=db.generation,
+                mutation_type="learning",
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            db.add_strategy(entry)
+            db.record_artifact(Artifact(
+                generation=db.generation,
+                success=success,
+                score=entry.fitness_score,
+                stage_reached="complete" if success else "failed",
+                llm_feedback=result[:200] if result else "",
+            ))
+            db.step_generation()
+            db.persist()
+        except Exception as exc:
+            logger.debug(f"MAP-Elites archive failed: {exc}")
+
     # ── Mode 1: Learning (topic queue) ────────────────────────────────────
 
     def run(self):
@@ -103,6 +162,7 @@ class SelfImprovementCrew:
 
             # NOTE: path is now "skills/{filename}.md" (not "workspace/skills/...")
             # because file_manager is rooted at /app/workspace/
+            me_context = self._get_map_elites_context(sanitized_topic)
             task = Task(
                 description=(
                     f'Research the topic: <topic>{sanitized_topic}</topic>. '
@@ -114,6 +174,7 @@ class SelfImprovementCrew:
                     f'Save it using the file_manager tool with action "write" and '
                     f'path "skills/{skill_filename}.md". '
                     f'Also store a summary in shared team memory.'
+                    + me_context
                 ),
                 expected_output=f'A Markdown skill file saved to skills/{skill_filename}.md',
                 agent=learner,
@@ -121,17 +182,19 @@ class SelfImprovementCrew:
 
             crew = Crew(agents=[learner], tasks=[task], process=Process.sequential)
             try:
-                crew.kickoff()
+                result = str(crew.kickoff())
                 tracker = stop_request_tracking()
                 _tokens = tracker.total_tokens if tracker else 0
                 _model = ", ".join(sorted(tracker.models_used)) if tracker and tracker.models_used else ""
                 _cost = tracker.total_cost_usd if tracker else 0.0
                 crew_completed("self_improvement", task_id, f"Learned: {sanitized_topic[:100]}",
                                tokens_used=_tokens, model=_model, cost_usd=_cost)
+                self._archive_to_map_elites(sanitized_topic, result, success=True)
                 logger.info(f'Self-improvement: completed topic "{topic}"')
             except Exception as exc:
                 stop_request_tracking()
                 crew_failed("self_improvement", task_id, str(exc)[:200])
+                self._archive_to_map_elites(sanitized_topic, str(exc), success=False)
                 logger.error(f'Self-improvement: failed topic "{topic}": {exc}')
 
         remaining = topics[3:]

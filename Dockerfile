@@ -30,6 +30,10 @@ COPY wiki_schema/ wiki_schema/
 COPY dashboard/public/index.html dashboard/index.html
 COPY dashboard/build/ dashboard/build/
 
+# Copy scripts (wiki ingest, etc.) and tests
+COPY scripts/ scripts/
+COPY tests/ tests/
+
 # Create workspace directories
 RUN mkdir -p workspace/output workspace/memory workspace/skills workspace/proposals workspace/applied_code workspace/philosophy/texts
 

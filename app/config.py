@@ -131,6 +131,16 @@ class Settings(BaseSettings):
     autonomous_mode: bool = False           # 24/7 heartbeat-driven ticket processing
     load_shed_threshold: int = 0            # 0 = auto (max_parallel_crews + 1)
 
+    # ── Creative Mode (multi-agent divergent-discussion-convergence) ─────
+    # Hard cap in USD on a single creative run. If the run's accumulated
+    # LLM cost exceeds this value, the orchestrator aborts mid-phase and
+    # returns the best output so far. Adjustable via dashboard.
+    creative_run_budget_usd: float = 0.10
+    # Weight for wiki-based vs Mem0-based originality distance in Torrance scoring.
+    # Higher = originality judged more against shared corpus; lower = more against
+    # agent's own prior utterances.
+    creative_originality_wiki_weight: float = 0.6  # Mem0 weight = 1 - this
+
     # ── ATLAS: Autonomous Tool-Learning & Adaptive Skills ──────────────
     atlas_enabled: bool = True           # enable ATLAS capability layer
     atlas_api_scout_enabled: bool = True  # autonomous API discovery

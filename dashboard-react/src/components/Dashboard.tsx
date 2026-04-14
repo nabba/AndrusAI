@@ -1,6 +1,7 @@
 import { useApi } from '../hooks/useApi';
 import { useProject } from '../context/ProjectContext';
 import type { Ticket, Budget, AuditEntry, GovernanceRequest, HealthStatus } from '../types/index.ts';
+import CreativeModeSettings from './CreativeModeSettings';
 
 function StatCard({
   label,
@@ -282,6 +283,14 @@ export function Dashboard() {
             </div>
           )}
         </div>
+      </section>
+
+      {/* Creative Mode Settings */}
+      <section>
+        <h2 className="text-sm font-medium text-[#7a8599] uppercase tracking-wider mb-3">
+          Creative Mode
+        </h2>
+        <CreativeModeSettings />
       </section>
     </div>
   );

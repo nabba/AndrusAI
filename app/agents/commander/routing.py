@@ -252,8 +252,14 @@ For simple questions you can answer directly:
 crew_name MUST be one of:
   "research"  — web lookups, fact-finding, comparisons, current events
   "coding"    — writing, running, or debugging code
-  "writing"   — summaries, documentation, emails, reports, creative text
+  "writing"   — summaries, documentation, emails, reports, routine creative text
   "media"     — YouTube video analysis, image/photo analysis, audio/podcast summarization, document OCR
+  "creative"  — tasks that require GENUINE novelty: brainstorming, strategic
+                ideation under uncertainty, novel solution design, cross-domain
+                framing. Use ONLY when the user explicitly asks for creative
+                alternatives, breakthrough thinking, or when the problem has no
+                established correct answer. Runs a multi-agent 3-phase pipeline
+                with a per-run budget cap; do not use it for routine writing.
   "direct"    — simple questions, greetings, or status queries you answer yourself
 
 "difficulty" rates the task complexity (1-10):

@@ -58,3 +58,40 @@ async def set_llm_mode_endpoint(request: Request):
     set_mode(mode)
     report_llm_mode(mode)
     return {"status": "ok", "mode": mode}
+
+
+@router.get("/creative_mode")
+async def get_creative_mode_endpoint():
+    """Return current creative-mode runtime settings (budget, originality weight)."""
+    from app.creative_mode import snapshot
+    return snapshot()
+
+
+@router.post("/creative_mode")
+async def set_creative_mode_endpoint(request: Request):
+    """Update creative-mode runtime settings.
+
+    Accepts any subset of: creative_run_budget_usd (float),
+    originality_wiki_weight (float in [0, 1]).
+    """
+    if not verify_gateway_secret(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not _config_rate_check():
+        raise HTTPException(status_code=429, detail="Too many config changes. Try again later.")
+    payload = await request.json()
+    from app.creative_mode import (
+        set_budget_usd, set_originality_wiki_weight, snapshot,
+    )
+
+    if "creative_run_budget_usd" in payload:
+        try:
+            set_budget_usd(float(payload["creative_run_budget_usd"]))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    if "originality_wiki_weight" in payload:
+        try:
+            set_originality_wiki_weight(float(payload["originality_wiki_weight"]))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    return {"status": "ok", **snapshot()}

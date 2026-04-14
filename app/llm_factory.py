@@ -52,14 +52,18 @@ def _get_LLM_class():
     return LLM
 
 
-def _cached_llm(model_id: str, max_tokens: int = 4096, **kwargs) -> "LLM":
-    """Get or create an LLM object, caching by (model_id, max_tokens).
+def _cached_llm(model_id: str, max_tokens: int = 4096, *, sampling_key: str = "", **kwargs) -> "LLM":
+    """Get or create an LLM object, caching by (model_id, max_tokens, base_url, sampling_key).
 
     LLM objects are stateless wrappers — safe to share across requests.
     Cache eliminates ~50-100ms of object creation per specialist call.
+
+    `sampling_key` is an opaque string (see `app.llm_sampling.sampling_cache_key`)
+    that distinguishes entries differing only in temperature/top_p/min_p etc.
+    Empty string preserves the legacy cache identity for non-creative callers.
     """
     base_url = kwargs.get("base_url", "")
-    key = (model_id, max_tokens, base_url or "default")
+    key = (model_id, max_tokens, base_url or "default", sampling_key)
     cached = _llm_cache.get(key)
     if cached is not None:
         return cached
@@ -70,7 +74,7 @@ def _cached_llm(model_id: str, max_tokens: int = 4096, **kwargs) -> "LLM":
         LLM = _get_LLM_class()
         llm = LLM(model=model_id, max_tokens=max_tokens, **kwargs)
         _llm_cache[key] = llm
-        logger.debug(f"llm_cache: new entry for {model_id} max={max_tokens} (cache size: {len(_llm_cache)})")
+        logger.debug(f"llm_cache: new entry for {model_id} max={max_tokens} sampling={sampling_key!r} (cache size: {len(_llm_cache)})")
         return llm
 
 
@@ -123,6 +127,7 @@ def create_specialist_llm(
     role: str = "default",
     task_hint: str = "",
     force_tier: str | None = None,
+    phase: str | None = None,
 ) -> LLM:
     """
     Create an LLM for a specialist role using the tier cascade.
@@ -134,6 +139,11 @@ def create_specialist_llm(
 
     If force_tier is set (e.g. from difficulty-based routing), it overrides
     the default tier selection from llm_selector.
+
+    `phase` (creative-mode only) is one of "diverge"/"discuss"/"converge".
+    When set, phase-dependent sampling parameters (temperature/top_p/min_p/
+    presence_penalty) are applied. When None, legacy behavior is preserved
+    byte-for-byte — including LLM cache identity.
     """
     # Q7: thread-local last model/tier tracking
     from app.llm_mode import get_mode
@@ -142,7 +152,7 @@ def create_specialist_llm(
 
     # ── INSANE mode: premium-only, hardcoded role mapping ─────────────
     if mode == "insane":
-        return _insane_mode_select(role, max_tokens)
+        return _insane_mode_select(role, max_tokens, phase=phase)
 
     from app.llm_selector import select_model
     model_name = select_model(role, task_hint, force_tier=force_tier)
@@ -150,7 +160,7 @@ def create_specialist_llm(
 
     if not entry:
         logger.warning(f"llm_factory: model {model_name!r} not in catalog, falling back")
-        return _claude_fallback(role, max_tokens)
+        return _claude_fallback(role, max_tokens, phase=phase)
 
     tier = entry["tier"]
     provider = entry["provider"]
@@ -158,29 +168,29 @@ def create_specialist_llm(
     # ── LOCAL mode: only Ollama, Claude fallback ──────────────────────
     if mode == "local":
         if tier == "local" and settings.local_llm_enabled:
-            llm = _try_local(model_name, entry, max_tokens, role)
+            llm = _try_local(model_name, entry, max_tokens, role, phase=phase)
             if llm:
                 return llm
-        return _claude_fallback(role, max_tokens)
+        return _claude_fallback(role, max_tokens, phase=phase)
 
     # ── CLOUD mode: skip Ollama, use API/Anthropic ───────────────────
     if mode == "cloud":
         if tier in ("free", "budget", "mid") and settings.api_tier_enabled:
-            llm = _try_api(model_name, entry, max_tokens, role)
+            llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
             if llm:
                 return llm
         if provider == "anthropic":
-            return _create_anthropic(model_name, entry, max_tokens, role)
+            return _create_anthropic(model_name, entry, max_tokens, role, phase=phase)
         if tier == "premium" and provider == "openrouter":
-            llm = _try_api(model_name, entry, max_tokens, role)
+            llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
             if llm:
                 return llm
-        return _claude_fallback(role, max_tokens)
+        return _claude_fallback(role, max_tokens, phase=phase)
 
     # ── HYBRID mode: full cascade ────────────────────────────────────
     # Try local Ollama first
     if tier == "local" and settings.local_llm_enabled:
-        llm = _try_local(model_name, entry, max_tokens, role)
+        llm = _try_local(model_name, entry, max_tokens, role, phase=phase)
         if llm:
             return llm
         # Local failed — try API tier
@@ -189,28 +199,28 @@ def create_specialist_llm(
             api_model = get_default_for_role(role, settings.cost_mode)
             api_entry = get_model(api_model)
             if api_entry and api_entry["tier"] in ("free", "budget", "mid"):
-                llm = _try_api(api_model, api_entry, max_tokens, role)
+                llm = _try_api(api_model, api_entry, max_tokens, role, phase=phase)
                 if llm:
                     return llm
-        return _claude_fallback(role, max_tokens)
+        return _claude_fallback(role, max_tokens, phase=phase)
 
     # Try API tier (OpenRouter)
     if tier in ("free", "budget", "mid") and settings.api_tier_enabled:
-        llm = _try_api(model_name, entry, max_tokens, role)
+        llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
         if llm:
             return llm
-        return _claude_fallback(role, max_tokens)
+        return _claude_fallback(role, max_tokens, phase=phase)
 
     # Premium tier (Anthropic or OpenRouter)
     if provider == "anthropic":
-        return _create_anthropic(model_name, entry, max_tokens, role)
+        return _create_anthropic(model_name, entry, max_tokens, role, phase=phase)
     elif provider == "openrouter":
-        llm = _try_api(model_name, entry, max_tokens, role)
+        llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
         if llm:
             return llm
-        return _claude_fallback(role, max_tokens)
+        return _claude_fallback(role, max_tokens, phase=phase)
 
-    return _claude_fallback(role, max_tokens)
+    return _claude_fallback(role, max_tokens, phase=phase)
 
 
 def create_vetting_llm() -> LLM:
@@ -281,19 +291,29 @@ _INSANE_ROLE_MAP = {
 }
 
 
-def _insane_mode_select(role: str, max_tokens: int) -> LLM:
+def _sampling(phase: str | None, provider: str) -> tuple[dict, str]:
+    """Return (llm_kwargs, cache_key) for phase+provider. ({}, '') when phase is None."""
+    if phase is None:
+        return {}, ""
+    from app.llm_sampling import build_llm_kwargs, sampling_cache_key
+    return build_llm_kwargs(phase, provider), sampling_cache_key(phase, provider)
+
+
+def _insane_mode_select(role: str, max_tokens: int, phase: str | None = None) -> LLM:
     """INSANE mode: premium-only models — Opus, Gemini 3.1 Pro, Sonnet."""
     # Q7: thread-local last model/tier tracking
     model_name = _INSANE_ROLE_MAP.get(role, "claude-sonnet-4.6")
     entry = get_model(model_name)
     if not entry:
-        return _claude_fallback(role, max_tokens)
+        return _claude_fallback(role, max_tokens, phase=phase)
 
     _set_last(model_name, "premium")
 
     if entry["provider"] == "anthropic":
         logger.info(f"llm_factory: [INSANE] role={role} → ANTHROPIC {model_name}")
-        return _cached_llm(entry["model_id"], max_tokens=max_tokens, api_key=get_anthropic_api_key())
+        extra, key = _sampling(phase, "anthropic")
+        return _cached_llm(entry["model_id"], max_tokens=max_tokens,
+                           sampling_key=key, api_key=get_anthropic_api_key(), **extra)
 
     # Gemini 3.1 Pro via OpenRouter
     settings = get_settings()
@@ -302,15 +322,17 @@ def _insane_mode_select(role: str, max_tokens: int) -> LLM:
         gemini_max = max(max_tokens, 16384)
         logger.info(f"llm_factory: [INSANE] role={role} → API {model_name} (${entry['cost_output_per_m']:.2f}/Mo, max_tokens={gemini_max})")
         circuit_breaker.record_success("openrouter")
+        extra, key = _sampling(phase, "openrouter")
         return _cached_llm(entry["model_id"], max_tokens=gemini_max,
-                           base_url="https://openrouter.ai/api/v1", api_key=api_key)
+                           sampling_key=key,
+                           base_url="https://openrouter.ai/api/v1", api_key=api_key, **extra)
 
     # Fallback if OpenRouter unavailable
     logger.warning(f"llm_factory: [INSANE] OpenRouter unavailable for {model_name}, falling back to Claude")
-    return _claude_fallback(role, max_tokens)
+    return _claude_fallback(role, max_tokens, phase=phase)
 
 
-def _try_local(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | None:
+def _try_local(model_name: str, entry: dict, max_tokens: int, role: str, phase: str | None = None) -> LLM | None:
     # Q7: thread-local last model/tier tracking
     if not circuit_breaker.is_available("ollama"):
         logger.info(f"llm_factory: skipping Ollama (circuit open)")
@@ -324,7 +346,9 @@ def _try_local(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM 
             _set_last(model_name, "local")
             circuit_breaker.record_success("ollama")
             logger.info(f"llm_factory: role={role} → LOCAL {model_name} at {url} (spawn: {spawn_ms}ms)")
-            return _cached_llm(entry["model_id"], max_tokens=max_tokens, base_url=url)
+            extra, key = _sampling(phase, "ollama")
+            return _cached_llm(entry["model_id"], max_tokens=max_tokens,
+                               sampling_key=key, base_url=url, **extra)
         circuit_breaker.record_failure("ollama")
     except Exception as exc:
         circuit_breaker.record_failure("ollama")
@@ -332,7 +356,7 @@ def _try_local(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM 
     return None
 
 
-def _try_api(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | None:
+def _try_api(model_name: str, entry: dict, max_tokens: int, role: str, phase: str | None = None) -> LLM | None:
     # Q7: thread-local last model/tier tracking
     if not circuit_breaker.is_available("openrouter"):
         logger.info(f"llm_factory: skipping OpenRouter (circuit open)")
@@ -346,8 +370,10 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | 
         _set_last(model_name, entry["tier"])
         circuit_breaker.record_success("openrouter")
         logger.info(f"llm_factory: role={role} → API {model_name} (${entry['cost_output_per_m']:.2f}/Mo)")
+        extra, key = _sampling(phase, "openrouter")
         return _cached_llm(entry["model_id"], max_tokens=max_tokens,
-                           base_url="https://openrouter.ai/api/v1", api_key=api_key)
+                           sampling_key=key,
+                           base_url="https://openrouter.ai/api/v1", api_key=api_key, **extra)
     except Exception as exc:
         circuit_breaker.record_failure("openrouter")
         logger.warning(f"llm_factory: API {model_name} failed: {exc}")
@@ -355,25 +381,31 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM | 
     return None
 
 
-def _create_anthropic(model_name: str, entry: dict, max_tokens: int, role: str) -> LLM:
+def _create_anthropic(model_name: str, entry: dict, max_tokens: int, role: str, phase: str | None = None) -> LLM:
     # Q7: thread-local last model/tier tracking
     _set_last(model_name, entry["tier"])
     logger.info(f"llm_factory: role={role} → ANTHROPIC {model_name} (${entry['cost_output_per_m']:.2f}/Mo)")
-    return _cached_llm(entry["model_id"], max_tokens=max_tokens, api_key=get_anthropic_api_key())
+    extra, key = _sampling(phase, "anthropic")
+    return _cached_llm(entry["model_id"], max_tokens=max_tokens,
+                       sampling_key=key, api_key=get_anthropic_api_key(), **extra)
 
 
-def _claude_fallback(role: str, max_tokens: int) -> LLM:
+def _claude_fallback(role: str, max_tokens: int, phase: str | None = None) -> LLM:
     """Final fallback: Claude Sonnet if Anthropic is available, else best OpenRouter model."""
     from app.config import get_openrouter_api_key
     anthropic_key = get_anthropic_api_key()
     if anthropic_key:
         _set_last("claude-sonnet-4.6", "premium")
         logger.info(f"llm_factory: role={role} → FALLBACK Claude Sonnet 4.6")
-        return _cached_llm("anthropic/claude-sonnet-4-6", max_tokens=max_tokens, api_key=anthropic_key)
+        extra, key = _sampling(phase, "anthropic")
+        return _cached_llm("anthropic/claude-sonnet-4-6", max_tokens=max_tokens,
+                           sampling_key=key, api_key=anthropic_key, **extra)
     # Anthropic key missing — use OpenRouter deepseek as ultimate fallback
     _set_last("deepseek-v3.2", "budget")
     logger.warning(f"llm_factory: role={role} → FALLBACK deepseek-v3.2 (Anthropic key missing)")
-    return _cached_llm("openrouter/deepseek/deepseek-chat", max_tokens=max_tokens, api_key=get_openrouter_api_key())
+    extra, key = _sampling(phase, "openrouter")
+    return _cached_llm("openrouter/deepseek/deepseek-chat", max_tokens=max_tokens,
+                       sampling_key=key, api_key=get_openrouter_api_key(), **extra)
 
 
 # ── Provider health check for graceful degradation ──────────────────────────
