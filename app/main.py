@@ -915,6 +915,14 @@ try:
 except Exception:
     logger.debug("Control Plane API not available", exc_info=True)
 
+# ── Evolution Monitoring API routes ─────────────────────────────────────────
+try:
+    from app.api.evolution_api import router as evolution_router
+    app.include_router(evolution_router)
+    logger.info("Evolution API mounted at /api/cp/evolution/")
+except Exception:
+    logger.debug("Evolution API not available", exc_info=True)
+
 # ── MCP Server (Model Context Protocol — P6) ──────────────────────────────
 # Exposes philosophical RAG, MCSV, blackboard, personality, and Mem0
 # as MCP resources + tools via SSE at /mcp/sse. Gracefully disabled if

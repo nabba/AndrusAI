@@ -9,6 +9,7 @@ import { GovernanceQueue } from './components/GovernanceQueue';
 import { OrgChart } from './components/OrgChart';
 import { CostCharts } from './components/CostCharts';
 import { WorkspacesPage } from './components/WorkspacesPage';
+import { EvolutionMonitor } from './components/EvolutionMonitor';
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
             <Route path="/org-chart" element={<OrgChart />} />
             <Route path="/costs" element={<CostCharts />} />
             <Route path="/workspaces" element={<WorkspacesPage />} />
+            <Route path="/evolution" element={<EvolutionMonitor />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
