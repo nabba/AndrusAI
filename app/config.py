@@ -94,9 +94,10 @@ class Settings(BaseSettings):
     # TIER_GATED files additionally require canary deployment pass.
     evolution_auto_deploy: bool = True
 
-    # Evolution engine: "avo" (default 5-phase AVO pipeline) or "shinka"
-    # (ShinkaEvolve island archive with async evaluation).
-    evolution_engine: str = "avo"
+    # Evolution engine: "auto" (dynamic selection), "avo" (5-phase AVO pipeline),
+    # or "shinka" (ShinkaEvolve island archive). "auto" picks the best engine
+    # per session based on stagnation, SUBIA safety, and recent performance.
+    evolution_engine: str = "auto"
 
     # ── Self-improving feedback loop ─────────────────────────────────────
     feedback_enabled: bool = True          # collect feedback signals

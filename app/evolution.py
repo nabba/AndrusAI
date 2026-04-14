@@ -665,11 +665,11 @@ def run_evolution_session(max_iterations: int = 5) -> str:
     Returns:
         Summary of all experiments run
     """
-    # ── Engine dispatch: ShinkaEvolve or AVO ────────────────────────────────
-    try:
-        engine = get_settings().evolution_engine
-    except AttributeError:
-        engine = "avo"
+    # ── Dynamic engine selection ──────────────────────────────────────────────
+    # Automatically pick the best engine based on recent performance, SUBIA
+    # safety, and stagnation detection. Manual override via config still works.
+    engine = _select_evolution_engine()
+    logger.info(f"Evolution engine selected: {engine}")
 
     if engine == "shinka":
         return _run_shinka_session(max_iterations)
@@ -1130,6 +1130,125 @@ def _measure_skill_impact(
     )
 
     return result
+
+
+# ── Dynamic engine selection ──────────────────────────────────────────────────
+
+def _select_evolution_engine() -> str:
+    """Dynamically select the best evolution engine for this session.
+
+    Decision logic (evaluated in order):
+
+    1. Manual override: if config.evolution_engine is "avo" or "shinka"
+       (not "auto"), respect it.
+
+    2. ShinkaEvolve unavailable: if workspace/shinka/initial.py doesn't
+       exist or shinka isn't installed, fall back to AVO.
+
+    3. SUBIA safety < 0.70 (conservative): use AVO — single-mutation
+       is safer and more predictable under integrity concerns.
+
+    4. AVO stagnation detected (last 5 experiments all failed): switch to
+       ShinkaEvolve — population diversity breaks local optima.
+
+    5. Recent AVO kept_ratio > 0.60 (AVO is working well): stay with AVO —
+       don't fix what isn't broken.
+
+    6. Recent AVO kept_ratio < 0.20 (AVO mutations too ambitious): try
+       ShinkaEvolve — island model explores more conservatively.
+
+    7. Undiagnosed errors exist: use AVO — it has full system context
+       (error patterns, stack traces) to target specific fixes.
+
+    8. Default fallback: alternate — use ShinkaEvolve every 4th session
+       to maintain population diversity even when AVO is performing OK.
+
+    Returns:
+        "avo" or "shinka"
+    """
+    # 1. Manual override
+    try:
+        manual = get_settings().evolution_engine
+        if manual in ("avo", "shinka"):
+            return manual
+    except AttributeError:
+        pass
+
+    # 2. ShinkaEvolve availability check
+    shinka_available = _is_shinka_available()
+    if not shinka_available:
+        return "avo"
+
+    # 3. SUBIA safety check — conservative mode uses AVO
+    subia_safety = _get_subia_safety_value()
+    if subia_safety < 0.70:
+        logger.info(f"Engine selector: AVO (SUBIA safety={subia_safety:.2f} < 0.70, conservative)")
+        return "avo"
+
+    # 4-8: Analyze recent evolution performance
+    recent = get_recent_results(10)
+    if not recent:
+        return "avo"  # No history yet, start with AVO
+
+    # 4. Stagnation detection — last 5 all failed → switch to ShinkaEvolve
+    last_5 = recent[:5]
+    if len(last_5) >= 5 and all(r.get("status") in ("discard", "crash") for r in last_5):
+        logger.info("Engine selector: ShinkaEvolve (AVO stagnated — 5 consecutive failures)")
+        return "shinka"
+
+    # 5. AVO performing well → stay with AVO
+    kept = sum(1 for r in recent if r.get("status") == "keep")
+    kept_ratio = kept / len(recent)
+    if kept_ratio > 0.60:
+        logger.info(f"Engine selector: AVO (kept_ratio={kept_ratio:.2f} > 0.60, performing well)")
+        return "avo"
+
+    # 6. AVO mutations too ambitious → try ShinkaEvolve
+    if kept_ratio < 0.20 and len(recent) >= 5:
+        logger.info(f"Engine selector: ShinkaEvolve (kept_ratio={kept_ratio:.2f} < 0.20, too ambitious)")
+        return "shinka"
+
+    # 7. Undiagnosed errors → AVO (has error context)
+    try:
+        from app.self_heal import get_recent_errors
+        undiagnosed = [e for e in get_recent_errors(10) if not e.get("diagnosed")]
+        if len(undiagnosed) >= 3:
+            logger.info(f"Engine selector: AVO ({len(undiagnosed)} undiagnosed errors, needs targeted fix)")
+            return "avo"
+    except Exception:
+        pass
+
+    # 8. Default: alternate every 4th session for diversity
+    total_experiments = len(get_recent_results(100))
+    if total_experiments % 4 == 0:
+        logger.info(f"Engine selector: ShinkaEvolve (rotation, experiment #{total_experiments})")
+        return "shinka"
+
+    return "avo"
+
+
+def _is_shinka_available() -> bool:
+    """Check if ShinkaEvolve is installed and workspace files exist."""
+    try:
+        import shinka  # noqa: F401
+        from pathlib import Path
+        initial = Path("/app/workspace/shinka/initial.py")
+        evaluate = Path("/app/workspace/shinka/evaluate.py")
+        return initial.exists() and evaluate.exists()
+    except ImportError:
+        return False
+
+
+def _get_subia_safety_value() -> float:
+    """Read the SUBIA homeostatic safety variable. Returns 0.8 as default."""
+    try:
+        from app.subia.kernel import get_active_kernel
+        kernel = get_active_kernel()
+        if kernel and hasattr(kernel, "homeostasis"):
+            return kernel.homeostasis.variables.get("safety", 0.8)
+    except Exception:
+        pass
+    return 0.8
 
 
 # ── ShinkaEvolve engine dispatch ──────────────────────────────────────────────
