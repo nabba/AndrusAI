@@ -29,6 +29,7 @@ reportlab>=4.0
 firecrawl-py>=1.0
 neo4j>=5.0
 mcp>=1.0  # Model Context Protocol — SSE server for cross-agent context
-shinka-evolve @ git+https://github.com/SakanaAI/ShinkaEvolve.git  # ShinkaEvolve island-model evolution engine
+# ShinkaEvolve installed separately (httpx version conflict with crewai)
+# Install via: pip install --no-deps shinka-evolve @ git+https://github.com/SakanaAI/ShinkaEvolve.git
 # langchain-neo4j removed — causes resolution-too-deep with crewai's langchain
 # composio-crewai removed — deep dependency tree conflicts with crewai resolver

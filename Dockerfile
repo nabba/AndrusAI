@@ -18,6 +18,12 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
+# Install ShinkaEvolve separately (--no-deps avoids httpx version conflict with crewai)
+RUN pip install --no-cache-dir --no-deps \
+    shinka-evolve@git+https://github.com/SakanaAI/ShinkaEvolve.git && \
+    pip install --no-cache-dir --no-deps hydra-core==1.3.2 omegaconf==2.3.0 antlr4-python3-runtime==4.9.3 \
+    unidiff radon mando || true
+
 # Copy application code
 COPY app/ app/
 
