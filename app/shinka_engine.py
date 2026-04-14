@@ -54,6 +54,86 @@ class ShinkaResult:
     duration_seconds: float = 0.0
 
 
+def _read_subia_safety() -> str:
+    """Read SUBIA homeostatic safety variable and return posture string.
+
+    Returns:
+        "aggressive" if safety > 0.92 (system healthy, take bigger risks)
+        "conservative" if safety < 0.70 (integrity concerns, be careful)
+        "normal" otherwise
+    """
+    try:
+        from app.subia.kernel import get_active_kernel
+        kernel = get_active_kernel()
+        if kernel and hasattr(kernel, "homeostasis"):
+            safety = kernel.homeostasis.variables.get("safety", 0.8)
+            logger.info(f"shinka_engine: SUBIA safety={safety:.2f}")
+            if safety > 0.92:
+                return "aggressive"
+            elif safety < 0.70:
+                return "conservative"
+    except Exception as e:
+        logger.debug(f"shinka_engine: SUBIA read failed (normal fallback): {e}")
+    return "normal"
+
+
+def _build_subia_task_prompt() -> str:
+    """Build a SUBIA-aware task prompt for ShinkaEvolve's LLM.
+
+    Injects prediction failure context so ShinkaEvolve's mutations
+    are steered toward fixing blind spots identified by SUBIA.
+    """
+    base_prompt = (
+        "You are optimizing agent utility functions for AndrusAI. "
+        "Improve tool selection accuracy, response formatting quality, "
+        "and task routing correctness. The combined_score measures "
+        "accuracy across test cases — higher is better."
+    )
+
+    # Add SUBIA surprise signals if available
+    try:
+        from app.subia.prediction.accuracy_tracker import get_tracker
+        tracker = get_tracker()
+        summary = tracker.all_domains_summary()
+        weak_domains = []
+        for domain, stats in summary.items():
+            if tracker.has_sustained_error(domain):
+                acc = stats.get("mean_accuracy", 0)
+                weak_domains.append(f"{domain} (accuracy={acc:.2f})")
+
+        if weak_domains:
+            base_prompt += (
+                "\n\nPRIORITY: The system has sustained prediction failures in these areas: "
+                + ", ".join(weak_domains[:5])
+                + ". Focus improvements on these weak spots."
+            )
+    except Exception:
+        pass
+
+    # Add homeostatic context
+    try:
+        from app.subia.kernel import get_active_kernel
+        kernel = get_active_kernel()
+        if kernel and hasattr(kernel, "homeostasis"):
+            vars_ = kernel.homeostasis.variables
+            safety = vars_.get("safety", 0.8)
+            coherence = vars_.get("coherence", 0.5)
+            if safety < 0.80:
+                base_prompt += (
+                    f"\n\nCAUTION: System safety is low ({safety:.2f}). "
+                    "Prefer conservative, well-tested changes over ambitious rewrites."
+                )
+            if coherence < 0.50:
+                base_prompt += (
+                    f"\n\nNOTE: System coherence is low ({coherence:.2f}). "
+                    "Prioritize consistency and reliability improvements."
+                )
+    except Exception:
+        pass
+
+    return base_prompt
+
+
 def _map_llm_models() -> list[str]:
     """Map AndrusAI's LLM configuration to ShinkaEvolve model strings.
 
@@ -152,6 +232,32 @@ def run_shinka_session(
     # Measure baseline from current initial.py
     baseline_score = _measure_baseline()
 
+    # ── SUBIA bridge: homeostatic safety modulation ─────────────────────────
+    # Read the safety variable from SUBIA's homeostatic state to dynamically
+    # adjust ShinkaEvolve's aggressiveness — same pattern as AVO in evolution.py.
+    #
+    # High safety (>0.92) → AGGRESSIVE: more generations, more islands, higher budget
+    # Normal (0.70-0.92)  → STANDARD: default parameters
+    # Low safety (<0.70)  → CONSERVATIVE: fewer generations, single island, lower budget
+    subia_posture = _read_subia_safety()
+    if subia_posture == "aggressive":
+        num_generations = int(num_generations * 1.5)
+        num_islands = max(num_islands, 3)
+        max_eval_jobs = max(max_eval_jobs, 3)
+        max_proposal_jobs = max(max_proposal_jobs, 3)
+        api_budget = 8.0
+        logger.info("shinka_engine: AGGRESSIVE posture (SUBIA safety > 0.92)")
+    elif subia_posture == "conservative":
+        num_generations = max(5, num_generations // 2)
+        num_islands = 1
+        max_eval_jobs = 1
+        max_proposal_jobs = 1
+        api_budget = 2.0
+        logger.info("shinka_engine: CONSERVATIVE posture (SUBIA safety < 0.70)")
+    else:
+        api_budget = 5.0
+        logger.info("shinka_engine: NORMAL posture")
+
     try:
         from shinka.core import ShinkaEvolveRunner, EvolutionConfig
         from shinka.launch import LocalJobConfig
@@ -171,7 +277,13 @@ def run_shinka_session(
 
     llm_models = _map_llm_models()
     embedding_model = _get_embedding_model()
-    logger.info(f"shinka_engine: models={llm_models}, embedding={embedding_model}")
+    logger.info(
+        f"shinka_engine: models={llm_models}, embedding={embedding_model}, "
+        f"gens={num_generations}, islands={num_islands}, budget=${api_budget}"
+    )
+
+    # Build SUBIA-aware task prompt with prediction failure context
+    task_prompt = _build_subia_task_prompt()
 
     try:
         evo_config = EvolutionConfig(
@@ -182,13 +294,8 @@ def run_shinka_session(
             llm_models=llm_models,
             llm_dynamic_selection="ucb" if len(llm_models) > 1 else None,
             embedding_model=embedding_model,
-            task_sys_msg=(
-                "You are optimizing agent utility functions for AndrusAI. "
-                "Improve tool selection accuracy, response formatting quality, "
-                "and task routing correctness. The combined_score measures "
-                "accuracy across test cases — higher is better."
-            ),
-            max_api_costs=5.0,  # USD budget cap per session
+            task_sys_msg=task_prompt,
+            max_api_costs=api_budget,
         )
 
         job_config = LocalJobConfig(
