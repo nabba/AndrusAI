@@ -91,8 +91,12 @@ class Settings(BaseSettings):
     # Auto-deploy: when true, code mutations that pass ALL safety checks
     # + composite_score improvement are deployed automatically without human
     # approval. Post-deploy monitoring auto-rollbacks on error spike.
-    # Default: false (human approval via Signal required for code changes).
-    evolution_auto_deploy: bool = False
+    # TIER_GATED files additionally require canary deployment pass.
+    evolution_auto_deploy: bool = True
+
+    # Evolution engine: "avo" (default 5-phase AVO pipeline) or "shinka"
+    # (ShinkaEvolve island archive with async evaluation).
+    evolution_engine: str = "avo"
 
     # ── Self-improving feedback loop ─────────────────────────────────────
     feedback_enabled: bool = True          # collect feedback signals

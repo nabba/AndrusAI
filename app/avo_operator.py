@@ -31,6 +31,26 @@ from app.evo_memory import format_memory_context, recall_similar_failures
 logger = logging.getLogger(__name__)
 
 _MAX_REPAIR_ATTEMPTS = 3
+_META_DIR = Path("/app/workspace/meta")
+
+
+def _load_meta_prompt(filename: str, fallback: str = "") -> str:
+    """Load a meta-parameter prompt file with fallback to hardcoded default.
+
+    Meta-parameter files live in workspace/meta/ and can be evolved by
+    the meta-evolution engine. This function provides a safe loading path
+    that falls back to the hardcoded prompt if the file doesn't exist.
+    """
+    meta_path = _META_DIR / filename
+    try:
+        if meta_path.exists():
+            content = meta_path.read_text().strip()
+            if content:
+                return content
+    except OSError:
+        pass
+    return fallback
+
 
 @dataclass
 class AVOResult:
@@ -58,17 +78,11 @@ def _phase_planning(
     # This is the most important phase: bad plans waste all subsequent phases
     llm = create_specialist_llm(max_tokens=2048, role="architecture")
 
-    prompt = (
+    # Load planning instructions from workspace/meta/ (evolvable via meta-evolution)
+    # Falls back to hardcoded prompt if the meta file doesn't exist
+    _FALLBACK_PLANNING = (
         "You are the PLANNING phase of an autonomous evolution engine.\n"
         "Analyze the system state and propose ONE improvement hypothesis.\n\n"
-        f"## System State\n{context}\n\n"
-    )
-    if memory_context:
-        prompt += f"## Evolutionary Memory\n{memory_context}\n\n"
-    if lineage_context:
-        prompt += f"## Variant Lineage\n{lineage_context}\n\n"
-
-    prompt += (
         "## Your Task\n"
         "1. Identify the HIGHEST-IMPACT improvement opportunity:\n"
         "   - Recurring errors with traceback → CODE fix (HIGHEST priority)\n"
@@ -93,6 +107,13 @@ def _phase_planning(
         ' "change_type": "code",\n'
         ' "target_files": ["app/path/to/file.py"]}\n'
     )
+    planning_instructions = _load_meta_prompt("avo_planning_prompt.md", _FALLBACK_PLANNING)
+
+    prompt = f"{planning_instructions}\n\n## System State\n{context}\n\n"
+    if memory_context:
+        prompt += f"## Evolutionary Memory\n{memory_context}\n\n"
+    if lineage_context:
+        prompt += f"## Variant Lineage\n{lineage_context}\n\n"
 
     try:
         raw = str(llm.call(prompt)).strip()
@@ -335,17 +356,10 @@ def _phase_self_critique(
     for fpath, content in files.items():
         file_summary.append(f"### {fpath} ({len(content)} chars)\n{content[:500]}")
 
-    prompt = (
+    # Load critique instructions from workspace/meta/ (evolvable via meta-evolution)
+    _FALLBACK_CRITIQUE = (
         "You are the SELF-CRITIQUE phase of an evolution engine.\n"
         "Review this proposed mutation and decide: APPROVE or REJECT.\n\n"
-        f"## Hypothesis\n{hypothesis}\n\n"
-        f"## Change Type: {change_type}\n\n"
-        f"## Files\n" + "\n\n".join(file_summary) + "\n\n"
-    )
-    if memory_context:
-        prompt += f"## Evolutionary Memory\n{memory_context}\n\n"
-
-    prompt += (
         "## Evaluation Criteria\n"
         "1. Does the implementation match the hypothesis?\n"
         "2. Is the scope reasonable (not too many changes)?\n"
@@ -354,6 +368,16 @@ def _phase_self_critique(
         "5. Is this NOT a repeat of a known failed pattern?\n\n"
         'Respond with ONLY: {"approve": true/false, "concerns": ["..."]}\n'
     )
+    critique_instructions = _load_meta_prompt("avo_critique_prompt.md", _FALLBACK_CRITIQUE)
+
+    prompt = (
+        f"{critique_instructions}\n\n"
+        f"## Hypothesis\n{hypothesis}\n\n"
+        f"## Change Type: {change_type}\n\n"
+        f"## Files\n" + "\n\n".join(file_summary) + "\n\n"
+    )
+    if memory_context:
+        prompt += f"## Evolutionary Memory\n{memory_context}\n\n"
 
     try:
         raw = str(llm.call(prompt)).strip()

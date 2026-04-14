@@ -43,6 +43,8 @@ class _FakeSettings:
     conversation_history_turns = 10
     evolution_iterations = 5
     evolution_deep_iterations = 15
+    evolution_auto_deploy = False
+    canary_deploy_enabled = False
 
 import app.config as config_mod
 config_mod.get_settings = lambda: _FakeSettings()

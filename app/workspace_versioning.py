@@ -124,11 +124,16 @@ def ensure_workspace_repo() -> bool:
         logger.warning(f"workspace_versioning: git init failed: {e}")
         return False
 
-def workspace_commit(message: str) -> str:
+def workspace_commit(message: str, tag_evolution: bool = True) -> str:
     """Stage and commit all workspace changes.
 
     Returns commit SHA on success, empty string if nothing to commit or on error.
     Non-fatal — never crashes the caller.
+
+    When *tag_evolution* is True and the message looks like an evolution commit
+    (contains "evolution:", "keep", or "promote"), the commit is also tagged
+    with ``evo-{sha}-{date}`` for the agent snapshot archive (DGM-style
+    branching exploration from historical states).
     """
     try:
         ensure_workspace_repo()
@@ -146,11 +151,35 @@ def workspace_commit(message: str) -> str:
             sha = sha_result.stdout.strip()
             logger.info(f"workspace_versioning: committed {sha} — {message[:60]}")
             _record_commit(sha, message)
+
+            # Tag evolution commits for snapshot archive
+            if tag_evolution and _is_evolution_commit(message):
+                _tag_evolution_commit(sha)
+
             return sha
         return ""
     except Exception as e:
         logger.debug(f"workspace_versioning: commit failed: {e}")
         return ""
+
+
+def _is_evolution_commit(message: str) -> bool:
+    """Check if a commit message indicates an evolution mutation."""
+    msg_lower = message.lower()
+    return any(kw in msg_lower for kw in ("evolution:", "keep", "promote", "evo:"))
+
+
+def _tag_evolution_commit(sha: str) -> None:
+    """Tag an evolution commit for the snapshot archive."""
+    from datetime import datetime, timezone
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    tag_name = f"evo-{sha}-{date_str}"
+    try:
+        result = _git("tag", tag_name)
+        if result.returncode == 0:
+            logger.info(f"workspace_versioning: tagged {tag_name}")
+    except Exception as e:
+        logger.debug(f"workspace_versioning: tagging failed: {e}")
 
 # Track recent commits for auto-rollback on regression
 _recent_commits: list[dict] = []  # [{sha, timestamp, message}]
@@ -250,3 +279,86 @@ def workspace_log(n: int = 20) -> list[dict]:
         return entries
     except Exception:
         return []
+
+
+# ── Agent Snapshot Archive (DGM-style branching exploration) ────────────────
+
+
+def list_evolution_tags(n: int = 20) -> list[dict]:
+    """List recent evolution tags for the snapshot archive.
+
+    Returns list of dicts with tag name, SHA, and date, sorted newest first.
+    These tags represent historical agent states that can be used as
+    parents for DGM-style branching exploration.
+    """
+    try:
+        ensure_workspace_repo()
+        result = _git(
+            "tag", "-l", "evo-*",
+            "--sort=-creatordate",
+            f"--format=%(refname:short)|%(objectname:short)|%(creatordate:iso)",
+        )
+        if result.returncode != 0:
+            return []
+        entries = []
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("|", 2)
+            if len(parts) >= 2:
+                entries.append({
+                    "tag": parts[0],
+                    "sha": parts[1],
+                    "date": parts[2] if len(parts) > 2 else "",
+                })
+            if len(entries) >= n:
+                break
+        return entries
+    except Exception:
+        return []
+
+
+def read_file_at_tag(tag: str, filepath: str) -> str | None:
+    """Read the contents of a file at a historical evolution tag.
+
+    Used by the AVO operator to inspect historical agent states
+    when exploring from diverse parent states (DGM-style).
+
+    Args:
+        tag: Git tag name (e.g., 'evo-abc1234-20260414')
+        filepath: Relative path within the workspace
+
+    Returns:
+        File contents as string, or None if not found.
+    """
+    try:
+        ensure_workspace_repo()
+        # Validate tag name to prevent injection
+        if not tag.startswith("evo-") or "/" in tag or ".." in tag:
+            logger.warning(f"workspace_versioning: invalid tag name: {tag}")
+            return None
+        result = _git("show", f"{tag}:{filepath}")
+        if result.returncode == 0:
+            return result.stdout
+        return None
+    except Exception:
+        return None
+
+
+def workspace_diff_from_tag(tag: str) -> str:
+    """Get a diff between a historical tag and the current workspace state.
+
+    Useful for understanding what has changed since a historical variant.
+
+    Returns unified diff string, or empty string on error.
+    """
+    try:
+        ensure_workspace_repo()
+        if not tag.startswith("evo-") or "/" in tag or ".." in tag:
+            return ""
+        result = _git("diff", tag, "HEAD", "--stat")
+        if result.returncode == 0:
+            return result.stdout
+        return ""
+    except Exception:
+        return ""

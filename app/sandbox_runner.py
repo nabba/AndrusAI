@@ -347,6 +347,68 @@ class SandboxRunner:
             pass
 
 
+# ── Lightweight code execution helper for validation rules ──────────────────
+
+_CODE_CHECK_TIMEOUT = 30
+
+
+def run_code_check(code: str, test: str, timeout_s: int = _CODE_CHECK_TIMEOUT) -> bool:
+    """Execute *code* + *test* assertions in a Docker sandbox.
+
+    Returns True if exit code == 0 **and** stdout contains 'PASS'.
+    Used by ``validate_response()`` for ``exec_passes:`` rules.
+
+    The sandbox has no network, read-only filesystem, and drops all
+    capabilities — safe for arbitrary untrusted code.
+    """
+    combined = f"{code}\n\n{test}"
+    tmp_dir = None
+    container_name = f"code-check-{int(time.time() * 1000) % 1_000_000}"
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="code_check_")
+        script_path = Path(tmp_dir) / "check.py"
+        script_path.write_text(combined)
+
+        cmd = [
+            "docker", "run", "--rm",
+            "--name", container_name,
+            "--network", "none",
+            "--memory", "512m",
+            "--cpus", "1",
+            "--security-opt", "no-new-privileges:true",
+            "--read-only",
+            "--tmpfs", "/tmp:size=256m",
+            "-v", f"{tmp_dir}:/work:ro",
+            SANDBOX_IMAGE,
+            "python", "/work/check.py",
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=timeout_s + 10,  # grace for container overhead
+        )
+
+        stdout = result.stdout.decode(errors="replace")[:4000]
+        return result.returncode == 0 and "PASS" in stdout
+
+    except subprocess.TimeoutExpired:
+        try:
+            subprocess.run(
+                ["docker", "kill", container_name],
+                capture_output=True, timeout=5,
+            )
+        except Exception:
+            pass
+        return False
+    except Exception as e:
+        logger.warning(f"run_code_check error: {e}")
+        return False
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 # ── Pre-warmed container management ──────────────────────────────────────────
 
 

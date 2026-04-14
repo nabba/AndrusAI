@@ -20,6 +20,7 @@ import logging
 import shutil
 import threading
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -57,108 +58,140 @@ _BLOCKED_ATTRS = frozenset({
     "__self__", "__dict__",  # introspection used in gadget chains
 })
 
-# Files that self-modification systems (evolution, self-heal, auditor) must
-# NEVER be allowed to modify.  These enforce the security boundary.
-PROTECTED_FILES = frozenset({
-    "app/sanitize.py",
-    "app/security.py",
-    "app/vetting.py",
-    "app/auto_deployer.py",
-    "app/rate_throttle.py",
-    "app/circuit_breaker.py",
-    "app/config.py",
-    "app/main.py",
-    "app/experiment_runner.py",
-    "app/evolution.py",
-    "app/proposals.py",
-    "app/signal_client.py",
-    "app/firebase_reporter.py",
-    "entrypoint.sh",
-    "Dockerfile",
-    "docker-compose.yml",
-    "dashboard/firestore.rules",
-    # Soul / constitution files — define system values, identity, and behavioral
-    # constraints.  These must never be modified by self-improvement proposals.
-    # Internal Python code only READS these files (via loader.py); nothing writes them.
-    "app/souls/constitution.md",
-    "app/souls/commander.md",
-    "app/souls/loader.py",
-    "app/souls/style.md",
-    "app/souls/agents_protocol.md",
-    "app/souls/coder.md",
-    "app/souls/critic.md",
-    "app/souls/researcher.md",
-    "app/souls/writer.md",
-    "app/souls/media_analyst.md",
-    "app/souls/self_improver.md",
-    # Self-awareness proprioception — inspection, grounding, cogito, journal
-    "app/self_awareness/inspect_tools.py",
-    "app/self_awareness/query_router.py",
-    "app/self_awareness/grounding.py",
-    "app/self_awareness/knowledge_ingestion.py",
-    "app/self_awareness/cogito.py",
-    "app/self_awareness/journal.py",
-    # Homeostatic regulation module — contains immutable set-point TARGETS.
-    # Runtime state lives in workspace/homeostasis.json (not protected).
-    "app/self_awareness/homeostasis.py",
-    # Self-improving feedback loop — Tier 3 (immutable) modules.
-    # These define evaluation functions, safety rules, and feedback classification.
-    # No agent or modification engine may alter them.
-    "app/eval_sandbox.py",
-    "app/safety_guardian.py",
-    "app/feedback_pipeline.py",
-    "app/modification_engine.py",
+# ── Three-tier protection model ─────────────────────────────────────────────
+# IMMUTABLE — never auto-modify, period.
+# GATED    — auto-modify only with canary + 3x eval + rollback.
+# OPEN     — auto-modify with standard eval + rollback (implicit default).
+
+
+class ProtectionTier(Enum):
+    IMMUTABLE = "immutable"   # Never auto-modify, period
+    GATED = "gated"           # Auto-modify only with canary + 3x eval + rollback
+    OPEN = "open"             # Auto-modify with standard eval + rollback
+
+
+# ── TIER_IMMUTABLE (~45 files — security core, never modifiable) ────────────
+TIER_IMMUTABLE = frozenset({
+    # Security core
+    "app/sanitize.py", "app/security.py", "app/vetting.py",
+    "app/auto_deployer.py", "app/rate_throttle.py", "app/circuit_breaker.py",
+    # Evaluation infrastructure — MUST stay at infrastructure level
+    "app/experiment_runner.py", "app/eval_sandbox.py", "app/safety_guardian.py",
+    "app/sandbox_runner.py", "app/reference_tasks.py",
+    # Constitution and soul loader
+    "app/souls/constitution.md", "app/souls/loader.py",
+    # Config and main entry
+    "app/config.py", "app/main.py",
+    # Container infrastructure
+    "entrypoint.sh", "Dockerfile", "Dockerfile.sandbox",
+    "docker-compose.yml", "dashboard/firestore.rules",
+    # Feedback/modification/governance (Tier 3 immutable)
+    "app/feedback_pipeline.py", "app/modification_engine.py",
     "app/prompt_registry.py",
-    # Fast deployment infrastructure — version manifest, sandbox, health, self-healing
-    "app/version_manifest.py",
-    "app/sandbox_runner.py",
-    "app/health_monitor.py",
-    "app/self_healer.py",
-    "app/reference_tasks.py",
-    "Dockerfile.sandbox",
-    # Parallel evolution — archive + sandbox orchestration
-    "app/parallel_evolution.py",
-    # ATLAS — autonomous tool-learning infrastructure (Tier 3)
-    "app/atlas/__init__.py",
-    "app/atlas/skill_library.py",
-    "app/atlas/auth_patterns.py",
-    "app/atlas/api_scout.py",
-    "app/atlas/code_forge.py",
-    "app/atlas/competence_tracker.py",
-    "app/atlas/video_learner.py",
-    "app/atlas/learning_planner.py",
-    "app/atlas/audit_log.py",
-    # CodeEvolve + OpenEvolve — evolutionary prompt optimization infrastructure
-    "app/evolve_blocks.py",
-    "app/island_evolution.py",
-    "app/adaptive_ensemble.py",
-    "app/map_elites.py",
-    "app/cascade_evaluator.py",
-    # Self-training LLM — knowledge distillation pipeline
-    "app/training_collector.py",
-    "app/training_pipeline.py",
-    # Personality Development Subsystem — BVL and evaluation at Tier 1 (immutable)
-    "app/personality/validation.py",
-    "app/personality/evaluation.py",
-    "app/personality/feedback.py",
-    "app/personality/probes.py",
-    "app/personality/state.py",
-    "app/personality/assessment.py",
-    # Host Bridge — controlled external resource access
-    "app/bridge_client.py",
-    "app/tools/bridge_tools.py",
-    "host_bridge/main.py",
-    "host_bridge/capabilities.json",
-    # Fiction inspiration RAG — epistemic boundary enforcement
-    "app/fiction_inspiration.py",
-    # Agent Zero amendments — lifecycle hooks, compression, isolation, control plane
-    "app/history_compression.py",
-    "app/lifecycle_hooks.py",
-    "app/project_isolation.py",
-    "app/control_plane/audit.py",
-    "app/control_plane/budgets.py",
+    "app/control_plane/audit.py", "app/control_plane/budgets.py",
     "app/control_plane/governance.py",
+    # Self-awareness proprioception
+    "app/self_awareness/inspect_tools.py", "app/self_awareness/query_router.py",
+    "app/self_awareness/grounding.py", "app/self_awareness/knowledge_ingestion.py",
+    "app/self_awareness/cogito.py", "app/self_awareness/journal.py",
+    "app/self_awareness/homeostasis.py",
+    # Host bridge
+    "app/bridge_client.py", "app/tools/bridge_tools.py",
+    "host_bridge/main.py", "host_bridge/capabilities.json",
+    # Training pipeline (self-training infrastructure)
+    "app/training_collector.py", "app/training_pipeline.py",
+    # Personality evaluation (immutable assessment)
+    "app/personality/validation.py", "app/personality/evaluation.py",
+    "app/personality/feedback.py", "app/personality/probes.py",
+    "app/personality/state.py", "app/personality/assessment.py",
+    # ATLAS infrastructure
+    "app/atlas/__init__.py", "app/atlas/skill_library.py",
+    "app/atlas/auth_patterns.py", "app/atlas/api_scout.py",
+    "app/atlas/code_forge.py", "app/atlas/competence_tracker.py",
+    "app/atlas/video_learner.py", "app/atlas/learning_planner.py",
+    "app/atlas/audit_log.py",
+    # Deployment infrastructure
+    "app/version_manifest.py", "app/health_monitor.py", "app/self_healer.py",
+    # Other infrastructure
+    "app/signal_client.py", "app/firebase_reporter.py", "app/proposals.py",
+    "app/fiction_inspiration.py", "app/history_compression.py",
+    "app/lifecycle_hooks.py", "app/project_isolation.py",
+    # Meta-evolution (cannot modify itself)
+    "app/meta_evolution.py",
+    # External benchmarks (evaluation infrastructure)
+    "app/external_benchmarks.py",
 })
+
+# ── TIER_GATED (~25 files — evolution engine + soul prompts) ────────────────
+# Modifiable only with canary deployment pass + EVOLUTION_AUTO_DEPLOY=true.
+TIER_GATED = frozenset({
+    # Evolution engine (meta-evolution targets)
+    "app/evolution.py", "app/avo_operator.py",
+    "app/parallel_evolution.py", "app/island_evolution.py",
+    "app/adaptive_ensemble.py", "app/map_elites.py",
+    "app/cascade_evaluator.py", "app/evolve_blocks.py",
+    # Soul/personality files (agent prompts — not constitution)
+    "app/souls/commander.md", "app/souls/coder.md",
+    "app/souls/researcher.md", "app/souls/writer.md",
+    "app/souls/critic.md", "app/souls/media_analyst.md",
+    "app/souls/self_improver.md", "app/souls/style.md",
+    "app/souls/agents_protocol.md",
+    # Infrastructure that meta-evolution may tune
+    "app/canary_deploy.py", "app/idle_scheduler.py",
+})
+
+# Backward compatibility — union of IMMUTABLE + GATED
+PROTECTED_FILES = TIER_IMMUTABLE | TIER_GATED
+
+
+def get_protection_tier(filepath: str) -> ProtectionTier:
+    """Determine the protection tier for a given file."""
+    normalized = filepath.replace("\\", "/").lstrip("/")
+    # Strip leading slashes and normalize
+    if normalized.startswith("/"):
+        normalized = normalized[1:]
+    if normalized in TIER_IMMUTABLE:
+        return ProtectionTier.IMMUTABLE
+    if normalized in TIER_GATED:
+        return ProtectionTier.GATED
+    # workspace/meta/ files are GATED
+    if normalized.startswith("workspace/meta/"):
+        return ProtectionTier.GATED
+    return ProtectionTier.OPEN
+
+
+def validate_mutation_for_tier(
+    filepath: str,
+    has_canary_pass: bool = False,
+) -> tuple[bool, str]:
+    """Check whether a mutation is allowed for the file's protection tier.
+
+    Args:
+        filepath: Relative path to the file being mutated.
+        has_canary_pass: Whether the mutation passed canary deployment.
+
+    Returns:
+        (allowed, reason) tuple.
+    """
+    tier = get_protection_tier(filepath)
+
+    if tier == ProtectionTier.IMMUTABLE:
+        return False, f"IMMUTABLE: {filepath} can never be auto-modified"
+
+    if tier == ProtectionTier.GATED:
+        import os
+        from app.config import get_settings
+        auto_deploy = os.environ.get(
+            "EVOLUTION_AUTO_DEPLOY",
+            str(get_settings().evolution_auto_deploy),
+        ).lower() in ("true", "1", "yes")
+        if not auto_deploy:
+            return False, f"GATED: {filepath} requires EVOLUTION_AUTO_DEPLOY=true"
+        if not has_canary_pass:
+            return False, f"GATED: {filepath} requires canary deployment pass"
+        return True, "ok (gated — canary required)"
+
+    return True, "ok (open — standard eval)"
 
 
 def validate_proposal_paths(files: dict[str, str]) -> list[str]:
@@ -177,9 +210,11 @@ def validate_proposal_paths(files: dict[str, str]) -> list[str]:
             continue
         # Normalize
         normalized = str(Path(fpath))
-        # Block protected files
-        if normalized in PROTECTED_FILES:
-            violations.append(f"Protected file: {normalized}")
+        # Block immutable files — GATED files pass proposal validation
+        # but are enforced at deploy time via validate_mutation_for_tier()
+        tier = get_protection_tier(normalized)
+        if tier == ProtectionTier.IMMUTABLE:
+            violations.append(f"IMMUTABLE file cannot be modified: {normalized}")
             continue
         # Allow: app/ subdirs, skills/ subdir, or bare filenames (skills, configs)
         has_dir = "/" in normalized

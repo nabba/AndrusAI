@@ -1,0 +1,7 @@
+{
+  "_meta": "Keep/discard thresholds for the experiment runner. Controls selection pressure.",
+  "skill_keep_threshold": -0.001,
+  "code_keep_threshold": 0.0,
+  "eval_blend_weight": 0.3,
+  "task_blend_weight": 0.7
+}

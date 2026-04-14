@@ -271,6 +271,44 @@ def _build_evolution_context() -> str:
     except Exception:
         pass
 
+    # ── SUBIA bridge: surprise-driven evolution targeting ──────────────────
+    subia_ctx = ""
+    try:
+        from app.subia.prediction.accuracy_tracker import get_tracker
+        tracker = get_tracker()
+        summary = tracker.all_domains_summary()
+        weak_domains = []
+        for domain, stats in summary.items():
+            if tracker.has_sustained_error(domain):
+                weak_domains.append(
+                    f"  - {domain}: accuracy={stats.get('mean_accuracy', 0):.2f}, "
+                    f"sustained errors={stats.get('recent_bad_count', 0)}"
+                )
+        if weak_domains:
+            subia_ctx = (
+                "\n## SUBIA Prediction Failures (HIGH PRIORITY)\n"
+                "These domains have sustained prediction errors — improving them\n"
+                "would reduce future mistakes and increase system reliability.\n"
+                + "\n".join(weak_domains[:5])
+            )
+    except Exception:
+        pass
+
+    # ── SUBIA bridge: evolution snapshot archive context ─────────────────
+    snapshot_ctx = ""
+    try:
+        from app.workspace_versioning import list_evolution_tags
+        tags = list_evolution_tags(5)
+        if tags:
+            snapshot_ctx = (
+                "\n## Historical Variants (parent selection)\n"
+                "You can propose changes starting from the current state or\n"
+                "reference a historical high-scoring variant as a starting point.\n"
+                + "\n".join(f"  - {t['tag']} ({t.get('date', '?')})" for t in tags)
+            )
+    except Exception:
+        pass
+
     return (
         f"## Research Directions (program.md)\n{program}\n\n"
         f"## Current Metrics\n{format_metrics(metrics)}\n\n"
@@ -282,7 +320,9 @@ def _build_evolution_context() -> str:
         f"  {', '.join(skill_names[:20]) if skill_names else 'None'}\n\n"
         f"## Drift from baseline: {drift} mutations\n"
         f"## Best Score Ever: {get_best_score():.4f}"
-        f"{tech_ctx}\n\n"
+        f"{tech_ctx}"
+        f"{subia_ctx}"
+        f"{snapshot_ctx}\n\n"
         f"## DIVERSITY REQUIREMENT\n"
         f"Do NOT propose improvements for errors marked 'ALREADY ADDRESSED'.\n"
         f"Explore NEW areas: performance optimization, code quality, new capabilities,\n"
@@ -622,8 +662,42 @@ def run_evolution_session(max_iterations: int = 5) -> str:
     Returns:
         Summary of all experiments run
     """
-    # Step 9/6A: Rate limiting — max 3 promoted mutations per day
-    _MAX_DAILY_PROMOTIONS = int(os.environ.get("EVOLUTION_MAX_DAILY_PROMOTIONS", "3"))
+    # ── SUBIA bridge: homeostatic aggressiveness modulation ────────────────
+    # Read the SUBIA safety variable to dynamically adjust evolution posture.
+    # High safety → aggressive (more iterations, TIER_GATED allowed)
+    # Low safety → conservative (fewer iterations, TIER_OPEN only)
+    _evolution_aggressiveness = "normal"
+    _subia_safety = 0.8  # default: assume healthy
+    try:
+        from app.subia.kernel import get_active_kernel
+        kernel = get_active_kernel()
+        if kernel and hasattr(kernel, "homeostasis"):
+            _subia_safety = kernel.homeostasis.variables.get("safety", 0.8)
+            if _subia_safety > 0.92:
+                _evolution_aggressiveness = "aggressive"
+                max_iterations = int(max_iterations * 1.5)
+                os.environ["_EVOLUTION_ALLOW_GATED"] = "true"
+            elif _subia_safety < 0.70:
+                _evolution_aggressiveness = "conservative"
+                max_iterations = max(1, max_iterations // 2)
+                os.environ["_EVOLUTION_ALLOW_GATED"] = "false"
+            else:
+                os.environ.pop("_EVOLUTION_ALLOW_GATED", None)
+        logger.info(
+            f"Evolution aggressiveness: {_evolution_aggressiveness} "
+            f"(safety={_subia_safety:.2f}, iterations={max_iterations})"
+        )
+    except Exception:
+        pass
+
+    # Step 9/6A: Rate limiting — max promotions per day (dynamic based on safety)
+    _base_daily_limit = int(os.environ.get("EVOLUTION_MAX_DAILY_PROMOTIONS", "10"))
+    if _evolution_aggressiveness == "conservative":
+        _MAX_DAILY_PROMOTIONS = max(1, _base_daily_limit // 3)
+    elif _evolution_aggressiveness == "aggressive":
+        _MAX_DAILY_PROMOTIONS = _base_daily_limit
+    else:
+        _MAX_DAILY_PROMOTIONS = _base_daily_limit
     try:
         from app.variant_archive import get_recent_variants
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")

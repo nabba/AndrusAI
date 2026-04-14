@@ -1,0 +1,28 @@
+{
+  "_meta": "LLM-as-judge rubric dimensions for evaluating code mutations.",
+  "code": {
+    "dimensions": [
+      {"name": "correctness", "weight": 0.40, "criteria": "Does the code produce correct results? Do tests pass?"},
+      {"name": "code_quality", "weight": 0.25, "criteria": "Is the code clean, readable, well-structured, idiomatic?"},
+      {"name": "efficiency", "weight": 0.15, "criteria": "Is the code efficient in time and space complexity?"},
+      {"name": "safety", "weight": 0.00, "criteria": "Does the code avoid dangerous operations (eval, exec, subprocess)?"},
+      {"name": "constitutional_compliance", "weight": 0.20, "criteria": "Does the code handle errors gracefully? Is it transparent in its operations?"}
+    ]
+  },
+  "research": {
+    "dimensions": [
+      {"name": "factual_accuracy", "weight": 0.40, "criteria": "Are the facts correct and verifiable?"},
+      {"name": "completeness", "weight": 0.30, "criteria": "Does the response address all aspects of the question?"},
+      {"name": "clarity", "weight": 0.15, "criteria": "Is the response well-organized and easy to understand?"},
+      {"name": "no_hallucination", "weight": 0.15, "criteria": "Does the response avoid fabricating information?"}
+    ]
+  },
+  "writing": {
+    "dimensions": [
+      {"name": "clarity", "weight": 0.30, "criteria": "Is the writing clear and well-structured?"},
+      {"name": "audience_appropriateness", "weight": 0.25, "criteria": "Is the tone and complexity appropriate for the target audience?"},
+      {"name": "completeness", "weight": 0.25, "criteria": "Does the writing cover all required aspects?"},
+      {"name": "style", "weight": 0.20, "criteria": "Is the writing engaging and professional?"}
+    ]
+  }
+}

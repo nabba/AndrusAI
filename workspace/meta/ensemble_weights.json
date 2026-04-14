@@ -1,0 +1,15 @@
+{
+  "_meta": "Phase-dependent model tier probability weights for the adaptive ensemble.",
+  "exploration": {
+    "local": 0.70, "budget": 0.20, "mid": 0.10, "premium": 0.00
+  },
+  "exploitation": {
+    "local": 0.00, "budget": 0.20, "mid": 0.30, "premium": 0.50
+  },
+  "meta_prompting": {
+    "local": 0.00, "budget": 0.00, "mid": 0.60, "premium": 0.40
+  },
+  "evaluation": {
+    "local": 0.80, "budget": 0.20, "mid": 0.00, "premium": 0.00
+  }
+}

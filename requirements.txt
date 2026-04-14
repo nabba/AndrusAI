@@ -29,5 +29,6 @@ reportlab>=4.0
 firecrawl-py>=1.0
 neo4j>=5.0
 mcp>=1.0  # Model Context Protocol — SSE server for cross-agent context
+shinka-evolve>=0.1.0  # ShinkaEvolve — alternative evolution engine (island archive)
 # langchain-neo4j removed — causes resolution-too-deep with crewai's langchain
 # composio-crewai removed — deep dependency tree conflicts with crewai resolver

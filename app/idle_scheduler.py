@@ -391,6 +391,14 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         run_evolution_session(max_iterations=2)
     jobs.append(("evolution", _evolution, JobWeight.HEAVY))
 
+    # ── Meta-evolution: improve the evolution engine's own parameters ──
+    # Runs at ~1/5 evolution frequency (5 HEAVY jobs rotate round-robin).
+    # Gate: MAX_META_MUTATIONS_PER_WEEK = 3, 8h cooldown between cycles.
+    def _meta_evolution():
+        from app.meta_evolution import run_meta_evolution
+        run_meta_evolution()
+    jobs.append(("meta-evolution", _meta_evolution, JobWeight.HEAVY))
+
     # ── Proactive learning: discover and queue new topics ──────────────
     def _discover_topics():
         _auto_discover_topics()

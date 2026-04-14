@@ -213,16 +213,57 @@ def composite_score() -> float:
     else:
         time_score = max(0.0, 1.0 - resp_time / 60.0)
 
+    # Load weights from workspace/meta/ (evolvable via meta-evolution)
+    w = _load_composite_weights()
+
     score = (
-        0.30 * success
-        + 0.20 * error_score
-        + 0.15 * heal
-        + 0.15 * quality
-        + 0.10 * resolution
-        + 0.10 * time_score
+        w.get("task_success_rate", 0.30) * success
+        + w.get("error_score", 0.20) * error_score
+        + w.get("self_heal_rate", 0.15) * heal
+        + w.get("output_quality", 0.15) * quality
+        + w.get("error_resolution", 0.10) * resolution
+        + w.get("response_time", 0.10) * time_score
     )
 
+    # Optional external benchmark component (cached, updated hourly)
+    ext_weight = w.get("external_benchmark", 0.0)
+    if ext_weight > 0:
+        try:
+            from app.external_benchmarks import get_cached_benchmark_score
+            ext_score = get_cached_benchmark_score()
+            if ext_score is not None:
+                # Re-normalize remaining weights to make room for external component
+                internal_weight = 1.0 - ext_weight
+                score = internal_weight * score + ext_weight * ext_score
+        except Exception:
+            pass
+
     return round(score, 6)
+
+
+def _load_composite_weights() -> dict[str, float]:
+    """Load composite score weights from workspace/meta/composite_weights.json.
+
+    Falls back to hardcoded defaults if the file doesn't exist or is invalid.
+    """
+    _DEFAULTS = {
+        "task_success_rate": 0.30, "error_score": 0.20,
+        "self_heal_rate": 0.15, "output_quality": 0.15,
+        "error_resolution": 0.10, "response_time": 0.10,
+    }
+    try:
+        from pathlib import Path
+        meta_path = Path("/app/workspace/meta/composite_weights.json")
+        if meta_path.exists():
+            import json
+            data = json.loads(meta_path.read_text())
+            # Validate: must have all required keys with float values
+            weights = {k: float(v) for k, v in data.items() if not k.startswith("_")}
+            if weights:
+                return weights
+    except Exception:
+        pass
+    return _DEFAULTS
 
 
 def compute_metrics() -> dict:

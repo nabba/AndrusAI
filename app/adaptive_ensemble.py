@@ -41,7 +41,8 @@ MODEL_TIERS = {
 }
 
 # Phase → tier probability distribution
-PHASE_WEIGHTS: dict[str, dict[str, float]] = {
+# Loaded from workspace/meta/ensemble_weights.json if available (meta-evolvable)
+_DEFAULT_PHASE_WEIGHTS: dict[str, dict[str, float]] = {
     "exploration": {
         "local": 0.70, "budget": 0.20, "mid": 0.10, "premium": 0.00,
     },
@@ -55,6 +56,26 @@ PHASE_WEIGHTS: dict[str, dict[str, float]] = {
         "local": 0.80, "budget": 0.20, "mid": 0.00, "premium": 0.00,
     },
 }
+
+
+def _load_phase_weights() -> dict[str, dict[str, float]]:
+    """Load phase weights from workspace/meta/ with fallback to defaults."""
+    try:
+        from pathlib import Path
+        import json
+        meta_path = Path("/app/workspace/meta/ensemble_weights.json")
+        if meta_path.exists():
+            data = json.loads(meta_path.read_text())
+            # Validate structure: must have at least exploration and exploitation
+            if "exploration" in data and "exploitation" in data:
+                # Filter out metadata keys
+                return {k: v for k, v in data.items() if not k.startswith("_")}
+    except Exception:
+        pass
+    return _DEFAULT_PHASE_WEIGHTS
+
+
+PHASE_WEIGHTS: dict[str, dict[str, float]] = _load_phase_weights()
 
 # ── Weighted Ensemble ─────────────────────────────────────────────────────────
 
