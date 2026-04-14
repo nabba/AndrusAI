@@ -656,12 +656,24 @@ def run_evolution_session(max_iterations: int = 5) -> str:
     This is the core loop: propose → apply → measure → keep/discard, repeated
     N times. Each iteration builds on the results of the previous one.
 
+    When config.evolution_engine == "shinka", delegates to ShinkaEvolve's
+    island-model MAP-Elites engine instead of the AVO pipeline.
+
     Args:
         max_iterations: How many experiments to run this session (default 5)
 
     Returns:
         Summary of all experiments run
     """
+    # ── Engine dispatch: ShinkaEvolve or AVO ────────────────────────────────
+    try:
+        engine = get_settings().evolution_engine
+    except AttributeError:
+        engine = "avo"
+
+    if engine == "shinka":
+        return _run_shinka_session(max_iterations)
+
     # ── SUBIA bridge: homeostatic aggressiveness modulation ────────────────
     # Read the SUBIA safety variable to dynamically adjust evolution posture.
     # High safety → aggressive (more iterations, TIER_GATED allowed)
@@ -1118,6 +1130,44 @@ def _measure_skill_impact(
     )
 
     return result
+
+
+# ── ShinkaEvolve engine dispatch ──────────────────────────────────────────────
+
+def _run_shinka_session(max_iterations: int) -> str:
+    """Delegate evolution to ShinkaEvolve's island-model MAP-Elites engine.
+
+    Called when config.evolution_engine == "shinka". Runs ShinkaEvolve with
+    the configured number of generations and records results in the standard
+    results ledger for unified tracking.
+    """
+    try:
+        from app.shinka_engine import run_shinka_session
+    except ImportError as e:
+        logger.error(f"ShinkaEvolve not available: {e}")
+        return f"ShinkaEvolve not installed: {e}"
+
+    logger.info(f"Evolution engine: ShinkaEvolve ({max_iterations} generations)")
+
+    result = run_shinka_session(
+        num_generations=max_iterations,
+        num_islands=2,
+        max_eval_jobs=2,
+        max_proposal_jobs=2,
+    )
+
+    summary = (
+        f"ShinkaEvolve: {result.status} | "
+        f"score={result.best_score:.4f} (delta={result.delta:+.4f}) | "
+        f"{result.generations_run} generations | "
+        f"{result.duration_seconds:.0f}s"
+    )
+
+    if result.error:
+        summary += f" | error: {result.error[:100]}"
+
+    logger.info(f"ShinkaEvolve session complete: {summary}")
+    return summary
 
 
 # ── Legacy single-cycle entry point (called by cron) ─────────────────────────

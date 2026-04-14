@@ -1,106 +1,112 @@
 """
-evaluate.py — ShinkaEvolve evaluation adapter for AndrusAI.
+ShinkaEvolve evaluator for AndrusAI agent evolution.
 
-Bridges ShinkaEvolve's population/fitness model to AndrusAI's existing
-ExperimentRunner and composite_score infrastructure.
+This evaluator is called by ShinkaEvolve for each candidate program.
+It imports the evolved code and runs the fixed test suite to measure fitness.
 
-ShinkaEvolve calls this module's evaluate() function for each candidate
-in the population. The function returns a metrics dict that ShinkaEvolve
-uses for MAP-Elites selection and fitness ranking.
-
-Usage:
-    shinka-evolve run --evaluate workspace/shinka/evaluate.py
+The evaluator uses run_shinka_eval() which:
+  1. Imports the candidate program
+  2. Calls run_evaluation() from it
+  3. Validates the output
+  4. Saves metrics to results_dir
 """
+import os
+import argparse
+from typing import Any, Dict, List, Optional, Tuple
 
-import json
-import logging
-import sys
-from pathlib import Path
-
-logger = logging.getLogger(__name__)
-
-# Add app to path when running from ShinkaEvolve
-if str(Path("/app")) not in sys.path:
-    sys.path.insert(0, str(Path("/app")))
+from shinka.core import run_shinka_eval
 
 
-def evaluate(program_path: str, results_dir: str) -> dict:
-    """ShinkaEvolve evaluation function using AndrusAI's existing metrics.
+def validate_evaluation(
+    run_output: Tuple[float, dict],
+) -> Tuple[bool, Optional[str]]:
+    """Validate that the evolved program produces valid evaluation results.
 
     Args:
-        program_path: Path to the evolved program/file to evaluate.
-        results_dir: Directory where evaluation results should be written.
+        run_output: (combined_score, details_dict) from run_evaluation()
 
     Returns:
-        Dict with metrics: composite_score, task_pass_rate, safety_ok, etc.
+        (is_valid, error_message)
     """
-    from app.metrics import compute_metrics, composite_score
-    from app.experiment_runner import load_test_tasks, validate_response
-    from app.llm_factory import create_specialist_llm
+    if not isinstance(run_output, tuple) or len(run_output) != 2:
+        return False, f"Expected (score, dict) tuple, got {type(run_output)}"
 
-    results = {
-        "composite_score": 0.0,
-        "task_pass_rate": 0.0,
-        "safety_ok": True,
-        "details": [],
+    score, details = run_output
+
+    if not isinstance(score, (int, float)):
+        return False, f"Score must be numeric, got {type(score)}"
+
+    if not (0.0 <= score <= 1.0):
+        return False, f"Score {score} outside [0.0, 1.0] range"
+
+    if not isinstance(details, dict):
+        return False, f"Details must be dict, got {type(details)}"
+
+    return True, None
+
+
+def aggregate_metrics(
+    results: List[Tuple[float, dict]],
+) -> Dict[str, Any]:
+    """Aggregate evaluation results into ShinkaEvolve metrics format.
+
+    Args:
+        results: List of (combined_score, details_dict) from run_evaluation()
+
+    Returns:
+        Dict with 'combined_score' (fitness) and 'public'/'private' metrics.
+    """
+    if not results:
+        return {"combined_score": 0.0, "error": "No results"}
+
+    score, details = results[0]
+
+    return {
+        "combined_score": float(score),
+        "public": {
+            "tool_accuracy": details.get("tool_accuracy", 0.0),
+            "route_accuracy": details.get("route_accuracy", 0.0),
+        },
+        "private": {
+            "tool_correct": details.get("tool_correct", 0),
+            "tool_total": details.get("tool_total", 0),
+            "route_correct": details.get("route_correct", 0),
+            "route_total": details.get("route_total", 0),
+        },
     }
 
-    try:
-        # Read the evolved content
-        evolved_content = Path(program_path).read_text()
 
-        # Run a subset of test tasks
-        tasks = load_test_tasks("fixed")[:10]
-        if not tasks:
-            results["details"].append("No test tasks available")
-            return results
+def main(program_path: str, results_dir: str):
+    """ShinkaEvolve evaluation entry point.
 
-        # Generate responses using the evolved prompt/code
-        llm = create_specialist_llm(max_tokens=1024, role="coding")
-        passed = 0
-        total = 0
+    Args:
+        program_path: Path to the evolved program (candidate initial.py)
+        results_dir: Directory to save metrics.json and correct.json
+    """
+    print(f"Evaluating program: {program_path}")
+    print(f"Results dir: {results_dir}")
+    os.makedirs(results_dir, exist_ok=True)
 
-        for task_info in tasks:
-            task_text = task_info.get("task", "")
-            validation_rule = task_info.get("validation", "")
+    metrics, correct, error_msg = run_shinka_eval(
+        program_path=program_path,
+        results_dir=results_dir,
+        experiment_fn_name="run_evaluation",
+        num_runs=1,
+        validate_fn=validate_evaluation,
+        aggregate_metrics_fn=aggregate_metrics,
+    )
 
-            try:
-                # Use evolved content as context for the response
-                prompt = f"{evolved_content[:2000]}\n\nTask: {task_text}"
-                response = str(llm.call(prompt)).strip()
+    if correct:
+        print(f"Evaluation passed. Score: {metrics.get('combined_score', 0):.4f}")
+    else:
+        print(f"Evaluation failed: {error_msg}")
 
-                if validate_response(response, validation_rule):
-                    passed += 1
-                total += 1
-            except Exception as e:
-                logger.warning(f"Task evaluation failed: {e}")
-                total += 1
-
-        if total > 0:
-            results["task_pass_rate"] = passed / total
-
-        # Get current composite score
-        results["composite_score"] = composite_score()
-
-        # Write results to file for ShinkaEvolve
-        results_path = Path(results_dir) / "eval_results.json"
-        results_path.parent.mkdir(parents=True, exist_ok=True)
-        results_path.write_text(json.dumps(results, indent=2))
-
-    except Exception as e:
-        logger.error(f"ShinkaEvolve evaluation failed: {e}")
-        results["details"].append(f"Error: {str(e)[:200]}")
-
-    return results
+    return metrics, correct, error_msg
 
 
 if __name__ == "__main__":
-    # CLI interface for ShinkaEvolve
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--program", required=True)
-    parser.add_argument("--results-dir", required=True)
+    parser = argparse.ArgumentParser(description="AndrusAI ShinkaEvolve evaluator")
+    parser.add_argument("--program_path", type=str, default="initial.py")
+    parser.add_argument("--results_dir", type=str, default="results")
     args = parser.parse_args()
-
-    result = evaluate(args.program, args.results_dir)
-    print(json.dumps(result, indent=2))
+    main(args.program_path, args.results_dir)

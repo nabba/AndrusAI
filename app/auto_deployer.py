@@ -120,6 +120,8 @@ TIER_IMMUTABLE = frozenset({
     "app/meta_evolution.py",
     # External benchmarks (evaluation infrastructure)
     "app/external_benchmarks.py",
+    # ShinkaEvolve integration (evolution infrastructure)
+    "app/shinka_engine.py",
 })
 
 # ── TIER_GATED (~25 files — evolution engine + soul prompts) ────────────────
