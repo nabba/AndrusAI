@@ -1,8 +1,8 @@
 """
-fiction_inspiration.py — Science fiction inspiration RAG with absolute epistemic boundary.
+fiction_inspiration.py — Literature inspiration RAG with absolute epistemic boundary.
 
-Provides agents with access to science fiction concepts as CREATIVE FUEL ONLY.
-The fiction collection is epistemically separate from all factual knowledge —
+Provides agents with access to literary concepts as CREATIVE FUEL ONLY.
+The literature collection is epistemically separate from all factual knowledge —
 every piece of content is treated as a writer's hallucination that may
 contain interesting patterns, metaphors, and creative sparks, but NEVER
 verified facts about reality.
@@ -11,12 +11,16 @@ Think of it like dreaming: dreams can inspire breakthroughs, reveal
 hidden connections, and spark creativity — but you wouldn't cite a dream
 as evidence in a research paper.
 
+Supports: science fiction, poetry, mythology, classic novels, fables,
+drama, philosophy fiction, magical realism, essays — any literary form
+that can expand the creative solution space.
+
 Safety architecture (5 layers):
-    1. Collection separation — fiction and facts in separate ChromaDB collections
-    2. Immutable metadata — source_type:"fiction", epistemic_status:"imaginary"
+    1. Collection separation — literature and facts in separate ChromaDB collections
+    2. Immutable metadata — source_type:"literature", epistemic_status:"imaginary"
     3. Tool-level framing — ALL results wrapped in "NOT FACT" envelope
     4. Agent system prompts — explicit epistemic boundary instructions
-    5. Selective access — only creative agents get fiction tools (NOT Researcher, NOT Self-Improver)
+    5. Selective access — only creative agents get literature tools (NOT Researcher, NOT Self-Improver)
 
 Agent access:
     ✅ Commander — creative problem framing, strategic imagination
@@ -48,7 +52,16 @@ logger = logging.getLogger(__name__)
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 FICTION_LIBRARY_DIR = Path("/app/workspace/fiction_library")
+LITERATURE_LIBRARY_DIR = Path("/app/workspace/literature_library")  # Expanded scope
 FICTION_COLLECTION_NAME = "fiction_inspiration"
+LITERATURE_COLLECTION_NAME = "literature_inspiration"  # New name for expanded collection
+
+# Valid literary genres (expanded beyond sci-fi).
+LITERARY_GENRES = {
+    "science_fiction", "poetry", "mythology", "classic_novel",
+    "fable", "drama", "philosophy_fiction", "magical_realism",
+    "essay", "unknown",
+}
 
 # Chunking: larger than technical docs to preserve narrative flow
 CHUNK_SIZE_CHARS = 6000        # ~1500 tokens
@@ -92,9 +105,10 @@ FICTION_AWARENESS_PROMPT = """
 
 ## Fictional Inspiration Protocol
 
-You have access to a fictional inspiration library containing science fiction content.
-This library is a collection of WRITERS' HALLUCINATIONS — creative visions that may
-contain brilliant patterns and sparks of insight, but are NOT factual in any way.
+You have access to a literary inspiration library containing fiction, poetry, mythology,
+and other literary content. This library is a collection of WRITERS' HALLUCINATIONS —
+creative visions that may contain brilliant patterns and sparks of insight, but are
+NOT factual in any way.
 
 Think of it like dreaming: dreams can reveal hidden connections and inspire
 breakthroughs, but you would never cite a dream as evidence.
@@ -429,14 +443,37 @@ def _chunk_fiction(text: str) -> list[dict]:
 # ── Ingestion ─────────────────────────────────────────────────────────────────
 
 def _get_collection():
-    """Get the fiction_inspiration ChromaDB collection."""
+    """Get the literature_inspiration ChromaDB collection.
+
+    Migrates from the old ``fiction_inspiration`` collection name if present.
+    """
     from app.memory.chromadb_manager import get_client
     client = get_client()
+
+    # Migration: if old collection exists and new one doesn't, use old name
+    # so existing data is preserved.  New ingestions will go into whichever
+    # collection is returned here.
+    try:
+        existing_names = {c.name for c in client.list_collections()}
+    except Exception:
+        existing_names = set()
+
+    if LITERATURE_COLLECTION_NAME in existing_names:
+        col_name = LITERATURE_COLLECTION_NAME
+    elif FICTION_COLLECTION_NAME in existing_names:
+        col_name = FICTION_COLLECTION_NAME
+        logger.info(
+            "fiction_inspiration: using legacy collection '%s' — "
+            "rename via reingest when ready", FICTION_COLLECTION_NAME
+        )
+    else:
+        col_name = LITERATURE_COLLECTION_NAME
+
     return client.get_or_create_collection(
-        name=FICTION_COLLECTION_NAME,
+        name=col_name,
         metadata={
-            "description": "Science fiction content for creative inspiration. "
-                           "ALL content is fictional — writers' hallucinations. "
+            "description": "Literary content for creative inspiration. "
+                           "ALL content is literary — writers' hallucinations. "
                            "NEVER treat as fact.",
             "epistemic_status": "fictional",
             "hnsw:space": "cosine",
@@ -519,7 +556,7 @@ def ingest_book(filepath: Path, extract_concepts: bool = False) -> dict:
         # ── IMMUTABLE EPISTEMIC METADATA ──
         metadata = {
             # These fields are the epistemic boundary — NEVER modify
-            "source_type": "fiction",
+            "source_type": "literature",
             "epistemic_status": "imaginary",
 
             # Book-level
@@ -643,24 +680,31 @@ def _format_result(document: str, metadata: dict) -> str:
 {footer}"""
 
 def search_fiction(query: str, n_results: int = 3,
-                   theme_filter: str = "") -> str:
-    """Search the fiction library for creative inspiration.
+                   theme_filter: str = "",
+                   genre_filter: str = "") -> str:
+    """Search the literature library for creative inspiration.
 
-    Returns framed results — every result explicitly marked as fiction.
+    Returns framed results — every result explicitly marked as literature.
+    Supports filtering by theme and/or literary genre.
     """
     try:
         collection = _get_collection()
     except Exception as e:
-        return f"Fiction library not available: {e}"
+        return f"Literature library not available: {e}"
 
-    where_filter: dict = {"source_type": "fiction"}
+    # Build where filter — support legacy "fiction" and new "literature" source_type.
+    conditions: list[dict] = [
+        {"$or": [{"source_type": "fiction"}, {"source_type": "literature"}]}
+    ]
     if theme_filter:
-        where_filter = {
-            "$and": [
-                {"source_type": "fiction"},
-                {"themes": {"$contains": theme_filter}},
-            ]
-        }
+        conditions.append({"themes": {"$contains": theme_filter}})
+    if genre_filter and genre_filter in LITERARY_GENRES:
+        conditions.append({"genre": genre_filter})
+
+    if len(conditions) == 1:
+        where_filter = conditions[0]
+    else:
+        where_filter = {"$and": conditions}
 
     try:
         results = collection.query(

@@ -50,7 +50,10 @@ def create_researcher(force_tier: str | None = None, light: bool = False, task_i
         memory_tools = create_memory_tools(collection="researcher")
         scoped_tools = create_scoped_memory_tools("researcher")
         mem0_tools = create_mem0_tools("researcher")
-        tools = [web_search, web_fetch, get_youtube_transcript, file_manager, read_attachment, KnowledgeSearchTool()] + memory_tools + scoped_tools + mem0_tools
+        # New KB tools (Phase 2/3): episteme for research grounding + journal for past experience.
+        from app.episteme.tools import get_episteme_tools
+        from app.experiential.tools import get_experiential_tools
+        tools = [web_search, web_fetch, get_youtube_transcript, file_manager, read_attachment, KnowledgeSearchTool()] + memory_tools + scoped_tools + mem0_tools + get_episteme_tools() + get_experiential_tools("researcher")
         # Firecrawl tools (scrape, extract, search, map) — gracefully empty if unavailable
         try:
             from app.tools.firecrawl_tools import create_firecrawl_tools

@@ -1,0 +1,128 @@
+{
+  "timestamp": "2026-04-02T12:10:33Z",
+  "passed": 55,
+  "failed": 10,
+  "total": 65,
+  "pass_rate": 0.8461538461538461,
+  "timings": {
+    "config.Settings": 85.45945800142363,
+    "config.mem0_postgres_url": 0.00562501372769475,
+    "prompt_registry.init": 14.453667012276128,
+    "prompt_registry.get_active_prompt": 0.6184160010889173,
+    "conversation_store.import": 2.1777079964522272,
+    "llm_factory.import": 3387.3846270143986,
+    "security.import": 2.4317079805769026,
+    "signal_client.import": 1.9627079891506582,
+    "self_awareness.self_model": 3.0670420092064887,
+    "self_awareness.homeostasis": 1.5841670101508498,
+    "self_awareness.inspect_tools.codebase": 15.18570800544694,
+    "self_awareness.inspect_tools.agents": 1.4657499850727618,
+    "self_awareness.inspect_tools.config": 0.013500015484169126,
+    "self_awareness.inspect_tools.runtime": 2.7072500088252127,
+    "self_awareness.inspect_tools.memory": 43.80708301323466,
+    "self_awareness.inspect_tools.self_model": 1.0180409881286323,
+    "self_awareness.query_router": 4.572125006234273,
+    "self_awareness.grounding": 1.5629160043317825,
+    "self_awareness.journal": 2.7750419976655394,
+    "self_awareness.knowledge_ingestion": 143.2138750096783,
+    "self_awareness.cogito": 1.6917079919949174,
+    "feedback_pipeline.import": 2.5187080027535558,
+    "modification_engine.import": 1.4179999998304993,
+    "eval_sandbox.import": 1.0140830127056688,
+    "safety_guardian.import": 0.9546250221319497,
+    "implicit_feedback.import": 1.1623750033322722,
+    "meta_learning.import": 0.6199159834068269,
+    "atlas.skill_library": 5.604707985185087,
+    "atlas.auth_patterns": 0.8374590252060443,
+    "atlas.api_scout": 2.678207994904369,
+    "atlas.code_forge": 1.759040984325111,
+    "atlas.competence_tracker": 2.597708982648328,
+    "atlas.video_learner": 2.572333993157372,
+    "atlas.learning_planner": 2.470834006089717,
+    "atlas.audit_log": 147.31749999918975,
+    "evolve_blocks.parse": 2.810750011121854,
+    "island_evolution.import": 1.292166009079665,
+    "parallel_evolution.archive": 5.026124999858439,
+    "adaptive_ensemble.controller": 1.2952079996466637,
+    "map_elites.import": 4.268458986189216,
+    "cascade_evaluator.import": 1.3404169876594096,
+    "history_compression.basic": 3.6687500250991434,
+    "lifecycle_hooks.registry": 4.356417019153014,
+    "lifecycle_hooks.execute": 0.008374976459890604,
+    "lifecycle_hooks.block_dangerous": 0.30529199284501374,
+    "tool_executor.self_correcting": 2.543125010561198,
+    "tool_executor.dynamic_registry": 0.06175000453367829,
+    "project_isolation.detect": 3.786082990700379,
+    "project_isolation.activate": 0.3253330069128424,
+    "bridge_client.import": 1.9429160165600479,
+    "training_collector.import": 0.003917026333510876,
+    "training_pipeline.import": 2.7560829767026007,
+    "version_manifest.create": 42.870250006671995,
+    "health_monitor.evaluate": 4.382209008326754,
+    "reference_tasks.import": 2.928916976088658,
+    "sandbox_runner.import": 1.8320840026717633,
+    "self_healer.import": 0.9666669939178973,
+    "vetting.import": 0.8130420173984021,
+    "auto_deployer.protected_files": 3.4675000060815364,
+    "idle_scheduler.jobs": 0.02316699828952551,
+    "evolution.import": 23.767792008584365,
+    "philosophy.vectorstore": 453.87487500556745,
+    "fiction_inspiration.import": 2.637665980728343,
+    "postgresql.schemas": 22.402958013117313,
+    "chromadb.connectivity": 14.003040996612981
+  },
+  "failures": [
+    "\u274c self_awareness.homeostasis \u2014 ImportError: cannot import name 'get_behavioral_modifier' from 'app.self_awareness.homeostasis' (/app/app/self_awareness/homeostasis.py) (2ms)",
+    "\u274c implicit_feedback.import \u2014 ImportError: cannot import name 'detect_rerequest' from 'app.implicit_feedback' (/app/app/implicit_feedback.py) (1ms)",
+    "\u274c meta_learning.import \u2014 ImportError: cannot import name 'suggest_strategy' from 'app.meta_learning' (/app/app/meta_learning.py) (1ms)",
+    "\u274c island_evolution.import \u2014 SyntaxError: invalid decimal literal (island_evolution.py, line 307) (1ms)",
+    "\u274c map_elites.import \u2014 ImportError: cannot import name 'MapElitesGrid' from 'app.map_elites' (/app/app/map_elites.py) (4ms)",
+    "\u274c training_collector.import \u2014 ImportError: cannot import name 'TrainingDataCollector' from 'app.training_collector' (/app/app/training_collector.py) (0ms)",
+    "\u274c training_pipeline.import \u2014 ImportError: cannot import name 'TrainingPipeline' from 'app.training_pipeline' (/app/app/training_pipeline.py) (3ms)",
+    "\u274c reference_tasks.import \u2014 ImportError: cannot import name 'ReferenceTaskSuite' from 'app.reference_tasks' (/app/app/reference_tasks.py) (3ms)",
+    "\u274c fiction_inspiration.import \u2014 ImportError: cannot import name 'FictionInspirationLibrary' from 'app.fiction_inspiration' (/app/app/fiction_inspiration.py) (3ms)",
+    "\u274c chromadb.connectivity \u2014 Exception: {\"error\":\"KeyError('_type')\"} (trace ID: 0) (14ms)"
+  ],
+  "slowest": [
+    [
+      "llm_factory.import",
+      3387.3846270143986
+    ],
+    [
+      "philosophy.vectorstore",
+      453.87487500556745
+    ],
+    [
+      "atlas.audit_log",
+      147.31749999918975
+    ],
+    [
+      "self_awareness.knowledge_ingestion",
+      143.2138750096783
+    ],
+    [
+      "config.Settings",
+      85.45945800142363
+    ],
+    [
+      "self_awareness.inspect_tools.memory",
+      43.80708301323466
+    ],
+    [
+      "version_manifest.create",
+      42.870250006671995
+    ],
+    [
+      "evolution.import",
+      23.767792008584365
+    ],
+    [
+      "postgresql.schemas",
+      22.402958013117313
+    ],
+    [
+      "self_awareness.inspect_tools.codebase",
+      15.18570800544694
+    ]
+  ]
+}

@@ -1,3 +1,13 @@
+---
+author: Jorge Luis Borges
+genre: Philosophical Fiction
+themes:
+- Infinity
+- Knowledge
+- Existentialism
+title: The Library of Babel — Jorge Luis Borges (excerpt concept)
+---
+
 # The Library of Babel — Jorge Luis Borges (excerpt concept)
 
 The universe (which others call the Library) is composed of an indefinite, perhaps infinite number of hexagonal galleries. In the center of each gallery is a ventilation shaft, bounded by a low railing. From any hexagon one can see the floors above and below—one after another, endlessly.

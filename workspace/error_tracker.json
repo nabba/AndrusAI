@@ -1,0 +1,58 @@
+{
+  "research:ValueError": {
+    "attempts": 1,
+    "resolved": true,
+    "last_attempt": "2026-03-22T10:00:45.382341+00:00",
+    "fixes_applied": [
+      "{\"fix\": \"unable to fix\", \"reason\": \"The error occurs in an inaccessible system file path and appears to be related to LLM response validation. Previous fixes have already been implemented in team memo"
+    ]
+  },
+  "handle_task:ValueError": {
+    "attempts": 1,
+    "resolved": true,
+    "last_attempt": "2026-03-22T10:34:38.722592+00:00",
+    "fixes_applied": [
+      "Modified _validate_and_finalize_llm_response to return a default message instead of raising ValueError when response is empty"
+    ]
+  },
+  "handle_task:ImportError": {
+    "attempts": 2,
+    "resolved": true,
+    "last_attempt": "2026-03-24T21:00:06.613419+00:00",
+    "fixes_applied": [
+      "The root cause is a circular import where `app/knowledge_base/__init__.py` imports `KnowledgeStore` from `vectorstore.py`, and `vectorstore.py` imports `config` from `app/knowledge_base`. To fix this,"
+    ]
+  },
+  "coding:APIConnectionError": {
+    "attempts": 2,
+    "resolved": true,
+    "last_attempt": "2026-03-30T12:33:41.725399+00:00",
+    "fixes_applied": [
+      "The error indicates a timeout when connecting to the Ollama chat service after 600 seconds. The root cause is likely either network issues or the Ollama service being unresponsive. To fix, increase th"
+    ]
+  },
+  "coding:BadRequestError": {
+    "attempts": 3,
+    "resolved": false,
+    "last_attempt": "2026-04-04T09:00:04.762258+00:00",
+    "fixes_applied": [
+      "The error occurs because the model 'registry.ollama.ai/library/codestral:22b' does not support tools functionality. The fix is to either use a different model that supports tools or remove the tools p"
+    ]
+  },
+  "research:ConnectionError": {
+    "attempts": 1,
+    "resolved": true,
+    "last_attempt": "2026-04-07T04:01:37.304153+00:00",
+    "fixes_applied": [
+      "The error occurs due to a timeout when trying to connect to the OpenAI API. The root cause is likely network latency or server unavailability. The fix would be to increase the timeout value in the Ope"
+    ]
+  },
+  "writing:ConnectionError": {
+    "attempts": 1,
+    "resolved": true,
+    "last_attempt": "2026-04-08T03:30:06.943660+00:00",
+    "fixes_applied": [
+      "The error indicates a timeout when trying to connect to the OpenAI API. The root cause is likely network connectivity issues or the API being temporarily unavailable. The minimal fix would be to imple"
+    ]
+  }
+}

@@ -15,4 +15,11 @@ import sys as _sys
 
 import app.subia.belief.cogito as _target
 
+
+import warnings as _warnings
+_warnings.warn(
+    f"{__name__} is a Phase-1 shim; import from app.subia.* directly. "
+    "This shim will be removed once all call sites migrate (see PROGRAM.md).",
+    DeprecationWarning, stacklevel=2,
+)
 _sys.modules[__name__] = _target

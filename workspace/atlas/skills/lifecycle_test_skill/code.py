@@ -1,0 +1,1 @@
+def lifecycle(): return True

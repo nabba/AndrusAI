@@ -177,6 +177,28 @@ def get_history(sender: str, n: int = 10) -> str:
     return "\n".join(lines)
 
 
+def get_last_assistant_message(sender: str) -> str:
+    """Return the raw content of the most recent assistant reply to this
+    sender, or empty string. Used by Phase 15 grounding to supply
+    prior-response context to correction detection."""
+    try:
+        conn = _get_conn()
+        row = conn.execute(
+            """
+            SELECT content FROM messages
+            WHERE sender_id = ? AND role = 'assistant'
+            ORDER BY ts DESC
+            LIMIT 1
+            """,
+            (_sender_id(sender),),
+        ).fetchone()
+    except Exception:
+        logger.debug("conversation_store: get_last_assistant_message failed",
+                     exc_info=True)
+        return ""
+    return str(row[0]) if row else ""
+
+
 # ── Task tracking (for metrics) ─────────────────────────────────────────────
 
 def start_task(sender: str, crew: str = "") -> int:

@@ -589,6 +589,64 @@ def report_fiction_library() -> None:
     except Exception:
         logger.debug("firebase.publish: fiction_library write failed", exc_info=True)
 
+# ── New Knowledge Bases (Phase 2) ────────────────────────────────────────────
+
+def report_episteme_kb() -> None:
+    """Push episteme KB stats to Firestore for the dashboard."""
+    db = _get_db()
+    if not db:
+        return
+    try:
+        from app.episteme.vectorstore import get_store
+        stats = get_store().get_stats()
+        stats["updated_at"] = _now_iso()
+        db.collection("status").document("episteme_kb").set(stats)
+    except Exception:
+        logger.debug("firebase.publish: episteme_kb write failed", exc_info=True)
+
+
+def report_experiential_kb() -> None:
+    """Push experiential KB stats to Firestore."""
+    db = _get_db()
+    if not db:
+        return
+    try:
+        from app.experiential.vectorstore import get_store
+        stats = get_store().get_stats()
+        stats["updated_at"] = _now_iso()
+        db.collection("status").document("experiential_kb").set(stats)
+    except Exception:
+        logger.debug("firebase.publish: experiential_kb write failed", exc_info=True)
+
+
+def report_aesthetics_kb() -> None:
+    """Push aesthetics KB stats to Firestore."""
+    db = _get_db()
+    if not db:
+        return
+    try:
+        from app.aesthetics.vectorstore import get_store
+        stats = get_store().get_stats()
+        stats["updated_at"] = _now_iso()
+        db.collection("status").document("aesthetics_kb").set(stats)
+    except Exception:
+        logger.debug("firebase.publish: aesthetics_kb write failed", exc_info=True)
+
+
+def report_tensions_kb() -> None:
+    """Push tensions KB stats to Firestore."""
+    db = _get_db()
+    if not db:
+        return
+    try:
+        from app.tensions.vectorstore import get_store
+        stats = get_store().get_stats()
+        stats["updated_at"] = _now_iso()
+        db.collection("status").document("tensions_kb").set(stats)
+    except Exception:
+        logger.debug("firebase.publish: tensions_kb write failed", exc_info=True)
+
+
 # ── L5: Ecological awareness stats ────────────────────────────────────────────
 
 def report_ecological_stats() -> None:
@@ -1363,3 +1421,114 @@ def _trim_chat_messages(db, max_messages: int = 100) -> None:
 # ── Skills inventory (alias) ─────────────────────────────────────────────────
 # report_skills_inventory is an alias used in the user's spec
 report_skills_inventory = report_skills
+
+
+# ── Phase 16a: SubIA consciousness state publishing ─────────────────────────
+
+def report_subia_state() -> None:
+    """Push a compact summary of the SubIA kernel state to the dashboard.
+
+    Invoked from main.py heartbeat cycle. Safe to call whether or not
+    the SubIA live integration is enabled — when disabled, the kernel
+    singleton simply doesn't exist and we write a short "inactive"
+    status document instead. Never raises.
+
+    Document schema (collection "subia", doc "state"):
+        enabled:          bool   — SUBIA_FEATURE_FLAG_LIVE
+        loop_count:       int    — how many CIL cycles have run
+        last_loop_at:     str    — ISO timestamp of last loop entry
+        circadian_mode:   str    — active_hours / deep_work_hours / ...
+        homeostasis:      dict   — {var: value} for the 11 homeostatic vars
+        scene_focal_n:    int    — number of focal items
+        scene_peripheral_n: int  — number of peripheral items
+        wonder_intensity: float  — max wonder across the scene
+        scorecard:        dict   — summary counts (STRONG/PARTIAL/ABSENT)
+        updated_at:       str    — ISO timestamp of this write
+    """
+    def _write():
+        db = _get_db()
+        if not db:
+            return
+
+        payload: dict = {"updated_at": _now_iso()}
+
+        # Check flag first — if off, write a minimal inactive record.
+        try:
+            from app.config import get_settings
+            payload["enabled"] = bool(get_settings().subia_live_enabled)
+        except Exception:
+            payload["enabled"] = False
+
+        if not payload["enabled"]:
+            try:
+                db.collection("subia").document("state").set(
+                    {**payload, "status": "inactive"}, merge=True,
+                )
+            except Exception:
+                logger.debug("firebase.publish: subia inactive write failed",
+                             exc_info=True)
+            return
+
+        # Live integration is on — read the singleton kernel.
+        try:
+            from app.subia.live_integration import get_last_state
+            live_state = get_last_state()
+            kernel = getattr(live_state, "kernel", None) if live_state else None
+        except Exception:
+            kernel = None
+
+        if kernel is None:
+            # Fall back to reading kernel-state.md from disk.
+            try:
+                from app.subia.persistence import load_kernel_state
+                kernel = load_kernel_state()
+            except Exception:
+                kernel = None
+
+        if kernel is not None:
+            try:
+                payload["loop_count"] = int(getattr(kernel, "loop_count", 0))
+                payload["last_loop_at"] = str(getattr(kernel, "last_loop_at", ""))
+                payload["scene_focal_n"] = len(kernel.focal_scene())
+                payload["scene_peripheral_n"] = len(kernel.peripheral_scene())
+                payload["homeostasis"] = {
+                    k: round(float(v), 3)
+                    for k, v in (kernel.homeostasis.variables or {}).items()
+                }
+                # Circadian mode from TemporalContext if populated
+                tc = getattr(kernel, "temporal_context", None)
+                if tc:
+                    payload["circadian_mode"] = getattr(tc, "circadian_mode", "")
+                    payload["processing_density"] = round(
+                        float(getattr(tc, "processing_density", 0.0) or 0.0), 3,
+                    )
+                # Max wonder across the scene
+                wonder_max = 0.0
+                for item in kernel.scene or []:
+                    wi = float(getattr(item, "wonder_intensity", 0.0) or 0.0)
+                    if wi > wonder_max:
+                        wonder_max = wi
+                payload["wonder_intensity"] = round(wonder_max, 3)
+            except Exception:
+                logger.debug("firebase.publish: kernel projection failed",
+                             exc_info=True)
+
+        # Scorecard summary (Phase 9)
+        try:
+            from app.subia.probes.scorecard import meets_exit_criteria
+            passed, report = meets_exit_criteria()
+            payload["scorecard"] = {
+                "exit_criteria_passed": passed,
+                **{k: v.get("observed") if isinstance(v, dict) else v
+                   for k, v in (report or {}).items()},
+            }
+        except Exception:
+            pass
+
+        try:
+            db.collection("subia").document("state").set(payload, merge=True)
+        except Exception:
+            logger.debug("firebase.publish: subia state write failed",
+                         exc_info=True)
+
+    _fire(_write)

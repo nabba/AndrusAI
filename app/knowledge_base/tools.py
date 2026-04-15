@@ -74,11 +74,18 @@ class KnowledgeSearchTool(BaseTool):
         except Exception as e:
             return f"Knowledge base unavailable: {e}"
 
-        results = store.query(
-            question=query,
-            top_k=min(top_k, 15),
-            category=category,
-        )
+        try:
+            results = store.query_reranked(
+                question=query,
+                top_k=min(top_k, 15),
+                category=category,
+            )
+        except Exception:
+            results = store.query(
+                question=query,
+                top_k=min(top_k, 15),
+                category=category,
+            )
 
         if not results:
             return (

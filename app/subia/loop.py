@@ -355,7 +355,26 @@ class SubIALoop:
     # ── Step implementations ──────────────────────────────────────
 
     def _step_perceive(self, input_items: Iterable[SceneItem]) -> dict:
-        """Step 1: ingest candidates into the kernel's transient buffer."""
+        """Step 1: ingest candidates into the kernel's transient buffer.
+
+        Phase 14 addition: refresh the SpeciousPresent + homeostatic
+        momentum + TemporalContext before candidates enter the kernel.
+        This gives the rest of the loop access to retention/primal/
+        protention + circadian mode + processing density. Wrapped in
+        try/except matching existing step-level failure containment.
+        """
+        try:
+            from app.subia.temporal_hooks import refresh_temporal_state
+            prev_focal_ids = {i.id for i in self.kernel.focal_scene()}
+            prev_homeostasis = dict(self.kernel.homeostasis.variables)
+            refresh_temporal_state(
+                self.kernel,
+                previous_focal_ids=prev_focal_ids,
+                previous_homeostasis=prev_homeostasis,
+            )
+        except Exception:
+            logger.debug("phase14 refresh_temporal_state failed", exc_info=True)
+
         count = 0
         self._candidates = []
         for item in input_items:
@@ -609,6 +628,43 @@ class SubIALoop:
                 details["social_models_updated"] = len(humans_of_interest())
         except Exception:
             logger.debug("social model update failed", exc_info=True)
+
+        # ── Phase 14 temporal binding ──────────────────────────────
+        # Reduce the just-computed FEEL/ATTEND/OWN/PREDICT/MONITOR
+        # signals into a single BoundMoment. Stability bias from the
+        # SpeciousPresent retention demotes shiny-new items in favour
+        # of items present across the temporal window. Stored on the
+        # result dict so downstream consumers (compare/update) see it.
+        try:
+            from app.subia.temporal_hooks import bind_just_computed_signals
+            last_pred = (self.kernel.predictions or [None])[-1]
+            pred_dict = (
+                {"confidence": float(getattr(last_pred, "confidence", 0.5) or 0.5),
+                 "operation": getattr(last_pred, "operation", "")}
+                if last_pred else {}
+            )
+            attend_items = [
+                {"id": i.id, "salience": float(getattr(i, "salience", 0.5))}
+                for i in self.kernel.focal_scene()
+            ]
+            bm = bind_just_computed_signals(
+                feel={"dominant_affect":
+                      self.kernel.homeostasis.variables.get("dominant_affect", "neutral")},
+                attend={"focal_items": attend_items},
+                own={"ownership_assignments":
+                     {i.id: getattr(i, "ownership", "self")
+                      for i in self.kernel.focal_scene()}},
+                predict=pred_dict,
+                monitor={"confidence":
+                         float(self.kernel.meta_monitor.confidence or 0.5)},
+                kernel=self.kernel,
+            )
+            if bm is not None:
+                details["bound_moment_confidence"] = bm.confidence_unified
+                if bm.conflicts:
+                    details["bound_moment_conflicts"] = bm.conflicts[:3]
+        except Exception:
+            logger.debug("phase14 temporal_bind failed", exc_info=True)
 
         return details
 

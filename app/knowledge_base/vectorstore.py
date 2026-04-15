@@ -274,6 +274,43 @@ class KnowledgeStore:
 
         return formatted
 
+    def query_reranked(
+        self,
+        question: str,
+        top_k: int = config.DEFAULT_TOP_K,
+        category: str | None = None,
+        tags: list[str] | None = None,
+        min_score: float = config.MIN_RELEVANCE_SCORE,
+    ) -> list[dict]:
+        """Two-stage retrieval: vector top-20 → temporal freshness → cross-encoder re-rank.
+
+        Falls back to plain ``query()`` if the retrieval orchestrator is
+        unavailable (graceful degradation).
+        """
+        try:
+            from app.retrieval.reranker import rerank
+            from app.retrieval.temporal import apply_temporal_decay
+        except Exception:
+            return self.query(question, top_k, category, tags, min_score)
+
+        # Stage 1: broad vector retrieval.
+        from app.retrieval.config import RERANK_TOP_K_INPUT
+        candidates = self.query(
+            question=question,
+            top_k=RERANK_TOP_K_INPUT,
+            category=category,
+            tags=tags,
+            min_score=min_score,
+        )
+        if not candidates:
+            return []
+
+        # Stage 1.5: temporal freshness weighting (enterprise docs have ingested_at).
+        candidates = apply_temporal_decay(candidates, timestamp_field="ingested_at")
+
+        # Stage 2: cross-encoder re-ranking.
+        return rerank(question, candidates, top_k=top_k)
+
     # ─────────────────────────────────────────────
     # Inventory & Stats
     # ─────────────────────────────────────────────

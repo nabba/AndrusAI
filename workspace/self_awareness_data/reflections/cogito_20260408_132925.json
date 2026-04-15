@@ -1,0 +1,24 @@
+{
+  "reflection_id": "cogito_20260408_132925",
+  "timestamp": "2026-04-08T13:29:25.520528+00:00",
+  "self_model_stale": false,
+  "discrepancies": [
+    {
+      "type": "memory_chromadb_error",
+      "detail": "{\"error\":\"KeyError('_type')\"} (trace ID: 0)",
+      "severity": "medium"
+    },
+    {
+      "type": "memory_neo4j_error",
+      "detail": "{neo4j_code: Neo.ClientError.Security.Unauthorized} {message: The client is unauthorized due to authentication failure.} {gql_status: 50N42} {gql_status_description: error: general processing exceptio",
+      "severity": "medium"
+    }
+  ],
+  "failure_patterns": [],
+  "observations": [
+    "Agent 'introspector' has no versioned prompt"
+  ],
+  "improvement_proposals": [],
+  "overall_health": "degraded",
+  "narrative": ""
+}

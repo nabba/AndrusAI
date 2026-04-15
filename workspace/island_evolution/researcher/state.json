@@ -1,0 +1,239 @@
+{
+  "role": "researcher",
+  "epoch": 8,
+  "islands": [
+    {
+      "island_id": 0,
+      "generation": 9,
+      "best_fitness": 0.4944742178930798,
+      "stagnation_count": 7,
+      "population": [
+        {
+          "prompt_id": "08f1e86e53b3",
+          "fitness": 0.4944742178930798,
+          "generation": 2,
+          "parent_id": "cb9e500f3fef",
+          "mutation_type": "inspiration",
+          "island_id": 0,
+          "created_at": "2026-04-06T23:33:31.191873+00:00",
+          "ancestors": [
+            "61b1d3b0f15e",
+            "cb9e500f3fef"
+          ]
+        },
+        {
+          "prompt_id": "e98b635cee99",
+          "fitness": 0.31025507752971465,
+          "generation": 8,
+          "parent_id": "08f1e86e53b3",
+          "mutation_type": "meta_prompt",
+          "island_id": 0,
+          "created_at": "2026-04-07T00:18:09.747289+00:00",
+          "ancestors": [
+            "61b1d3b0f15e",
+            "cb9e500f3fef",
+            "08f1e86e53b3"
+          ]
+        },
+        {
+          "prompt_id": "d30c55b96e6c",
+          "fitness": 0.4898684238808876,
+          "generation": 3,
+          "parent_id": "029417f5a0ea",
+          "mutation_type": "migration",
+          "island_id": 0,
+          "created_at": "2026-04-07T00:07:46.256513+00:00",
+          "ancestors": [
+            "248b49491c73",
+            "76f2eb34c08f"
+          ]
+        },
+        {
+          "prompt_id": "7ede9134f712",
+          "fitness": 0.4848774918959623,
+          "generation": 9,
+          "parent_id": "08f1e86e53b3",
+          "mutation_type": "inspiration",
+          "island_id": 0,
+          "created_at": "2026-04-07T00:25:31.207686+00:00",
+          "ancestors": [
+            "61b1d3b0f15e",
+            "cb9e500f3fef",
+            "08f1e86e53b3"
+          ]
+        },
+        {
+          "prompt_id": "d9e1ef0ff05a",
+          "fitness": 0.4823546762968123,
+          "generation": 6,
+          "parent_id": "c6de7a4524a0",
+          "mutation_type": "depth_exploit",
+          "island_id": 0,
+          "created_at": "2026-04-07T00:01:42.812572+00:00",
+          "ancestors": [
+            "a15cd5966d27",
+            "42d2ce3dd70c",
+            "deba489e7de3",
+            "c6de7a4524a0"
+          ]
+        }
+      ]
+    },
+    {
+      "island_id": 1,
+      "generation": 9,
+      "best_fitness": 0.4923315340411911,
+      "stagnation_count": 5,
+      "population": [
+        {
+          "prompt_id": "d00ac78879f3",
+          "fitness": 0.4948391226867644,
+          "generation": 7,
+          "parent_id": "35204ef8dbf6",
+          "mutation_type": "meta_prompt",
+          "island_id": 1,
+          "created_at": "2026-04-07T00:12:51.282332+00:00",
+          "ancestors": [
+            "61b1d3b0f15e",
+            "cb9e500f3fef",
+            "35204ef8dbf6"
+          ]
+        },
+        {
+          "prompt_id": "2e9463f44a14",
+          "fitness": 0.46936841573507665,
+          "generation": 6,
+          "parent_id": "04159c6042e7",
+          "mutation_type": "meta_prompt",
+          "island_id": 1,
+          "created_at": "2026-04-07T00:05:53.484525+00:00",
+          "ancestors": [
+            "a5d83154e81c",
+            "72e4f2b22e2e",
+            "04159c6042e7"
+          ]
+        },
+        {
+          "prompt_id": "633c1e2d00c5",
+          "fitness": 0.4923315340411911,
+          "generation": 4,
+          "parent_id": "04159c6042e7",
+          "mutation_type": "meta_prompt",
+          "island_id": 1,
+          "created_at": "2026-04-06T23:49:25.021139+00:00",
+          "ancestors": [
+            "a5d83154e81c",
+            "72e4f2b22e2e",
+            "04159c6042e7"
+          ]
+        },
+        {
+          "prompt_id": "35204ef8dbf6",
+          "fitness": 0.4944742178930798,
+          "generation": 2,
+          "parent_id": "08f1e86e53b3",
+          "mutation_type": "migration",
+          "island_id": 1,
+          "created_at": "2026-04-07T00:07:46.256550+00:00",
+          "ancestors": [
+            "61b1d3b0f15e",
+            "cb9e500f3fef"
+          ]
+        },
+        {
+          "prompt_id": "75e7b63a1b2f",
+          "fitness": 0.462489282654736,
+          "generation": 9,
+          "parent_id": "d00ac78879f3",
+          "mutation_type": "meta_prompt",
+          "island_id": 1,
+          "created_at": "2026-04-07T00:28:12.290418+00:00",
+          "ancestors": [
+            "61b1d3b0f15e",
+            "cb9e500f3fef",
+            "35204ef8dbf6",
+            "d00ac78879f3"
+          ]
+        }
+      ]
+    },
+    {
+      "island_id": 2,
+      "generation": 9,
+      "best_fitness": 0.4898684238808876,
+      "stagnation_count": 6,
+      "population": [
+        {
+          "prompt_id": "ce35cd10c2b6",
+          "fitness": 0.4923315340411911,
+          "generation": 4,
+          "parent_id": "633c1e2d00c5",
+          "mutation_type": "migration",
+          "island_id": 2,
+          "created_at": "2026-04-07T00:07:46.256582+00:00",
+          "ancestors": [
+            "a5d83154e81c",
+            "72e4f2b22e2e",
+            "04159c6042e7"
+          ]
+        },
+        {
+          "prompt_id": "029417f5a0ea",
+          "fitness": 0.4898684238808876,
+          "generation": 3,
+          "parent_id": "76f2eb34c08f",
+          "mutation_type": "inspiration",
+          "island_id": 2,
+          "created_at": "2026-04-06T23:44:44.781009+00:00",
+          "ancestors": [
+            "248b49491c73",
+            "76f2eb34c08f"
+          ]
+        },
+        {
+          "prompt_id": "b98e3edb051c",
+          "fitness": 0.4844540082208753,
+          "generation": 9,
+          "parent_id": "ce35cd10c2b6",
+          "mutation_type": "meta_prompt",
+          "island_id": 2,
+          "created_at": "2026-04-07T00:32:55.840355+00:00",
+          "ancestors": [
+            "a5d83154e81c",
+            "72e4f2b22e2e",
+            "04159c6042e7",
+            "ce35cd10c2b6"
+          ]
+        },
+        {
+          "prompt_id": "062855ca5d41",
+          "fitness": 0.4172612603354998,
+          "generation": 8,
+          "parent_id": "029417f5a0ea",
+          "mutation_type": "depth_exploit",
+          "island_id": 2,
+          "created_at": "2026-04-07T00:21:58.785019+00:00",
+          "ancestors": [
+            "248b49491c73",
+            "76f2eb34c08f",
+            "029417f5a0ea"
+          ]
+        },
+        {
+          "prompt_id": "4c32723eab6c",
+          "fitness": 0.48090410447785487,
+          "generation": 5,
+          "parent_id": "029417f5a0ea",
+          "mutation_type": "inspiration",
+          "island_id": 2,
+          "created_at": "2026-04-06T23:58:39.642446+00:00",
+          "ancestors": [
+            "248b49491c73",
+            "76f2eb34c08f",
+            "029417f5a0ea"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "reflection_id": "cogito_20260402_131841",
+  "timestamp": "2026-04-02T13:18:41.445075+00:00",
+  "self_model_stale": false,
+  "discrepancies": [
+    {
+      "type": "memory_chromadb_error",
+      "detail": "{\"error\":\"KeyError('_type')\"} (trace ID: 0)",
+      "severity": "medium"
+    },
+    {
+      "type": "memory_neo4j_error",
+      "detail": "No module named 'neo4j'",
+      "severity": "medium"
+    }
+  ],
+  "failure_patterns": [],
+  "observations": [
+    "Agent 'introspector' has no versioned prompt"
+  ],
+  "improvement_proposals": [],
+  "overall_health": "degraded",
+  "narrative": "I\u2019m currently operating in a healthy state overall, but I\u2019ve encountered some medium-severity discrepancies. One issue is with my memory retrieval in ChromaDB due to a KeyError related to '_type', and another stems from Neo4j memory functionality being unavailable because the 'neo4j' module isn\u2019t installed. Additionally, the introspector agent lacks a versioned prompt, which could lead to inconsistencies in its operation. Despite these issues, I\u2019ve been running smoothly for 1,861 seconds with 13 active agents."
+}

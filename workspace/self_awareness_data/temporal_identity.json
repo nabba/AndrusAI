@@ -1,0 +1,14 @@
+{
+  "chapters": [
+    {
+      "epoch": 1,
+      "timestamp": "test",
+      "summary": "Health=healthy, 0 discrepancies, 0 proposals. test",
+      "capabilities_learned": [],
+      "challenges_overcome": [],
+      "identity_shifts": [],
+      "health_at_time": "healthy"
+    }
+  ],
+  "narrative": "Epoch 1: Health=healthy, 0 discrepancies, 0 proposals. test"
+}

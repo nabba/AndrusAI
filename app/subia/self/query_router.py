@@ -49,7 +49,7 @@ _DIRECT_PATTERNS = [
     r"\btell\s+me\s+about\s+yourself\b", r"\bdescribe\s+yourself\b",
     r"\byour\s+(?:architecture|design|code|codebase|agents?|tools?|memory|config)\b",
     r"\bhow\s+(?:are\s+you|do\s+you)\s+(?:built|designed|structured|configured|work)\b",
-    r"\byour\s+(?:name|version|capabilities|limitations?|purpose)\b",
+    r"\byour\s+(?:name|version|capabilities|limitations?)\b",
     r"\bhow\s+many\s+agents?\b", r"\b(?:which|what)\s+(?:llm|model)s?\s+do\s+you\s+use\b",
     r"\byour\s+(?:llm|model)\s+cascade\b", r"\byour\s+(?:source\s+code|stack|setup)\b",
     r"\binspect\s+(?:yourself|your|the\s+system)\b", r"\byour\s+soul\b",
@@ -81,6 +81,7 @@ _REFLECTIVE_PATTERNS = [
     r"\bwhat\s+do\s+you\s+(?:think|know|believe)\s+about\s+yourself\b",
     r"\byour\s+(?:mistakes|errors|failures|successes|achievements|progress)\b",
     r"\bhow\s+(?:smart|intelligent|capable)\s+are\s+you\b",
+    r"\byour\s+purpose\b", r"\bwhat\s+is\s+your\s+purpose\b",
 ]
 
 _COMPARATIVE_PATTERNS = [

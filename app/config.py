@@ -1,6 +1,6 @@
 import re
 from pydantic_settings import BaseSettings
-from pydantic import ConfigDict, SecretStr, field_validator
+from pydantic import ConfigDict, Field, SecretStr, field_validator
 from functools import cache
 
 # Hard caps — prevent a misconfigured or tampered .env from granting runaway resources
@@ -128,6 +128,26 @@ class Settings(BaseSettings):
     tool_self_correction_enabled: bool = True  # LLM-guided tool error correction
     project_isolation_enabled: bool = True     # per-venture memory namespacing
 
+    # ── SubIA integration (Phase 16a) ───────────────────────────────────
+    # All default OFF. Each flag is independently toggleable so we can
+    # activate SubIA in stages without big-bang deployments.
+    #   subia_live_enabled:      registers the CIL lifecycle hooks so every
+    #                            crew task runs through the Phase 4 loop.
+    #   subia_grounding_enabled: routes chat responses through the Phase 15
+    #                            grounding pipeline (ingress correction
+    #                            capture + egress fact-checking).
+    #   subia_idle_jobs_enabled: registers TSAL + Phase 12 idle jobs with
+    #                            the production idle_scheduler.
+    subia_live_enabled: bool = Field(
+        default=False, validation_alias="SUBIA_FEATURE_FLAG_LIVE",
+    )
+    subia_grounding_enabled: bool = Field(
+        default=False, validation_alias="SUBIA_GROUNDING_ENABLED",
+    )
+    subia_idle_jobs_enabled: bool = Field(
+        default=False, validation_alias="SUBIA_IDLE_JOBS_ENABLED",
+    )
+
     # ── Control Plane ─────────────────────────────────────────────────
     control_plane_enabled: bool = True      # enable control plane (tickets, budgets, audit)
     budget_enforcement_enabled: bool = True  # pre-call budget checks in llm_factory
@@ -239,7 +259,7 @@ class Settings(BaseSettings):
     workspace_capacity: int = 5
     belief_store_enabled: bool = True
 
-    model_config = ConfigDict(env_file=".env")
+    model_config = ConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("sandbox_memory_limit")
     @classmethod

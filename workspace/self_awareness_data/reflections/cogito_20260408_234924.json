@@ -1,0 +1,22 @@
+{
+  "reflection_id": "cogito_20260408_234924",
+  "timestamp": "2026-04-08T23:49:24.292316+00:00",
+  "self_model_stale": true,
+  "discrepancies": [
+    {
+      "type": "self_model_stale",
+      "detail": "System chronicle is ? hours old",
+      "severity": "low"
+    },
+    {
+      "type": "no_agents",
+      "detail": "No agents discovered \u2014 check soul files and prompt registry",
+      "severity": "high"
+    }
+  ],
+  "failure_patterns": [],
+  "observations": [],
+  "improvement_proposals": [],
+  "overall_health": "attention_needed",
+  "narrative": "Test narrative"
+}

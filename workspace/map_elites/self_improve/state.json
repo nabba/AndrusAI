@@ -1,0 +1,42 @@
+{
+  "role": "self_improve",
+  "generation": 3,
+  "islands": [
+    [
+      {
+        "strategy_id": "test_wiring_1",
+        "role": "self_improve",
+        "fitness_score": 0.8,
+        "feature_vector": {
+          "complexity": 0.5,
+          "cost_efficiency": 0.5,
+          "specialization": 0.5
+        },
+        "generation": 0,
+        "parent_id": "",
+        "mutation_type": "",
+        "artifacts": [],
+        "created_at": "2026-04-14T08:00:01.390669+00:00",
+        "island_id": 0
+      },
+      {
+        "strategy_id": "3f5f6245ad75",
+        "role": "self_improve",
+        "fitness_score": 0.7,
+        "feature_vector": {
+          "complexity": 0.001,
+          "cost_efficiency": 0.5,
+          "specialization": 0.5
+        },
+        "generation": 0,
+        "parent_id": "",
+        "mutation_type": "learning",
+        "artifacts": [],
+        "created_at": "2026-04-14T08:00:01.391173+00:00",
+        "island_id": 0
+      }
+    ],
+    [],
+    []
+  ]
+}

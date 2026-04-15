@@ -94,11 +94,18 @@ class PhilosophyRAGTool(BaseTool):
         if tradition:
             where_filter = {"tradition": tradition}
 
-        results = store.query(
-            query_text=query,
-            n_results=n_results,
-            where_filter=where_filter,
-        )
+        try:
+            results = store.query_reranked(
+                query_text=query,
+                n_results=n_results,
+                where_filter=where_filter,
+            )
+        except Exception:
+            results = store.query(
+                query_text=query,
+                n_results=n_results,
+                where_filter=where_filter,
+            )
 
         if not results:
             return (

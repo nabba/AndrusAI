@@ -128,6 +128,18 @@ class SelfImprovementCrew:
             llm=llm,
             tools=[web_search, web_fetch, get_youtube_transcript, file_manager] + memory_tools,
         )
+        # New KB tools (Phase 2/3): episteme, tensions, journal, dialectics for principled improvement.
+        try:
+            from app.episteme.tools import get_episteme_tools
+            from app.tensions.tools import get_tension_tools
+            from app.experiential.tools import get_experiential_tools
+            from app.philosophy.dialectics_tool import FindCounterArgumentTool
+            learner.tools.extend(get_episteme_tools())
+            learner.tools.extend(get_tension_tools("self_improver"))
+            learner.tools.extend(get_experiential_tools("self_improver"))
+            learner.tools.append(FindCounterArgumentTool())
+        except Exception:
+            pass  # New KBs are optional — graceful degradation.
         # Add Host Bridge tools for reading host files during learning
         try:
             from app.tools.bridge_tools import create_bridge_tools

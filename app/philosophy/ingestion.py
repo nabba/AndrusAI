@@ -161,7 +161,55 @@ def ingest_file(
         f"  → {added} chunks from {filepath.name} "
         f"({base_meta['author']}, {base_meta['tradition']})"
     )
+
+    # Auto-detect dialectical relationships (claim/counter-claim pairs).
+    _detect_dialectics(chunks, metadatas, base_meta)
+
     return added
+
+
+# ── Dialectical auto-detection ──────────────────────────────────────────────
+
+_COUNTER_PATTERNS = re.compile(
+    r"(?:however|on the other hand|critics argue|in contrast|"
+    r"opponents contend|against this|nevertheless|the objection|"
+    r"one might object|it could be argued)",
+    re.IGNORECASE,
+)
+
+
+def _detect_dialectics(
+    chunks: list[str],
+    metadatas: list[dict],
+    base_meta: dict,
+) -> None:
+    """Scan consecutive chunks for argumentative patterns and store in Neo4j.
+
+    Heuristic: if chunk N is a positive claim and chunk N+1 starts with a
+    counter-marker (however, on the other hand, ...), store the pair as
+    a Claim → CounterClaim relationship.
+    """
+    try:
+        from app.philosophy.dialectics import get_graph
+        graph = get_graph()
+    except Exception:
+        return
+
+    source = base_meta.get("title", base_meta.get("source_file", ""))
+    tradition = base_meta.get("tradition", "")
+
+    for i in range(len(chunks) - 1):
+        chunk_b = chunks[i + 1]
+        # Check if the next chunk opens with a counter-argument marker.
+        first_200 = chunk_b[:200]
+        if _COUNTER_PATTERNS.search(first_200):
+            graph.store_argument(
+                claim_text=chunks[i][:1000],
+                counter_claim_text=chunk_b[:1000],
+                source=source,
+                tradition_a=tradition,
+                tradition_b=tradition,
+            )
 
 def ingest_text(
     text: str,

@@ -177,6 +177,35 @@ class PhilosophyStore:
 
         return formatted
 
+    def query_reranked(
+        self,
+        query_text: str,
+        n_results: int = config.DEFAULT_TOP_K,
+        where_filter: dict | None = None,
+        min_score: float = config.MIN_RELEVANCE_SCORE,
+    ) -> list[dict]:
+        """Two-stage retrieval: vector top-20 → cross-encoder re-rank.
+
+        Falls back to plain ``query()`` if the retrieval orchestrator is
+        unavailable (graceful degradation).
+        """
+        try:
+            from app.retrieval.reranker import rerank
+        except Exception:
+            return self.query(query_text, n_results, where_filter, min_score)
+
+        from app.retrieval.config import RERANK_TOP_K_INPUT
+        candidates = self.query(
+            query_text=query_text,
+            n_results=RERANK_TOP_K_INPUT,
+            where_filter=where_filter,
+            min_score=min_score,
+        )
+        if not candidates:
+            return []
+
+        return rerank(query_text, candidates, top_k=n_results)
+
     def remove_by_source(self, source_file: str) -> int:
         """Remove all chunks from a specific source file."""
         try:

@@ -1,0 +1,259 @@
+"""
+retrieval/orchestrator.py — Unified cross-KB retrieval with two-stage ranking.
+
+The orchestrator composes all retrieval primitives:
+  1. Query decomposition (complex queries → sub-queries)
+  2. Parallel multi-collection vector retrieval
+  3. Deduplication across sub-queries and collections
+  4. Temporal freshness weighting (opt-in per collection)
+  5. Cross-encoder re-ranking
+  6. Provenance tagging (which KB, which sub-query, all scores)
+
+Usage:
+    from app.retrieval import RetrievalOrchestrator, RetrievalConfig
+
+    orch = RetrievalOrchestrator(RetrievalConfig(temporal_enabled=True))
+    results = orch.retrieve(
+        query="ethics of autonomous AI with Stoic principles",
+        collections=["enterprise_knowledge", "philosophy_humanist"],
+        top_k=5,
+    )
+    for r in results:
+        print(r.provenance["collection"], r.score, r.text[:80])
+
+IMMUTABLE — infrastructure-level module.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+
+from app.retrieval import config as cfg
+from app.retrieval.decomposer import decompose_query
+from app.retrieval.reranker import rerank
+from app.retrieval.temporal import apply_temporal_decay
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class RetrievalResult:
+    """A single retrieval result with full provenance."""
+
+    text: str
+    score: float
+    metadata: dict = field(default_factory=dict)
+    provenance: dict = field(default_factory=dict)
+
+
+class RetrievalOrchestrator:
+    """Two-stage retrieval orchestrator for all knowledge bases.
+
+    Backward-compatible — using this is opt-in.  Existing KB code
+    (``KnowledgeStore.query()``, ``PhilosophyStore.query()``, etc.)
+    continues to work unchanged.
+    """
+
+    def __init__(self, config: cfg.RetrievalConfig | None = None):
+        self.config = config or cfg.RetrievalConfig()
+        self._pool = ThreadPoolExecutor(
+            max_workers=self.config.max_parallel,
+            thread_name_prefix="retrieval-orch",
+        )
+
+    # ── Public API ──────────────────────────────────────────────────────
+
+    def retrieve(
+        self,
+        query: str,
+        collections: list[str],
+        top_k: int = cfg.RERANK_TOP_K_OUTPUT,
+        where_filter: dict | None = None,
+        min_score: float = 0.25,
+    ) -> list[RetrievalResult]:
+        """Retrieve from one or more ChromaDB collections with full pipeline.
+
+        Parameters
+        ----------
+        query : str
+            The natural-language query.
+        collections : list[str]
+            ChromaDB collection names to search.
+        top_k : int
+            Final number of results to return.
+        where_filter : dict | None
+            ChromaDB ``where`` clause applied to every collection.
+        min_score : float
+            Minimum semantic similarity score (pre-rerank filter).
+        """
+        if not query or not collections:
+            return []
+
+        # Step 1: Decompose query if enabled and query is complex.
+        if self.config.decomposition_enabled:
+            sub_queries = decompose_query(
+                query,
+                max_subqueries=self.config.max_subqueries,
+                min_length=self.config.decomposition_min_length,
+            )
+        else:
+            sub_queries = [query]
+
+        # Step 2: Parallel retrieval across (sub_query × collection) pairs.
+        n_first_stage = (
+            self.config.rerank_top_k_input if self.config.rerank_enabled else top_k
+        )
+        raw_results = self._parallel_retrieve(
+            sub_queries, collections, n_first_stage, where_filter, min_score
+        )
+
+        if not raw_results:
+            return []
+
+        # Step 3: Deduplicate by text content hash.
+        deduped = self._deduplicate(raw_results)
+
+        # Step 4: Temporal decay (if enabled).
+        if self.config.temporal_enabled:
+            deduped = apply_temporal_decay(
+                deduped,
+                timestamp_field=self.config.temporal_field,
+                half_life_hours=self.config.temporal_half_life_hours,
+                weight=self.config.temporal_weight,
+            )
+
+        # Step 5: Cross-encoder re-ranking.
+        if self.config.rerank_enabled:
+            ranked = rerank(query, deduped, top_k=top_k)
+        else:
+            ranked = sorted(
+                deduped, key=lambda d: d.get("blended_score", d.get("score", 0)), reverse=True
+            )[:top_k]
+
+        # Step 6: Convert to RetrievalResult.
+        return [self._to_result(doc) for doc in ranked]
+
+    def retrieve_single(
+        self,
+        query: str,
+        collection: str,
+        top_k: int = cfg.RERANK_TOP_K_OUTPUT,
+        where_filter: dict | None = None,
+        min_score: float = 0.25,
+    ) -> list[RetrievalResult]:
+        """Convenience: retrieve from a single collection."""
+        return self.retrieve(
+            query=query,
+            collections=[collection],
+            top_k=top_k,
+            where_filter=where_filter,
+            min_score=min_score,
+        )
+
+    # ── Internals ───────────────────────────────────────────────────────
+
+    def _parallel_retrieve(
+        self,
+        sub_queries: list[str],
+        collections: list[str],
+        n: int,
+        where_filter: dict | None,
+        min_score: float,
+    ) -> list[dict]:
+        """Fetch candidates from all (sub_query, collection) pairs in parallel."""
+        futures = {}
+        for sq in sub_queries:
+            for col_name in collections:
+                fut = self._pool.submit(
+                    self._retrieve_one, sq, col_name, n, where_filter, min_score
+                )
+                futures[fut] = (sq, col_name)
+
+        results = []
+        for fut in as_completed(futures, timeout=self.config.timeout_s):
+            sq, col_name = futures[fut]
+            try:
+                docs = fut.result()
+                for doc in docs:
+                    doc.setdefault("provenance", {})
+                    doc["provenance"]["collection"] = col_name
+                    doc["provenance"]["sub_query"] = sq
+                results.extend(docs)
+            except Exception as exc:
+                logger.debug(
+                    "retrieval.orchestrator: failed for (%s, %s): %s",
+                    sq[:50], col_name, exc,
+                )
+
+        return results
+
+    @staticmethod
+    def _retrieve_one(
+        query: str,
+        collection_name: str,
+        n: int,
+        where_filter: dict | None,
+        min_score: float,
+    ) -> list[dict]:
+        """Retrieve from a single ChromaDB collection."""
+        try:
+            from app.memory.chromadb_manager import retrieve_with_metadata
+
+            raw = retrieve_with_metadata(collection_name, query, n=n)
+            if not raw:
+                return []
+
+            results = []
+            for item in raw:
+                distance = item.get("distance", 1.0)
+                score = max(0.0, 1.0 - distance)
+                if score < min_score:
+                    continue
+                results.append({
+                    "text": item.get("document", ""),
+                    "score": round(score, 4),
+                    "metadata": item.get("metadata", {}),
+                    "provenance": {"semantic_score": round(score, 4)},
+                })
+            return results
+        except Exception as exc:
+            logger.debug(
+                "retrieval.orchestrator._retrieve_one(%s): %s", collection_name, exc
+            )
+            return []
+
+    @staticmethod
+    def _deduplicate(results: list[dict]) -> list[dict]:
+        """Remove duplicate passages by text hash, keeping the highest-scored."""
+        seen: dict[str, dict] = {}
+        for doc in results:
+            text = doc.get("text", "")
+            h = hashlib.md5(text.encode()).hexdigest()
+            existing = seen.get(h)
+            if existing is None or doc.get("score", 0) > existing.get("score", 0):
+                seen[h] = doc
+        return list(seen.values())
+
+    @staticmethod
+    def _to_result(doc: dict) -> RetrievalResult:
+        """Convert internal dict to public RetrievalResult."""
+        # Pick the best available score.
+        score = doc.get("rerank_score", doc.get("blended_score", doc.get("score", 0.0)))
+        prov = doc.get("provenance", {})
+        # Annotate all available scores into provenance.
+        if "rerank_score" in doc:
+            prov["rerank_score"] = doc["rerank_score"]
+        if "blended_score" in doc:
+            prov["blended_score"] = doc["blended_score"]
+        if "temporal_score" in doc:
+            prov["temporal_score"] = doc["temporal_score"]
+
+        return RetrievalResult(
+            text=doc.get("text", ""),
+            score=round(float(score), 4),
+            metadata=doc.get("metadata", {}),
+            provenance=prov,
+        )

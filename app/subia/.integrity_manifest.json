@@ -25,8 +25,8 @@
       "size": 7455
     },
     "app/subia/belief/internal_state.py": {
-      "sha256": "8fd5665cd67166850e8f25cb713bc628b31960e94d8ecdc4b4cf2d7a0a907376",
-      "size": 10375
+      "sha256": "dffae2528753154743737571060d7687e4d3dab6f83d2f22f5bec9585732078b",
+      "size": 14470
     },
     "app/subia/belief/meta_cognitive_layer.py": {
       "sha256": "b4bd9ee66000c370e7fbf502aecad9d64c5f64b022edce8d49ad3e6cf0c0c31a",
@@ -169,8 +169,8 @@
       "size": 9350
     },
     "app/subia/idle/__init__.py": {
-      "sha256": "ce74d997a6c7fce0325f5f9291326959ade74293e7f85ba8be410fc5cc579728",
-      "size": 834
+      "sha256": "de6ea0b03f99b91e3b0423e5566a051cc6d9e4756f97c60350e20044dec2c0f9",
+      "size": 2416
     },
     "app/subia/idle/scheduler.py": {
       "sha256": "752977bdca4e63c724daeae1a2ef421f2fda7088ed8ebdfab470b175b12aa6cf",
@@ -185,12 +185,12 @@
       "size": 10674
     },
     "app/subia/live_integration.py": {
-      "sha256": "39160ff929d855bc9cb22718c78ab664efa15dabdd7257cfd335cbbf9e8ff3b4",
-      "size": 8472
+      "sha256": "bc4d8f816f8cdff1095bd1ce1849f25a5bdbbc1ef293b0311e38fb9aa2fb8ffb",
+      "size": 8993
     },
     "app/subia/loop.py": {
-      "sha256": "e16aa87d6932a056f8c946c09299031001aef280ec0dc01cce18bff6c881b051",
-      "size": 37907
+      "sha256": "5c866a80151f500787d497437c0e87c0e628593b1ea317f6309c7b63e8b3f7a8",
+      "size": 40725
     },
     "app/subia/memory/__init__.py": {
       "sha256": "f0074922981104b9498b0b4fccd4ffcb071e9951d6797cd147f302ba4354df8d",
@@ -393,8 +393,8 @@
       "size": 19708
     },
     "app/subia/self/query_router.py": {
-      "sha256": "b5cdf114034660af95da011a8b2773403b732f80d51947c84993ea660e4aa41e",
-      "size": 9309
+      "sha256": "ba0bfc1f405493d57756adc12ce46930a8a74430dfd1526bd90f553a7ed3ed9f",
+      "size": 9363
     },
     "app/subia/self/temporal_identity.py": {
       "sha256": "60052c45f07aaedded73f34e12b60b3feea2166897b4f0e6d32943ea6f2b85ff",

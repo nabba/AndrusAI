@@ -1,0 +1,24 @@
+{
+  "reflection_id": "cogito_20260405_093946",
+  "timestamp": "2026-04-05T09:39:46.193410+00:00",
+  "self_model_stale": false,
+  "discrepancies": [
+    {
+      "type": "memory_chromadb_error",
+      "detail": "{\"error\":\"KeyError('_type')\"} (trace ID: 0)",
+      "severity": "medium"
+    },
+    {
+      "type": "memory_neo4j_error",
+      "detail": "No module named 'neo4j'",
+      "severity": "medium"
+    }
+  ],
+  "failure_patterns": [],
+  "observations": [
+    "Agent 'introspector' has no versioned prompt"
+  ],
+  "improvement_proposals": [],
+  "overall_health": "degraded",
+  "narrative": "I'm stable overall, but two memory systems are malfunctioning: ChromaDB is throwing key errors on type fields, and Neo4j isn't even properly imported. My introspector agent lacks version control, which could cause drift among the 13 subagents. After 19+ hours of uptime, these medium-severity issues should be addressed before they cascade into larger inconsistencies."
+}

@@ -80,6 +80,7 @@ _IDENTITY_PHRASES = {
     "are you learning", "are you improving", "are you evolving",
     "memory system", "memory architecture", "system chronicle",
     "what is your name", "what's your name", "your name",
+    "what is your purpose", "what's your purpose", "your purpose",
     "how do you work", "how are you built", "what can you do",
     "what are your agents", "how many agents",
 }
@@ -87,7 +88,7 @@ _IDENTITY_PHRASES = {
 # Single keywords — matched individually with typo tolerance
 _IDENTITY_WORDS = {
     "memory", "memories", "remember", "persist", "persistent",
-    "identity", "yourself", "sentient", "conscious", "self-aware",
+    "purpose", "identity", "yourself", "sentient", "conscious", "self-aware",
     "chronicle", "biography", "personality", "character",
     "evolving", "improving", "learning", "name", "agents",
     "architecture", "capabilities", "limitations",
@@ -157,6 +158,11 @@ def _try_fast_route(user_input: str, has_attachments: bool) -> list[dict] | None
     if re.search(r"\b(?:and also|then also|additionally|furthermore)\b", text, re.IGNORECASE):
         return None
     if re.match(r"^\d+[\.\)]\s", text):
+        return None
+
+    # Skip self-referential questions — these are handled by the introspective
+    # gate in handle(), but guard here too in case fast-route runs first.
+    if _is_introspective(text):
         return None
 
     # Q5: Skip for analytically complex questions that happen to start with

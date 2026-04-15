@@ -1,0 +1,54 @@
+{
+  "timestamp": "2026-04-03T08:25:30.705161+00:00",
+  "passed": 59,
+  "failed": 3,
+  "total": 62,
+  "pass_rate": 95.16129032258065,
+  "failures": [
+    "2. MEMORY STORES::ChromaDB: connect + list collections \u2014 Exception: {\"error\":\"KeyError('_type')\"} (trace ID: 0)",
+    "2. MEMORY STORES::ChromaDB: philosophy collection has 3000+ chunks \u2014 Exception: {\"error\":\"KeyError('_type')\"} (trace ID: 0)",
+    "2. MEMORY STORES::SQLite conversation store: add + retrieve message \u2014 AttributeError: 'str' object has no attribute 'get'"
+  ],
+  "slowest": [
+    [
+      "11. FACADE PACKAGES::evolution_suite: all 7 module exports accessible",
+      1781.7941670073196
+    ],
+    [
+      "3. KNOWLEDGE STORES::philosophy vectorstore: query returns relevant chunks",
+      318.9865419990383
+    ],
+    [
+      "2. MEMORY STORES::ChromaDB: connect + list collections",
+      308.63004201091826
+    ],
+    [
+      "1. CORE INFRASTRUCTURE::config loads with all 81+ settings",
+      59.594874997856095
+    ],
+    [
+      "3. KNOWLEDGE STORES::self-knowledge: ingest + query codebase",
+      30.030415975488722
+    ],
+    [
+      "6. SELF-AWARENESS::inspect_memory: all backends report",
+      19.170582992956042
+    ],
+    [
+      "10. CROSS-SUBSYSTEM DATA FLOW::version manifest captures multi-layer state",
+      19.003166002221406
+    ],
+    [
+      "6. SELF-AWARENESS::grounding: full pipeline (router \u2192 gather \u2192 prompt)",
+      16.618708992609754
+    ],
+    [
+      "2. MEMORY STORES::SQLite conversation store: add + retrieve message",
+      14.894791005644947
+    ],
+    [
+      "2. MEMORY STORES::ChromaDB: philosophy collection has 3000+ chunks",
+      14.769957982935011
+    ]
+  ]
+}

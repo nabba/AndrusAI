@@ -396,6 +396,11 @@ class Commander:
             f_policies = _ctx_pool.submit(_load_policies_for_crew, crew_task, crew_name)
             f_world = _ctx_pool.submit(_load_world_model_context, crew_task)
             f_state = _ctx_pool.submit(_load_homeostatic_context)  # L6: ~0ms, reads JSON
+            # New KB context loaders (Phase 2/3) — all gracefully degrade to "".
+            f_episteme = _ctx_pool.submit(_load_episteme_context, crew_task)
+            f_experiential = _ctx_pool.submit(_load_experiential_context, crew_task)
+            f_aesthetic = _ctx_pool.submit(_load_aesthetic_context, crew_task)
+            f_tensions = _ctx_pool.submit(_load_tensions_context, crew_task)
             context = (
                 f_skills.result(timeout=5)
                 + f_memory.result(timeout=5)
@@ -403,6 +408,10 @@ class Commander:
                 + f_policies.result(timeout=5)
                 + f_world.result(timeout=5)
                 + f_state.result(timeout=1)
+                + f_episteme.result(timeout=5)
+                + f_experiential.result(timeout=5)
+                + f_aesthetic.result(timeout=3)
+                + f_tensions.result(timeout=3)
             )
 
         # Inject conversation history so specialist crews understand follow-ups (Q2)
@@ -876,6 +885,19 @@ class Commander:
                 # Store 2: Cross-crew shared (read by _load_relevant_skills fallback + trigger_scanner)
                 store_team(reflection, {"role": crew_name, "type": "reflection"})
 
+                # Write experiential journal entry (Phase 3C).
+                try:
+                    from app.experiential.journal_writer import JournalWriter
+                    JournalWriter().write_post_task_reflection(
+                        task_id=task_id if 'task_id' in dir() else crew_name,
+                        crew_name=crew_name,
+                        result=str(crew_result)[:500] if crew_result else "",
+                        difficulty=difficulty,
+                        duration_s=duration_s,
+                    )
+                except Exception:
+                    pass  # Journal writing is best-effort.
+
                 # Revise beliefs about crew performance (inter-agent awareness)
                 from app.memory.belief_state import revise_beliefs
                 obs = f"{crew_name} completed task (d={difficulty}) with {confidence} confidence in {duration_s:.0f}s"
@@ -1127,7 +1149,7 @@ class Commander:
                 focus = "capabilities"
             elif any(w in lower for w in ("evolv", "improv", "chang", "grow", "experiment")):
                 focus = "evolution"
-            elif any(w in lower for w in ("who are you", "what are you", "describe yourself")):
+            elif any(w in lower for w in ("who are you", "what are you", "describe yourself", "purpose")):
                 focus = "identity"
             else:
                 focus = "general"

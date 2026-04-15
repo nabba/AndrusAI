@@ -1217,6 +1217,92 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: wiki hot cache update failed", exc_info=True)
     jobs.append(("wiki-hot-cache", _wiki_hot_cache, JobWeight.LIGHT))
 
+    # ── Phase 16a: SubIA idle jobs (TSAL + Phase 12) ──────────────────
+    # Gated on subia_idle_jobs_enabled. Each wrapper lazy-imports the
+    # SubIA module so disabled flag costs zero bytes at idle_scheduler
+    # import time. Any failure is swallowed — idle jobs must never
+    # crash the scheduler thread.
+    try:
+        from app.config import get_settings as _gs
+        if _gs().subia_idle_jobs_enabled:
+
+            def _tsal_resources():
+                """Phase 13 TSAL: probe host resource state (CPU/RAM/disk
+                + Ollama/Neo4j/Postgres process detection). Feeds the
+                homeostasis overload variable."""
+                try:
+                    from app.subia.tsal.probers import ResourceMonitor
+                    rs = ResourceMonitor().probe()
+                    logger.debug(
+                        "idle: tsal-resources probed "
+                        f"(compute_pressure={rs.compute_pressure:.2f} "
+                        f"storage_pressure={rs.storage_pressure:.2f})"
+                    )
+                except Exception:
+                    logger.debug("idle: tsal-resources failed", exc_info=True)
+            jobs.append(("tsal-resources", _tsal_resources, JobWeight.LIGHT))
+
+            def _tsal_host():
+                """Phase 13 TSAL: slow-changing hardware + OS profile
+                (daily cadence implicit via idle-loop pacing)."""
+                try:
+                    from app.subia.tsal.probers import HostProber
+                    HostProber().probe()
+                    logger.debug("idle: tsal-host probed")
+                except Exception:
+                    logger.debug("idle: tsal-host failed", exc_info=True)
+            jobs.append(("tsal-host", _tsal_host, JobWeight.LIGHT))
+
+            def _subia_reverie():
+                """Phase 12 Reverie: idle mind-wandering. Skips cleanly
+                if the ReverieEngine's adapters are not wired to real
+                Neo4j / ChromaDB / Mem0 (which is the current state).
+                Registering the job now so adapter wiring is the only
+                remaining step to activate it."""
+                try:
+                    from app.subia.reverie import ReverieEngine
+                    # Production adapter wiring is a follow-up task;
+                    # the engine requires injected adapters and no
+                    # default production adapter exists yet. Log and
+                    # skip rather than crash.
+                    logger.debug(
+                        "idle: subia-reverie skipped "
+                        "(adapters not yet wired — see Phase 16a follow-up)"
+                    )
+                except Exception:
+                    logger.debug("idle: subia-reverie failed", exc_info=True)
+            jobs.append(("subia-reverie", _subia_reverie, JobWeight.HEAVY))
+
+            def _subia_understanding():
+                """Phase 12 Understanding: post-ingest causal-chain pass
+                over wiki pages. Same adapter-wiring caveat as reverie."""
+                try:
+                    from app.subia.understanding import UnderstandingPassRunner
+                    logger.debug(
+                        "idle: subia-understanding skipped "
+                        "(adapters not yet wired)"
+                    )
+                except Exception:
+                    logger.debug("idle: subia-understanding failed", exc_info=True)
+            jobs.append(("subia-understanding", _subia_understanding, JobWeight.HEAVY))
+
+            def _subia_shadow():
+                """Phase 12 Shadow: behavioural bias mining. Adapter
+                wiring pending (requires Mem0 full-tier + scene history
+                log adapters)."""
+                try:
+                    from app.subia.shadow import ShadowMiner
+                    logger.debug(
+                        "idle: subia-shadow skipped "
+                        "(adapters not yet wired)"
+                    )
+                except Exception:
+                    logger.debug("idle: subia-shadow failed", exc_info=True)
+            jobs.append(("subia-shadow", _subia_shadow, JobWeight.HEAVY))
+    except Exception:
+        logger.debug("idle_scheduler: SubIA job registration failed",
+                     exc_info=True)
+
     return jobs
 
 

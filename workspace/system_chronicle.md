@@ -1,5 +1,5 @@
 # System Chronicle
-*Auto-generated: 2026-04-02 11:16 UTC | DO NOT EDIT MANUALLY*
+*Auto-generated: 2026-04-14 12:27 UTC | DO NOT EDIT MANUALLY*
 
 
 ---
@@ -14,7 +14,7 @@ I maintain four distinct memory systems, all persistent across container restart
 
 - **ChromaDB vector store** (`workspace/memory/`): Operational memory for self-reports, reflections, belief states, world model (causal beliefs), policies, predictions, and shared team context. Embeddings via Ollama nomic-embed-text on Metal GPU (768-dim), with CPU fallback.
 - **Mem0** (Postgres + Neo4j): Cross-session fact extraction from conversations. Entity relationships stored in a knowledge graph that grows with each interaction.
-- **Skill files** (`workspace/skills/`): 203 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
+- **Skill files** (`workspace/skills/`): 217 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
 - **Error journal** (`workspace/error_journal.json`): Full history of runtime errors, automated diagnoses, and applied fixes.
 - **Audit journal** (`workspace/audit_journal.json`): Record of all code changes made by the autonomous auditor.
 - **Variant archive** (`workspace/variant_archive.json`): Evolution experiment history — hypotheses tested, fitness scores, and what was kept.
@@ -23,7 +23,7 @@ I maintain four distinct memory systems, all persistent across container restart
 ---
 
 ## My Current Capabilities
-- 203 learned skill files covering: rapid ecological (32), advanced ecological (12), ecological data (10), sustainable media (9), ecological content (8)
+- 217 learned skill files covering: rapid ecological (33), advanced ecological (12), ecological data (10), sustainable media (9), ecological content (8)
 - 7 specialist agents with role-specific tools and self-models
 - Reflexion retry loops: up to 3 trials with automatic model-tier escalation
 - Semantic result cache: avoids redundant LLM calls for recent identical tasks
@@ -35,53 +35,56 @@ I maintain four distinct memory systems, all persistent across container restart
 - Parallel crew dispatch: independent sub-tasks run concurrently
 - Introspective self-description: this chronicle enables accurate self-reporting
 - Philosophy knowledge base: 3026 chunks of humanist philosophical texts for ethical grounding
-- Lifetime performance: 3 tasks completed, 1 failed (75% success rate)
-- Homeostatic state: energy=0.75 confidence=0.54 frustration=0.10 curiosity=0.50
+- Lifetime performance: 126 tasks completed, 27 failed (82% success rate)
+- Homeostatic state: energy=0.97 confidence=0.98 frustration=0.01 curiosity=0.51
 
 ---
 
 ## What I Have Learned
-I have accumulated 203 skill files across multiple self-improvement sessions. Primary knowledge domains (by file count): rapid ecological (32), advanced ecological (12), ecological data (10), sustainable media (9), ecological content (8), media content (6), sustainable content (6), cross crew (5), ecological media (5), ecological research (4).
+I have accumulated 217 skill files across multiple self-improvement sessions. Primary knowledge domains (by file count): rapid ecological (33), advanced ecological (12), ecological data (10), sustainable media (9), ecological content (8), media content (6), sustainable content (6), cross crew (5), ecological media (5), ecological stakeholder (5).
 
 Skills are written by the self-improvement crew after researching topics from the learning queue, watching YouTube tutorials, or running improvement scans. Each skill is stored as a semantic vector in the team_shared ChromaDB collection and retrieved by the commander when relevant to a task.
 
 ---
 
 ## My Error History
-Total errors recorded: **16** | Diagnosed: 12 | Fix applied: 0
+Total errors recorded: **44** | Diagnosed: 38 | Fix applied: 0
 
-Most common error types: ValueError (5), ImportError (5), APIConnectionError (3), BadRequestError (2)
+Most common error types: BadRequestError (18), ImportError (7), ValueError (5), APIConnectionError (5)
 
 Recent errors:
-  - [2026-03-31] writing: Invalid response from LLM call - None or empty.
-  - [2026-03-30] coding: litellm.APIConnectionError: Ollama_chatException - litellm.Timeout: Connection timed out after 600.0
-  - [2026-03-24] handle_task: No module named 'app.knowledge_base.config'
+  - [2026-04-12] coding: Task 'Complete the following coding task:
+
+<user_request>
+KNOWLEDGE BASE CONTEXT (retrieved from ing
+  - [2026-04-08] coding: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/codestral:22b does not support t
+  - [2026-04-08] research: Failed to connect to OpenAI API: Request timed out.
 
 Errors are automatically diagnosed by the auditor crew every 30 minutes. Fixes are proposed, reviewed, and applied with constitutional safety checks.
 
 ---
 
 ## System Changes (Audit Trail)
-52 audit sessions have touched 106 unique files.
+116 audit sessions have touched 196 unique files.
 
 Recent changes:
-  - [2026-04-01] 0 issues in 6 files: No issues found
-  - [2026-04-01] 3 issues in 6 files: Fixed thread safety in evo_memory.py, SQL injection risk in archive_db.py, and 
-  - [2026-04-01] 2 issues in 6 files: Fixed thread safety issue in parallel_runner.py and added error handling in ret
-  - [2026-04-02] 0 issues in 6 files: No issues found
-  - [2026-04-02] 3 issues in 6 files: Fixed syntax errors, potential security vulnerabilities, and configuration issu
+  - [2026-04-13] 0 issues in 6 files: No issues found
+  - [2026-04-13] 3 issues in 6 files: Fixed security vulnerabilities and bugs in commander routing and audit logging
+  - [2026-04-14] 0 issues in 6 files: No issues found
+  - [2026-04-14] 0 issues in 6 files: No issues found
+  - [2026-04-14] 3 issues in 6 files: Fixed JSON validation in adaptive_ensemble, None handling in observer, and miss
 
 ---
 
 ## Evolution Experiments
-22 experiments across 17 generations. 18 hypotheses kept (promoted to live system).
+66 experiments across 38 generations. 39 hypotheses kept (promoted to live system).
 
 Recent experiments:
-  - [keep] Adding advanced web search summarization techniques will improve the efficiency and releva
-  - [discard] Adding explicit validation and retry logic for None/empty LLM responses will reduce recurr
-  - [keep] Improving multi-step reasoning patterns for complex tasks will enhance output quality and 
-  - [keep] Adding a skill for handling LLM API connection errors will reduce recurring APIConnectionE
-  - [keep] Implementing explicit validation and retry logic for empty/None LLM responses will reduce 
+  - [keep] Adding a skill for LLM response validation and retry logic will reduce error rates by hand
+  - [keep] Adding a skill for rapid ecological report summarization will improve synthesis of biodive
+  - [keep] Adding a skill for optimizing memory retrieval patterns will improve efficiency by reducin
+  - [discard] Optimizing web search result synthesis and summarization to reduce redundant API calls and
+  - [keep] Adding a skill for advanced web search summarization techniques will improve output qualit
 
 Evolution runs every 6 hours during idle time. Each session proposes code mutations, tests them against a task suite, and keeps changes that improve fitness.
 
@@ -94,8 +97,10 @@ Based on accumulated experience, this system's personality has developed:
 - Concise by design: optimized for phone screen delivery via Signal
 - Self-correcting: errors trigger autonomous diagnosis and fix proposals
 - Adaptive: reflexion retries with model-tier escalation on failure
+- Battle-tested: has encountered and resolved many edge cases
 - Experimentally-minded: continuously tests hypotheses about itself
 - Calm and steady: low frustration indicates resilient problem-solving
+- Well-rested and energized: ready for complex tasks
 
 Primary expertise areas (from skill distribution): rapid ecological, advanced ecological, ecological data, sustainable media.
 

@@ -24,7 +24,9 @@ def create_coder(force_tier: str | None = None) -> Agent:
     scoped_tools = create_scoped_memory_tools("coder")
     mem0_tools = create_mem0_tools("coder")
 
-    tools = [execute_code, file_manager, web_search, read_attachment, KnowledgeSearchTool()] + memory_tools + scoped_tools + mem0_tools + get_fiction_tools()
+    # New KB tools (Phase 2/3): aesthetics for elegant code patterns.
+    from app.aesthetics.tools import get_aesthetic_tools
+    tools = [execute_code, file_manager, web_search, read_attachment, KnowledgeSearchTool()] + memory_tools + scoped_tools + mem0_tools + get_fiction_tools() + get_aesthetic_tools("coder")
     # Host Bridge tools (read/write host files, execute commands on Mac)
     try:
         from app.tools.bridge_tools import create_bridge_tools

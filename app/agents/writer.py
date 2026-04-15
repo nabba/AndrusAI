@@ -24,7 +24,10 @@ def create_writer(force_tier: str | None = None) -> Agent:
     scoped_tools = create_scoped_memory_tools("writer")
     mem0_tools = create_mem0_tools("writer")
 
-    tools = [file_manager, web_search, read_attachment, KnowledgeSearchTool(), PhilosophyRAGTool()] + memory_tools + scoped_tools + mem0_tools + get_fiction_tools()
+    # New KB tools (Phase 2/3): journal + aesthetics for quality-aware writing.
+    from app.experiential.tools import get_experiential_tools
+    from app.aesthetics.tools import get_aesthetic_tools
+    tools = [file_manager, web_search, read_attachment, KnowledgeSearchTool(), PhilosophyRAGTool()] + memory_tools + scoped_tools + mem0_tools + get_fiction_tools() + get_experiential_tools("writer") + get_aesthetic_tools("writer")
     # Document generation tools (PDF, DOCX, HTML)
     try:
         from app.tools.document_generator import create_document_tools

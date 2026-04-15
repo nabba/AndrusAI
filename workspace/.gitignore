@@ -1,0 +1,11 @@
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+*.pyc
+__pycache__/
+sandbox_workspaces/
+mem0_pgdata/
+mem0_neo4j/
+logs/
+.sender_key

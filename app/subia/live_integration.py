@@ -51,6 +51,17 @@ logger = logging.getLogger(__name__)
 # Environment-variable fallback, in case no explicit flag is passed.
 _ENV_FLAG = "SUBIA_FEATURE_FLAG_LIVE"
 
+# Process-local singleton exposing the most recent integration state.
+# Populated by enable_subia_hooks(); read by diagnostic surfaces
+# (firebase.publish.report_subia_state and similar).
+_last_state: "LiveIntegrationState | None" = None
+
+
+def get_last_state() -> "LiveIntegrationState | None":
+    """Return the most recent LiveIntegrationState, or None if
+    enable_subia_hooks() has never been called successfully."""
+    return _last_state
+
 
 @dataclass
 class LiveIntegrationState:
@@ -92,10 +103,12 @@ def enable_subia_hooks(
     if feature_flag is None:
         feature_flag = _resolve_env_flag()
 
+    global _last_state
     state = LiveIntegrationState()
     if not feature_flag:
         state.reason = "feature_flag disabled"
         logger.info("subia.live_integration: skipped (flag off)")
+        _last_state = state
         return state
 
     try:
@@ -157,6 +170,7 @@ def enable_subia_hooks(
         state.reason = f"registration failed: {exc}"
         logger.exception("subia.live_integration: registration failure")
 
+    _last_state = state
     return state
 
 

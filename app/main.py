@@ -231,6 +231,13 @@ async def lifespan(app: FastAPI):
                 from app.firebase_reporter import report_philosophy_kb, report_evolution_stats
                 report_philosophy_kb()
                 report_evolution_stats()
+                # Phase 16a: publish SubIA kernel state (inactive record
+                # when flag=0, live projection when flag=1). Safe always.
+                try:
+                    from app.firebase.publish import report_subia_state
+                    report_subia_state()
+                except Exception:
+                    pass
             except Exception:
                 pass
     scheduler.add_job(_heartbeat_with_anomaly, "interval", seconds=60, id="heartbeat")
@@ -353,6 +360,28 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("Lifecycle hooks init failed (non-fatal)", exc_info=True)
 
+    # ── Phase 16a: SubIA consciousness wire-in ──────────────────────────
+    # Opt-in via SUBIA_FEATURE_FLAG_LIVE=1. When disabled, the entire
+    # SubIA stack stays unimported (no latency, no memory, no risk).
+    # enable_subia_hooks() already wraps internal failures and returns a
+    # structured state — it never raises. The outer try/except is
+    # defence-in-depth in case an import itself fails.
+    try:
+        if settings.subia_live_enabled:
+            from app.subia.live_integration import enable_subia_hooks
+            subia_state = enable_subia_hooks(feature_flag=True)
+            if subia_state.registered:
+                logger.info(
+                    "SubIA CIL hooks registered "
+                    f"(kernel loop_count={getattr(subia_state.kernel, 'loop_count', 0)})"
+                )
+            else:
+                logger.warning(f"SubIA wire-in incomplete: {subia_state.reason}")
+        else:
+            logger.info("SubIA live integration disabled (SUBIA_FEATURE_FLAG_LIVE=0)")
+    except Exception:
+        logger.warning("SubIA live integration failed (non-fatal)", exc_info=True)
+
     try:
         if settings.project_isolation_enabled:
             from app.project_isolation import get_manager
@@ -442,6 +471,28 @@ app.include_router(philosophy_router)
 # Mount fiction inspiration API routes
 from app.api.fiction import fiction_router
 app.include_router(fiction_router)
+
+# Mount new knowledge base API routes (Phase 2)
+try:
+    from app.episteme.api import episteme_router
+    app.include_router(episteme_router)
+except ImportError:
+    pass
+try:
+    from app.experiential.api import experiential_router
+    app.include_router(experiential_router)
+except ImportError:
+    pass
+try:
+    from app.aesthetics.api import aesthetics_router
+    app.include_router(aesthetics_router)
+except ImportError:
+    pass
+try:
+    from app.tensions.api import tensions_router
+    app.include_router(tensions_router)
+except ImportError:
+    pass
 
 # ── Middleware (extracted to app/middleware.py) ────────────────────────────────
 from app.middleware import add_middleware
@@ -684,6 +735,22 @@ async def handle_task(sender: str, text: str, attachments: list = None,
             att_note = f" [+{len(attachments)} attachment(s)]"
         add_message(sender, "user", text + att_note)
 
+        # ── Phase 15 grounding: ingress correction capture ─────────────
+        # Detects user corrections ("actually it's X", "use source Y") and
+        # synchronously persists them to the belief store + source
+        # registry. No-ops when SUBIA_GROUNDING_ENABLED=0. Never raises.
+        try:
+            if settings.subia_grounding_enabled:
+                from app.subia.connections.grounding_chat_bridge import (
+                    observe_user_correction,
+                )
+                from app.conversation_store import get_last_assistant_message
+                prior = get_last_assistant_message(sender)
+                observe_user_correction(text, prior_response=prior)
+        except Exception:
+            logger.debug("Grounding ingress hook failed (non-fatal)",
+                         exc_info=True)
+
         # ── Agent Zero amendments: history + project detection ────────
         try:
             from app.config import get_settings as _gs
@@ -722,6 +789,22 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         except asyncio.TimeoutError:
             result = "Sorry, your request took too long to process. Please try a simpler question."
             logger.error(f"TIMEOUT (600s): handle_task for {_redact_number(sender)}: {text[:80]}")
+
+        # ── Phase 15 grounding: egress fact-checking ──────────────────
+        # Inspects factual claims in the draft response against the
+        # verified belief store. ALLOW keeps the draft. ESCALATE rewrites
+        # to an honest "let me fetch from X" reply. BLOCK cites the
+        # verified contradicting value. No-ops when grounding disabled.
+        try:
+            if settings.subia_grounding_enabled and result:
+                from app.subia.connections.grounding_chat_bridge import (
+                    ground_response,
+                )
+                result = ground_response(result, user_message=text) or result
+        except Exception:
+            logger.debug("Grounding egress hook failed (non-fatal)",
+                         exc_info=True)
+
         log_response_sent(_redact_number(sender), len(result))
 
         # Record which crew handled the task (for per-crew analytics)

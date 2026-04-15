@@ -309,6 +309,60 @@ def _build_evolution_context() -> str:
     except Exception:
         pass
 
+    # ── Knowledge-informed evolution (Phase 3B) ─────────────────────────────
+    # Augment context with research theory, past experiences, and growth edges.
+    kb_evolution_ctx = ""
+    try:
+        # Episteme: theoretical backing for improvement directions.
+        from app.episteme.vectorstore import get_store as get_episteme
+        epi_store = get_episteme()
+        if epi_store._collection.count() > 0:
+            epi_hits = epi_store.query(
+                query_text=f"improve multi-agent system {errors_text[:100]}",
+                n_results=2,
+            )
+            if epi_hits:
+                epi_texts = [h["text"][:300] for h in epi_hits]
+                kb_evolution_ctx += (
+                    "\n## Research Insights (episteme KB)\n"
+                    + "\n".join(f"  - {t}" for t in epi_texts) + "\n"
+                )
+    except Exception:
+        pass
+
+    try:
+        # Experiential: what happened last time we tried similar things.
+        from app.experiential.vectorstore import get_store as get_exp
+        exp_store = get_exp()
+        if exp_store._collection.count() > 0:
+            exp_hits = exp_store.query(
+                query_text="evolution improvement experiment outcome",
+                n_results=2,
+            )
+            if exp_hits:
+                exp_texts = [h["text"][:300] for h in exp_hits]
+                kb_evolution_ctx += (
+                    "\n## Past Experiences (journal)\n"
+                    + "\n".join(f"  - {t}" for t in exp_texts) + "\n"
+                )
+    except Exception:
+        pass
+
+    try:
+        # Tensions: unresolved growth edges.
+        from app.tensions.vectorstore import get_store as get_ten
+        ten_store = get_ten()
+        if ten_store._collection.count() > 0:
+            ten_hits = ten_store.get_unresolved(n=3)
+            if ten_hits:
+                ten_texts = [h["text"][:200] for h in ten_hits]
+                kb_evolution_ctx += (
+                    "\n## Growth Edges (unresolved tensions)\n"
+                    + "\n".join(f"  - {t}" for t in ten_texts) + "\n"
+                )
+    except Exception:
+        pass
+
     return (
         f"## Research Directions (program.md)\n{program}\n\n"
         f"## Current Metrics\n{format_metrics(metrics)}\n\n"
@@ -322,7 +376,8 @@ def _build_evolution_context() -> str:
         f"## Best Score Ever: {get_best_score():.4f}"
         f"{tech_ctx}"
         f"{subia_ctx}"
-        f"{snapshot_ctx}\n\n"
+        f"{snapshot_ctx}"
+        f"{kb_evolution_ctx}\n\n"
         f"## DIVERSITY REQUIREMENT\n"
         f"Do NOT propose improvements for errors marked 'ALREADY ADDRESSED'.\n"
         f"Explore NEW areas: performance optimization, code quality, new capabilities,\n"

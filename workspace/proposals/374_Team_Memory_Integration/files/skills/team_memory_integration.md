@@ -1,0 +1,1 @@
+Develop protocols for storing and retrieving shared knowledge across crews. Encourage crews to actively use team_memory_store for important findings and team_memory_retrieve when starting new tasks. Implement regular memory review sessions to maintain relevance and accuracy.

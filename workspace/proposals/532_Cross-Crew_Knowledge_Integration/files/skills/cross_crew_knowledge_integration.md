@@ -1,0 +1,1 @@
+This skill focuses on strategies for integrating knowledge across different crews. It includes techniques for setting up shared memory systems, facilitating collaborative workflows, and ensuring seamless information flow between teams.
