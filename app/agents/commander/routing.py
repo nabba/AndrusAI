@@ -48,6 +48,19 @@ _FAST_ROUTE_PATTERNS = [
     ), "writing", 3),
     # YouTube/media → media, difficulty 4
     (re.compile(r"(?:youtube\.com|youtu\.be|analyze (?:this |the )?(?:video|image|photo|audio|podcast))", re.IGNORECASE), "media", 4),
+    # PIM: email, calendar, tasks → pim
+    (re.compile(r"^(?:check|read|send|reply|forward)\s+(?:my\s+)?(?:email|inbox|mail)", re.IGNORECASE), "pim", 3),
+    (re.compile(r"^(?:check|show|create|schedule|cancel)\s+(?:my\s+)?(?:calendar|events?|meetings?|appointments?)", re.IGNORECASE), "pim", 3),
+    (re.compile(r"^(?:add|create|show|list|complete|update|delete)\s+(?:a\s+)?tasks?", re.IGNORECASE), "pim", 2),
+    # Financial analysis → financial
+    (re.compile(r"(?:stock|market|financial|investment|portfolio|SEC|earnings|valuation|DCF|P/E)", re.IGNORECASE), "financial", 6),
+    # Desktop automation → desktop
+    (re.compile(r"^(?:open|launch|close|switch\s+to|activate|control|take\s+(?:a\s+)?screenshot)", re.IGNORECASE), "desktop", 4),
+    # Repo analysis → repo_analysis
+    (re.compile(r"(?:analyze|review|audit|clone|diagram)\s+(?:the\s+|this\s+|my\s+)?repo", re.IGNORECASE), "repo_analysis", 5),
+    # DevOps → devops
+    (re.compile(r"^(?:deploy|containerize|scaffold)\b", re.IGNORECASE), "devops", 5),
+    (re.compile(r"^(?:create|start|init)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:project|app)\b", re.IGNORECASE), "devops", 5),
 ]
 
 # Q6: Time-sensitive query detection — skip semantic cache for these
@@ -206,7 +219,7 @@ def _recover_truncated_routing(raw: str) -> list[dict] | None:
 
         if matches:
             decisions = []
-            valid_crews = {"research", "coding", "writing", "media", "direct"}
+            valid_crews = {"research", "coding", "writing", "media", "direct", "creative", "pim", "financial", "desktop", "repo_analysis", "devops"}
             for crew, task, diff in matches:
                 if crew in valid_crews and task:
                     decisions.append({
@@ -266,6 +279,11 @@ crew_name MUST be one of:
                 alternatives, breakthrough thinking, or when the problem has no
                 established correct answer. Runs a multi-agent 3-phase pipeline
                 with a per-run budget cap; do not use it for routine writing.
+  "pim"       — email triage, calendar management, task tracking (check inbox, schedule meetings, manage tasks)
+  "financial" — stock data, financial analysis, SEC filings, valuation models, investment reports
+  "desktop"   — macOS desktop automation via AppleScript (open apps, manage windows, take screenshots, run Shortcuts)
+  "repo_analysis" — clone and analyze GitHub repositories: tech stack, architecture, metrics, diagrams
+  "devops"    — scaffold projects, build, test, package, deploy to cloud/GitHub, generate CI/CD configs
   "direct"    — simple questions, greetings, or status queries you answer yourself
 
 "difficulty" rates the task complexity (1-10):

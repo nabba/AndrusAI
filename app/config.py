@@ -242,6 +242,18 @@ class Settings(BaseSettings):
     embedding_dimension: int = 768
     embedding_refuse_fallback: bool = True  # Refuse 384-dim CPU fallback
 
+    # ── Email (IMAP/SMTP) — zero external deps, Python stdlib ────
+    email_enabled: bool = False
+    email_imap_host: str = ""           # e.g. "imap.gmail.com"
+    email_imap_port: int = 993
+    email_smtp_host: str = ""           # e.g. "smtp.gmail.com"
+    email_smtp_port: int = 587
+    email_address: str = ""
+    email_password: SecretStr = SecretStr("")  # Gmail: use App Password
+
+    # ── SEC EDGAR (financial filings API — free, no key) ──────
+    sec_edgar_user_agent: str = "BotArmy/1.0 (contact@example.com)"
+
     # Structured logging
     structured_log_path: str = "/app/workspace/logs/errors.jsonl"
     structured_log_max_mb: int = 50

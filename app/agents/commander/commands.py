@@ -818,5 +818,42 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         except Exception as exc:
             return f"Error: {str(exc)[:200]}"
 
+    # ── PIM shortcut commands ──────────────────────────────────────
+    if lower in ("check email", "email", "inbox"):
+        try:
+            from app.crews.pim_crew import PIMCrew
+            return PIMCrew().run("Check my inbox for unread emails and summarize the most important ones")
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    if lower in ("calendar", "schedule", "events", "today"):
+        try:
+            from app.crews.pim_crew import PIMCrew
+            return PIMCrew().run("Show me my calendar events for today and tomorrow")
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    if lower in ("tasks", "todo", "task list"):
+        try:
+            from app.tools.task_tools import create_task_tools
+            tools = create_task_tools("commander")
+            for t in tools:
+                if t.name == "list_tasks":
+                    return t._run(status="active")
+            return "Task tools not available."
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    if lower in ("schedules", "show schedules", "list schedules"):
+        try:
+            from app.tools.schedule_manager_tools import create_schedule_tools
+            tools = create_schedule_tools("commander")
+            for t in tools:
+                if t.name == "list_schedules":
+                    return t._run()
+            return "Schedule tools not available."
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
     # No command matched
     return None

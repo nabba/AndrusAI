@@ -241,6 +241,16 @@ async def lifespan(app: FastAPI):
             except Exception:
                 pass
     scheduler.add_job(_heartbeat_with_anomaly, "interval", seconds=60, id="heartbeat")
+
+    # ── User-configurable schedules (loaded from workspace/schedules.json) ──
+    try:
+        from app.tools.schedule_manager_tools import register_user_schedules
+        n_user_schedules = register_user_schedules(scheduler)
+        if n_user_schedules:
+            logger.info(f"Registered {n_user_schedules} user schedule(s)")
+    except Exception:
+        logger.debug("User schedule registration skipped", exc_info=True)
+
     scheduler.start()
 
     # ── PARALLELIZED: cleanup + mode read are independent I/O operations ──
@@ -512,6 +522,36 @@ def _verify_gateway_secret(request: Request) -> bool:
         return False
     token = auth[7:]
     return hmac.compare_digest(token, get_gateway_secret())
+
+
+@app.get("/self_improvement/health")
+async def self_improvement_health():
+    """Dashboard endpoint: Self-Improvement Overhaul observability.
+
+    Returns a single snapshot with:
+      - pipeline funnel (gaps → drafts → skills → usage)
+      - topic diversity (Shannon entropy over KB topic clusters)
+      - competence summary (total skills + open gaps + curiosity signal)
+      - MAP-Elites per-role latency baselines
+
+    Cheap enough for polling. All aggregations are read-only over existing
+    stores; no recomputation of embeddings.
+    """
+    try:
+        from app.self_improvement import health_summary
+        return health_summary()
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/self_improvement/describe")
+async def self_improvement_describe():
+    """First-person competence description for the chronicle / introspection."""
+    try:
+        from app.subia.self.competence_map import describe_self
+        return {"description": describe_self()}
+    except Exception as e:
+        return {"description": "", "error": str(e)}
 
 
 @app.get("/location")

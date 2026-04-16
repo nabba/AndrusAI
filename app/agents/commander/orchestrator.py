@@ -24,6 +24,8 @@ from app.agents.commander.context import (
     _load_world_model_context, _load_policies_for_crew,
     _load_knowledge_base_context, _load_homeostatic_context,
     _load_global_workspace_broadcasts,
+    _load_episteme_context, _load_experiential_context,
+    _load_aesthetic_context, _load_tensions_context,
     _CONTEXT_BUDGET, _prune_context,
 )
 from app.agents.commander.execution import (
@@ -299,7 +301,7 @@ class Commander:
             decisions = [{"crew": "direct", "task": raw}]
 
         # Validate crew names — reject invalid, don't leak raw JSON to user
-        _VALID_CREWS = frozenset({"research", "coding", "writing", "media", "direct"})
+        _VALID_CREWS = frozenset({"research", "coding", "writing", "media", "direct", "creative", "pim", "financial", "desktop", "repo_analysis", "devops"})
         for d in decisions:
             if d.get("crew") not in _VALID_CREWS:
                 logger.warning(f"Routing: invalid crew '{d.get('crew')}', defaulting to research")
@@ -473,8 +475,10 @@ class Commander:
                     disposition = temp_state.action_disposition
                     if disposition != "proceed":
                         context += (
-                            f"\n<system_note>Previous task disposition: {disposition}. "
-                            f"Adjust caution level accordingly.</system_note>\n\n"
+                            f"\n<reference_context type=\"disposition\" visibility=\"internal\">\n"
+                            f"Previous task disposition: {disposition}. "
+                            f"Adjust caution level accordingly.\n"
+                            f"</reference_context>\n\n"
                         )
         except Exception:
             pass
@@ -627,6 +631,32 @@ class Commander:
         context = _prune_context(context, difficulty)
         enriched_task = context + crew_task if context else crew_task
 
+        # ── MAP-Elites: stochasticity injection for exploration pressure ──
+        # Probabilistically inject a per-role variation into the task. This
+        # produces variance in the strategy signature → different MAP-Elites
+        # cells get populated → quality-diversity preservation has data to
+        # work with. Constrained to the difficulty 4-7 band where exploration
+        # is meaningful (trivial tasks don't need it; critical tasks demand
+        # the best-known strategy). Skipped on reflexion retries — those
+        # already carry their own variation pressure (escalation + reflection
+        # context). Skipped for non-specialist crews (no variations defined).
+        try:
+            import random as _random
+            _trial = getattr(self, "_current_trial", 1)
+            if (4 <= difficulty <= 7 and _trial == 1
+                    and _random.random() < 0.20):
+                from app.map_elites import apply_stochasticity, PROMPT_VARIATIONS
+                if crew_name in PROMPT_VARIATIONS:
+                    _stochastic = apply_stochasticity(crew_name, "")
+                    if _stochastic and len(_stochastic) > 30:
+                        enriched_task = enriched_task + "\n\n" + _stochastic.strip()
+                        logger.debug(
+                            f"map_elites: injected stochasticity for "
+                            f"{crew_name} (d={difficulty})"
+                        )
+        except Exception:
+            logger.debug("Stochasticity injection failed", exc_info=True)
+
         # ── Sentience: PRE_TASK hooks (inject internal state, meta-cognitive assessment) ──
         try:
             from app.lifecycle_hooks import get_registry, HookPoint, HookContext
@@ -745,6 +775,21 @@ class Commander:
                 result = run_result.final_output
                 if run_result.aborted_reason:
                     result = f"{result}\n\n[Note: {run_result.aborted_reason}]"
+            elif crew_name == "pim":
+                from app.crews.pim_crew import PIMCrew
+                result = PIMCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
+            elif crew_name == "financial":
+                from app.crews.financial_crew import FinancialCrew
+                result = FinancialCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
+            elif crew_name == "desktop":
+                from app.crews.desktop_crew import DesktopCrew
+                result = DesktopCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
+            elif crew_name == "repo_analysis":
+                from app.crews.repo_analysis_crew import RepoAnalysisCrew
+                result = RepoAnalysisCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
+            elif crew_name == "devops":
+                from app.crews.devops_crew import DevOpsCrew
+                result = DevOpsCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
             else:
                 return crew_task
         except Exception as e:
@@ -911,6 +956,44 @@ class Commander:
                 record_task(crew_name, success=result_ok, confidence=confidence,
                             difficulty=difficulty, duration_s=duration_s)
 
+                # MAP-Elites: record this execution as a StrategyEntry in the
+                # role-specific quality-diversity grid. This is the single
+                # system-wide write point — every crew execution feeds the grid
+                # with real fitness + real features, replacing the prior
+                # self-improvement-only wiring with placeholder scores.
+                try:
+                    from app.map_elites_wiring import CrewOutcome, record_crew_outcome
+                    from app.souls.loader import compose_backstory
+                    # Retries: reflexion trial counter (1-indexed) minus 1,
+                    # stored on self by _run_with_reflexion. Direct calls keep 0.
+                    _retries = max(0, getattr(self, "_current_trial", 1) - 1)
+                    record_crew_outcome(CrewOutcome(
+                        crew_name=crew_name,
+                        task_description=crew_task,
+                        result=str(result) if result else "",
+                        backstory_snippet=compose_backstory(crew_name)[:500],
+                        difficulty=difficulty,
+                        duration_s=duration_s,
+                        confidence=confidence,
+                        completeness=completeness,
+                        passed_quality_gate=(has_result and not is_failure_pattern),
+                        has_result=has_result,
+                        is_failure_pattern=is_failure_pattern,
+                        retries=_retries,
+                    ))
+                except Exception:
+                    logger.debug("MAP-Elites post-crew record failed", exc_info=True)
+
+                # Evaluator: trigger a buffered hit-flush so SkillRecord
+                # usage_count stays current. Retrieval-time hit tracking
+                # already buffers; this post-task flush makes per-task
+                # outcome data fresh for the decay sweep. Cheap.
+                try:
+                    from app.self_improvement.evaluator import flush_hits
+                    flush_hits()
+                except Exception:
+                    pass
+
                 # L6: Update homeostatic state (proto-emotions)
                 # Bidirectional coupling: pass somatic valence from last internal state
                 _somatic_val = None
@@ -999,6 +1082,12 @@ class Commander:
         _TIER_ESCALATION = {1: None, 2: "mid", 3: "premium"}
 
         for trial in range(1, max_trials + 1):
+            # Stash trial number so post-crew telemetry (MAP-Elites write,
+            # health metrics) can tag records with retry count. Exhaustion
+            # is implicit: retries == max_trials-1 means this was the last
+            # chance — fitness weighting on retries handles the penalty.
+            self._current_trial = trial
+
             # Override difficulty to force tier escalation on retries
             trial_difficulty = difficulty
             forced_escalation = _TIER_ESCALATION.get(trial)
@@ -1062,6 +1151,17 @@ class Commander:
 
         # Exhausted retries
         _store_reflexion_failure(task, max_trials, reflections)
+        # Self-Improvement: emit a learning gap for the topic-discovery loop.
+        # Reflexion exhaustion = the system tried and could not solve this
+        # with its current knowledge. That's a high-strength signal.
+        try:
+            from app.self_improvement.gap_detector import emit_reflexion_failure
+            emit_reflexion_failure(
+                task=task, crew_name=crew_name,
+                retries=max_trials - 1, reflections=reflections,
+            )
+        except Exception:
+            logger.debug("emit_reflexion_failure hook failed", exc_info=True)
         return result, True
 
     def _process_attachments(self, attachments: list) -> str:
