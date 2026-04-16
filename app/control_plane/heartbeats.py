@@ -84,8 +84,8 @@ class HeartbeatScheduler:
 
         1. Check assigned tickets (todo, in_progress)
         2. Check budget availability
-        3. Process next ticket (or report idle)
-        4. Log heartbeat
+        3. Process next ticket via Commander (or report idle)
+        4. Log heartbeat with cost
         """
         from app.control_plane.tickets import get_tickets
         from app.control_plane.budgets import get_budget_enforcer
@@ -113,11 +113,52 @@ class HeartbeatScheduler:
         result["pending_tickets"] = len(tickets)
         result["wake_events"] = len(wakes)
 
+        # Process the highest-priority todo ticket
+        processed = 0
+        total_cost = 0.0
+        for ticket in tickets:
+            if ticket.get("status") != "todo":
+                continue  # skip already in_progress (being handled elsewhere)
+
+            # Budget gate: verify the agent still has budget before processing
+            enforcer = get_budget_enforcer()
+            allowed, reason = enforcer.check_and_record(
+                project_id=project_id or "",
+                agent_role=agent_role,
+                estimated_cost_usd=0.01,  # minimal probe — real cost tracked per-call
+                estimated_tokens=100,
+            )
+            if not allowed:
+                logger.warning(f"heartbeat: {agent_role} budget exceeded, skipping ticket")
+                result["status"] = "budget_exceeded"
+                break
+
+            tid = str(ticket["id"])
+            try:
+                tm = get_tickets()
+                tm.assign_to_crew(tid, agent_role, agent_role)
+                # Dispatch to Commander for actual execution
+                from app.agents.commander.orchestrator import Commander
+                commander = Commander()
+                output = commander._run_crew(
+                    agent_role, ticket["title"],
+                    difficulty=ticket.get("difficulty") or 5,
+                )
+                tm.complete(tid, (output or "")[:500])
+                processed += 1
+            except Exception as exc:
+                logger.warning(f"heartbeat: ticket {tid} failed: {exc}")
+                get_tickets().fail(tid, str(exc)[:500])
+            # Only process one ticket per heartbeat to stay cooperative
+            break
+
         self.record_beat(
             agent_role, project_id,
             "event" if wakes else "scheduled",
-            tickets_processed=len(tickets),
+            tickets_processed=processed,
+            cost_usd=total_cost,
         )
+        result["tickets_processed"] = processed
         return result
 
     def get_recent_beats(self, agent_role: str = None, limit: int = 20) -> list[dict]:

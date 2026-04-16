@@ -498,6 +498,230 @@ def start_fiction_queue_poller() -> None:
     t.start()
     logger.info("firebase.listeners: Fiction queue poller started (10s interval)")
 
+# ── Generic KB queue pollers (Phase 2: episteme, experiential, aesthetics, tensions) ─
+
+_new_kb_poll_stop = threading.Event()
+
+
+def _generic_kb_poller(
+    queue_name: str,
+    kb_label: str,
+    process_fn,
+    report_fn,
+    poll_interval: int = 10,
+) -> None:
+    """Generic Firestore queue poller for simple text-based KBs.
+
+    Expects queue documents with: {status, action, content/text, metadata...}
+    Actions: "upload" (default), "delete".
+    """
+    while not _new_kb_poll_stop.wait(poll_interval):
+        db = _get_db()
+        if not db:
+            continue
+        try:
+            docs = (
+                db.collection(queue_name)
+                .where("status", "==", "pending")
+                .limit(5)
+                .get()
+            )
+            if not docs:
+                continue
+
+            for snap in docs:
+                data = snap.to_dict()
+                action = data.get("action", "upload")
+
+                try:
+                    result = process_fn(action, data)
+                    snap.reference.update({
+                        "status": "done",
+                        "processed_at": _now_iso(),
+                        **result,
+                    })
+                    logger.info("firebase.listeners: %s queue processed (%s)", kb_label, action)
+                except Exception as e:
+                    snap.reference.update({
+                        "status": "error",
+                        "error": str(e)[:500],
+                        "processed_at": _now_iso(),
+                    })
+                    logger.warning("firebase.listeners: %s queue error: %s", kb_label, e)
+
+            try:
+                report_fn()
+            except Exception:
+                pass
+
+        except Exception:
+            logger.debug("firebase.listeners: %s poll error", kb_label, exc_info=True)
+
+
+def _process_episteme(action: str, data: dict) -> dict:
+    """Process an episteme queue entry."""
+    if action == "delete":
+        fname = data.get("filename", "")
+        if not fname:
+            raise ValueError("No filename")
+        from app.episteme.vectorstore import get_store
+        removed = get_store().remove_by_source(fname)
+        return {"chunks_removed": removed}
+    else:
+        content = data.get("content", "")
+        if not content:
+            raise ValueError("Empty content")
+        fname = data.get("filename", "upload.md")
+        import re as _re
+        safe_name = _re.sub(r"[^\w\-.]", "_", fname)
+        if not safe_name.endswith((".md", ".txt")):
+            safe_name += ".md"
+
+        from pathlib import Path
+        from app.episteme import config as epi_config
+        texts_dir = Path(epi_config.TEXTS_DIR)
+        texts_dir.mkdir(parents=True, exist_ok=True)
+        dest = texts_dir / safe_name
+        dest.write_text(content, encoding="utf-8")
+
+        from app.episteme.ingestion import ingest_file
+        chunks = ingest_file(dest)
+        return {"chunks_created": chunks, "filename": safe_name}
+
+
+def _process_experiential(action: str, data: dict) -> dict:
+    """Process an experiential queue entry."""
+    if action == "delete":
+        entry_id = data.get("entry_id", "")
+        if not entry_id:
+            raise ValueError("No entry_id")
+        from app.experiential.vectorstore import get_store
+        get_store()._collection.delete(ids=[entry_id])
+        return {"deleted": entry_id}
+    else:
+        text = data.get("content", data.get("text", ""))
+        if not text:
+            raise ValueError("Empty content")
+        from app.experiential.journal_writer import JournalWriter
+        ok = JournalWriter().write_custom_entry(
+            text=text,
+            agent=data.get("agent", "user"),
+            entry_type=data.get("entry_type", "interaction_narrative"),
+            emotional_valence=data.get("emotional_valence", "neutral"),
+        )
+        if not ok:
+            raise ValueError("Store failed")
+        return {"stored": True}
+
+
+def _process_aesthetics(action: str, data: dict) -> dict:
+    """Process an aesthetics queue entry."""
+    if action == "delete":
+        pattern_id = data.get("pattern_id", "")
+        if not pattern_id:
+            raise ValueError("No pattern_id")
+        from app.aesthetics.vectorstore import get_store
+        get_store()._collection.delete(ids=[pattern_id])
+        return {"deleted": pattern_id}
+    else:
+        text = data.get("content", data.get("text", ""))
+        if not text:
+            raise ValueError("Empty content")
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        metadata = {
+            "pattern_type": data.get("pattern_type", "creative_solution"),
+            "domain": data.get("domain", "general"),
+            "flagged_by": data.get("flagged_by", "user"),
+            "quality_score": str(data.get("quality_score", "0.8")),
+            "epistemic_status": "evaluative/subjective",
+            "created_at": now.isoformat(),
+        }
+        from app.aesthetics.vectorstore import get_store
+        ok = get_store().add_pattern(text, metadata)
+        if not ok:
+            raise ValueError("Store failed")
+        return {"stored": True}
+
+
+def _process_tensions(action: str, data: dict) -> dict:
+    """Process a tensions queue entry."""
+    if action == "delete":
+        tension_id = data.get("tension_id", "")
+        if not tension_id:
+            raise ValueError("No tension_id")
+        from app.tensions.vectorstore import get_store
+        get_store()._collection.delete(ids=[tension_id])
+        return {"deleted": tension_id}
+    else:
+        pole_a = data.get("pole_a", "")
+        pole_b = data.get("pole_b", "")
+        if not pole_a or not pole_b:
+            raise ValueError("Both pole_a and pole_b required")
+        text = f"Tension: {pole_a} vs {pole_b}\n\nPole A: {pole_a}\n\nPole B: {pole_b}"
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        metadata = {
+            "tension_type": data.get("tension_type", "unresolved_question"),
+            "pole_a": pole_a[:200],
+            "pole_b": pole_b[:200],
+            "detected_by": data.get("detected_by", "user"),
+            "context": data.get("context", "")[:200],
+            "resolution_status": "unresolved",
+            "epistemic_status": "unresolved/dialectical",
+            "created_at": now.isoformat(),
+        }
+        from app.tensions.vectorstore import get_store
+        ok = get_store().add_tension(text, metadata)
+        if not ok:
+            raise ValueError("Store failed")
+        return {"stored": True}
+
+
+def start_episteme_queue_poller() -> None:
+    from app.firebase.publish import report_episteme_kb
+    t = threading.Thread(
+        target=_generic_kb_poller,
+        args=("episteme_queue", "episteme", _process_episteme, report_episteme_kb),
+        daemon=True, name="firebase-episteme-poll",
+    )
+    t.start()
+    logger.info("firebase.listeners: episteme queue poller started")
+
+
+def start_experiential_queue_poller() -> None:
+    from app.firebase.publish import report_experiential_kb
+    t = threading.Thread(
+        target=_generic_kb_poller,
+        args=("experiential_queue", "experiential", _process_experiential, report_experiential_kb),
+        daemon=True, name="firebase-experiential-poll",
+    )
+    t.start()
+    logger.info("firebase.listeners: experiential queue poller started")
+
+
+def start_aesthetics_queue_poller() -> None:
+    from app.firebase.publish import report_aesthetics_kb
+    t = threading.Thread(
+        target=_generic_kb_poller,
+        args=("aesthetics_queue", "aesthetics", _process_aesthetics, report_aesthetics_kb),
+        daemon=True, name="firebase-aesthetics-poll",
+    )
+    t.start()
+    logger.info("firebase.listeners: aesthetics queue poller started")
+
+
+def start_tensions_queue_poller() -> None:
+    from app.firebase.publish import report_tensions_kb
+    t = threading.Thread(
+        target=_generic_kb_poller,
+        args=("tensions_queue", "tensions", _process_tensions, report_tensions_kb),
+        daemon=True, name="firebase-tensions-poll",
+    )
+    t.start()
+    logger.info("firebase.listeners: tensions queue poller started")
+
+
 # ── Chat inbox poller ────────────────────────────────────────────────────────
 
 def start_chat_inbox_poller(handle_fn) -> None:

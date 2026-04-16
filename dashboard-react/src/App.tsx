@@ -10,6 +10,7 @@ import { OrgChart } from './components/OrgChart';
 import { CostCharts } from './components/CostCharts';
 import { WorkspacesPage } from './components/WorkspacesPage';
 import { EvolutionMonitor } from './components/EvolutionMonitor';
+import { KnowledgeBases } from './components/KnowledgeBases';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/costs" element={<CostCharts />} />
             <Route path="/workspaces" element={<WorkspacesPage />} />
             <Route path="/evolution" element={<EvolutionMonitor />} />
+            <Route path="/knowledge" element={<KnowledgeBases />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

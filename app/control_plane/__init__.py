@@ -13,6 +13,7 @@ from app.control_plane.projects import ProjectManager, get_projects
 from app.control_plane.governance import GovernanceGate, get_governance
 from app.control_plane.org_chart import get_org_chart
 from app.control_plane.cost_tracker import estimate_cost
+from app.control_plane.heartbeats import HeartbeatScheduler, get_heartbeat_scheduler
 
 __all__ = [
     "get_pool", "AuditTrail", "get_audit",
@@ -21,4 +22,5 @@ __all__ = [
     "ProjectManager", "get_projects",
     "GovernanceGate", "get_governance",
     "get_org_chart", "estimate_cost",
+    "HeartbeatScheduler", "get_heartbeat_scheduler",
 ]

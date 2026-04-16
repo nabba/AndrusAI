@@ -1445,6 +1445,7 @@ class Commander:
         from app.llm_factory import get_last_tier
         reflexion_exhausted = False  # L3: tracks if reflexion retries were used up
         _proactive_done = False  # S10: track if proactive scan already ran in parallel
+        _dispatch_error: str | None = None  # tracks failure for ticket update
 
         # Fetch conversation history once for crew injection (Q2)
         _crew_history = ""
@@ -1502,16 +1503,21 @@ class Commander:
                     pass
 
             # L3: Use reflexion retry for medium+ difficulty tasks
-            if difficulty >= 5:
-                final_result, reflexion_exhausted = self._run_with_reflexion(
-                    crew_name, d.get("task", user_input), difficulty=difficulty,
-                    conversation_history=_crew_history,
-                )
-            else:
-                final_result = self._run_crew(
-                    crew_name, d.get("task", user_input), difficulty=difficulty,
-                    conversation_history=_crew_history,
-                )
+            try:
+                if difficulty >= 5:
+                    final_result, reflexion_exhausted = self._run_with_reflexion(
+                        crew_name, d.get("task", user_input), difficulty=difficulty,
+                        conversation_history=_crew_history,
+                    )
+                else:
+                    final_result = self._run_crew(
+                        crew_name, d.get("task", user_input), difficulty=difficulty,
+                        conversation_history=_crew_history,
+                    )
+            except Exception as _crew_exc:
+                _dispatch_error = f"Crew {crew_name} failed: {_crew_exc}"
+                logger.error(_dispatch_error, exc_info=True)
+                final_result = "Sorry, an internal error occurred while processing your request."
 
             # S10: Run vetting + proactive scan in parallel (independent operations)
             # Skip proactive scan for easy tasks — saves 5-10s of LLM latency
@@ -1592,7 +1598,12 @@ class Commander:
                             logger.debug("Streaming partial result failed", exc_info=True)
                     streamed_parts.append(pr.label)
 
-            results = run_parallel(parallel_tasks, on_complete=_on_crew_complete)
+            try:
+                results = run_parallel(parallel_tasks, on_complete=_on_crew_complete)
+            except Exception as _par_exc:
+                _dispatch_error = f"Parallel dispatch failed: {_par_exc}"
+                logger.error(_dispatch_error, exc_info=True)
+                results = []
 
             # Aggregate raw results (vet once at the end, not per-crew)
             parts = []
@@ -1686,16 +1697,19 @@ class Commander:
         # Truncation is handled by handle_task() which also writes .md attachment.
         cleaned = _strip_internal_metadata(final_result)
 
-        # ── Control Plane: complete ticket ────────────────────────────────
+        # ── Control Plane: complete or fail ticket ─────────────────────────
         if _ticket_id:
             try:
                 from app.control_plane.tickets import get_tickets
                 _cost = cost_tracker.total_cost_usd if cost_tracker else 0
                 _tokens = cost_tracker.total_tokens if cost_tracker else 0
-                get_tickets().complete(
-                    _ticket_id, cleaned[:500], cost_usd=_cost, tokens=_tokens,
-                )
+                if _dispatch_error:
+                    get_tickets().fail(_ticket_id, _dispatch_error[:500])
+                else:
+                    get_tickets().complete(
+                        _ticket_id, cleaned[:500], cost_usd=_cost, tokens=_tokens,
+                    )
             except Exception:
-                logger.debug("Control plane ticket completion failed", exc_info=True)
+                logger.debug("Control plane ticket update failed", exc_info=True)
 
         return cleaned

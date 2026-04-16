@@ -54,6 +54,10 @@ from app.firebase.listeners import (  # noqa: F401
     start_kb_queue_poller,
     start_phil_queue_poller,
     start_fiction_queue_poller,
+    start_episteme_queue_poller,
+    start_experiential_queue_poller,
+    start_aesthetics_queue_poller,
+    start_tensions_queue_poller,
     start_chat_inbox_poller,
 )
 

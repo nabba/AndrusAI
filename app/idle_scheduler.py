@@ -966,6 +966,12 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
                     result = hb.run_heartbeat(role, project_id)
                     if result.get("status") != "idle":
                         logger.info(f"heartbeat: {role} — {result}")
+
+            # Expire stale governance requests past their deadline
+            from app.control_plane.governance import get_governance
+            expired = get_governance().expire_old()
+            if expired:
+                logger.info(f"heartbeat: expired {expired} governance request(s)")
         except Exception:
             logger.debug("idle_scheduler: heartbeat cycle failed", exc_info=True)
     jobs.append(("heartbeat-cycle", _heartbeat_cycle, JobWeight.LIGHT))

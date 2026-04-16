@@ -1,6 +1,6 @@
 """Control Plane dashboard API routes.
 
-Provides REST endpoints for the React dashboard and SSE for real-time updates.
+Provides REST endpoints for the React dashboard.
 All routes prefixed with /api/cp/.
 """
 import json

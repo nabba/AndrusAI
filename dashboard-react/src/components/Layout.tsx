@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { to: '/costs', label: 'Costs', icon: '📈', exact: false },
   { to: '/workspaces', label: 'Workspaces', icon: '🧠', exact: false },
   { to: '/evolution', label: 'Evolution', icon: '🧬', exact: false },
+  { to: '/knowledge', label: 'Knowledge', icon: '📚', exact: false },
 ];
 
 export function Layout() {

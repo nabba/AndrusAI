@@ -701,6 +701,125 @@
   </div>
 </div>
 
+<!-- ── Episteme / Research KB ──────────────────────────────────── -->
+<div class="card">
+  <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>🔬 Research Knowledge (Episteme)</span>
+    <span id="episteme-chunk-count" style="font-size:.72rem;color:var(--cyan,#22d3ee)"></span>
+  </div>
+  <div style="font-size:.62rem;color:var(--cyan,#22d3ee);background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.2);border-radius:var(--radius);padding:6px 10px;margin-bottom:10px">
+    Research papers, architecture decisions, design patterns. Epistemic status: <strong>theoretical/empirical</strong>.
+  </div>
+  <div class="fiction-meta-row">
+    <input type="text" id="episteme-author" placeholder="Author(s)" />
+    <input type="text" id="episteme-title" placeholder="Title" />
+    <select id="episteme-type">
+      <option value="research_paper">Research Paper</option>
+      <option value="architecture_decision">Architecture Decision</option>
+      <option value="design_pattern">Design Pattern</option>
+      <option value="failed_experiment">Failed Experiment</option>
+      <option value="methodology">Methodology</option>
+      <option value="survey">Survey</option>
+    </select>
+    <input type="text" id="episteme-domain" placeholder="Domain" />
+  </div>
+  <div id="episteme-upload-zone" class="phil-upload" style="border-color:rgba(34,211,238,.4)">
+    <input type="file" id="episteme-file" accept=".md,.txt" />
+    <div class="phil-upload-label">Drop .md/.txt research texts here or <strong style="color:var(--cyan,#22d3ee)">click to upload</strong></div>
+    <div class="phil-status" id="episteme-upload-status"></div>
+  </div>
+  <div id="episteme-texts" class="scroll-sm"><div class="empty">No research texts yet</div></div>
+  <div class="cmd-bar">
+    <button class="cmd-btn" onclick="loadEpistemeStatus()">Refresh</button>
+    <button class="cmd-btn warn" onclick="if(confirm('Re-ingest all research texts?'))reingestEpisteme()">Re-ingest All</button>
+  </div>
+</div>
+
+<!-- ── Experiential / Journal KB ─────────────────────────────────── -->
+<div class="card">
+  <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>📓 Experiential Journal</span>
+    <span id="experiential-count" style="font-size:.72rem;color:var(--green)"></span>
+  </div>
+  <div style="font-size:.62rem;color:var(--green);background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2);border-radius:var(--radius);padding:6px 10px;margin-bottom:10px">
+    Reflected experiences and observations. Epistemic status: <strong>subjective/phenomenological</strong>.
+  </div>
+  <div class="fiction-meta-row">
+    <select id="experiential-type">
+      <option value="interaction_narrative">Interaction Narrative</option>
+      <option value="creative_insight">Creative Insight</option>
+      <option value="error_learning">Error Learning</option>
+      <option value="task_reflection">Task Reflection</option>
+    </select>
+    <select id="experiential-valence">
+      <option value="neutral">Neutral</option>
+      <option value="positive">Positive</option>
+      <option value="negative">Negative</option>
+      <option value="mixed">Mixed</option>
+    </select>
+  </div>
+  <textarea id="experiential-text" placeholder="Write a journal entry, observation, or reflection..." style="width:100%;min-height:80px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:.8rem;margin-bottom:10px;resize:vertical"></textarea>
+  <div class="cmd-bar">
+    <button class="cmd-btn" onclick="submitExperientialEntry()" style="background:rgba(52,211,153,.15);border-color:rgba(52,211,153,.3)">Submit Entry</button>
+    <button class="cmd-btn" onclick="loadExperientialStatus()">Refresh</button>
+  </div>
+  <div id="experiential-entries" class="scroll-sm" style="margin-top:10px"><div class="empty">No journal entries yet</div></div>
+</div>
+
+<!-- ── Aesthetics / Pattern Library ───────────────────────────────── -->
+<div class="card">
+  <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>🎨 Aesthetic Patterns</span>
+    <span id="aesthetics-count" style="font-size:.72rem;color:var(--purple)"></span>
+  </div>
+  <div style="font-size:.62rem;color:var(--purple);background:rgba(192,132,252,.08);border:1px solid rgba(192,132,252,.2);border-radius:var(--radius);padding:6px 10px;margin-bottom:10px">
+    Examples of elegant code, beautiful prose, well-structured arguments. Epistemic status: <strong>evaluative/subjective</strong>.
+  </div>
+  <div class="fiction-meta-row">
+    <select id="aesthetics-type">
+      <option value="elegant_code">Elegant Code</option>
+      <option value="beautiful_prose">Beautiful Prose</option>
+      <option value="well_structured_argument">Well-Structured Argument</option>
+      <option value="creative_solution">Creative Solution</option>
+    </select>
+    <input type="text" id="aesthetics-domain" placeholder="Domain (e.g., python, ecology)" />
+    <input type="number" id="aesthetics-score" placeholder="Quality 0-1" min="0" max="1" step="0.1" value="0.8" style="max-width:100px" />
+  </div>
+  <textarea id="aesthetics-text" placeholder="Paste an example of elegant code, beautiful prose, or a well-structured argument..." style="width:100%;min-height:80px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:var(--radius);padding:10px;font-size:.8rem;margin-bottom:10px;resize:vertical;font-family:monospace"></textarea>
+  <div class="cmd-bar">
+    <button class="cmd-btn" onclick="submitAestheticPattern()" style="background:rgba(192,132,252,.15);border-color:rgba(192,132,252,.3)">Submit Pattern</button>
+    <button class="cmd-btn" onclick="loadAestheticsStatus()">Refresh</button>
+  </div>
+  <div id="aesthetics-patterns" class="scroll-sm" style="margin-top:10px"><div class="empty">No aesthetic patterns yet</div></div>
+</div>
+
+<!-- ── Tensions / Contradictions KB ───────────────────────────────── -->
+<div class="card">
+  <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>⚡ Tensions &amp; Contradictions</span>
+    <span id="tensions-count" style="font-size:.72rem;color:var(--yellow)"></span>
+  </div>
+  <div style="font-size:.62rem;color:var(--yellow);background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:var(--radius);padding:6px 10px;margin-bottom:10px">
+    Unresolved conflicts between principles, philosophy vs experience. Epistemic status: <strong>unresolved/dialectical</strong>. Growth comes from sitting with tension.
+  </div>
+  <div class="fiction-meta-row">
+    <input type="text" id="tensions-pole-a" placeholder="Pole A (one side of the tension)" style="flex:2" />
+    <input type="text" id="tensions-pole-b" placeholder="Pole B (the other side)" style="flex:2" />
+    <select id="tensions-type">
+      <option value="unresolved_question">Unresolved Question</option>
+      <option value="principle_conflict">Principle Conflict</option>
+      <option value="philosophy_vs_experience">Philosophy vs Experience</option>
+      <option value="competing_values">Competing Values</option>
+    </select>
+  </div>
+  <input type="text" id="tensions-context" placeholder="Context: what revealed this tension?" style="width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:6px 10px;font-size:.72rem;margin-bottom:10px;min-height:44px" />
+  <div class="cmd-bar">
+    <button class="cmd-btn" onclick="submitTension()" style="background:rgba(251,191,36,.15);border-color:rgba(251,191,36,.3)">Record Tension</button>
+    <button class="cmd-btn" onclick="loadTensionsStatus()">Refresh</button>
+  </div>
+  <div id="tensions-entries" class="scroll-sm" style="margin-top:10px"><div class="empty">No tensions recorded yet</div></div>
+</div>
+
 <!-- ── Consciousness Indicator Probes ──────────────────────────── -->
 <div class="card" style="border:1px solid rgba(236,72,153,.25)">
   <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -1945,6 +2064,192 @@ onSnapshot(doc(db, "status", "fiction_library"), s => {
   }
   touch();
 });
+
+// ── Episteme / Research KB ──────────────────────────────────────────────────
+const epistemeZone = document.getElementById("episteme-upload-zone");
+const epistemeFile = document.getElementById("episteme-file");
+if (epistemeZone && epistemeFile) {
+  epistemeZone.addEventListener("click", () => epistemeFile.click());
+  epistemeZone.addEventListener("dragover", e => { e.preventDefault(); epistemeZone.classList.add("dragover"); });
+  epistemeZone.addEventListener("dragleave", () => epistemeZone.classList.remove("dragover"));
+  epistemeZone.addEventListener("drop", e => {
+    e.preventDefault(); epistemeZone.classList.remove("dragover");
+    if (e.dataTransfer.files.length) uploadEpistemeFile(e.dataTransfer.files[0]);
+  });
+  epistemeFile.addEventListener("change", () => { if (epistemeFile.files.length) uploadEpistemeFile(epistemeFile.files[0]); });
+}
+
+async function uploadEpistemeFile(file) {
+  const status = document.getElementById("episteme-upload-status");
+  if (file.size > 10 * 1024 * 1024) { status.innerHTML = '<span style="color:var(--red)">File exceeds 10MB</span>'; return; }
+  status.innerHTML = '<span style="color:var(--cyan,#22d3ee)">Uploading…</span>';
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("author", document.getElementById("episteme-author").value.trim());
+  fd.append("title", document.getElementById("episteme-title").value.trim());
+  fd.append("paper_type", document.getElementById("episteme-type").value);
+  fd.append("domain", document.getElementById("episteme-domain").value.trim() || "general");
+  try {
+    const r = await fetch("/episteme/upload", { method: "POST", body: fd });
+    const j = await r.json();
+    status.innerHTML = `<span style="color:var(--green)">${j.chunks_created || 0} chunks ingested</span>`;
+    setTimeout(() => { status.innerHTML = ""; }, 5000);
+    loadEpistemeStatus();
+  } catch (e) { status.innerHTML = `<span style="color:var(--red)">Upload failed</span>`; }
+}
+
+window.loadEpistemeStatus = function() {
+  fetch("/episteme/texts").then(r => r.json()).then(texts => {
+    const el = document.getElementById("episteme-texts");
+    const countEl = document.getElementById("episteme-chunk-count");
+    if (Array.isArray(texts) && texts.length) {
+      countEl.textContent = `${texts.length} texts`;
+      el.innerHTML = texts.map(t => `<div style="font-size:.72rem;padding:4px 0;border-bottom:1px solid var(--border)">${esc(t.title || t.filename)} <span style="color:var(--muted)">— ${esc(t.author || '?')} (${esc(t.paper_type || '?')})</span> <span style="color:var(--cyan,#22d3ee)">${t.chunks || '?'} chunks</span></div>`).join("");
+    }
+  }).catch(() => {});
+};
+
+window.reingestEpisteme = function() {
+  fetch("/episteme/reingest", { method: "POST" }).then(r => r.json()).then(j => {
+    document.getElementById("episteme-upload-status").innerHTML = `<span style="color:var(--green)">Re-ingested ${j.total_chunks || 0} chunks</span>`;
+    loadEpistemeStatus();
+  }).catch(() => {});
+};
+
+onSnapshot(doc(db, "status", "episteme_kb"), s => {
+  const d = s.data(); if (!d) return;
+  const el = document.getElementById("episteme-chunk-count");
+  if (el) el.textContent = `${d.total_chunks || 0} chunks / ${d.total_texts || 0} texts`;
+  touch();
+});
+
+// ── Experiential / Journal KB ──────────────────────────────────────────────
+window.submitExperientialEntry = async function() {
+  const text = document.getElementById("experiential-text").value.trim();
+  if (!text) return;
+  const fd = new FormData();
+  fd.append("text", text);
+  fd.append("entry_type", document.getElementById("experiential-type").value);
+  fd.append("emotional_valence", document.getElementById("experiential-valence").value);
+  fd.append("agent", "user");
+  try {
+    const r = await fetch("/experiential/upload", { method: "POST", body: fd });
+    const j = await r.json();
+    if (j.status === "ok") {
+      document.getElementById("experiential-text").value = "";
+      loadExperientialStatus();
+    }
+  } catch (e) {}
+};
+
+window.loadExperientialStatus = function() {
+  fetch("/experiential/recent?n=10").then(r => r.json()).then(j => {
+    const el = document.getElementById("experiential-entries");
+    const entries = j.entries || [];
+    if (entries.length) {
+      el.innerHTML = entries.map(e => {
+        const m = e.metadata || {};
+        return `<div style="font-size:.72rem;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--green)">[${esc(m.entry_type || '?')}]</span> ${esc((e.text || '').slice(0, 150))} <span style="color:var(--muted)">— ${esc(m.agent || '?')}</span></div>`;
+      }).join("");
+    }
+  }).catch(() => {});
+};
+
+onSnapshot(doc(db, "status", "experiential_kb"), s => {
+  const d = s.data(); if (!d) return;
+  const el = document.getElementById("experiential-count");
+  if (el) el.textContent = `${d.total_entries || 0} entries`;
+  touch();
+});
+
+// ── Aesthetics / Pattern Library ───────────────────────────────────────────
+window.submitAestheticPattern = async function() {
+  const text = document.getElementById("aesthetics-text").value.trim();
+  if (!text) return;
+  const fd = new FormData();
+  fd.append("text", text);
+  fd.append("pattern_type", document.getElementById("aesthetics-type").value);
+  fd.append("domain", document.getElementById("aesthetics-domain").value.trim() || "general");
+  fd.append("quality_score", document.getElementById("aesthetics-score").value || "0.8");
+  fd.append("flagged_by", "user");
+  try {
+    const r = await fetch("/aesthetics/upload", { method: "POST", body: fd });
+    const j = await r.json();
+    if (j.status === "ok") {
+      document.getElementById("aesthetics-text").value = "";
+      loadAestheticsStatus();
+    }
+  } catch (e) {}
+};
+
+window.loadAestheticsStatus = function() {
+  fetch("/aesthetics/patterns?query=elegant&n=10").then(r => r.json()).then(j => {
+    const el = document.getElementById("aesthetics-patterns");
+    const patterns = j.patterns || [];
+    if (patterns.length) {
+      el.innerHTML = patterns.map(p => {
+        const m = p.metadata || {};
+        return `<div style="font-size:.72rem;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--purple)">[${esc(m.pattern_type || '?')}]</span> ${esc((p.text || '').slice(0, 150))} <span style="color:var(--muted)">— ${esc(m.domain || '?')}, quality: ${m.quality_score || '?'}</span></div>`;
+      }).join("");
+    }
+  }).catch(() => {});
+};
+
+onSnapshot(doc(db, "status", "aesthetics_kb"), s => {
+  const d = s.data(); if (!d) return;
+  const el = document.getElementById("aesthetics-count");
+  if (el) el.textContent = `${d.total_patterns || 0} patterns`;
+  touch();
+});
+
+// ── Tensions / Contradictions KB ───────────────────────────────────────────
+window.submitTension = async function() {
+  const poleA = document.getElementById("tensions-pole-a").value.trim();
+  const poleB = document.getElementById("tensions-pole-b").value.trim();
+  if (!poleA || !poleB) return;
+  const fd = new FormData();
+  fd.append("pole_a", poleA);
+  fd.append("pole_b", poleB);
+  fd.append("tension_type", document.getElementById("tensions-type").value);
+  fd.append("context", document.getElementById("tensions-context").value.trim());
+  fd.append("detected_by", "user");
+  try {
+    const r = await fetch("/tensions/upload", { method: "POST", body: fd });
+    const j = await r.json();
+    if (j.status === "ok") {
+      document.getElementById("tensions-pole-a").value = "";
+      document.getElementById("tensions-pole-b").value = "";
+      document.getElementById("tensions-context").value = "";
+      loadTensionsStatus();
+    }
+  } catch (e) {}
+};
+
+window.loadTensionsStatus = function() {
+  fetch("/tensions/unresolved?n=10").then(r => r.json()).then(j => {
+    const el = document.getElementById("tensions-entries");
+    const tensions = j.tensions || [];
+    if (tensions.length) {
+      el.innerHTML = tensions.map(t => {
+        const m = t.metadata || {};
+        return `<div style="font-size:.72rem;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--yellow)">[${esc(m.tension_type || '?')}]</span> <strong>${esc(m.pole_a || '?')}</strong> vs <strong>${esc(m.pole_b || '?')}</strong> <span style="color:var(--muted)">— ${esc(m.resolution_status || 'unresolved')}</span></div>`;
+      }).join("");
+    }
+  }).catch(() => {});
+};
+
+onSnapshot(doc(db, "status", "tensions_kb"), s => {
+  const d = s.data(); if (!d) return;
+  const el = document.getElementById("tensions-count");
+  if (el) el.textContent = `${d.total_tensions || 0} tensions`;
+  touch();
+});
+
+// Load initial data for new KBs
+try { loadEpistemeStatus(); } catch {}
+try { loadExperientialStatus(); } catch {}
+try { loadAestheticsStatus(); } catch {}
+try { loadTensionsStatus(); } catch {}
 
 // ── Consciousness Indicator Probes ──────────────────────────────────────────
 onSnapshot(doc(db, "status", "consciousness_probes"), s => {

@@ -37,6 +37,8 @@ from app.firebase_reporter import (
     report_system_online, report_system_offline, heartbeat, report_schedule,
     cleanup_stale_tasks, report_llm_mode, start_mode_listener,
     start_kb_queue_poller, start_phil_queue_poller, start_fiction_queue_poller,
+    start_episteme_queue_poller, start_experiential_queue_poller,
+    start_aesthetics_queue_poller, start_tensions_queue_poller,
     report_chat_message, start_chat_inbox_poller,
 )
 from app import idle_scheduler
@@ -271,6 +273,10 @@ async def lifespan(app: FastAPI):
     start_kb_queue_poller()
     start_phil_queue_poller()
     start_fiction_queue_poller()
+    start_episteme_queue_poller()
+    start_experiential_queue_poller()
+    start_aesthetics_queue_poller()
+    start_tensions_queue_poller()
 
     # Chat inbox poller — processes messages sent from the dashboard
     # and delivers them through the same Commander pipeline as Signal
@@ -829,6 +835,13 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         except asyncio.TimeoutError:
             result = "Sorry, your request took too long to process. Please try a simpler question."
             logger.error(f"TIMEOUT (600s): handle_task for {_redact_number(sender)}: {text[:80]}")
+        except Exception as _handle_exc:
+            result = "Sorry, an error occurred processing your request. Please try again."
+            logger.error(
+                f"HANDLE_ERROR: {type(_handle_exc).__name__}: {_handle_exc} "
+                f"for {_redact_number(sender)}: {text[:80]}",
+                exc_info=True,
+            )
 
         # ── Phase 15 grounding: egress fact-checking ──────────────────
         # Inspects factual claims in the draft response against the
@@ -1035,6 +1048,13 @@ try:
     from app.control_plane.dashboard_api import router as cp_router
     app.include_router(cp_router)
     logger.info("Control Plane API mounted at /api/cp/")
+    # Ensure every project has default budget rows for the current period
+    from app.control_plane.budgets import get_budget_enforcer as _get_be
+    from app.control_plane.projects import get_projects as _get_proj
+    _be = _get_be()
+    for _proj in (_get_proj().list_all() or []):
+        _be.ensure_default_budgets(str(_proj["id"]))
+    logger.info("Control Plane: default budgets ensured for all projects")
 except Exception:
     logger.debug("Control Plane API not available", exc_info=True)
 
@@ -1061,9 +1081,14 @@ except Exception:
 
 # ── React Dashboard (self-hosted, replaces Firebase) ─────────────────────
 # Mount LAST so API routes take precedence. Serves the React SPA build.
+# Check Docker path first, then local dev path relative to this file.
 from pathlib import Path as _Path
-_dashboard_build = _Path("/app/dashboard/build")
-if _dashboard_build.exists() and (_dashboard_build / "index.html").exists():
+_dashboard_candidates = [
+    _Path("/app/dashboard/build"),                          # Docker container
+    _Path(__file__).resolve().parent.parent / "dashboard" / "build",  # local dev
+]
+_dashboard_build = next((p for p in _dashboard_candidates if (p / "index.html").exists()), None)
+if _dashboard_build:
     from fastapi.staticfiles import StaticFiles
     app.mount("/cp", StaticFiles(directory=str(_dashboard_build), html=True), name="dashboard-cp")
     logger.info(f"React dashboard mounted at /cp/ from {_dashboard_build}")
