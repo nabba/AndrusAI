@@ -35,7 +35,7 @@ class TestMem0Config(unittest.TestCase):
         self.assertTrue(fields["mem0_enabled"].default)
         self.assertIn("bolt://", fields["mem0_neo4j_url"].default)
         self.assertEqual(fields["mem0_user_id"].default, "owner")
-        self.assertEqual(fields["mem0_embedder_model"].default, "all-MiniLM-L6-v2")
+        self.assertEqual(fields["mem0_embedder_model"].default, "nomic-ai/nomic-embed-text-v1.5")
 
     def test_neo4j_password_is_secret_str(self):
         from pydantic import SecretStr

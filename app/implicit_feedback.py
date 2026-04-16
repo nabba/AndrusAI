@@ -66,11 +66,10 @@ class ImplicitFeedbackDetector:
             return None
 
         try:
-            from app.memory.chromadb_manager import get_manager
-            manager = get_manager()
+            from app.memory.chromadb_manager import embed
 
             # Get embedding for current message
-            current_embedding = manager._embed_text(text)
+            current_embedding = embed(text)
 
             # Check against recent user messages
             for prev in recent_history[-5:]:
@@ -94,7 +93,7 @@ class ImplicitFeedbackDetector:
                         continue
 
                 # Check semantic similarity
-                prev_embedding = manager._embed_text(prev_text)
+                prev_embedding = embed(prev_text)
                 similarity = self._cosine_similarity(current_embedding, prev_embedding)
 
                 if similarity > REREQUEST_SIMILARITY_THRESHOLD:

@@ -11,8 +11,10 @@ CHROMA_PERSIST_DIR = os.environ.get("KB_CHROMA_DIR", "/app/workspace/knowledge")
 CHROMA_COLLECTION_NAME = os.environ.get("KB_COLLECTION", "enterprise_knowledge")
 
 # ── Embeddings ───────────────────────────────────────────────────────────────
-# Same model already used by app.memory.chromadb_manager — no extra download.
-EMBEDDING_MODEL = os.environ.get("KB_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+# NOTE: This config value is NOT used for actual embedding computation.
+# All embedding goes through app.memory.chromadb_manager.embed() which uses
+# Ollama nomic-embed-text (768-dim). This string is kept only for reference.
+EMBEDDING_MODEL = os.environ.get("KB_EMBEDDING_MODEL", "nomic-embed-text")
 
 # ── Chunking ─────────────────────────────────────────────────────────────────
 CHUNK_SIZE = int(os.environ.get("KB_CHUNK_SIZE", "1000"))

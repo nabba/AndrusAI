@@ -152,11 +152,11 @@ class GroundingProtocol:
 
         # RAG from self_knowledge collection
         try:
-            from app.memory.chromadb_manager import get_client
+            from app.memory.chromadb_manager import get_client, embed
             client = get_client()
             col = client.get_or_create_collection("self_knowledge")
             if col.count() > 0:
-                results = col.query(query_texts=[classification.query], n_results=5)
+                results = col.query(query_embeddings=[embed(classification.query)], n_results=5)
                 if results["documents"] and results["documents"][0]:
                     for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
                         ctx.rag_results.append({

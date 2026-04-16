@@ -206,7 +206,7 @@ class Settings(BaseSettings):
     mem0_neo4j_user: str = "neo4j"
     mem0_neo4j_password: SecretStr = SecretStr("")  # MUST be set via MEM0_NEO4J_PASSWORD env var
     mem0_llm_model: str = "ollama/qwen3:30b-a3b"  # local model for fact extraction
-    mem0_embedder_model: str = "all-MiniLM-L6-v2"  # same as ChromaDB
+    mem0_embedder_model: str = "nomic-ai/nomic-embed-text-v1.5"  # 768-dim, matches ChromaDB
     mem0_user_id: str = "owner"  # single-user system
 
     @property
@@ -240,7 +240,7 @@ class Settings(BaseSettings):
 
     # Embedding — pinned dimension (768 = Ollama nomic-embed-text)
     embedding_dimension: int = 768
-    embedding_refuse_fallback: bool = True  # Refuse 384-dim CPU fallback
+    embedding_refuse_fallback: bool = True  # Legacy — CPU fallback removed entirely
 
     # ── Email (IMAP/SMTP) — zero external deps, Python stdlib ────
     email_enabled: bool = False

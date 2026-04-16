@@ -54,9 +54,9 @@ class KnowledgeStore:
             metadata={"hnsw:space": "cosine"},
         )
 
-        # Handle embedding dimension mismatch (e.g. old 384-dim all-MiniLM
-        # data vs. current 768-dim Ollama nomic-embed-text).
-        # If mismatch: delete and recreate — documents must be re-ingested.
+        # Handle embedding dimension mismatch (e.g. stale collection from a
+        # prior model). If mismatch: delete and recreate — documents must be
+        # re-ingested. All embeddings are now pinned to 768-dim (nomic-embed-text).
         from app.memory.chromadb_manager import get_embed_dim
         try:
             if col.count() > 0:

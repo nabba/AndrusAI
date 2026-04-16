@@ -347,7 +347,7 @@ Backstory composition: `Agent backstory = CONSTITUTION + SOUL (per-role) + STYLE
 
 ### ChromaDB Vector Memory
 
-Per-crew collections plus shared `team_shared`. Local `all-MiniLM-L6-v2` embeddings (no API calls). Persistent at `/app/workspace/memory/`.
+Per-crew collections plus shared `team_shared`. Ollama `nomic-embed-text` embeddings (768-dim, Metal GPU, no API calls). Persistent at `/app/workspace/memory/`.
 
 ### Scoped Memory Hierarchy
 
@@ -372,7 +372,7 @@ Cross-session fact extraction and entity relationship tracking:
 - **Backend**: PostgreSQL (pgvector) + Neo4j (graph)
 - **Fact Extraction**: LLM-based automatic learning from conversations
 - **Graph**: Entity relationships via Neo4j
-- **Models**: ollama/qwen3:30b-a3b (extraction), all-MiniLM-L6-v2 (embedding)
+- **Models**: ollama/qwen3:30b-a3b (extraction), nomic-embed-text (768-dim embedding)
 - **Limits**: 10KB per fact, 50KB per conversation, 2KB per query
 
 ### Semantic Result Cache

@@ -170,7 +170,8 @@ def query_gaps(query_text: str, n: int = 5) -> list[LearningGap]:
     if col is None:
         return []
     try:
-        result = col.query(query_texts=[query_text], n_results=n)
+        from app.memory.chromadb_manager import embed
+        result = col.query(query_embeddings=[embed(query_text)], n_results=n)
         out: list[LearningGap] = []
         for doc in (result.get("documents") or [[]])[0]:
             try:

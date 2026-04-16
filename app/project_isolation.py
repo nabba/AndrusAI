@@ -293,10 +293,10 @@ class ProjectManager:
     def search_knowledge(self, ctx: ProjectContext, query: str, n: int = 3) -> dict:
         """Search project-scoped ChromaDB knowledge collection."""
         try:
-            from app.memory.chromadb_manager import get_client
+            from app.memory.chromadb_manager import get_client, embed
             client = get_client()
             collection = client.get_or_create_collection(ctx.chroma_collection)
-            return collection.query(query_texts=[query], n_results=n)
+            return collection.query(query_embeddings=[embed(query)], n_results=n)
         except Exception:
             return {"documents": [[]], "distances": [[]]}
 

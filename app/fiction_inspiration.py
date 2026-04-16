@@ -707,8 +707,9 @@ def search_fiction(query: str, n_results: int = 3,
         where_filter = {"$and": conditions}
 
     try:
+        from app.memory.chromadb_manager import embed
         results = collection.query(
-            query_texts=[query],
+            query_embeddings=[embed(query)],
             n_results=n_results,
             where=where_filter,
             include=["documents", "metadatas", "distances"],

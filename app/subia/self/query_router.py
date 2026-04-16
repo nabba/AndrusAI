@@ -176,7 +176,8 @@ class SelfRefRouter:
         # Layer 3: semantic similarity
         if self._semantic and self._exemplar_col:
             try:
-                r = self._exemplar_col.query(query_texts=[query], n_results=3)
+                from app.memory.chromadb_manager import embed
+                r = self._exemplar_col.query(query_embeddings=[embed(query)], n_results=3)
                 if r["distances"] and r["distances"][0]:
                     sim = 1 - min(r["distances"][0]) / 2
                     if sim > SIMILARITY_THRESHOLD:

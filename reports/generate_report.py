@@ -170,16 +170,17 @@ def build():
         "tempfile.NamedTemporaryFile + os.rename for all state file persistence.",
         styles["Body"]))
 
-    story.append(Paragraph("1.3 Embedding Dimension Implicit Negotiation", styles["H2"]))
+    story.append(Paragraph("1.3 Embedding Dimension — Resolved", styles["H2"]))
     story.append(Paragraph(
-        "Two embedding backends produce different dimensions: Ollama nomic-embed-text (768-dim, "
-        "Metal GPU, ~15ms) vs CPU fallback all-MiniLM-L6-v2 (384-dim, ~500ms). When Ollama "
-        "is unavailable, the system silently falls back to 384-dim, triggering ChromaDB "
-        "collection recreation with data loss.",
+        "All embeddings are now pinned to 768-dim via Ollama nomic-embed-text (Metal GPU, "
+        "~15ms/call). The CPU fallback (all-MiniLM-L6-v2, 384-dim) has been removed entirely. "
+        "If Ollama is unavailable, embed() raises EmbeddingUnavailableError rather than "
+        "producing wrong-dimension vectors. All query paths use query_embeddings= (not "
+        "query_texts=) to ensure the centralized pipeline is always used.",
         styles["Body"]))
     story.append(Paragraph(
-        "<b>Recommendation:</b> Pin embedding dimension in config. If fallback produces "
-        "different dimension, refuse to store rather than silently recreate collections.",
+        "<b>Status:</b> Fixed. Dimension is pinned at 768 in chromadb_manager._EMBED_DIM. "
+        "All vectorstores have dimension-mismatch guards that auto-recreate stale collections.",
         styles["Body"]))
 
     story.append(Paragraph("1.4 LLM Call Method Fragmentation", styles["H2"]))

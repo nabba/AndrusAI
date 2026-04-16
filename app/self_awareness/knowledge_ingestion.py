@@ -234,7 +234,8 @@ def query_self_knowledge(query: str, n_results: int = 5) -> list[dict]:
         collection = client.get_or_create_collection(COLLECTION_NAME)
         if collection.count() == 0:
             return []
-        results = collection.query(query_texts=[query], n_results=n_results)
+        from app.memory.chromadb_manager import embed
+        results = collection.query(query_embeddings=[embed(query)], n_results=n_results)
         output = []
         for doc, meta in zip(results["documents"][0], results["metadatas"][0]):
             output.append({"document": doc, "metadata": meta})

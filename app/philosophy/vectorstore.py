@@ -46,8 +46,8 @@ class PhilosophyStore:
             metadata={"hnsw:space": "cosine"},
         )
 
-        # Handle embedding dimension mismatch (e.g. switching between
-        # Ollama nomic-embed-text 768-dim and MiniLM 384-dim fallback).
+        # Handle embedding dimension mismatch from stale collections.
+        # All embeddings pinned to 768-dim (nomic-embed-text).
         from app.memory.chromadb_manager import get_embed_dim
         try:
             if col.count() > 0:

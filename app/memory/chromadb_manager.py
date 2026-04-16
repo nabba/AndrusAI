@@ -3,17 +3,15 @@ chromadb_manager.py — ChromaDB vector memory with Metal-accelerated embeddings
 
 Embedding strategy (in priority order):
   1. Ollama nomic-embed-text via Metal GPU (~15ms/call, 768-dim)
-  2. CPU SentenceTransformer all-MiniLM-L6-v2 fallback (~500ms/call, 384-dim)
+  2. Refused — CPU fallback disabled to prevent 384→768 dimension corruption.
 
-The Ollama path calls the native macOS Ollama instance via HTTP, which uses
-Metal GPU for inference.  If Ollama is unreachable, falls back to the CPU
-SentenceTransformer model loaded in-process.
+ALL embeddings system-wide are pinned to 768-dim (nomic-embed-text).
+If Ollama is unreachable, embed() raises EmbeddingUnavailableError.
+This protects ChromaDB collections from silent data corruption caused by
+mixing 384-dim and 768-dim vectors.
 
-IMPORTANT: Switching embedding models changes the vector dimension.
-ChromaDB collections created with one dimension are incompatible with another.
-On dimension mismatch, the collection is automatically recreated (old data lost).
-This is acceptable because ChromaDB stores operational/ephemeral data — the
-persistent knowledge is in Mem0 (Postgres+Neo4j) and skill files on disk.
+IMPORTANT: Never change _EMBED_DIM without migrating ALL ChromaDB collections
+AND all pgvector columns (agent_experiences, workspace_items, beliefs).
 """
 
 import chromadb
@@ -37,26 +35,15 @@ _OLLAMA_URL = os.environ.get(
     os.environ.get("LOCAL_LLM_BASE_URL", "http://host.docker.internal:11434"),
 )
 _OLLAMA_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
-_EMBED_DIM = 768  # Pinned to Ollama nomic-embed-text dimension
-_embed_backend = "unknown"  # "ollama" or "cpu"
+_EMBED_DIM = 768  # IMMUTABLE — pinned to Ollama nomic-embed-text dimension.
+                   # All ChromaDB collections + pgvector columns depend on this.
+_embed_backend = "unknown"  # "ollama" or "unavailable" (cpu fallback removed)
 _backend_lock = threading.Lock()
 
 
 class EmbeddingUnavailableError(RuntimeError):
-    """Raised when embedding backend is unavailable and fallback is refused."""
+    """Raised when Ollama embedding backend is unavailable."""
     pass
-
-# Lazy-loaded CPU fallback
-_cpu_model = None
-
-
-def _get_cpu_model():
-    global _cpu_model
-    if _cpu_model is None:
-        from sentence_transformers import SentenceTransformer
-        _cpu_model = SentenceTransformer("all-MiniLM-L6-v2")
-        logger.info("Loaded CPU fallback embedding model: all-MiniLM-L6-v2 (384-dim)")
-    return _cpu_model
 
 
 def _ollama_embed(text: str) -> list[float] | None:
@@ -77,59 +64,39 @@ def _ollama_embed(text: str) -> list[float] | None:
         return None
 
 
-def _cpu_embed(text: str) -> list[float]:
-    """Get embedding from CPU SentenceTransformer (fallback)."""
-    return _get_cpu_model().encode(text).tolist()
-
-
-def _should_refuse_fallback() -> bool:
-    """Check if CPU fallback is refused (to prevent 384-dim data corruption)."""
-    try:
-        from app.config import get_settings
-        return getattr(get_settings(), "embedding_refuse_fallback", True)
-    except Exception:
-        return True  # Default: refuse fallback (protect data)
-
-
 def _detect_backend() -> tuple[str, int]:
-    """Detect which embedding backend to use. Returns (backend, dim)."""
-    global _embed_backend, _EMBED_DIM
-    # Try Ollama first (produces 768-dim, matches pinned _EMBED_DIM)
+    """Detect the embedding backend. Only Ollama (768-dim) is supported."""
+    global _embed_backend
     emb = _ollama_embed("test")
     if emb:
         _embed_backend = "ollama"
-        _EMBED_DIM = len(emb)
+        actual_dim = len(emb)
+        if actual_dim != _EMBED_DIM:
+            logger.error(
+                f"CRITICAL: Ollama {_OLLAMA_MODEL} returned {actual_dim}-dim "
+                f"but system is pinned to {_EMBED_DIM}-dim. "
+                f"Check OLLAMA_EMBED_MODEL setting."
+            )
         logger.info(
             f"Embedding backend: Ollama Metal GPU ({_OLLAMA_MODEL}, "
             f"{_EMBED_DIM}-dim, ~15ms/call)"
         )
         return _embed_backend, _EMBED_DIM
-    # Ollama unavailable
-    if _should_refuse_fallback():
-        _embed_backend = "unavailable"
-        logger.warning(
-            f"Embedding backend: UNAVAILABLE — Ollama not reachable at {_OLLAMA_URL}, "
-            f"CPU fallback refused (embedding_refuse_fallback=True). "
-            f"Store/retrieve operations will skip until Ollama is available."
-        )
-        return _embed_backend, _EMBED_DIM
-    # Fallback to CPU (384-dim — only when explicitly allowed)
-    emb = _cpu_embed("test")
-    _embed_backend = "cpu"
-    _EMBED_DIM = len(emb)
+    _embed_backend = "unavailable"
     logger.warning(
-        f"Embedding backend: CPU SentenceTransformer (all-MiniLM-L6-v2, "
-        f"{_EMBED_DIM}-dim, ~500ms/call) — Ollama not available at {_OLLAMA_URL}"
+        f"Embedding backend: UNAVAILABLE — Ollama not reachable at {_OLLAMA_URL}. "
+        f"Store/retrieve operations will skip until Ollama is available."
     )
     return _embed_backend, _EMBED_DIM
 
 
 def _raw_embed(text: str) -> list[float]:
-    """Get embedding using the detected backend.
+    """Get 768-dim embedding from Ollama.
 
-    Raises EmbeddingUnavailableError if Ollama is down and fallback is refused.
+    Raises EmbeddingUnavailableError if Ollama is down. No CPU fallback —
+    mixing 384-dim and 768-dim embeddings silently corrupts vector stores.
     """
-    global _embed_backend, _EMBED_DIM
+    global _embed_backend
     if _embed_backend == "unknown":
         with _backend_lock:
             if _embed_backend == "unknown":
@@ -140,24 +107,21 @@ def _raw_embed(text: str) -> list[float]:
         if emb:
             with _backend_lock:
                 _embed_backend = "ollama"
-                _EMBED_DIM = len(emb)
             logger.info("Embedding backend recovered: Ollama available again")
             return emb
         raise EmbeddingUnavailableError(
-            "Ollama embedding unavailable and CPU fallback refused "
-            "(set EMBEDDING_REFUSE_FALLBACK=false to allow 384-dim fallback)"
+            "Ollama embedding unavailable — all embeddings are pinned to "
+            f"768-dim ({_OLLAMA_MODEL}). No CPU fallback."
         )
-    if _embed_backend == "ollama":
-        emb = _ollama_embed(text)
-        if emb:
-            return emb
-        # Ollama went down mid-session
-        if _should_refuse_fallback():
-            logger.warning("Ollama embedding failed — refusing CPU fallback to protect 768-dim collections")
-            raise EmbeddingUnavailableError("Ollama embedding failed, fallback refused")
-        logger.warning("Ollama embedding failed, falling back to CPU for this call")
-        return _cpu_embed(text)
-    return _cpu_embed(text)
+    # _embed_backend == "ollama"
+    emb = _ollama_embed(text)
+    if emb:
+        return emb
+    # Ollama went down mid-session — refuse to produce wrong-dimension vectors
+    raise EmbeddingUnavailableError(
+        f"Ollama embedding failed mid-session — refusing to produce "
+        f"non-{_EMBED_DIM}-dim vectors"
+    )
 
 
 @functools.lru_cache(maxsize=512)
