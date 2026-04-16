@@ -144,6 +144,13 @@ TIER_GATED = frozenset({
     "app/souls/agents_protocol.md",
     # Infrastructure that meta-evolution may tune
     "app/canary_deploy.py", "app/idle_scheduler.py",
+    # Capability tools with deployment/scheduling side effects
+    "app/tools/deployment_tools.py", "app/tools/ci_cd_tools.py",
+    "app/tools/schedule_manager_tools.py",
+    # New agent soul files (personality — not constitution)
+    "app/souls/pim.md", "app/souls/financial_analyst.md",
+    "app/souls/desktop.md", "app/souls/repo_analyst.md",
+    "app/souls/devops.md",
 })
 
 # Backward compatibility — union of IMMUTABLE + GATED

@@ -28,6 +28,15 @@ def create_desktop_agent(force_tier: str | None = None) -> Agent:
     except Exception:
         pass
 
+    # Hardware/IoT tools (serial, MQTT, USB enumeration — all via bridge)
+    try:
+        from app.tools.hardware_tools import create_hardware_tools
+        hw_tools = create_hardware_tools("desktop")
+        if hw_tools:
+            tools.extend(hw_tools)
+    except Exception:
+        pass
+
     # Bridge tools (filesystem, HTTP, execution)
     try:
         from app.tools.bridge_tools import create_bridge_tools

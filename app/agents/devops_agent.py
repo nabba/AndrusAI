@@ -49,6 +49,15 @@ def create_devops_agent(force_tier: str | None = None) -> Agent:
     except Exception:
         pass
 
+    # Mobile app tools (Expo/React Native, PWA)
+    try:
+        from app.tools.mobile_tools import create_mobile_tools
+        mob_tools = create_mobile_tools("devops")
+        if mob_tools:
+            tools.extend(mob_tools)
+    except Exception:
+        pass
+
     # Bridge tools
     try:
         from app.tools.bridge_tools import create_bridge_tools
