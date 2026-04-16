@@ -1,0 +1,70 @@
+{
+  "name": "Gemini API",
+  "base_url": "Not provided",
+  "version": "Not provided",
+  "description": "Not provided",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://apidog.com/blog/openapi-with-gemini-2-5-pro/",
+      "title": "I Tested Writing OpenAPI Specification with Gemini 2.5 Pro, Here're My Thoughts:",
+      "type": "openapi_spec",
+      "confidence": 0.95,
+      "parsed_spec": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no\"/><link rel=\"stylesheet\" href=\"https://static.apidog.com/static/blog/_next/static/css/476b0b73dbd6bc16.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"https://static.apidog.com/static/blog/_next/static/css/398f6c41a96f413c.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"https://static.apidog.com/static/blog/_next/static/chunks/webpack-1908c4353bd7d182.js\"/><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/06daf49a-d33a308eea00163d.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/951-16eb328875738df3.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/main-app-ad041e9e61fa9496.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/856-81043776a02892c9.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/104-2a3690120bb5702d.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/836-af44da9ba0db4cc3.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/24-39e32264aff796af.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/143-3db50d597b0470e6.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/app/global-error-40fbb217cc8a9443.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/657-c18cc7cea32104e5.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/607-6b11263bcc0c0994.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/99-d357d28ba86e38c3.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/62-f454f26cf11a3aae.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/app/blog/%5B...slugs%5D/page-b4a9bd936092d5ac.js\" async=\"\"></script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/app/blog/layout-a7f1d752759fa966.js\" async=\"\"></script><link rel=\"preload\" href=\"https://assets.apidog.com/static/js/blog/cards.min.js\" as=\"script\"/><link rel=\"preload\" href=\"https://assets.apidog.com/static/js/download-app-button.iife.js?v=5\" as=\"script\"/><link rel=\"preconnect\" href=\"https://fonts.googleapis.com\"/><link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin=\"anonymous\"/><link href=\"https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&amp;family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&amp;family=Poppins:wght@400;500;600;700&amp;display=swap\" rel=\"stylesheet\"/><title>I Tested Writing OpenAPI Specification with Gemini 2.5 Pro, Here&#x27;re My Thoughts:</title><meta name=\"description\" content=\"Discover how to craft OpenAPI specs using Gemini 2.5 Pro in this tutorial\u2014easy steps to design APIs with AI magic!\"/><meta name=\"application-name\" content=\"Apidog Blog\"/><meta name=\"author\" content=\"Ashley Goolam\"/><meta name=\"generator\" content=\"Apidog\"/><meta name=\"keywords\" content=\"Blog,Apidog Blog\"/><meta name=\"referrer\" content=\"origin-when-cross-origin\"/><meta name=\"publisher\" content=\"Ashley Goolam\"/><link rel=\"canonical\" href=\"https://apidog.com/blog/openapi-with-gemini-2-5-pro/\"/><meta property=\"og:title\" content=\"I Tested Writing OpenAPI Specification with Gemini 2.5 Pro, Here&#x27;re My Thoughts:\"/><meta property=\"og:description\" content=\"Discover how to craft OpenAPI specs using Gemini 2.5 Pro in this tutorial\u2014easy steps to design APIs with AI magic!\"/><meta property=\"og:url\" content=\"https://apidog.com/blog/openapi-with-gemini-2-5-pro/\"/><meta property=\"og:locale\" content=\"en\"/><meta property=\"og:image\" content=\"https://assets.apidog.com/blog-next/2026/01/openapi-with-gemini-2-5-pro.png\"/><meta property=\"og:type\" content=\"article\"/><meta property=\"article:published_time\" content=\"2025-04-15T00:22:40.000+00:00\"/><meta property=\"article:modified_time\" content=\"2026-01-31T14:18:59.000+00:00\"/><meta property=\"article:author\" content=\"Ashley Goolam\"/><meta name=\"twitter:card\" content=\"summary_large_image\"/><meta name=\"twitter:title\" content=\"I Tested Writing OpenAPI Specification with Gemini 2.5 Pro, Here&#x27;re My Thoughts:\"/><meta name=\"twitter:description\" content=\"Discover how to craft OpenAPI specs using Gemini 2.5 Pro in this tutorial\u2014easy steps to design APIs with AI magic!\"/><meta name=\"twitter:image\" content=\"https://assets.apidog.com/blog-next/2026/01/openapi-with-gemini-2-5-pro.png\"/><link rel=\"icon\" href=\"/favicon.ico\" type=\"image/x-icon\" sizes=\"400x400\"/><script>document.querySelectorAll('body link[rel=\"icon\"], body link[rel=\"apple-touch-icon\"]').forEach(el => document.head.appendChild(el))</script><script src=\"https://static.apidog.com/static/blog/_next/static/chunks/polyfills-42372ed130431b0a.js\" noModule=\"\"></script></head><body class=\"antialiased\"><div hidden=\"\"><!--$--><!--/$--></div><header class=\"sticky top-0 z-20 flex w-full justify-center border-b border-[#f4f7ff] bg-white\"><nav aria-label=\"Main\" data-orientation=\"horizontal\" dir=\"ltr\" class=\"relative z-20 flex flex-1 items-center max-w-screen-xl justify-between px-4 py-3 xl:px-0 breakNav:px-5\"><div style=\"position:relative\"><ul data-orientation=\"horizontal\" class=\"group flex flex-1 list-none items-center justify-center space-x-1\" dir=\"ltr\"><li><a href=\"/en/\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"109\" height=\"32\" fill=\"none\"><path fill=\"url(#logo-text_svg__a)\" d=\"m23.7 21.727-.48-.479-.09-.082a10.25 10.25 0 0 0-7.144-2.899c-2.67 0-5.233 1.04-7.144 2.9l-.062.06-.474.48-1.015 1.013a3.1 3.1 0 0 1-2.196.917 3.1 3.1 0 0 1-2.189-.904 3.083 3.083 0 0 1 0-4.366l2.189-2.184-2.162-2.149a3.086 3.086 0 0 1-.027-4.393 3.1 3.1 0 0 1 4.378 0l1.585 1.58a10.25 10.25 0 0 0 7.145 2.897c2.669 0 5.232-1.04 7.144-2.897a.3.3 0 0 1 .069-.068l.898-.904.598-.588a3.06 3.06 0 0 1 2.182-.904 3.1 3.1 0 0 1 2.188.904 3.08 3.08 0 0 1 .669 3.376 3 3 0 0 1-.688 1.004l-2.169 2.163 2.169 2.163A3.06 3.06 0 0 1 30 20.57c0 .818-.326 1.603-.907 2.182a3.093 3.093 0 0 1-4.371 0l-1.029-1.026z\"></path><path fill=\"url(#logo-text_svg__b)\" d=\"M21.548 2.233c.376.155.717.383 1.004.67a3.083 3.083 0 0 1-.007 4.36l-2.189 2.183-.055.048a6.185 6.185 0 0 1-8.633 0l-.055-.048-2.19-2.183a3.083 3.083 0 0 1 .014-4.353 3.093 3.093 0 0 1 4.365-.007l2.19 2.183 2.182-2.183A3.1 3.1 0 0 1 20.363 2c.407-.001.81.078 1.185.233\"></path><path fill=\"url(#logo-text_svg__c)\" d=\"M10.434 29.767a3.1 3.1 0 0 1-1.004-.67 3.083 3.083 0 0 1 .007-4.36l2.19-2.184.054-.047a6.185 6.185 0 0 1 8.634 0l.055.047 2.189 2.184a3.083 3.083 0 0 1-.014 4.353 3.093 3.093 0 0 1-4.365.007l-2.189-2.184-2.182 2.184a3.1 3.1 0 0 1-2.19.903 3.1 3.1 0 0 1-1.185-.233\"></path><mask id=\"logo-text_svg__d\" width=\"72\" height=\"23\" x=\"37\" y=\"6\" fill=\"#000\" maskUnits=\"userSpaceOnUse\"><path fill=\"#fff\" d=\"M37 6h72v23H37z\"></path><path d=\"M47.14 19.656h-5.782l-.994 2.862H38l4.947-14.027h2.623l4.947 14.027h-2.384zm-.636-1.874-2.245-6.51-2.265 6.51zM54.934 13.046q.576-.765 1.57-1.29.993-.524 2.244-.524 1.431 0 2.603.726 1.193.705 1.868 1.995t.675 2.963-.675 3.002a5.16 5.16 0 0 1-1.868 2.056 4.85 4.85 0 0 1-2.603.726q-1.251 0-2.225-.504-.974-.525-1.59-1.29v6.893H52.67V11.414h2.265zm6.656 3.87q0-1.15-.477-1.976-.457-.846-1.232-1.27a3.16 3.16 0 0 0-1.63-.443q-.854 0-1.629.444-.755.442-1.231 1.29-.457.846-.457 1.995t.457 2.015q.476.846 1.231 1.29.775.444 1.63.443.873 0 1.629-.443.775-.463 1.232-1.33.477-.867.477-2.015M67.287 9.942q-.615 0-1.034-.423a1.43 1.43 0 0 1-.417-1.048q0-.625.418-1.048A1.4 1.4 0 0 1 67.287 7q.596 0 1.013.423.417.424.417 1.048T68.3 9.52a1.37 1.37 0 0 1-1.013.423m1.112 1.472v11.104h-2.265V11.414zM70.618 16.916q0-1.673.676-2.963.695-1.29 1.867-1.995a5 5 0 0 1 2.643-.726 4.9 4.9 0 0 1 2.106.484q1.053.464 1.669 1.25V7.605h2.285v14.913h-2.285v-1.672q-.555.805-1.55 1.33-.973.524-2.245.524a4.95 4.95 0 0 1-2.623-.726q-1.172-.745-1.867-2.056-.676-1.33-.676-3.002m8.961.04q0-1.149-.477-1.995-.458-.847-1.212-1.29a3.16 3.16 0 0 0-1.63-.444q-.873 0-1.628.444-.756.423-1.232 1.27-.457.825-.457 1.975 0 1.148.457 2.015.476.867 1.232 1.33.775.444 1.629.443.874 0 1.63-.443.753-.444 1.211-1.29.477-.867.477-2.015M89.588 22.7q-1.55 0-2.802-.706a5.2 5.2 0 0 1-1.967-2.015q-.715-1.31-.715-3.023 0-1.694.735-3.003a5.1 5.1 0 0 1 2.007-2.015q1.27-.706 2.841-.706 1.569 0 2.841.706a5.1 5.1 0 0 1 2.007 2.015q.735 1.31.735 3.003t-.755 3.003a5.3 5.3 0 0 1-2.066 2.035q-1.292.706-2.861.706m0-1.996q.874 0 1.629-.423.775-.423 1.252-1.27.477-.846.477-2.055t-.457-2.036q-.458-.846-1.213-1.27a3.3 3.3 0 0 0-1.629-.423q-.875 0-1.629.424-.734.423-1.172 1.27-.437.826-.437 2.035 0 1.794.894 2.781.913.967 2.285.967M101.92 11.232q1.272 0 2.245.524.994.505 1.55 1.27v-1.612H108V22.7q0 1.531-.636 2.72a4.6 4.6 0 0 1-1.848 1.895q-1.191.685-2.861.685-2.225 0-3.695-1.068-1.47-1.048-1.67-2.862h2.246q.258.867 1.093 1.39.854.545 2.026.545 1.37 0 2.206-.847.854-.846.854-2.458v-1.854q-.576.785-1.57 1.33-.973.524-2.225.524a4.95 4.95 0 0 1-2.623-.726q-1.172-.745-1.867-2.056-.676-1.33-.676-3.002 0-1.673.676-2.963.695-1.29 1.867-1.995a4.95 4.95 0 0 1 2.623-.726m3.795 5.724q0-1.149-.477-1.995-.456-.847-1.212-1.29a3.16 3.16 0 0 0-1.629-.444 3.16 3.16 0 0 0-1.629.444q-.756.423-1.232 1.27-.457.825-.457 1.975 0 1.148.457 2.015.476.867 1.232 1.33a3.23 3.23 0 0 0 1.629.443 3.16 3.16 0 0 0 1.629-.443q.756-.444 1.212-1.29.477-.867.477-2.015\"></path></mask><path fill=\"#2F3659\" d=\"M47.14 19.656h-5.782l-.994 2.862H38l4.947-14.027h2.623l4.947 14.027h-2.384zm-.636-1.874-2.245-6.51-2.265 6.51zM54.934 13.046q.576-.765 1.57-1.29.993-.524 2.244-.524 1.431 0 2.603.726 1.193.705 1.868 1.995t.675 2.963-.675 3.002a5.16 5.16 0 0 1-1.868 2.056 4.85 4.85 0 0 1-2.603.726q-1.251 0-2.225-.504-.974-.525-1.59-"
+    },
+    {
+      "url": "https://github.com/google-gemini/cookbook/issues/93",
+      "title": "OpenAPI files for AI Models \u00b7 Issue #93 \u00b7 google-gemini/cookbook",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://medium.com/@saurabh71289/ai-powered-api-testing-with-google-gemini-and-openapi-in-colab-46086670b3fb",
+      "title": "AI-Powered API Testing with Google Gemini and OpenAPI in Colab | by Saurabh Srivastava | Medium",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://github.com/google-gemini/cookbook",
+      "title": "GitHub - google-gemini/cookbook: Examples and guides for using the Gemini API \u00b7 GitHub",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/google-generativeai/",
+      "title": "google-generativeai \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://ai.google.dev/gemini-api/docs",
+      "title": "Gemini API | Google AI for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/learn/pathways/solution-ai-gemini-getting-started-web",
+      "title": "Getting started with the Gemini API and Web apps | Solutions for Developers | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/python-gemini-api/",
+      "title": "python-gemini-api \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/gemini-api/",
+      "title": "gemini-api \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-15T09:28:19.429187+00:00"
+}

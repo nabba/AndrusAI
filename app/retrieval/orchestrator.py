@@ -73,6 +73,7 @@ class RetrievalOrchestrator:
         top_k: int = cfg.RERANK_TOP_K_OUTPUT,
         where_filter: dict | None = None,
         min_score: float = 0.25,
+        task_id: str | None = None,
     ) -> list[RetrievalResult]:
         """Retrieve from one or more ChromaDB collections with full pipeline.
 
@@ -88,8 +89,16 @@ class RetrievalOrchestrator:
             ChromaDB ``where`` clause applied to every collection.
         min_score : float
             Minimum semantic similarity score (pre-rerank filter).
+        task_id : str | None
+            If set, this retrieval is on behalf of a real user task.
+            A weak result (no hits, or top score below the gap-detector
+            threshold) emits a `RETRIEVAL_MISS` LearningGap.  Internal
+            callers (Novelty Gate, etc.) should leave this None to avoid
+            self-referential emission.
         """
         if not query or not collections:
+            if task_id is not None:
+                self._emit_miss_safe(query, 0.0, collections, task_id)
             return []
 
         # Step 1: Decompose query if enabled and query is complex.
@@ -134,7 +143,53 @@ class RetrievalOrchestrator:
             )[:top_k]
 
         # Step 6: Convert to RetrievalResult.
-        return [self._to_result(doc) for doc in ranked]
+        results = [self._to_result(doc) for doc in ranked]
+
+        # Self-Improvement gap signal: if this retrieval was on behalf of a
+        # real task and the top score is weak, emit a RETRIEVAL_MISS gap.
+        if task_id is not None:
+            top_score = max((r.score for r in results), default=0.0)
+            self._emit_miss_safe(query, top_score, collections, task_id)
+            # Evaluator hit-tracking: count SkillRecord ids in results as hits.
+            self._record_hits_safe(results)
+
+        return results
+
+    def _emit_miss_safe(
+        self,
+        query: str,
+        top_score: float,
+        collections: list[str],
+        task_id: str,
+    ) -> None:
+        """Best-effort RETRIEVAL_MISS emission.  Never raises."""
+        try:
+            from app.self_improvement.gap_detector import emit_retrieval_miss
+            emit_retrieval_miss(
+                query=query, top_score=float(top_score),
+                collections=list(collections), task_id=task_id,
+            )
+        except Exception:
+            pass  # gap detector unavailable — silent
+
+    def _record_hits_safe(self, results) -> None:
+        """Best-effort Evaluator hit-tracking. Never raises.
+
+        Inspects each result's metadata for `skill_record_id`; accumulates
+        hits on those records so the Evaluator can update usage_count.
+        """
+        try:
+            from app.self_improvement.evaluator import record_hits
+            rids: list[str] = []
+            for r in results:
+                md = getattr(r, "metadata", None) or {}
+                rid = md.get("skill_record_id") or md.get("id", "")
+                if isinstance(rid, str) and rid.startswith("skill_"):
+                    rids.append(rid)
+            if rids:
+                record_hits(rids)
+        except Exception:
+            pass
 
     def retrieve_single(
         self,

@@ -1,0 +1,113 @@
+{
+  "name": "Google Cloud AI APIs",
+  "base_url": "https://cloud.google.com/ai/docs",
+  "version": "latest",
+  "description": "APIs for accessing Google's AI and machine learning services",
+  "auth_type": "oauth2_client_credentials",
+  "auth_details": {
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/developerprofiles",
+      "https://www.googleapis.com/auth/developerprofiles.award",
+      "https://www.googleapis.com/auth/devprofiles.full_control.firstparty"
+    ],
+    "header_name": "Authorization"
+  },
+  "endpoints": [
+    {
+      "path": "/application-integration/docs/view-openapi-spec",
+      "method": "GET",
+      "description": "View OpenAPI specification for Application Integration",
+      "parameters": [],
+      "request_body": {
+        "format": "none"
+      },
+      "response_schema": {
+        "format": "html"
+      },
+      "rate_limit": "Not specified",
+      "requires_auth": true
+    },
+    {
+      "path": "/endpoints/docs/openapi/openapi-overview",
+      "method": "GET",
+      "description": "Get overview of OpenAPI support in Cloud Endpoints",
+      "parameters": [],
+      "request_body": {
+        "format": "none"
+      },
+      "response_schema": {
+        "format": "html"
+      },
+      "rate_limit": "Not specified",
+      "requires_auth": true
+    }
+  ],
+  "rate_limits": {
+    "requests_per_minute": "Not specified",
+    "requests_per_second": "Not specified"
+  },
+  "error_codes": {
+    "401": "Unauthorized",
+    "403": "Forbidden",
+    "429": "Rate limited"
+  },
+  "doc_sources": [
+    {
+      "url": "https://docs.cloud.google.com/application-integration/docs/view-openapi-spec",
+      "title": "View OpenAPI Specification for your integration | Application Integration | Google Cloud Documentation",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://cloud.google.com/endpoints/docs/openapi/openapi-overview",
+      "title": "OpenAPI overview | Cloud Endpoints with OpenAPI | Google Cloud Documentation",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://docs.cloud.google.com/api-gateway/docs/openapi-overview",
+      "title": "OpenAPI overview | API Gateway | Google Cloud Documentation",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://pypi.org/project/google-cloud-aiplatform/0.9.0/",
+      "title": "google-cloud-aiplatform \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/google-cloud/",
+      "title": "google-cloud \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://docs.cloud.google.com/document-ai/docs/reference/rest",
+      "title": "Cloud Document AI API | Google Cloud Documentation",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://cloud.google.com/apis",
+      "title": "Cloud APIs | Google Cloud",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://cloud.google.com/ai/apis",
+      "title": "AI APIs | Google Cloud",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://github.com/googleapis/google-cloud-python",
+      "title": "GitHub - googleapis/google-cloud-python: Google Cloud Client Libraries for Python \u00b7 GitHub",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-15T09:13:12.312680+00:00"
+}

@@ -1,0 +1,199 @@
+{
+  "name": "Google Calendar API",
+  "base_url": "https://www.googleapis.com/calendar/v3",
+  "version": "v3",
+  "description": "API for accessing and manipulating Google Calendar data",
+  "auth_type": "oauth2_client_credentials",
+  "auth_details": {
+    "token_url": "https://accounts.google.com/o/oauth2/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar",
+      "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events.readonly"
+    ],
+    "header_name": "Authorization"
+  },
+  "endpoints": [
+    {
+      "path": "/calendars/{calendarId}/events",
+      "method": "GET",
+      "description": "Returns events on the specified calendar",
+      "parameters": [
+        {
+          "name": "calendarId",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        },
+        {
+          "name": "timeMin",
+          "type": "string",
+          "required": false,
+          "in": "query"
+        },
+        {
+          "name": "timeMax",
+          "type": "string",
+          "required": false,
+          "in": "query"
+        },
+        {
+          "name": "maxResults",
+          "type": "integer",
+          "required": false,
+          "in": "query"
+        }
+      ],
+      "request_body": {},
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "items": "array of event objects",
+          "nextPageToken": "string for pagination"
+        }
+      },
+      "rate_limit": "",
+      "requires_auth": true
+    },
+    {
+      "path": "/calendars/{calendarId}/events",
+      "method": "POST",
+      "description": "Creates an event",
+      "parameters": [
+        {
+          "name": "calendarId",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        }
+      ],
+      "request_body": {
+        "format": "json",
+        "fields": {
+          "summary": "string",
+          "description": "string",
+          "start": {
+            "dateTime": "string",
+            "timeZone": "string"
+          },
+          "end": {
+            "dateTime": "string",
+            "timeZone": "string"
+          }
+        }
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "id": "string",
+          "status": "string",
+          "htmlLink": "string"
+        }
+      },
+      "rate_limit": "",
+      "requires_auth": true
+    },
+    {
+      "path": "/calendars/{calendarId}/events/{eventId}",
+      "method": "GET",
+      "description": "Returns a specific event",
+      "parameters": [
+        {
+          "name": "calendarId",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        },
+        {
+          "name": "eventId",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        }
+      ],
+      "request_body": {},
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "id": "string",
+          "summary": "string",
+          "description": "string",
+          "start": "object",
+          "end": "object"
+        }
+      },
+      "rate_limit": "",
+      "requires_auth": true
+    }
+  ],
+  "rate_limits": {
+    "requests_per_minute": 1000,
+    "requests_per_second": 10
+  },
+  "error_codes": {
+    "400": "Bad Request",
+    "401": "Unauthorized",
+    "403": "Forbidden",
+    "404": "Not Found",
+    "429": "Rate Limit Exceeded"
+  },
+  "doc_sources": [
+    {
+      "url": "https://docs.cloud.google.com/application-integration/docs/view-openapi-spec",
+      "title": "View OpenAPI Specification for your integration | Application Integration | Google Cloud Documentation",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://docs.cloud.google.com/endpoints/docs/openapi/openapi-overview",
+      "title": "OpenAPI overview | Cloud Endpoints with OpenAPI | Google Cloud Documentation",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://apitracker.io/a/google-calendar",
+      "title": "Google Calendar API - Docs, SDKs & Integration",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/workspace/calendar/api/v3/reference",
+      "title": "API Reference | Google Calendar | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/workspace/calendar/api/guides/overview",
+      "title": "Google Calendar API overview | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://www.postman.com/postman/google-api-workspace/documentation/54xuf9z/google-calendar-api",
+      "title": "\ud83d\uddd3\ufe0f Google Calendar API | Documentation",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://stackoverflow.com/questions/14047905/google-calendar-api-python-documentation",
+      "title": "Google Calendar API Python Documentation - Stack Overflow",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/python-google-calendar-api/",
+      "title": "python-google-calendar-api",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://medium.com/@ayushbhatnagarmit/supercharge-your-scheduling-automating-google-calendar-with-python-87f752010375",
+      "title": "Supercharge Your Scheduling: Automating Google Calendar with Python | by Ayush Bhatnagar | Medium",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-15T09:28:47.559556+00:00"
+}

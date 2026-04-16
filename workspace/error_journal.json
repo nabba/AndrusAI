@@ -658,5 +658,20 @@
     "context": "",
     "diagnosed": true,
     "fix_applied": false
+  },
+  {
+    "ts": "2026-04-15T06:48:43.739602+00:00",
+    "crew": "handle_task",
+    "user_input": "yes please",
+    "error_type": "NameError",
+    "error_msg": "name '_load_episteme_context' is not defined",
+    "traceback": [
+      "  File \"/app/app/agents/commander/orchestrator.py\", line 1411, in handle\n    final_result = self._run_crew(\n        crew_name, d.get(\"task\", user_input), difficulty=difficulty,\n        conversation_history=_crew_history,\n    )\n",
+      "  File \"/app/app/agents/commander/orchestrator.py\", line 400, in _run_crew\n    f_episteme = _ctx_pool.submit(_load_episteme_context, crew_task)\n                                  ^^^^^^^^^^^^^^^^^^^^^^\n",
+      "NameError: name '_load_episteme_context' is not defined\n"
+    ],
+    "context": "attachments=0",
+    "diagnosed": true,
+    "fix_applied": false
   }
 ]

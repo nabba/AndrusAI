@@ -1,0 +1,84 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=qYNweeDHiyU",
+  "source_title": "AI, Machine Learning, Deep Learning and Generative AI Explained",
+  "video_type": "conference_talk",
+  "concepts": [
+    {
+      "name": "Artificial Intelligence (AI)",
+      "definition": "The simulation of human intelligence by machines to match or exceed human capabilities, including learning, reasoning, and inference.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Machine Learning",
+        "Deep Learning",
+        "Generative AI"
+      ]
+    },
+    {
+      "name": "Machine Learning",
+      "definition": "A subset of AI where machines are trained using data to recognize patterns and make predictions without explicit programming.",
+      "prerequisites": [
+        "Artificial Intelligence"
+      ],
+      "related_concepts": [
+        "Deep Learning",
+        "Generative AI"
+      ]
+    },
+    {
+      "name": "Deep Learning",
+      "definition": "A subset of machine learning that uses neural networks with multiple layers to simulate the human brain's functioning for pattern recognition and decision-making.",
+      "prerequisites": [
+        "Machine Learning"
+      ],
+      "related_concepts": [
+        "Neural Networks",
+        "Generative AI"
+      ]
+    },
+    {
+      "name": "Generative AI",
+      "definition": "A subset of AI focused on generating new content, such as text, images, or audio, using foundation models like large language models.",
+      "prerequisites": [
+        "Deep Learning"
+      ],
+      "related_concepts": [
+        "Foundation Models",
+        "Large Language Models"
+      ]
+    },
+    {
+      "name": "Foundation Models",
+      "definition": "Large-scale models trained on vast datasets that serve as the basis for generative AI applications, such as large language models.",
+      "prerequisites": [
+        "Deep Learning"
+      ],
+      "related_concepts": [
+        "Generative AI",
+        "Large Language Models"
+      ]
+    },
+    {
+      "name": "Large Language Models",
+      "definition": "Foundation models trained on language data to predict and generate text, sentences, or even entire documents.",
+      "prerequisites": [
+        "Foundation Models"
+      ],
+      "related_concepts": [
+        "Generative AI",
+        "Foundation Models"
+      ]
+    }
+  ],
+  "procedures": [],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Generative AI is not truly generative but rather recombines existing information.",
+      "context": "When generating new content using generative AI models.",
+      "solution": "Accept that generative AI creates new permutations of existing data, similar to composing music from existing notes."
+    }
+  ],
+  "confidence": 0.7000000000000001,
+  "extracted_at": "2026-04-15T09:30:26.178902+00:00"
+}

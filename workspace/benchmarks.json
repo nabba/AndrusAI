@@ -1358,5 +1358,101 @@
     "metadata": {
       "crew": "research"
     }
+  },
+  {
+    "ts": "2026-04-15T06:47:35.043474+00:00",
+    "metric": "task_completion_time",
+    "value": 5.903541502018925,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-15T06:52:34.784310+00:00",
+    "metric": "task_completion_time",
+    "value": 9.618524795980193,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-15T07:04:54.780942+00:00",
+    "metric": "task_completion_time",
+    "value": 3.175414419005392,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-15T07:05:41.868777+00:00",
+    "metric": "task_completion_time",
+    "value": 11.895706256007543,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-15T07:07:20.396017+00:00",
+    "metric": "task_completion_time",
+    "value": 38.74650480900891,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-15T07:09:50.754892+00:00",
+    "metric": "task_completion_time",
+    "value": 59.52015561101143,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-15T07:09:58.533512+00:00",
+    "metric": "task_completion_time",
+    "value": 2.433348292019218,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-15T07:14:52.010846+00:00",
+    "metric": "task_completion_time",
+    "value": 62.359817819989985,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-15T18:25:54.341371+00:00",
+    "metric": "task_completion_time",
+    "value": 96.22915283602197,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-15T18:31:42.101446+00:00",
+    "metric": "task_completion_time",
+    "value": 42.422503312001936,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-15T18:36:48.289229+00:00",
+    "metric": "task_completion_time",
+    "value": 6.384938753006281,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-16T13:04:38.662960+00:00",
+    "metric": "task_completion_time",
+    "value": 141.55743310501566,
+    "metadata": {
+      "crew": "research"
+    }
   }
 ]

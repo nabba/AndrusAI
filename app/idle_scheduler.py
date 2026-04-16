@@ -404,6 +404,51 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         _auto_discover_topics()
     jobs.append(("discover-topics", _discover_topics, JobWeight.LIGHT))
 
+    # ── MAP-Elites island migration: cross-pollinate top performers ─────
+    # Multi-island MAP-Elites preserves separate populations to maintain
+    # diversity; periodic migration of top performers between islands
+    # prevents islands drifting into wholly disjoint local optima while
+    # still keeping niche pressure. Cheap (in-memory grid manipulation).
+    def _map_elites_migrate():
+        _map_elites_migration()
+    jobs.append(("map-elites-migrate", _map_elites_migrate, JobWeight.LIGHT))
+
+    # ── Skills disk mirror: regenerate workspace/skills/ from KBs ──────
+    # The on-disk markdown files are a presentation layer — source of
+    # truth is the KBs. This job refreshes the mirror so any legacy code
+    # (or the operator browsing the dir) sees current content.
+    def _skills_mirror():
+        try:
+            from app.self_improvement.integrator import regenerate_disk_mirror
+            regenerate_disk_mirror()
+        except Exception:
+            logger.debug("skills-mirror regen failed", exc_info=True)
+    jobs.append(("skills-mirror", _skills_mirror, JobWeight.LIGHT))
+
+    # ── Evaluator: flush usage hits + scan for zombie skills ───────────
+    # Pending usage-hit buffer flushes to the SkillRecord index; decay
+    # sweep emits USAGE_DECAY gaps for skills idle > 30 days.
+    def _evaluator_sweep():
+        try:
+            from app.self_improvement.evaluator import flush_hits, scan_for_decay
+            flush_hits()
+            scan_for_decay()
+        except Exception:
+            logger.debug("evaluator sweep failed", exc_info=True)
+    jobs.append(("evaluator-sweep", _evaluator_sweep, JobWeight.LIGHT))
+
+    # ── Consolidator: cluster + merge near-duplicate skills ────────────
+    # Phase 5 of overhaul. Heavy because it pulls embeddings for all
+    # active SkillRecords. Rate-limited by the weekly cadence — the
+    # idle_scheduler's rotation ensures this runs ~1/N of idle slots.
+    def _consolidator():
+        try:
+            from app.self_improvement.consolidator import run_consolidation_cycle
+            run_consolidation_cycle(auto_merge=True)
+        except Exception:
+            logger.debug("consolidator run failed", exc_info=True)
+    jobs.append(("consolidator", _consolidator, JobWeight.HEAVY))
+
     # ── Retrospective: analyze recent performance ──────────────────────
     def _retrospective():
         from app.crews.retrospective_crew import RetrospectiveCrew
@@ -1306,6 +1351,110 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
     return jobs
 
 
+# Per-role marker of the last generation we migrated from. Lives in module
+# state; survives only for the process lifetime, which is fine — re-migrating
+# at restart is harmless and the persisted grid carries fitness regardless.
+_last_migration_generation: dict[str, int] = {}
+
+
+def _map_elites_migration() -> None:
+    """Migrate top performers between islands when due.
+
+    Iterates over roles known to have a populated grid; for each, calls
+    `db.migrate()` if `db.generation` has advanced ≥ MIGRATION_INTERVAL since
+    the last migration for that role. Persists the updated grid afterwards.
+    """
+    try:
+        from app.map_elites import get_db, MIGRATION_INTERVAL
+    except Exception:
+        return
+
+    roles = ["researcher", "coder", "writer", "commander", "self_improvement"]
+    migrated = 0
+    for role in roles:
+        try:
+            db = get_db(role)
+            current_gen = db.generation
+            last_gen = _last_migration_generation.get(role, 0)
+            if current_gen - last_gen < MIGRATION_INTERVAL:
+                continue
+            # Skip if no island has any entries (cold start)
+            if all(isl.size == 0 for isl in db._islands):
+                continue
+            db.migrate()
+            db.persist()
+            _last_migration_generation[role] = current_gen
+            migrated += 1
+            logger.info(
+                f"map_elites_migration: {role} migrated at gen {current_gen} "
+                f"(prev={last_gen}, interval={MIGRATION_INTERVAL})"
+            )
+        except Exception:
+            logger.debug(f"map_elites_migration: {role} failed", exc_info=True)
+
+    if migrated:
+        logger.info(f"map_elites_migration: {migrated} role(s) migrated this cycle")
+
+
+def _load_map_elites_void_context() -> str:
+    """Summarize MAP-Elites void cells across all roles as a context block.
+
+    A void is an empty cell flanked by high-fitness neighbors — the system
+    knows how to operate in the surrounding region but has never tried that
+    exact configuration. Surfaces these to the topic-discovery LLM as
+    counter-bias against scope-restricted memory queries.
+
+    Returns '' if no roles have enough grid coverage to produce meaningful
+    voids (saves an empty section in the prompt).
+    """
+    try:
+        from app.map_elites import get_db, FEATURE_DIMENSIONS
+        roles = ["researcher", "coder", "writer", "commander"]
+        lines: list[str] = []
+
+        for role in roles:
+            try:
+                db = get_db(role)
+                report = db.get_coverage_report()
+                if report["total_filled"] < 5:
+                    continue  # too sparse — skip this role
+                voids = db.get_voids(
+                    min_neighbor_fitness=0.55,
+                    min_neighbors_filled=2,
+                    top_n=3,
+                )
+                if not voids:
+                    continue
+
+                cov_pct = report["overall_coverage"] * 100
+                lines.append(
+                    f"  • {role} ({cov_pct:.0f}% grid coverage, "
+                    f"mean_fitness={report['mean_fitness']:.2f}):"
+                )
+                for v in voids:
+                    feat = ", ".join(
+                        f"{d}={v['feature_target'][d]:.1f}"
+                        for d in FEATURE_DIMENSIONS
+                    )
+                    lines.append(
+                        f"    - void at ({feat}) — "
+                        f"flanked by {v['neighbor_count']} strong neighbors "
+                        f"(mean fitness {v['mean_neighbor_fitness']:.2f})"
+                    )
+            except Exception:
+                continue
+
+        if not lines:
+            return ""
+
+        return (
+            "MAP-Elites voids — strategy regions adjacent to high-performing "
+            "areas but never explored:\n" + "\n".join(lines)
+        )
+    except Exception:
+        return ""
+
+
 def _auto_discover_topics() -> None:
     """Discover new learning topics based on recent failures, user questions,
     and skill gaps — then add them to the learning queue.
@@ -1327,28 +1476,35 @@ def _auto_discover_topics() -> None:
         existing_skills = [f.stem for f in SKILLS_DIR.glob("*.md")
                           if f.name != "learning_queue.md"]
 
-    # Gather recent failure/reflection data from memory
+    # Gap Detector — primary signal source (Phase 2 of overhaul).
+    # Replaces the prior scope_ecology + reflections queries which produced
+    # a topical monoculture (33 rapid_ecological skills generated in a loop).
+    # Now pulls structured, multi-source evidence: retrieval misses,
+    # reflexion failures, MAP-Elites voids, and (later) user corrections.
     recent_context = ""
     try:
-        from app.memory.scoped_memory import retrieve_operational
-        reflections = retrieve_operational("scope_reflections", "failure lesson learned", 5)
-        if reflections:
-            recent_context = "Recent agent reflections:\n" + "\n".join(
-                f"- {r[:150]}" for r in reflections[:5]
-            )
+        # Refresh MAP-Elites void emissions before reading (cheap; idempotent).
+        from app.self_improvement.gap_detector import (
+            emit_mapelites_voids, get_recent_evidence_block,
+        )
+        emit_mapelites_voids()
+        recent_context = get_recent_evidence_block(limit=12)
     except Exception:
-        pass
-
-    # Gather recent user questions that were hard (difficulty >= 6)
-    try:
-        from app.memory.scoped_memory import retrieve_operational
-        hard_tasks = retrieve_operational("scope_ecology", "difficulty duration", 5)
-        if hard_tasks:
-            recent_context += "\n\nRecent hard tasks:\n" + "\n".join(
-                f"- {t[:150]}" for t in hard_tasks[:5]
+        logger.debug("Gap Detector unavailable; falling back to legacy reflections",
+                     exc_info=True)
+        # Fallback to legacy signal so the system still functions if the new
+        # store is uninitialized (first deploy, ChromaDB warm-up).
+        try:
+            from app.memory.scoped_memory import retrieve_operational
+            reflections = retrieve_operational(
+                "scope_reflections", "failure lesson learned", 5,
             )
-    except Exception:
-        pass
+            if reflections:
+                recent_context = "Recent agent reflections:\n" + "\n".join(
+                    f"- {r[:150]}" for r in reflections[:5]
+                )
+        except Exception:
+            pass
 
     if not recent_context:
         logger.debug("idle_scheduler: no context for topic discovery, skipping")
@@ -1358,14 +1514,19 @@ def _auto_discover_topics() -> None:
         from app.llm_factory import create_specialist_llm
         llm = create_specialist_llm(max_tokens=512, role="self_improve")
         prompt = (
-            f"You are an AI team improvement specialist. Based on recent agent activity, "
-            f"suggest 1-3 NEW topics the team should learn to handle future requests better.\n\n"
+            f"You are an AI team improvement specialist. The system has detected "
+            f"the following learning gaps from observed activity. Each gap is "
+            f"evidence that some knowledge is missing or weak. Your job: propose "
+            f"1-3 NEW learning topics that would close the highest-strength gaps.\n\n"
             f"{recent_context}\n\n"
             f"Existing skills: {', '.join(existing_skills[:30]) or 'None'}\n"
             f"Already in queue: {existing_queue[:300] or 'Empty'}\n\n"
-            f"Reply with ONLY a newline-separated list of topic names (1-6 words each). "
-            f"Do NOT suggest topics already in skills or queue. "
-            f"Focus on practical, actionable topics that would help with real user requests."
+            f"Rules:\n"
+            f"- Each topic must directly address one of the listed gaps.\n"
+            f"- Use the gap's evidence to phrase the topic concretely.\n"
+            f"- Diversify across gap sources — do not propose 3 topics from the same source.\n"
+            f"- Do NOT suggest topics already in skills or queue.\n"
+            f"- Reply with ONLY a newline-separated list of topic names (1-6 words each)."
         )
         raw = str(llm.call(prompt)).strip()
         if not raw or len(raw) < 3:
@@ -1381,28 +1542,63 @@ def _auto_discover_topics() -> None:
         if not new_topics:
             return
 
-        # Filter out duplicates (exact + fuzzy substring matching)
+        # ── Novelty Gate (Phase 1 of overhaul) ──────────────────────────
+        # Replaces the prior bag-of-words `_is_duplicate` check, which
+        # operated on a concatenated string of all existing skill names
+        # and matched any 2+ shared words. With 223 skills containing
+        # words like "ecological", "data", "strategies", that check
+        # vacuously passed nearly every new topic.
+        #
+        # The new gate embeds each candidate and queries the unified KB
+        # graph (4 KBs + team_shared). Decisions:
+        #   - COVERED:  reject — already in the KBs
+        #   - OVERLAP:  reject from queue (Phase 3 will route as extension)
+        #   - ADJACENT: accept with cross-link
+        #   - NOVEL:    accept
+        #
+        # Always-on cheap fallback to exact-name match in case the
+        # retrieval orchestrator is unavailable (Chroma cold-start, etc.)
         existing_lower = {s.lower() for s in existing_skills}
         queue_lower = existing_queue.lower()
-        all_known = " ".join(existing_lower) + " " + queue_lower
 
-        def _is_duplicate(topic: str) -> bool:
+        def _is_duplicate_fallback(topic: str) -> bool:
             t = topic.lower().strip()
-            # Exact match
             if t.replace(" ", "_") in existing_lower:
                 return True
             if t in queue_lower:
                 return True
-            # Fuzzy: if 2+ words from the topic appear in existing skills, likely duplicate
-            words = [w for w in t.split() if len(w) > 3]
-            if words and sum(1 for w in words if w in all_known) >= min(2, len(words)):
-                return True
             return False
 
-        unique_topics = [t for t in new_topics if not _is_duplicate(t)]
+        unique_topics: list[str] = []
+        from app.self_improvement.novelty import novelty_report
+        from app.self_improvement.types import NoveltyDecision
+        for topic in new_topics:
+            # Cheap fallback first — exact filename collisions are obvious.
+            if _is_duplicate_fallback(topic):
+                logger.debug(f"novelty: '{topic}' rejected by exact-name fallback")
+                continue
+            try:
+                rep = novelty_report(topic)
+                if rep.decision in (NoveltyDecision.COVERED, NoveltyDecision.OVERLAP):
+                    logger.info(
+                        f"novelty: '{topic}' rejected as {rep.decision.value} "
+                        f"(d={rep.nearest_distance:.3f}, near={rep.nearest_kb})"
+                    )
+                    continue
+                unique_topics.append(topic)
+                logger.debug(
+                    f"novelty: '{topic}' accepted as {rep.decision.value} "
+                    f"(d={rep.nearest_distance:.3f})"
+                )
+            except Exception:
+                # Embedding/orchestrator failure: be permissive (better to
+                # over-create than to silently dedup against a broken store)
+                logger.debug(f"novelty check failed for '{topic}', accepting",
+                             exc_info=True)
+                unique_topics.append(topic)
 
         if not unique_topics:
-            logger.debug("idle_scheduler: all discovered topics already known")
+            logger.debug("idle_scheduler: all discovered topics already covered")
             return
 
         QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)

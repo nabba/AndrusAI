@@ -1,0 +1,40 @@
+{
+  "skill_id": "apis/google_cloud_ai_apis/client",
+  "name": "Google Cloud AI APIs API Client",
+  "category": "apis",
+  "version": "1.0.0",
+  "language": "python",
+  "description": "APIs for accessing Google's AI and machine learning services",
+  "confidence": 0.0,
+  "source_type": "openapi_spec",
+  "source_urls": [
+    "https://docs.cloud.google.com/application-integration/docs/view-openapi-spec",
+    "https://cloud.google.com/endpoints/docs/openapi/openapi-overview",
+    "https://docs.cloud.google.com/api-gateway/docs/openapi-overview",
+    "https://pypi.org/project/google-cloud-aiplatform/0.9.0/",
+    "https://pypi.org/project/google-cloud/",
+    "https://docs.cloud.google.com/document-ai/docs/reference/rest",
+    "https://cloud.google.com/apis",
+    "https://cloud.google.com/ai/apis",
+    "https://github.com/googleapis/google-cloud-python"
+  ],
+  "dependencies": [],
+  "auth_pattern": "oauth2_client_credentials",
+  "tests_total": 0,
+  "tests_passing": 0,
+  "tests_failing": 0,
+  "last_tested": "",
+  "usage_count": 0,
+  "usage_success_count": 0,
+  "last_used": "",
+  "created_at": "2026-04-15T09:28:03.333114+00:00",
+  "last_verified": "2026-04-15T09:28:03.333114+00:00",
+  "code_hash": "052b8ea45ba7023666f1bfae350a7163",
+  "known_limitations": [],
+  "tags": [
+    "google cloud ai apis",
+    "api",
+    "client",
+    "oauth2_client_credentials"
+  ]
+}

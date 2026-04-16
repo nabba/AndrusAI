@@ -1,0 +1,141 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=X2vAabgKiuM",
+  "source_title": "Natural Language Processing (NLP) Tutorial with Python & NLTK",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Natural Language Processing (NLP)",
+      "definition": "A part of computer science and artificial intelligence that deals with human language to organize text data, automate tasks, and solve problems.",
+      "prerequisites": [
+        "Basic programming knowledge",
+        "Understanding of AI principles"
+      ],
+      "related_concepts": [
+        "Natural Language Understanding (NLU)",
+        "Natural Language Generation (NLG)"
+      ]
+    },
+    {
+      "name": "Natural Language Understanding (NLU)",
+      "definition": "The process of mapping natural language input into useful representations and analyzing different aspects of the language.",
+      "prerequisites": [
+        "NLP basics"
+      ],
+      "related_concepts": [
+        "Natural Language Processing (NLP)",
+        "Natural Language Generation (NLG)"
+      ]
+    },
+    {
+      "name": "Natural Language Generation (NLG)",
+      "definition": "The process of producing meaningful phrases and sentences in natural language from internal representations.",
+      "prerequisites": [
+        "NLP basics"
+      ],
+      "related_concepts": [
+        "Natural Language Processing (NLP)",
+        "Natural Language Understanding (NLU)"
+      ]
+    },
+    {
+      "name": "Lexical Ambiguity",
+      "definition": "The presence of two or more possible meanings within a single word.",
+      "prerequisites": [
+        "Understanding of language semantics"
+      ],
+      "related_concepts": [
+        "Syntactical Ambiguity",
+        "Referential Ambiguity"
+      ]
+    },
+    {
+      "name": "Syntactical Ambiguity",
+      "definition": "The presence of two or more possible meanings within a single sentence or sequence of words.",
+      "prerequisites": [
+        "Understanding of grammar"
+      ],
+      "related_concepts": [
+        "Lexical Ambiguity",
+        "Referential Ambiguity"
+      ]
+    },
+    {
+      "name": "Referential Ambiguity",
+      "definition": "Ambiguity arising from unclear references in a sentence.",
+      "prerequisites": [
+        "Understanding of grammar"
+      ],
+      "related_concepts": [
+        "Lexical Ambiguity",
+        "Syntactical Ambiguity"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Spell Checking",
+      "steps": [
+        {
+          "action": "Analyze text for spelling errors",
+          "explanation": "To ensure accuracy and correctness in written communication.",
+          "code_snippet": "",
+          "gotcha": "Contextual errors may not be detected."
+        }
+      ]
+    },
+    {
+      "name": "Keyword Search",
+      "steps": [
+        {
+          "action": "Identify and extract relevant keywords",
+          "explanation": "To enable efficient search and retrieval of information.",
+          "code_snippet": "",
+          "gotcha": "Synonyms and polysemous words can complicate results."
+        }
+      ]
+    },
+    {
+      "name": "Sentiment Analysis",
+      "steps": [
+        {
+          "action": "Analyze text to determine sentiment",
+          "explanation": "To understand public opinion or customer feedback.",
+          "code_snippet": "",
+          "gotcha": "Sarcasm and irony can lead to misinterpretation."
+        }
+      ]
+    },
+    {
+      "name": "Machine Translation",
+      "steps": [
+        {
+          "action": "Translate text from one language to another",
+          "explanation": "To enable cross-language communication.",
+          "code_snippet": "",
+          "gotcha": "Cultural nuances may not be accurately translated."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Lexical ambiguity in NLP tasks",
+      "context": "When a word has multiple meanings in a sentence.",
+      "solution": "Use context clues or disambiguation techniques."
+    },
+    {
+      "description": "Syntactical ambiguity in NLP tasks",
+      "context": "When a sentence can be parsed in multiple ways.",
+      "solution": "Ensure grammatically correct parsing using NLP tools."
+    },
+    {
+      "description": "Misinterpretation due to sarcasm or irony",
+      "context": "In sentiment analysis tasks.",
+      "solution": "Use advanced models trained on contextually rich datasets."
+    }
+  ],
+  "confidence": 0.8,
+  "extracted_at": "2026-04-15T09:32:56.547800+00:00"
+}

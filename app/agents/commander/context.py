@@ -155,6 +155,22 @@ def _load_knowledge_base_context(task: str, n: int = 4) -> str:
             reverse=True,
         )
         results = all_results[:n]
+        # Self-Improvement: emit RETRIEVAL_MISS gap when the KB has nothing
+        # or only weakly-matching content for a real task. This is the
+        # primary RAG miss signal — feeds the topic discoverer.
+        try:
+            top_score = max(
+                (r.get("rerank_score", r.get("blended_score", r.get("score", 0)))
+                 for r in results),
+                default=0.0,
+            )
+            from app.self_improvement.gap_detector import emit_retrieval_miss
+            emit_retrieval_miss(
+                query=task, top_score=float(top_score),
+                collections=["knowledge_base"], task_id="",
+            )
+        except Exception:
+            pass
         if not results:
             return ""
         blocks = []

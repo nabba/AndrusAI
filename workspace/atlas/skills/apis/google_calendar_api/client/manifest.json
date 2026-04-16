@@ -1,0 +1,40 @@
+{
+  "skill_id": "apis/google_calendar_api/client",
+  "name": "Google Calendar API API Client",
+  "category": "apis",
+  "version": "1.0.0",
+  "language": "python",
+  "description": "API for accessing and manipulating Google Calendar data",
+  "confidence": 0.0,
+  "source_type": "openapi_spec",
+  "source_urls": [
+    "https://docs.cloud.google.com/application-integration/docs/view-openapi-spec",
+    "https://docs.cloud.google.com/endpoints/docs/openapi/openapi-overview",
+    "https://apitracker.io/a/google-calendar",
+    "https://developers.google.com/workspace/calendar/api/v3/reference",
+    "https://developers.google.com/workspace/calendar/api/guides/overview",
+    "https://www.postman.com/postman/google-api-workspace/documentation/54xuf9z/google-calendar-api",
+    "https://stackoverflow.com/questions/14047905/google-calendar-api-python-documentation",
+    "https://pypi.org/project/python-google-calendar-api/",
+    "https://medium.com/@ayushbhatnagarmit/supercharge-your-scheduling-automating-google-calendar-with-python-87f752010375"
+  ],
+  "dependencies": [],
+  "auth_pattern": "oauth2_client_credentials",
+  "tests_total": 0,
+  "tests_passing": 0,
+  "tests_failing": 0,
+  "last_tested": "",
+  "usage_count": 0,
+  "usage_success_count": 0,
+  "last_used": "",
+  "created_at": "2026-04-15T09:29:36.773222+00:00",
+  "last_verified": "2026-04-15T09:29:36.773222+00:00",
+  "code_hash": "f92da2b6ed5716f4b9e9909a8463f61d",
+  "known_limitations": [],
+  "tags": [
+    "google calendar api",
+    "api",
+    "client",
+    "oauth2_client_credentials"
+  ]
+}

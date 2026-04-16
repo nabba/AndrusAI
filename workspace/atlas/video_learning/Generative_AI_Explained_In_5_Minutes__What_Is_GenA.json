@@ -1,0 +1,124 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=NRmAXDWJVnU",
+  "source_title": "Generative AI Explained In 5 Minutes | What Is GenAI? | Introduction To Generative AI | Simplilearn",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Generative AI",
+      "definition": "A type of artificial intelligence designed to create new content such as text, images, music, and videos by learning patterns from vast datasets.",
+      "prerequisites": [
+        "Artificial Intelligence",
+        "Machine Learning"
+      ],
+      "related_concepts": [
+        "Neural Networks",
+        "Transformers"
+      ]
+    },
+    {
+      "name": "Neural Networks",
+      "definition": "Computational models inspired by the human brain, used in AI to recognize patterns and generate outputs.",
+      "prerequisites": [
+        "Linear Algebra",
+        "Probability"
+      ],
+      "related_concepts": [
+        "Deep Learning",
+        "Generative AI"
+      ]
+    },
+    {
+      "name": "Transformers",
+      "definition": "A type of neural network architecture that processes sequential data by understanding the relationships between tokens (e.g., words in a sentence).",
+      "prerequisites": [
+        "Neural Networks",
+        "Natural Language Processing"
+      ],
+      "related_concepts": [
+        "Generative AI",
+        "Tokenization"
+      ]
+    },
+    {
+      "name": "Tokenization",
+      "definition": "The process of splitting text input into smaller parts (tokens) for processing by AI models.",
+      "prerequisites": [
+        "Natural Language Processing"
+      ],
+      "related_concepts": [
+        "Transformers",
+        "Contextual Understanding"
+      ]
+    },
+    {
+      "name": "Reinforcement Learning",
+      "definition": "A machine learning method where models improve through feedback, receiving rewards for accurate outputs and corrections for mistakes.",
+      "prerequisites": [
+        "Machine Learning",
+        "Probability"
+      ],
+      "related_concepts": [
+        "Generative AI",
+        "Feedback Mechanisms"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Image Generation with Generative AI",
+      "steps": [
+        {
+          "action": "Data Collection and Learning",
+          "explanation": "Train the AI model on large datasets of images paired with text descriptions to recognize objects, colors, and styles.",
+          "code_snippet": "",
+          "gotcha": "Limited or biased datasets can lead to inaccurate or non-diverse outputs."
+        },
+        {
+          "action": "Input Prompt Processing",
+          "explanation": "The Transformer model processes the text input (e.g., 'a cat wearing sunglasses') and links it to learned images.",
+          "code_snippet": "",
+          "gotcha": "Ambiguous prompts may result in unexpected or irrelevant outputs."
+        },
+        {
+          "action": "Tokenization and Context Understanding",
+          "explanation": "Split the text input into tokens and understand their relationships (e.g., sunglasses should be on the cat).",
+          "code_snippet": "",
+          "gotcha": "Misinterpretation of token relationships can lead to contextually incorrect images."
+        },
+        {
+          "action": "Feedback Mechanism",
+          "explanation": "Users provide feedback on the generated output to improve the model's future performance.",
+          "code_snippet": "",
+          "gotcha": "Lack of feedback can hinder the model's ability to improve."
+        },
+        {
+          "action": "Reinforcement Learning",
+          "explanation": "Reward the model for accurate outputs and correct it for mistakes to refine its performance over time.",
+          "code_snippet": "",
+          "gotcha": "Inconsistent rewards or corrections can confuse the model."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Generated content may be contextually incorrect (e.g., sunglasses floating beside the cat).",
+      "context": "When the AI misinterprets token relationships or lacks sufficient training data.",
+      "solution": "Provide clear feedback and refine the training dataset."
+    },
+    {
+      "description": "Ambiguous prompts lead to irrelevant outputs.",
+      "context": "When user inputs are vague or lack specificity.",
+      "solution": "Use detailed and specific prompts to guide the AI."
+    },
+    {
+      "description": "Biased or limited datasets result in non-diverse outputs.",
+      "context": "When the training data lacks variety or contains biases.",
+      "solution": "Curate diverse and representative datasets for training."
+    }
+  ],
+  "confidence": 0.7000000000000001,
+  "extracted_at": "2026-04-15T09:29:58.088842+00:00"
+}

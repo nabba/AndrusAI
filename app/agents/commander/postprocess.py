@@ -24,6 +24,12 @@ _INTERNAL_METADATA_PATTERNS = [
     re.compile(r"\n+\s*⚠️?\s*.*?(?:original model|values above|confirm with your|data contained).*$", re.DOTALL | re.IGNORECASE),
     # Generic reviewer disclaimer pattern: italic block at the end starting with *
     re.compile(r"\n+\s*\*(?:Note|Disclaimer|Warning|Caveat|Editor|Reviewer)[:\s].*?\*\s*$", re.DOTALL | re.IGNORECASE),
+    # Somatic notes leaked into output — internal bias signals, never for users
+    re.compile(r"\[Somatic note:.*?\]\s*\n?", re.DOTALL | re.IGNORECASE),
+    # reference_context blocks that leaked through to output
+    re.compile(r"<reference_context[^>]*>.*?</reference_context>\s*\n?", re.DOTALL),
+    # "Somatic Context Note" sections the LLM elaborated from somatic input
+    re.compile(r"\d+\.\s*\*\*Somatic Context Note[:\*]*\*?\*?.*?(?=\n\d+\.\s|\n---|\n##|\Z)", re.DOTALL | re.IGNORECASE),
 ]
 
 

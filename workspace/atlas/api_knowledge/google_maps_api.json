@@ -1,0 +1,69 @@
+{
+  "name": "Google Maps API",
+  "base_url": null,
+  "version": null,
+  "description": null,
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://github.com/googlemaps/openapi-specification",
+      "title": "GitHub - googlemaps/openapi-specification: OpenAPI specification for Google Maps Platform API \u00b7 GitHub",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://github.com/googlemaps/openapi-specification/blob/main/README.md",
+      "title": "openapi-specification/README.md at main \u00b7 googlemaps/openapi-specification",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://docs.cloud.google.com/application-integration/docs/view-openapi-spec",
+      "title": "View OpenAPI Specification for your integration | Application Integration | Google Cloud Documentation",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://github.com/googlemaps/google-maps-services-python",
+      "title": "GitHub - googlemaps/google-maps-services-python: Python client library for Google Maps API Web Services \u00b7 GitHub",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/googlemaps/1.0.2/",
+      "title": "googlemaps \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://developers.google.com/maps/documentation",
+      "title": "Google Maps Platform Documentation | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/maps",
+      "title": "Google Maps Platform | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://apitracker.io/a/google-maps",
+      "title": "Google Maps API - Docs, SDKs & Integration",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/maps/web-services/client-library",
+      "title": "Client Libraries for Google Maps Web Services | Google Maps Web Service APIs | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-15T09:29:54.561514+00:00"
+}

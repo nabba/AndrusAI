@@ -289,6 +289,105 @@ class MAPElitesGrid:
     def to_dict(self) -> list[dict]:
         return [e.to_dict() for e in self._grid.values()]
 
+    # ── Void API: surface empty cells as exploration signal ──────────────
+
+    def get_filled_keys(self) -> set[tuple]:
+        """Set of bin_keys currently occupied."""
+        with self._lock:
+            return set(self._grid.keys())
+
+    def _neighbor_keys(self, key: tuple) -> list[tuple]:
+        """6-connected neighbors in 3D grid (±1 on each dimension)."""
+        out = []
+        for dim in range(len(key)):
+            for delta in (-1, 1):
+                nk = list(key)
+                nk[dim] += delta
+                if 0 <= nk[dim] < BINS_PER_DIM:
+                    out.append(tuple(nk))
+        return out
+
+    def get_void_cells(
+        self,
+        min_neighbor_fitness: float = 0.5,
+        min_neighbors_filled: int = 2,
+    ) -> list[dict]:
+        """Empty cells flanked by filled, reasonably-performing neighbors.
+
+        A void flanked by high-fitness strategies is a high-value exploration
+        signal: the system knows how to operate in the surrounding region but
+        has never tried *exactly* this configuration.
+
+        Args:
+            min_neighbor_fitness: neighbors count only if their fitness ≥ this
+            min_neighbors_filled: cell is a void only if ≥ this many neighbors
+                                  pass the fitness threshold
+
+        Returns:
+            List of {key, neighbor_count, mean_neighbor_fitness} dicts,
+            sorted by descending mean_neighbor_fitness (highest-priority first).
+        """
+        filled = self.get_filled_keys()
+        if not filled:
+            return []
+
+        # All cells adjacent to any filled cell — candidate voids
+        candidates: set[tuple] = set()
+        for k in filled:
+            for nk in self._neighbor_keys(k):
+                if nk not in filled:
+                    candidates.add(nk)
+
+        results = []
+        with self._lock:
+            for void_key in candidates:
+                qualifying_neighbors = [
+                    self._grid[nk] for nk in self._neighbor_keys(void_key)
+                    if nk in self._grid
+                    and self._grid[nk].fitness_score >= min_neighbor_fitness
+                ]
+                if len(qualifying_neighbors) >= min_neighbors_filled:
+                    mean_fit = sum(n.fitness_score for n in qualifying_neighbors) / len(qualifying_neighbors)
+                    results.append({
+                        "key": void_key,
+                        "neighbor_count": len(qualifying_neighbors),
+                        "mean_neighbor_fitness": round(mean_fit, 3),
+                        "feature_target": self._key_to_features(void_key),
+                    })
+
+        results.sort(key=lambda r: r["mean_neighbor_fitness"], reverse=True)
+        return results
+
+    def _key_to_features(self, key: tuple) -> dict:
+        """Invert bin_key → approximate feature vector (cell centroid)."""
+        return {
+            dim: round((key[i] + 0.5) / BINS_PER_DIM, 3)
+            for i, dim in enumerate(FEATURE_DIMENSIONS)
+        }
+
+    def get_coverage_report(self) -> dict:
+        """Summary of grid occupancy and fitness distribution."""
+        with self._lock:
+            entries = list(self._grid.values())
+        total_cells = BINS_PER_DIM ** len(FEATURE_DIMENSIONS)
+        if not entries:
+            return {
+                "total_cells": total_cells, "filled": 0,
+                "coverage": 0.0, "mean_fitness": 0.0,
+                "max_fitness": 0.0, "min_fitness": 0.0,
+                "high_fitness_cells": 0,
+            }
+        fits = [e.fitness_score for e in entries]
+        return {
+            "total_cells": total_cells,
+            "filled": len(entries),
+            "coverage": round(len(entries) / total_cells, 4),
+            "mean_fitness": round(sum(fits) / len(fits), 3),
+            "max_fitness": round(max(fits), 3),
+            "min_fitness": round(min(fits), 3),
+            "high_fitness_cells": sum(1 for f in fits if f >= 0.7),
+        }
+
 # ── Artifact Feedback Manager ─────────────────────────────────────────────────
 
 class ArtifactManager:
@@ -529,6 +628,58 @@ class MAPElitesDB:
                 }
                 for i in range(NUM_ISLANDS)
             ],
+        }
+
+    # ── Void API (aggregated across islands) ─────────────────────────────
+
+    def get_voids(
+        self,
+        min_neighbor_fitness: float = 0.5,
+        min_neighbors_filled: int = 2,
+        top_n: int = 10,
+    ) -> list[dict]:
+        """High-priority void cells aggregated across all islands.
+
+        A cell counts as a void if it's empty in island 0 (the primary grid)
+        and has enough filled high-fitness neighbors. Islands 1+ are used as
+        corroboration — a void that's also empty in other islands is more
+        likely a real gap rather than a momentary sampling gap.
+        """
+        primary_voids = self._islands[0].get_void_cells(
+            min_neighbor_fitness=min_neighbor_fitness,
+            min_neighbors_filled=min_neighbors_filled,
+        )
+        if not primary_voids:
+            return []
+
+        other_filled_keys = set()
+        for i in range(1, NUM_ISLANDS):
+            other_filled_keys.update(self._islands[i].get_filled_keys())
+
+        for v in primary_voids:
+            v["empty_across_all_islands"] = v["key"] not in other_filled_keys
+
+        # Prioritize voids that are empty everywhere AND have strong neighbors
+        primary_voids.sort(
+            key=lambda v: (v["empty_across_all_islands"], v["mean_neighbor_fitness"]),
+            reverse=True,
+        )
+        return primary_voids[:top_n]
+
+    def get_coverage_report(self) -> dict:
+        """Aggregated coverage across all islands."""
+        reports = [isl.get_coverage_report() for isl in self._islands]
+        total_filled = sum(r["filled"] for r in reports)
+        total_cells = reports[0]["total_cells"] * NUM_ISLANDS
+        mean_fit_vals = [r["mean_fitness"] for r in reports if r["filled"] > 0]
+        return {
+            "role": self._role,
+            "generation": self._generation,
+            "total_cells_all_islands": total_cells,
+            "total_filled": total_filled,
+            "overall_coverage": round(total_filled / total_cells, 4) if total_cells else 0.0,
+            "mean_fitness": round(sum(mean_fit_vals) / len(mean_fit_vals), 3) if mean_fit_vals else 0.0,
+            "per_island": reports,
         }
 
     def persist(self) -> None:

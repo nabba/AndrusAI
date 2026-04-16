@@ -179,6 +179,21 @@ def update_state(
         if difficulty >= 7:
             state["curiosity"] = min(1.0, state.get("curiosity", 0.5) + 0.03)
 
+        # Learning-loop curiosity coupling (Phase 6 of Self-Improvement Overhaul).
+        # Open learning gaps add pressure for exploration; an empty backlog
+        # eases it. Signal is clamped to a small range so it can't override
+        # the operator-set setpoint.
+        try:
+            from app.subia.self.competence_map import get_curiosity_signal
+            _learning_signal = get_curiosity_signal()
+            if _learning_signal:
+                state["curiosity"] = max(
+                    0.0, min(1.0,
+                             state.get("curiosity", 0.5) + _learning_signal * 0.1)
+                )
+        except Exception:
+            pass
+
         # Many tasks without rest → energy depletion
         if state["tasks_since_rest"] > 20:
             state["cognitive_energy"] = max(0.0, state.get("cognitive_energy", 0.7) - 0.02)
@@ -252,7 +267,9 @@ def get_state_summary() -> str:
     mod_str = ", ".join(f"{k}={v}" for k, v in modifiers.items()) if modifiers else "none"
 
     return (
-        f"SYSTEM STATE: energy={energy:.2f} confidence={conf:.2f} "
+        f"<reference_context type=\"system_state\" visibility=\"internal\">\n"
+        f"energy={energy:.2f} confidence={conf:.2f} "
         f"frustration={frust:.2f} curiosity={curiosity:.2f} | "
-        f"Active drives: {mod_str}\n"
+        f"drives: {mod_str}\n"
+        f"</reference_context>\n"
     )

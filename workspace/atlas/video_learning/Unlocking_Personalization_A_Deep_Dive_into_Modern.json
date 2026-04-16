@@ -1,0 +1,84 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=MvK6a0BWSHw",
+  "source_title": "Unlocking Personalization: A Deep Dive into Modern Recommendation Algorithms | Sarang Gupta",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Recommendation Algorithms",
+      "definition": "Algorithms designed to suggest relevant items or content to users based on their preferences, behavior, or interactions.",
+      "prerequisites": [
+        "Machine Learning Basics",
+        "Data Structures"
+      ],
+      "related_concepts": [
+        "Collaborative Filtering",
+        "Content-Based Filtering"
+      ]
+    },
+    {
+      "name": "Collaborative Filtering",
+      "definition": "A method that predicts a user's interests by collecting preferences or behavior from many users.",
+      "prerequisites": [
+        "Matrix Operations",
+        "User-Item Interaction Data"
+      ],
+      "related_concepts": [
+        "Recommendation Algorithms",
+        "Matrix Factorization"
+      ]
+    },
+    {
+      "name": "Content-Based Filtering",
+      "definition": "A method that recommends items based on the similarity between the content of the items and the user's preferences.",
+      "prerequisites": [
+        "Text Processing",
+        "Feature Extraction"
+      ],
+      "related_concepts": [
+        "Recommendation Algorithms",
+        "Natural Language Processing"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Implementing Collaborative Filtering",
+      "steps": [
+        {
+          "action": "Collect User-Item Interaction Data",
+          "explanation": "To build a collaborative filtering model, you need data on how users interact with items.",
+          "code_snippet": "",
+          "gotcha": "Data Sparsity"
+        },
+        {
+          "action": "Normalize the Data",
+          "explanation": "Normalize the interaction data to ensure consistent scaling across different users and items.",
+          "code_snippet": "",
+          "gotcha": "Overfitting"
+        },
+        {
+          "action": "Apply Matrix Factorization",
+          "explanation": "Decompose the user-item interaction matrix to discover latent features that explain observed preferences.",
+          "code_snippet": "",
+          "gotcha": "Computational Complexity"
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Cold Start Problem",
+      "context": "When new users or items have no interaction data.",
+      "solution": "Use hybrid recommendation systems that combine collaborative filtering with content-based filtering."
+    },
+    {
+      "description": "Data Sparsity",
+      "context": "When the user-item interaction matrix is sparse, leading to poor recommendations.",
+      "solution": "Incorporate additional data sources or use techniques like matrix completion."
+    }
+  ],
+  "confidence": 0.6000000000000001,
+  "extracted_at": "2026-04-15T09:35:31.382602+00:00"
+}

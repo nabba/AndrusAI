@@ -1,0 +1,90 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=iZko_YquwjU",
+  "source_title": "How to Achieve Personalization at Scale with Machine Learning",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Personalization",
+      "definition": "The process of tailoring products, services, or experiences to individual users based on their preferences, behaviors, or data.",
+      "prerequisites": [
+        "Data Collection",
+        "User Profiling"
+      ],
+      "related_concepts": [
+        "Recommendation Systems",
+        "Customer Segmentation"
+      ]
+    },
+    {
+      "name": "Machine Learning",
+      "definition": "A subset of artificial intelligence that involves training algorithms to learn patterns from data and make predictions or decisions.",
+      "prerequisites": [
+        "Basic Programming",
+        "Statistics"
+      ],
+      "related_concepts": [
+        "Deep Learning",
+        "Supervised Learning"
+      ]
+    },
+    {
+      "name": "Scalability",
+      "definition": "The ability of a system to handle growing amounts of work or its potential to accommodate growth.",
+      "prerequisites": [
+        "System Design",
+        "Cloud Computing"
+      ],
+      "related_concepts": [
+        "Load Balancing",
+        "Distributed Systems"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Building a Personalized Recommendation System",
+      "steps": [
+        {
+          "action": "Collect user data",
+          "explanation": "To personalize recommendations, you need data on user preferences and behaviors.",
+          "code_snippet": "",
+          "gotcha": "Ensure compliance with data privacy regulations."
+        },
+        {
+          "action": "Preprocess the data",
+          "explanation": "Clean and normalize the data to make it suitable for machine learning models.",
+          "code_snippet": "",
+          "gotcha": "Missing or inconsistent data can lead to inaccurate models."
+        },
+        {
+          "action": "Train a machine learning model",
+          "explanation": "Use algorithms like collaborative filtering or matrix factorization to build the recommendation model.",
+          "code_snippet": "",
+          "gotcha": "Overfitting can occur if the model is too complex."
+        },
+        {
+          "action": "Deploy the model at scale",
+          "explanation": "Ensure the system can handle a large number of users and requests.",
+          "code_snippet": "",
+          "gotcha": "Scalability issues can arise if the system is not properly optimized."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Overfitting in machine learning models",
+      "context": "When a model is too complex and learns noise in the training data instead of the underlying pattern.",
+      "solution": "Use techniques like cross-validation, regularization, or simplify the model."
+    },
+    {
+      "description": "Scalability issues in deployment",
+      "context": "When the system cannot handle the increasing number of users or requests.",
+      "solution": "Use cloud services, optimize algorithms, and implement load balancing."
+    }
+  ],
+  "confidence": 0.6000000000000001,
+  "extracted_at": "2026-04-15T09:34:31.759173+00:00"
+}

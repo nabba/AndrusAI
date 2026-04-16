@@ -45,7 +45,15 @@ class SomaticBiasInjector:
         if bias.get("context_note"):
             current_desc = task_context.get("description", "")
             note = bias["context_note"]
-            task_context["description"] = f"[Somatic note: {note}]\n\n{current_desc}"
+            # Wrap in reference_context so agents treat it as internal metadata,
+            # NOT something to include in user-facing output. The note influences
+            # reasoning (approach, caution level) but must never appear in the
+            # response the user sees.
+            task_context["description"] = (
+                f"<reference_context type=\"somatic_bias\" visibility=\"internal\">\n"
+                f"{note}\n"
+                f"</reference_context>\n\n{current_desc}"
+            )
 
         if bias.get("approach_hint"):
             task_context.setdefault("strategy_hints", []).append(bias["approach_hint"])

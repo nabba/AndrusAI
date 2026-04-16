@@ -1,0 +1,150 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=CMrHM8a3hqw",
+  "source_title": "Natural Language Processing In 5 Minutes | What Is NLP And How Does It Work? | Simplilearn",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Natural Language Processing (NLP)",
+      "definition": "A branch of artificial intelligence that enables machines to read, understand, and derive meaning from human languages.",
+      "prerequisites": [
+        "linguistics",
+        "computer science"
+      ],
+      "related_concepts": [
+        "machine learning",
+        "artificial intelligence"
+      ]
+    },
+    {
+      "name": "Tokenization",
+      "definition": "The process of breaking down a sentence into its constituent words, where each word is referred to as a token.",
+      "prerequisites": [
+        "basic understanding of NLP"
+      ],
+      "related_concepts": [
+        "segmentation",
+        "stop words"
+      ]
+    },
+    {
+      "name": "Stemming",
+      "definition": "The process of reducing words to their base or root form by removing prefixes and suffixes.",
+      "prerequisites": [
+        "tokenization"
+      ],
+      "related_concepts": [
+        "lemmatization"
+      ]
+    },
+    {
+      "name": "Lemmatization",
+      "definition": "The process of identifying the base form of a word considering its tense, mood, gender, etc.",
+      "prerequisites": [
+        "tokenization"
+      ],
+      "related_concepts": [
+        "stemming"
+      ]
+    },
+    {
+      "name": "Part of Speech Tagging",
+      "definition": "The process of labeling words in a sentence according to their parts of speech, such as nouns, verbs, articles, etc.",
+      "prerequisites": [
+        "tokenization"
+      ],
+      "related_concepts": [
+        "named entity tagging"
+      ]
+    },
+    {
+      "name": "Named Entity Tagging",
+      "definition": "The process of identifying and flagging names of movies, important personalities, locations, etc., in a document.",
+      "prerequisites": [
+        "part of speech tagging"
+      ],
+      "related_concepts": [
+        "tokenization"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Document Processing",
+      "steps": [
+        {
+          "action": "Perform segmentation",
+          "explanation": "Break the entire document down into its constituent sentences to make it easier for the machine to process.",
+          "code_snippet": "",
+          "gotcha": "Ensure proper punctuation recognition to avoid incorrect segmentation."
+        },
+        {
+          "action": "Tokenize sentences",
+          "explanation": "Break down sentences into individual words to prepare them for further analysis.",
+          "code_snippet": "",
+          "gotcha": "Be cautious with hyphenated words or contractions."
+        },
+        {
+          "action": "Remove stop words",
+          "explanation": "Eliminate non-essential words that do not add significant meaning to the sentence.",
+          "code_snippet": "",
+          "gotcha": "Ensure stop words are correctly identified to avoid removing crucial words."
+        },
+        {
+          "action": "Apply stemming and lemmatization",
+          "explanation": "Reduce words to their base forms to simplify analysis.",
+          "code_snippet": "",
+          "gotcha": "Stemming may sometimes produce non-real words."
+        },
+        {
+          "action": "Perform part of speech tagging",
+          "explanation": "Label words according to their parts of speech to aid in understanding sentence structure.",
+          "code_snippet": "",
+          "gotcha": "Tagging may be ambiguous for words with multiple meanings."
+        },
+        {
+          "action": "Apply named entity tagging",
+          "explanation": "Identify and flag specific names to enhance context understanding.",
+          "code_snippet": "",
+          "gotcha": "Ensure accurate recognition of entities to avoid mislabeling."
+        },
+        {
+          "action": "Use machine learning algorithms",
+          "explanation": "Teach the model human sentiment and speech using algorithms like Naive Bayes.",
+          "code_snippet": "",
+          "gotcha": "Ensure sufficient and diverse training data for accurate model performance."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Incorrect segmentation due to improper punctuation recognition",
+      "context": "During document segmentation",
+      "solution": "Implement robust punctuation recognition algorithms."
+    },
+    {
+      "description": "Removing crucial words while eliminating stop words",
+      "context": "During stop words removal",
+      "solution": "Use comprehensive and accurate stop words lists."
+    },
+    {
+      "description": "Non-real words produced by stemming",
+      "context": "During stemming process",
+      "solution": "Use lemmatization alongside stemming to ensure valid base forms."
+    },
+    {
+      "description": "Ambiguous part of speech tagging",
+      "context": "During part of speech tagging",
+      "solution": "Utilize context-aware tagging algorithms."
+    },
+    {
+      "description": "Mislabeling of named entities",
+      "context": "During named entity tagging",
+      "solution": "Leverage large, diverse datasets for accurate entity recognition."
+    }
+  ],
+  "confidence": 0.75,
+  "extracted_at": "2026-04-15T09:31:11.487379+00:00"
+}
