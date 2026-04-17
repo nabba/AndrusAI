@@ -1470,5 +1470,37 @@
     "metadata": {
       "crew": "research"
     }
+  },
+  {
+    "ts": "2026-04-17T18:04:49.579683+00:00",
+    "metric": "task_completion_time",
+    "value": 3.1747429599636234,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-17T18:29:17.389007+00:00",
+    "metric": "task_completion_time",
+    "value": 33.56688522401964,
+    "metadata": {
+      "crew": "coding"
+    }
+  },
+  {
+    "ts": "2026-04-17T18:50:44.398647+00:00",
+    "metric": "task_completion_time",
+    "value": 2.542207168007735,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-17T19:34:36.972173+00:00",
+    "metric": "task_completion_time",
+    "value": 144.06335398199735,
+    "metadata": {
+      "crew": "coding"
+    }
   }
 ]

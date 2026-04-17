@@ -2,9 +2,10 @@
   "id": 581,
   "title": "Switch to Tool-Supported Model",
   "type": "code",
-  "status": "pending",
+  "status": "rejected",
   "created_at": "2026-04-08T20:58:35.382546+00:00",
   "applied_at": null,
   "dirname": "581_Switch_to_Tool-Supported_Model",
-  "resolution_target": ""
+  "resolution_target": "",
+  "rejected_at": "2026-04-17T18:20:30.406642+00:00"
 }

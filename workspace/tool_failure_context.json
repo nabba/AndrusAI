@@ -1,122 +1,5 @@
 [
   {
-    "task_hash": "6a8d000a9a739409",
-    "task": "Answer this question concisely and directly:\n\n<user_request>\n[Somatic note: Past experience with sim",
-    "failure_count": 1,
-    "last_tool": "web_fetch",
-    "last_error": "Lakeland Finland is rich in destinations of exceptional beauty. In addition to the heavenly tranquil",
-    "ts": 1776179337.604364,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "c0e5e4839e745e39",
-    "task": "Answer this question concisely and directly:\n\n<user_request>\n[Somatic note: Past experience with sim",
-    "failure_count": 1,
-    "last_tool": "web_fetch",
-    "last_error": "Lakeland Finland is rich in destinations of exceptional beauty. In addition to the heavenly tranquil",
-    "ts": 1776189905.3948245,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "afdb7f7519ae85ac",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 6,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/control_plane/org_chart.py",
-    "ts": 1776211210.6320279,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "d35618d323971c15",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization.md",
-    "ts": 1776211508.3859732,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "89b2e6c1910dbf76",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization.md",
-    "ts": 1776233207.4218442,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "89b2e6c1910dbf76",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization.md",
-    "ts": 1776233211.0568006,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "89b2e6c1910dbf76",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization.md",
-    "ts": 1776233214.562979,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "8b345f04b8a9a61b",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nEvaluate Joosep Volkmann's skills (techn",
-    "failure_count": 1,
-    "last_tool": "web_fetch",
-    "last_error": "",
-    "ts": 1776277472.0966132,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "ae846d68ff602b66",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nAnalyze Joosep Volkmann's professional b",
-    "failure_count": 1,
-    "last_tool": "web_fetch",
-    "last_error": "",
-    "ts": 1776277472.41518,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "cd4bd335fd73bd56",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nExamine Joosep Volkmann's entrepreneuria",
-    "failure_count": 1,
-    "last_tool": "web_fetch",
-    "last_error": "",
-    "ts": 1776277489.0344946,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "c27486054dcbf02d",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nAssess Joosep Volkmann's leadership expe",
-    "failure_count": 1,
-    "last_tool": "web_fetch",
-    "last_error": "",
-    "ts": 1776277499.216538,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "cd4bd335fd73bd56",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nExamine Joosep Volkmann's entrepreneuria",
-    "failure_count": 2,
-    "last_tool": "web_fetch",
-    "last_error": "",
-    "ts": 1776277503.1780896,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "c27486054dcbf02d",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nAssess Joosep Volkmann's leadership expe",
-    "failure_count": 2,
-    "last_tool": "web_fetch",
-    "last_error": "",
-    "ts": 1776277507.4517162,
-    "replan_suggested": false
-  },
-  {
     "task_hash": "cd4bd335fd73bd56",
     "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nExamine Joosep Volkmann's entrepreneuria",
     "failure_count": 3,
@@ -295,5 +178,275 @@
     "last_error": "Error: File not found: skills/advanced_web_search_summarization.md",
     "ts": 1776423421.0024037,
     "replan_suggested": false
+  },
+  {
+    "task_hash": "0ad92ea765662ab3",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 1,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776450529.6786098,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "0ad92ea765662ab3",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 2,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776450534.7595425,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "0ad92ea765662ab3",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 3,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776450539.9259865,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7bf0cbb417ab446d",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 1,
+    "last_tool": "execute_on_host",
+    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
+    "ts": 1776452697.6700916,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7bf0cbb417ab446d",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 2,
+    "last_tool": "execute_on_host",
+    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
+    "ts": 1776452722.4609587,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7bf0cbb417ab446d",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 3,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776454305.2431843,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: Cannot write to 'system_inspector.py'. Writable directories: output, proposals, skills",
+    "ts": 1776454344.1398287,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7bf0cbb417ab446d",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 4,
+    "last_tool": "list_host_files",
+    "last_error": "Error: Path not in allowed paths for agent 'coder'",
+    "ts": 1776454347.5224996,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "7bf0cbb417ab446d",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 5,
+    "last_tool": "list_host_files",
+    "last_error": "Error: Path not in allowed paths for agent 'coder'",
+    "ts": 1776454350.9932315,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "7bf0cbb417ab446d",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 6,
+    "last_tool": "list_host_files",
+    "last_error": "Error: Path not in allowed paths for agent 'coder'",
+    "ts": 1776454352.2922153,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 2,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776454364.7283378,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7bf0cbb417ab446d",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 7,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776454365.0931466,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "7bf0cbb417ab446d",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 8,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776454366.8596828,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 3,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776454371.6099596,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 4,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776454372.8899508,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "7bf0cbb417ab446d",
+    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
+    "failure_count": 9,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776454373.467065,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 5,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776454376.734401,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 6,
+    "last_tool": "execute_on_host",
+    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
+    "ts": 1776454391.9170988,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 7,
+    "last_tool": "write_host_file",
+    "last_error": "Error: Path not in allowed paths for agent 'coder'",
+    "ts": 1776454403.3083005,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 8,
+    "last_tool": "list_host_files",
+    "last_error": "Error: Path not in allowed paths for agent 'coder'",
+    "ts": 1776454405.8222325,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 9,
+    "last_tool": "list_host_files",
+    "last_error": "Error: Path not in allowed paths for agent 'coder'",
+    "ts": 1776454407.6252503,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 10,
+    "last_tool": "list_host_files",
+    "last_error": "Error: Path not in allowed paths for agent 'coder'",
+    "ts": 1776454409.8221796,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 11,
+    "last_tool": "execute_on_host",
+    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
+    "ts": 1776454418.2677975,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 12,
+    "last_tool": "execute_on_host",
+    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
+    "ts": 1776454424.2392719,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "830ac859a0e4c770",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 13,
+    "last_tool": "execute_on_host",
+    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
+    "ts": 1776454427.78219,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "91015af8749f4f1c",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 1,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776455813.374036,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "91015af8749f4f1c",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 2,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776455816.9690895,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "91015af8749f4f1c",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 3,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776455840.3179579,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "91015af8749f4f1c",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 4,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776455850.3840718,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "91015af8749f4f1c",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 5,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: It looks like you are using Playwright Sync API inside the asyncio loop.\nPlease",
+    "ts": 1776455872.650512,
+    "replan_suggested": true
   }
 ]

@@ -1,5 +1,5 @@
 # System Chronicle
-*Auto-generated: 2026-04-17 11:38 UTC | DO NOT EDIT MANUALLY*
+*Auto-generated: 2026-04-17 20:18 UTC | DO NOT EDIT MANUALLY*
 
 
 ---
@@ -14,7 +14,7 @@ I maintain four distinct memory systems, all persistent across container restart
 
 - **ChromaDB vector store** (`workspace/memory/`): Operational memory for self-reports, reflections, belief states, world model (causal beliefs), policies, predictions, and shared team context. Embeddings via Ollama nomic-embed-text on Metal GPU (768-dim), with CPU fallback.
 - **Mem0** (Postgres + Neo4j): Cross-session fact extraction from conversations. Entity relationships stored in a knowledge graph that grows with each interaction.
-- **Skill files** (`workspace/skills/`): 48 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
+- **Skill files** (`workspace/skills/`): 49 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
 - **Error journal** (`workspace/error_journal.json`): Full history of runtime errors, automated diagnoses, and applied fixes.
 - **Audit journal** (`workspace/audit_journal.json`): Record of all code changes made by the autonomous auditor.
 - **Variant archive** (`workspace/variant_archive.json`): Evolution experiment history — hypotheses tested, fitness scores, and what was kept.
@@ -35,8 +35,8 @@ I maintain four distinct memory systems, all persistent across container restart
 - Parallel crew dispatch: independent sub-tasks run concurrently
 - Introspective self-description: this chronicle enables accurate self-reporting
 - Philosophy knowledge base: 3026 chunks of humanist philosophical texts for ethical grounding
-- Lifetime performance: 151 tasks completed, 28 failed (84% success rate)
-- Homeostatic state: energy=0.97 confidence=0.98 frustration=0.01 curiosity=0.54
+- Lifetime performance: 156 tasks completed, 28 failed (85% success rate)
+- Homeostatic state: energy=0.97 confidence=0.98 frustration=0.01 curiosity=0.55
 
 ---
 
@@ -48,16 +48,16 @@ Skills are written by the self-improvement crew after researching topics from th
 ---
 
 ## My Error History
-Total errors recorded: **45** | Diagnosed: 39 | Fix applied: 0
+Total errors recorded: **46** | Diagnosed: 40 | Fix applied: 0
 
 Most common error types: BadRequestError (18), ImportError (7), ValueError (5), APIConnectionError (5)
 
 Recent errors:
-  - [2026-04-15] handle_task: name '_load_episteme_context' is not defined
-  - [2026-04-12] coding: Task 'Complete the following coding task:
+  - [2026-04-17] coding: Task 'Complete the following coding task:
 
 <user_request>
 KNOWLEDGE BASE CONTEXT (retrieved from ing
+  - [2026-04-15] handle_task: name '_load_episteme_context' is not defined
   - [2026-04-08] coding: Error code: 400 - {'error': {'message': 'registry.ollama.ai/library/codestral:22b does not support t
 
 Errors are automatically diagnosed by the auditor crew every 30 minutes. Fixes are proposed, reviewed, and applied with constitutional safety checks.
@@ -65,14 +65,14 @@ Errors are automatically diagnosed by the auditor crew every 30 minutes. Fixes a
 ---
 
 ## System Changes (Audit Trail)
-129 audit sessions have touched 220 unique files.
+133 audit sessions have touched 220 unique files.
 
 Recent changes:
-  - [2026-04-16] 3 issues in 6 files: Fixed potential threading race condition in anomaly detection, missing Path imp
-  - [2026-04-16] 0 issues in 6 files: No issues found
-  - [2026-04-17] 3 issues in 6 files: Fixed issues in chaos_tester.py, judge.py, and evolve_blocks.py
   - [2026-04-17] 0 issues in 6 files: No issues found
+  - [2026-04-17] 1 issues in 6 files: Fixed potential race condition in canary deployment rollback
   - [2026-04-17] 0 issues in 6 files: No issues found
+  - [2026-04-17] Pattern coding:TimeoutError attempt #1: Increase the max_execution_time parameter in the _execute_wi
+  - [2026-04-17] Error resolution: 6 resolved, 1 attempted, 17 total patterns
 
 ---
 
