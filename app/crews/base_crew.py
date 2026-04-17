@@ -292,7 +292,12 @@ def run_single_agent_crew(
 # These execute only when the factories are first called (lazy), not at import.
 
 def _register_default_plugins() -> None:
-    """Register built-in tool plugins. Called once from main.py startup."""
+    """Register built-in tool plugins. Called once from main.py startup.
+
+    Also patches crewai.Agent so every Agent instance — including those built
+    by multi-agent crews that don't use run_single_agent_crew — gets plugin
+    tools auto-appended at construction time.
+    """
     # MCP tools
     register_tool_plugin(
         lambda: __import__("app.mcp.tool_adapter", fromlist=["create_crewai_tools"]).create_crewai_tools()
@@ -305,3 +310,45 @@ def _register_default_plugins() -> None:
     register_tool_plugin(
         lambda: __import__("app.tools.session_search_tool", fromlist=["create_session_search_tools"]).create_session_search_tools()
     )
+
+    # Patch crewai.Agent so every agent instance gets plugin tools automatically
+    _patch_agent_for_plugins()
+
+
+_agent_patched = False
+
+
+def _patch_agent_for_plugins() -> None:
+    """Monkey-patch crewai.Agent so every Agent auto-appends plugin tools.
+
+    This is the ONE place where plugin tools reach every agent — multi-agent
+    crews (research / media / critic / creative / etc.) don't use
+    run_single_agent_crew but do construct crewai.Agent, so hooking the
+    constructor ensures no agent is missed.
+    """
+    global _agent_patched
+    if _agent_patched:
+        return
+    try:
+        from crewai import Agent
+    except ImportError:
+        logger.debug("crewai not importable; skipping Agent plugin patch")
+        return
+
+    original_init = Agent.__init__
+
+    def patched_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        try:
+            plugins = get_plugin_tools()
+            if plugins:
+                existing = list(self.tools) if self.tools else []
+                # Avoid double-registration if the same tool name is already present
+                names = {getattr(t, "name", "") for t in existing}
+                self.tools = existing + [t for t in plugins if getattr(t, "name", "") not in names]
+        except Exception:
+            logger.debug("Agent plugin injection failed (non-fatal)", exc_info=True)
+
+    Agent.__init__ = patched_init
+    _agent_patched = True
+    logger.info("crewai.Agent patched for plugin-tool auto-injection")
