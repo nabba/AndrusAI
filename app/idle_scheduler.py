@@ -344,6 +344,15 @@ def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
     """
     global _idle_thread
 
+    # Rehydrate the LLM catalog from previously promoted discovered
+    # models before any job runs. Idempotent and non-fatal if the DB
+    # is unreachable.
+    try:
+        from app.llm_rehydrate import rehydrate_catalog
+        rehydrate_catalog()
+    except Exception:
+        logger.debug("idle_scheduler: llm catalog rehydration skipped", exc_info=True)
+
     if jobs is None:
         jobs = _default_jobs()
 
@@ -935,6 +944,17 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         except Exception:
             logger.debug("idle_scheduler: LLM discovery failed", exc_info=True)
     jobs.append(("llm-discovery", _llm_discovery, JobWeight.MEDIUM))
+
+    # ── LLM Promotion Applier: apply approved governance requests ─────
+    def _llm_apply_promotions():
+        try:
+            from app.llm_discovery import consume_approved_promotions
+            summary = consume_approved_promotions(limit=5)
+            if summary.get("applied"):
+                logger.info(f"idle_scheduler: applied LLM promotions: {summary}")
+        except Exception:
+            logger.debug("idle_scheduler: LLM promotion applier failed", exc_info=True)
+    jobs.append(("llm-apply-promotions", _llm_apply_promotions, JobWeight.LIGHT))
 
     # ── System monitor: report all subsystem status to dashboard ────
     def _system_monitor():

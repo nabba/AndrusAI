@@ -26,14 +26,17 @@ logger = logging.getLogger(__name__)
 
 # Minimum thresholds for a model to be considered
 MIN_CONTEXT_WINDOW = 8_000
-MAX_COST_OUTPUT_PER_M = 20.0  # $20/M tokens max (excludes ultra-premium)
+# Raised to 30 so Opus-class frontier launches at $25/M still get seen.
+# The tier buckets below still constrain where a model lands in the
+# cascade; this is just the outer "worth evaluating at all" gate.
+MAX_COST_OUTPUT_PER_M = 30.0
 
 # Tier classification by cost
 TIER_THRESHOLDS = {
     "free": 0.0,
-    "budget": 1.0,      # ≤ $1/M output
+    "budget": 1.0,       # ≤ $1/M output
     "mid": 5.0,          # ≤ $5/M output
-    "premium": 20.0,     # ≤ $20/M output
+    "premium": 30.0,     # ≤ $30/M output
 }
 
 # Provider-specific model ID prefixes for our catalog
@@ -110,6 +113,30 @@ def scan_ollama() -> list[dict]:
 
 # ── Filter + Normalize ───────────────────────────────────────────────────────
 
+def _detect_tool_calling(raw: dict, provider: str) -> bool:
+    """Infer whether a model supports tool calling.
+
+    OpenRouter's ``/models`` payload exposes ``supported_parameters``
+    which includes ``"tools"``/``"tool_choice"`` for models that accept
+    tool-use arguments. Ollama doesn't report this, so we fall back to
+    a conservative heuristic on the model family.
+    """
+    supported = raw.get("supported_parameters") or raw.get("supported_params") or []
+    if isinstance(supported, (list, tuple, set)):
+        if any(p in supported for p in ("tools", "tool_choice", "function_call")):
+            return True
+        if supported:  # payload is authoritative — no tools listed means none
+            return False
+    # Fallback heuristic when the field is absent
+    name = (raw.get("id", "") + " " + raw.get("name", "")).lower()
+    _TOOLLESS_HINTS = ("base", "completion", "codestral", "embed")
+    if any(h in name for h in _TOOLLESS_HINTS):
+        return False
+    if provider == "ollama":
+        return False  # Ollama path verifies at runtime via circuit breaker
+    return True
+
+
 def _normalize_model(raw: dict, provider: str = "openrouter") -> dict | None:
     """Normalize a raw API model to our standard format. Returns None if filtered out."""
     model_id = raw.get("id", "")
@@ -131,6 +158,7 @@ def _normalize_model(raw: dict, provider: str = "openrouter") -> dict | None:
     arch = raw.get("architecture", {})
     modality = arch.get("modality", "text")
     multimodal = "image" in modality or "multimodal" in modality
+    tool_calling = _detect_tool_calling(raw, provider)
 
     # Classify tier
     tier = "premium"
@@ -155,7 +183,7 @@ def _normalize_model(raw: dict, provider: str = "openrouter") -> dict | None:
         "cost_input_per_m": round(cost_input, 6),
         "cost_output_per_m": round(cost_output, 6),
         "multimodal": multimodal,
-        "tool_calling": True,  # Assume true for OpenRouter models
+        "tool_calling": tool_calling,
         "tier": tier,
         "raw_metadata": raw,
     }
@@ -383,11 +411,48 @@ def propose_promotion(model: dict, benchmark_score: float, role: str) -> dict | 
         logger.warning(f"llm_discovery: governance request failed: {e}")
         return None
 
-def _add_to_runtime_catalog(model: dict, roles: list[str]) -> None:
-    """Add a discovered model to the runtime catalog (in-memory overlay).
+def _dominates_incumbent(model: dict, role: str, cost_mode: str) -> bool:
+    """Pareto-style check: does ``model`` outperform the current role
+    default on both quality and cost for the given cost_mode?
 
-    The static CATALOG in llm_catalog.py is not modified — this adds
-    models to a dynamic overlay that's checked alongside the static catalog.
+    Used to decide whether an auto-promotion should take over the role
+    assignment in a particular cost mode. A new model wins only if it
+    is *both* cheaper-or-equal AND of higher benchmark score than the
+    incumbent. For the incumbent's score we read ``strengths[role]``
+    first, falling back to ``strengths["general"]`` — never the raw
+    0.5 floor, which would let any newcomer with a generic score
+    unfairly unseat a strong but non-role-tagged incumbent.
+    """
+    try:
+        from app.llm_catalog import CATALOG, ROLE_DEFAULTS
+        mode_defaults = ROLE_DEFAULTS.get(cost_mode, ROLE_DEFAULTS["balanced"])
+        incumbent_key = mode_defaults.get(role, mode_defaults.get("default", ""))
+        incumbent = CATALOG.get(incumbent_key)
+        if not incumbent:
+            return True
+        incumbent_cost = float(incumbent.get("cost_output_per_m", 0))
+        strengths = incumbent.get("strengths", {})
+        incumbent_score = float(
+            strengths.get(role)
+            if role in strengths
+            else strengths.get("general", 0.5)
+        )
+        my_cost = float(model.get("cost_output_per_m", 0))
+        my_score = float(model.get("benchmark_score", 0.0))
+        return my_cost <= incumbent_cost and my_score > incumbent_score
+    except Exception:
+        return False
+
+
+def _add_to_runtime_catalog(model: dict, roles: list[str]) -> None:
+    """Add a discovered model to the runtime catalog and (where it
+    dominates the incumbent) install role-assignment overlays.
+
+    - Catalog insert mirrors the previous behaviour so in-memory lookups
+      succeed on the new model immediately.
+    - Overlay writes go to ``control_plane.role_assignments`` so the
+      selector picks the new model on its next call, persists across
+      restarts, and is rehydrated by ``llm_rehydrate.rehydrate_catalog``.
     """
     from app.llm_catalog import CATALOG
 
@@ -395,7 +460,14 @@ def _add_to_runtime_catalog(model: dict, roles: list[str]) -> None:
 
     # Estimate strengths from benchmark
     base_score = model.get("benchmark_score", 0.5) if isinstance(model.get("benchmark_score"), (int, float)) else 0.5
-    strengths = {r: round(base_score, 2) for r in roles}
+    # Per-role scores come from the benchmark when available; otherwise
+    # inherit the base score. `per_role_scores` is set by the multi-role
+    # benchmarking path (see run_discovery_cycle).
+    per_role = model.get("per_role_scores") or {}
+    strengths = {
+        r: round(float(per_role.get(r, base_score)), 2)
+        for r in roles
+    }
     strengths["general"] = round(base_score * 0.9, 2)
 
     entry = {
@@ -406,7 +478,8 @@ def _add_to_runtime_catalog(model: dict, roles: list[str]) -> None:
         "multimodal": model.get("multimodal", False),
         "cost_input_per_m": model.get("cost_input_per_m", 0),
         "cost_output_per_m": model.get("cost_output_per_m", 0),
-        "tool_use_reliability": 0.70,
+        "tool_use_reliability": 0.80 if model.get("tool_calling", False) else 0.0,
+        "supports_tools": bool(model.get("tool_calling", True)),
         "description": f"Auto-discovered: {model.get('display_name', name)}",
         "strengths": strengths,
         "_discovered": True,  # Marker for dynamic models
@@ -416,7 +489,51 @@ def _add_to_runtime_catalog(model: dict, roles: list[str]) -> None:
     CATALOG[name] = entry
     logger.info(f"llm_discovery: added {name} to runtime catalog (tier={entry['tier']})")
 
+    # Install role-assignment overlays for cost modes where the new
+    # model Pareto-dominates the incumbent. Skips the write quietly if
+    # the DB is unreachable — next discovery cycle will retry.
+    try:
+        from app.llm_role_assignments import set_assignment
+        cost_modes = ("budget", "balanced", "quality")
+        for role in roles:
+            role_score = float(per_role.get(role, base_score))
+            dominated_modes = [
+                m for m in cost_modes if _dominates_incumbent(
+                    {**model, "benchmark_score": role_score}, role, m,
+                )
+            ]
+            for mode in dominated_modes:
+                set_assignment(
+                    role=role, cost_mode=mode, model=name,
+                    source="auto_promotion",
+                    reason=(
+                        f"bench={role_score:.2f} "
+                        f"${model.get('cost_output_per_m', 0):.3f}/Mo "
+                        f"dominates default in {mode} mode"
+                    ),
+                    assigned_by="llm_discovery",
+                    priority=150,
+                )
+    except Exception as exc:
+        logger.debug(f"llm_discovery: role overlay write failed: {exc}")
+
 # ── Main Pipeline ────────────────────────────────────────────────────────────
+
+def _benchmark_all_roles(model_id: str, sample_size: int = 2) -> dict[str, float]:
+    """Run the discovery benchmark across every role in BENCHMARK_ROLES.
+
+    Returns a ``{role: score}`` map for roles that produced a valid
+    score. A negative return from ``benchmark_model`` is treated as a
+    skip rather than a zero (so transient judge errors don't kill a
+    model's chances).
+    """
+    scores: dict[str, float] = {}
+    for role in BENCHMARK_ROLES:
+        s = benchmark_model(model_id, role=role, sample_size=sample_size)
+        if s >= 0:
+            scores[role] = s
+    return scores
+
 
 def run_discovery_cycle(max_benchmarks: int = 3) -> dict:
     """Full discovery pipeline. Called by idle scheduler.
@@ -428,20 +545,29 @@ def run_discovery_cycle(max_benchmarks: int = 3) -> dict:
         "promoted": 0, "proposals": 0, "errors": [],
     }
 
-    # Step 1: Scan OpenRouter
-    raw_models = scan_openrouter()
-    result["scanned"] = len(raw_models)
+    # Step 1: Scan sources — OpenRouter remote + local Ollama
+    raw_openrouter = scan_openrouter()
+    raw_ollama = scan_ollama()
+    result["scanned"] = len(raw_openrouter) + len(raw_ollama)
 
-    if not raw_models:
+    if not raw_openrouter and not raw_ollama:
         return result
 
-    # Step 2: Filter + normalize
+    # Step 2: Filter + normalize (per provider — keeps the catalog key
+    # prefix logic consistent)
     known_ids = _get_known_model_ids()
     catalog_ids = _get_catalog_model_ids()
 
-    new_models = []
-    for raw in raw_models:
+    new_models: list[dict] = []
+    for raw in raw_openrouter:
         normalized = _normalize_model(raw, provider="openrouter")
+        if not normalized:
+            continue
+        mid = normalized["model_id"]
+        if mid not in known_ids and mid not in catalog_ids:
+            new_models.append(normalized)
+    for raw in raw_ollama:
+        normalized = _normalize_model(raw, provider="ollama")
         if not normalized:
             continue
         mid = normalized["model_id"]
@@ -460,35 +586,39 @@ def run_discovery_cycle(max_benchmarks: int = 3) -> dict:
 
     logger.info(f"llm_discovery: found {len(new_models)} new models")
 
-    # Step 4: Benchmark top candidates (cheapest + most capable first)
-    # Sort by cost (prefer cheap) then by context window (prefer large)
+    # Step 4: Benchmark top candidates across every BENCHMARK_ROLE.
+    # Sort by cost (prefer cheap) then by context window (prefer large).
     candidates = sorted(
         new_models,
         key=lambda m: (m["cost_output_per_m"], -m["context_window"]),
     )[:max_benchmarks]
 
     for model in candidates:
-        # Pick the most relevant role to benchmark
-        role = "research"  # Default
-        if model.get("multimodal"):
-            role = "research"  # Multimodal models are best tested on research
-
-        score = benchmark_model(model["model_id"], role=role, sample_size=2)
-        if score < 0:
+        per_role = _benchmark_all_roles(model["model_id"])
+        if not per_role:
             result["errors"].append(f"Benchmark failed for {model['model_id']}")
             continue
 
-        _update_benchmark(model["model_id"], score, role)
-        model["benchmark_score"] = score
+        # Best-scoring role acts as the primary benchmark for the
+        # legacy single-column discovered_models row. The full score
+        # map travels alongside the model dict into promotion logic.
+        best_role, best_score = max(per_role.items(), key=lambda kv: kv[1])
+        _update_benchmark(model["model_id"], best_score, best_role)
+        model["benchmark_score"] = best_score
+        model["benchmark_role"] = best_role
+        model["per_role_scores"] = per_role
         result["benchmarked"] += 1
 
-        # Step 5: Compare and propose
-        proposal = propose_promotion(model, score, role)
-        if proposal:
-            if proposal.get("status") == "auto_promoted":
-                result["promoted"] += 1
-            else:
-                result["proposals"] += 1
+        # Step 5: Propose promotion for EACH role where the model
+        # actually outperforms the incumbent. Free models auto-promote;
+        # others queue a governance request.
+        for role, score in per_role.items():
+            proposal = propose_promotion(model, score, role)
+            if proposal:
+                if proposal.get("status") == "auto_promoted":
+                    result["promoted"] += 1
+                else:
+                    result["proposals"] += 1
 
     # Audit trail
     try:
@@ -503,6 +633,112 @@ def run_discovery_cycle(max_benchmarks: int = 3) -> dict:
 
     logger.info(f"llm_discovery: cycle complete — {result}")
     return result
+
+
+# ── Governance consumer ──────────────────────────────────────────────────────
+
+def consume_approved_promotions(limit: int = 10) -> dict:
+    """Apply every governance request approved since the last run.
+
+    ``propose_promotion`` files a ``model_promotion`` governance request
+    for non-free candidates. A human approves the request in the
+    dashboard / Signal. This function consumes those approvals:
+      - adds the model to the runtime catalog (if not already)
+      - installs role assignment overlays
+      - marks the discovered_models row as promoted
+      - marks the governance_requests row as consumed
+
+    Returns a summary dict suitable for logging/Signal display.
+    """
+    summary = {"applied": 0, "skipped": 0, "errors": 0}
+    try:
+        from app.control_plane.db import execute
+    except Exception:
+        return summary
+
+    rows = execute(
+        """
+        SELECT id, detail_json, reviewed_at, reviewed_by
+          FROM control_plane.governance_requests
+         WHERE request_type = 'model_promotion'
+           AND status = 'approved'
+           AND consumed_at IS NULL
+      ORDER BY reviewed_at ASC
+         LIMIT %s
+        """,
+        (limit,),
+        fetch=True,
+    ) or []
+
+    if not rows:
+        return summary
+
+    for row in rows:
+        try:
+            detail = row.get("detail_json") or {}
+            if isinstance(detail, str):
+                detail = json.loads(detail)
+            model_id = detail.get("model_id")
+            role = detail.get("role") or "research"
+            tier = detail.get("tier", "budget")
+            if not model_id:
+                summary["skipped"] += 1
+                continue
+
+            # Pull the full discovered row so _add_to_runtime_catalog
+            # gets real cost/context/multimodal metadata rather than
+            # only the governance detail blob.
+            disc = execute(
+                """
+                SELECT model_id, provider, display_name, context_window,
+                       cost_input_per_m, cost_output_per_m, multimodal,
+                       tool_calling, benchmark_score
+                  FROM control_plane.discovered_models
+                 WHERE model_id = %s
+                """,
+                (model_id,),
+                fetch=True,
+            ) or []
+            if not disc:
+                summary["skipped"] += 1
+                continue
+            disc_row = disc[0]
+
+            model_payload = {
+                "model_id":          disc_row["model_id"],
+                "provider":          disc_row.get("provider", "openrouter"),
+                "display_name":      disc_row.get("display_name", model_id),
+                "context_window":    int(disc_row.get("context_window") or 0),
+                "cost_input_per_m":  float(disc_row.get("cost_input_per_m") or 0),
+                "cost_output_per_m": float(disc_row.get("cost_output_per_m") or 0),
+                "multimodal":        bool(disc_row.get("multimodal")),
+                "tool_calling":      bool(disc_row.get("tool_calling")),
+                "tier":              tier,
+                "benchmark_score":   float(disc_row.get("benchmark_score") or 0.5),
+            }
+            _add_to_runtime_catalog(model_payload, [role])
+            _promote_model(
+                model_id, tier, [role],
+                reviewer=row.get("reviewed_by") or "governance",
+            )
+            execute(
+                """
+                UPDATE control_plane.governance_requests
+                   SET consumed_at = NOW()
+                 WHERE id = %s
+                """,
+                (row["id"],),
+            )
+            summary["applied"] += 1
+            logger.info(
+                "llm_discovery: applied governance promotion model=%s role=%s tier=%s",
+                model_id, role, tier,
+            )
+        except Exception as exc:
+            summary["errors"] += 1
+            logger.warning(f"llm_discovery: promotion consumer failed on row {row.get('id')}: {exc}")
+
+    return summary
 
 def get_discovered_models(status: str = None, limit: int = 20) -> list[dict]:
     """Get discovered models for dashboard/Signal display."""

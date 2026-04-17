@@ -624,6 +624,24 @@ def is_multimodal(name: str) -> bool:
     return entry.get("multimodal", False) if entry else False
 
 def get_default_for_role(role: str, cost_mode: str = "balanced") -> str:
+    """Return the catalog key to use for a role in a given cost mode.
+
+    Resolution order:
+      1. Runtime overlay in ``control_plane.role_assignments`` (see
+         :mod:`app.llm_role_assignments`). Promoted models land here.
+      2. Static ROLE_DEFAULTS for the cost mode.
+      3. The cost mode's ``"default"`` entry.
+
+    The overlay hit is verified against CATALOG so a stale row pointing
+    at a retired model never returns a missing key.
+    """
+    try:
+        from app.llm_role_assignments import get_assigned_model
+        override = get_assigned_model(role, cost_mode)
+        if override and override in CATALOG:
+            return override
+    except Exception:
+        pass  # graceful degradation to static defaults
     mode_defaults = ROLE_DEFAULTS.get(cost_mode, ROLE_DEFAULTS["balanced"])
     return mode_defaults.get(role, mode_defaults["default"])
 
