@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+from typing import List
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
@@ -15,19 +16,18 @@ logger = logging.getLogger(__name__)
 episteme_router = APIRouter(prefix="/episteme", tags=["episteme"])
 
 
-@episteme_router.post("/upload")
-async def upload_text(
-    file: UploadFile = File(...),
-    author: str = Form("Unknown"),
-    paper_type: str = Form("unknown"),
-    domain: str = Form("general"),
-    epistemic_status: str = Form("theoretical"),
-    date: str = Form(""),
-    title: str = Form(""),
-):
-    """Upload a research text (.md or .txt) to the episteme KB."""
+async def _process_one_upload(
+    file: UploadFile,
+    author: str,
+    paper_type: str,
+    domain: str,
+    epistemic_status: str,
+    date: str,
+    title: str,
+) -> dict:
+    """Process a single uploaded file. Returns a result dict."""
     if not file.filename:
-        raise HTTPException(400, "No filename")
+        return {"filename": "?", "error": "No filename", "chunks_created": 0}
 
     safe_name = re.sub(r"[^\w\-.]", "_", file.filename)
     if not safe_name.endswith((".md", ".txt")):
@@ -35,7 +35,7 @@ async def upload_text(
 
     content = await file.read()
     if len(content) > config.MAX_UPLOAD_SIZE:
-        raise HTTPException(413, "File too large (max 10 MB)")
+        return {"filename": safe_name, "error": "File too large (max 10 MB)", "chunks_created": 0}
 
     texts_dir = Path(config.TEXTS_DIR)
     texts_dir.mkdir(parents=True, exist_ok=True)
@@ -54,15 +54,71 @@ async def upload_text(
 
     dest.write_text(text, encoding="utf-8")
 
-    from app.episteme.ingestion import ingest_file
-    chunks = ingest_file(dest)
+    try:
+        from app.episteme.ingestion import ingest_file
+        chunks = ingest_file(dest)
+    except Exception as e:
+        logger.error("Ingestion failed for %s: %s", safe_name, e)
+        return {"filename": safe_name, "error": str(e)[:200], "chunks_created": 0}
 
     return {
-        "status": "ok",
         "filename": safe_name,
         "chunks_created": chunks,
         "characters": len(text),
     }
+
+
+@episteme_router.post("/upload")
+async def upload_texts(
+    file: List[UploadFile] = File(...),
+    author: str = Form("Unknown"),
+    paper_type: str = Form("unknown"),
+    domain: str = Form("general"),
+    epistemic_status: str = Form("theoretical"),
+    date: str = Form(""),
+    title: str = Form(""),
+):
+    """Upload one or more research texts (.md or .txt) to the episteme KB.
+
+    Accepts multiple files in a single request. Metadata fields (author,
+    paper_type, etc.) apply as defaults — files with YAML frontmatter
+    override them per-file.
+    """
+    results = []
+    for f in file:
+        result = await _process_one_upload(
+            f, author, paper_type, domain, epistemic_status, date, title,
+        )
+        results.append(result)
+
+    total_chunks = sum(r.get("chunks_created", 0) for r in results)
+    errors = [r for r in results if "error" in r]
+
+    _report_async()
+
+    # Backward-compatible: single file returns flat response
+    if len(results) == 1:
+        r = results[0]
+        if "error" in r:
+            raise HTTPException(400, r["error"])
+        return {"status": "ok", **r}
+
+    return {
+        "status": "ok" if not errors else "partial",
+        "files_processed": len(results),
+        "total_chunks": total_chunks,
+        "results": results,
+        "errors": len(errors),
+    }
+
+
+def _report_async() -> None:
+    try:
+        from app.firebase.publish import report_episteme_kb
+        from concurrent.futures import ThreadPoolExecutor
+        ThreadPoolExecutor(max_workers=1).submit(report_episteme_kb)
+    except Exception:
+        pass
 
 
 @episteme_router.get("/stats")

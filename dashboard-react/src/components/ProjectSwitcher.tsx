@@ -43,12 +43,8 @@ export function ProjectSwitcher() {
             >
               <span
                 className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  project.status === 'active'
+                  project.is_active
                     ? 'bg-[#34d399]'
-                    : project.status === 'paused'
-                    ? 'bg-[#fbbf24]'
-                    : project.status === 'failed'
-                    ? 'bg-[#f87171]'
                     : 'bg-[#7a8599]'
                 }`}
               />

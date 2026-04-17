@@ -4,7 +4,7 @@ import { useProject } from '../context/ProjectContext';
 import type { Ticket, KanbanBoard as KanbanBoardType } from '../types/index.ts';
 import { api } from '../api/client';
 
-const COLUMNS: { key: keyof KanbanBoardType; label: string; color: string }[] = [
+const COLUMNS: { key: keyof KanbanBoardType['board']; label: string; color: string }[] = [
   { key: 'todo', label: 'To Do', color: 'text-[#e2e8f0]' },
   { key: 'in_progress', label: 'In Progress', color: 'text-[#60a5fa]' },
   { key: 'review', label: 'Review', color: 'text-[#a78bfa]' },
@@ -45,8 +45,8 @@ function TicketCard({ ticket, onClick }: { ticket: Ticket; onClick: () => void }
         <span className="text-[#7a8599] truncate max-w-[120px]">
           {ticket.assigned_agent ?? 'Unassigned'}
         </span>
-        {ticket.cost != null && (
-          <span className="text-[#34d399]">${ticket.cost.toFixed(4)}</span>
+        {ticket.cost_usd != null && (
+          <span className="text-[#34d399]">${ticket.cost_usd.toFixed(4)}</span>
         )}
       </div>
     </div>
@@ -134,7 +134,7 @@ function TicketModal({
             <div>
               <span className="text-[#7a8599]">Cost</span>
               <p className="text-[#34d399] mt-0.5">
-                {ticket.cost != null ? `$${ticket.cost.toFixed(4)}` : '—'}
+                {ticket.cost_usd != null ? `$${ticket.cost_usd.toFixed(4)}` : '—'}
               </p>
             </div>
             <div>
@@ -176,7 +176,7 @@ function TicketModal({
                         {new Date(c.created_at).toLocaleString()}
                       </span>
                     </div>
-                    <p className="text-sm text-[#e2e8f0]">{c.body}</p>
+                    <p className="text-sm text-[#e2e8f0]">{c.content}</p>
                   </div>
                 ))}
               </div>
@@ -241,7 +241,7 @@ export function KanbanBoard() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4 overflow-x-auto">
           {COLUMNS.map((col) => {
-            const tickets = board[col.key] ?? [];
+            const tickets = board.board[col.key] ?? [];
             return (
               <div key={col.key} className="min-w-[200px]">
                 <div className="flex items-center gap-2 mb-3">

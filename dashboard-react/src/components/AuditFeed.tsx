@@ -133,10 +133,10 @@ export function AuditFeed() {
                   <tr key={entry.id} className="hover:bg-[#1e2738]/50 transition-colors">
                     <td className="px-4 py-2.5 whitespace-nowrap">
                       <div className="text-xs text-[#7a8599]">
-                        {new Date(entry.created_at).toLocaleDateString()}
+                        {new Date(entry.timestamp).toLocaleDateString()}
                       </div>
                       <div className="text-xs text-[#7a8599]/70">
-                        {new Date(entry.created_at).toLocaleTimeString()}
+                        {new Date(entry.timestamp).toLocaleTimeString()}
                       </div>
                     </td>
                     <td className="px-4 py-2.5 whitespace-nowrap">
@@ -147,13 +147,13 @@ export function AuditFeed() {
                     </td>
                     <td className="px-4 py-2.5">
                       <span className="text-sm text-[#7a8599] truncate block max-w-[200px]">
-                        {entry.resource ?? '—'}
+                        {entry.resource_type ?? '—'}
                         {entry.resource_id ? ` #${entry.resource_id}` : ''}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                      {entry.cost != null ? (
-                        <span className="text-sm text-[#34d399]">${entry.cost.toFixed(4)}</span>
+                      {entry.cost_usd != null ? (
+                        <span className="text-sm text-[#34d399]">${entry.cost_usd.toFixed(4)}</span>
                       ) : (
                         <span className="text-sm text-[#7a8599]">—</span>
                       )}

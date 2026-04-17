@@ -5,12 +5,6 @@ function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`animate-pulse bg-[#1e2738] rounded ${className}`} />;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  active: 'bg-[#34d399]',
-  idle: 'bg-[#fbbf24]',
-  offline: 'bg-[#7a8599]',
-};
-
 const ROLE_ICONS: Record<string, string> = {
   commander: '👑',
   researcher: '🔬',

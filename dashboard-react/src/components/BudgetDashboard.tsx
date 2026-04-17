@@ -17,7 +17,7 @@ function OverrideModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [newLimit, setNewLimit] = useState(budget.limit.toString());
+  const [newLimit, setNewLimit] = useState(budget.limit_usd.toString());
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -34,7 +34,7 @@ function OverrideModal({
       await api('/budgets/override', {
         method: 'POST',
         body: JSON.stringify({
-          budget_id: budget.id,
+          budget_id: budget.agent_role,
           new_limit: limit,
           reason: reason || undefined,
         }),
@@ -64,7 +64,7 @@ function OverrideModal({
         <div className="p-4 space-y-4">
           <div>
             <p className="text-sm text-[#7a8599] mb-1">Agent</p>
-            <p className="text-sm text-[#e2e8f0] font-medium">{budget.agent}</p>
+            <p className="text-sm text-[#e2e8f0] font-medium">{budget.agent_role}</p>
           </div>
           <div>
             <label className="text-sm text-[#7a8599] block mb-1">New Limit ($)</label>
@@ -119,8 +119,8 @@ export function BudgetDashboard() {
     15000
   );
 
-  const totalSpent = budgets?.reduce((s, b) => s + b.spent, 0) ?? 0;
-  const totalLimit = budgets?.reduce((s, b) => s + b.limit, 0) ?? 0;
+  const totalSpent = budgets?.reduce((s, b) => s + b.spent_usd, 0) ?? 0;
+  const totalLimit = budgets?.reduce((s, b) => s + b.limit_usd, 0) ?? 0;
 
   return (
     <div className="space-y-6">
@@ -178,23 +178,23 @@ export function BudgetDashboard() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {budgets.map((budget) => {
-            const pct = budget.limit > 0 ? Math.min((budget.spent / budget.limit) * 100, 100) : 0;
+            const pct = budget.limit_usd > 0 ? Math.min((budget.spent_usd / budget.limit_usd) * 100, 100) : 0;
             const barColor =
               pct > 85 ? 'bg-[#f87171]' : pct > 60 ? 'bg-[#fbbf24]' : 'bg-[#34d399]';
 
             return (
               <div
-                key={budget.id}
+                key={budget.agent_role}
                 className="bg-[#111820] border border-[#1e2738] rounded-lg p-4 space-y-3"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    {budget.paused && (
+                    {budget.is_paused && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/30">
                         PAUSED
                       </span>
                     )}
-                    <span className="text-sm font-medium text-[#e2e8f0]">{budget.agent}</span>
+                    <span className="text-sm font-medium text-[#e2e8f0]">{budget.agent_role}</span>
                   </div>
                   <button
                     onClick={() => setOverrideBudget(budget)}
@@ -206,8 +206,8 @@ export function BudgetDashboard() {
 
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs text-[#7a8599]">
-                    <span>${budget.spent.toFixed(4)} spent</span>
-                    <span>${budget.limit.toFixed(4)} limit</span>
+                    <span>${budget.spent_usd.toFixed(4)} spent</span>
+                    <span>${budget.limit_usd.toFixed(4)} limit</span>
                   </div>
                   <div className="w-full bg-[#1e2738] rounded-full h-2">
                     <div
@@ -228,7 +228,7 @@ export function BudgetDashboard() {
                       {pct.toFixed(1)}% used
                     </span>
                     <span className="text-[#7a8599]">
-                      ${(budget.limit - budget.spent).toFixed(4)} remaining
+                      ${(budget.limit_usd - budget.spent_usd).toFixed(4)} remaining
                     </span>
                   </div>
                 </div>

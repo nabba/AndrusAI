@@ -44,16 +44,30 @@ function FileUploadZone({ kbType, color, onUploadDone }: { kbType: KBType; color
   const inputRef = useRef<HTMLInputElement>(null);
   const cfg = KB_CONFIGS[kbType];
 
-  const upload = useCallback(async (file: File) => {
-    if (file.size > 50 * 1024 * 1024) { setStatus('File too large (max 50MB)'); return; }
-    setStatus('Uploading...');
+  const upload = useCallback(async (files: FileList | File[]) => {
+    const fileArr = Array.from(files);
+    if (fileArr.length === 0) return;
+
+    const oversized = fileArr.filter(f => f.size > 50 * 1024 * 1024);
+    if (oversized.length) {
+      setStatus(`${oversized.length} file(s) too large (max 50MB)`);
+      return;
+    }
+
+    setStatus(`Uploading ${fileArr.length} file${fileArr.length > 1 ? 's' : ''}...`);
     const fd = new FormData();
-    fd.append('file', file);
+    for (const f of fileArr) fd.append('file', f);
 
     try {
       const res = await fetch(`${cfg.prefix}/upload`, { method: 'POST', body: fd });
       const j = await res.json();
-      setStatus(j.chunks_created ? `${j.chunks_created} chunks ingested` : 'Uploaded');
+      if (fileArr.length === 1) {
+        setStatus(j.chunks_created ? `${j.chunks_created} chunks ingested` : 'Uploaded');
+      } else {
+        const chunks = j.total_chunks ?? j.chunks_created ?? 0;
+        const errCount = j.errors ?? 0;
+        setStatus(`${j.files_processed ?? fileArr.length} files → ${chunks} chunks${errCount ? ` (${errCount} failed)` : ''}`);
+      }
       setTimeout(() => setStatus(''), 5000);
       onUploadDone();
     } catch {
@@ -68,9 +82,9 @@ function FileUploadZone({ kbType, color, onUploadDone }: { kbType: KBType; color
       onClick={() => inputRef.current?.click()}
       onDragOver={e => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
-      onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); }}
+      onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) upload(e.dataTransfer.files); }}
     >
-      <input ref={inputRef} type="file" accept=".md,.txt,.pdf,.docx" className="hidden" onChange={e => { if (e.target.files?.[0]) upload(e.target.files[0]); }} />
+      <input ref={inputRef} type="file" accept=".md,.txt,.pdf,.docx" multiple className="hidden" onChange={e => { if (e.target.files?.length) upload(e.target.files); }} />
       <p className="text-xs text-[#7a8599]">Drop files here or <span style={{ color }} className="font-medium">click to upload</span></p>
       {status && <p className="text-xs mt-2" style={{ color: status.includes('fail') ? '#f87171' : '#34d399' }}>{status}</p>}
     </div>
@@ -241,6 +255,113 @@ function Chip({ label, color }: { label: string; color: string }) {
   );
 }
 
+// ── Business KB Section ─────────────────────────────────────────────────────
+
+interface BusinessKB {
+  business_name: string;
+  collection_name: string;
+  total_chunks: number;
+  total_documents?: number;
+  total_characters?: number;
+  categories?: Record<string, number>;
+}
+
+interface BusinessListResponse {
+  businesses: BusinessKB[];
+}
+
+function BusinessKBCard({ biz, onRefresh }: { biz: BusinessKB; onRefresh: () => void }) {
+  const [status, setStatus] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const color = '#38bdf8'; // sky blue for business KBs
+
+  const upload = useCallback(async (file: File) => {
+    if (file.size > 50 * 1024 * 1024) { setStatus('File too large'); return; }
+    setStatus('Uploading...');
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('category', 'general');
+    try {
+      const res = await fetch(`/kb/business/${biz.business_name}/upload`, { method: 'POST', body: fd });
+      const j = await res.json();
+      setStatus(j.chunks_created ? `${j.chunks_created} chunks` : 'Done');
+      setTimeout(() => setStatus(''), 4000);
+      onRefresh();
+    } catch { setStatus('Failed'); }
+  }, [biz.business_name, onRefresh]);
+
+  return (
+    <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🏢</span>
+          <h3 className="text-sm font-semibold text-[#e2e8f0] capitalize">{biz.business_name}</h3>
+        </div>
+        <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${color}15`, color }}>
+          {biz.total_chunks} chunks
+        </span>
+      </div>
+      <p className="text-[10px] text-[#7a8599] mb-2">
+        Collection: <code className="text-[#38bdf8]">{biz.collection_name}</code>
+        {biz.total_documents ? ` · ${biz.total_documents} docs` : ''}
+      </p>
+
+      {/* Categories chips */}
+      {biz.categories && Object.keys(biz.categories).length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          {Object.entries(biz.categories).map(([cat, n]) => (
+            <Chip key={cat} label={`${cat}: ${n}`} color={color} />
+          ))}
+        </div>
+      )}
+
+      {/* Upload zone */}
+      <div
+        className={`border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-all ${dragOver ? 'border-opacity-100' : 'border-opacity-40'}`}
+        style={{ borderColor: color }}
+        onClick={() => inputRef.current?.click()}
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); }}
+      >
+        <input ref={inputRef} type="file" accept=".md,.txt,.pdf,.docx,.csv,.xlsx,.json,.html" className="hidden" onChange={e => { if (e.target.files?.[0]) upload(e.target.files[0]); }} />
+        <p className="text-[10px] text-[#7a8599]">Drop files or <span style={{ color }} className="font-medium">click to upload</span></p>
+        {status && <p className="text-[10px] mt-1" style={{ color: status.includes('fail') || status.includes('large') ? '#f87171' : '#34d399' }}>{status}</p>}
+      </div>
+    </div>
+  );
+}
+
+function BusinessKBSection() {
+  const { data, refetch } = useApi<BusinessListResponse>('/kb/businesses', 30000);
+  const businesses = data?.businesses ?? [];
+
+  return (
+    <div className="mt-8">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-base font-semibold text-[#e2e8f0]">🏢 Business Knowledge Bases</h2>
+          <p className="text-xs text-[#7a8599] mt-0.5">Per-business isolated KBs — auto-queried when working on that business's tasks</p>
+        </div>
+        <span className="text-xs text-[#7a8599]">{businesses.length} businesses</span>
+      </div>
+
+      {businesses.length === 0 ? (
+        <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-6 text-center">
+          <p className="text-xs text-[#7a8599]">No business KBs yet — they are created automatically when you create a new business/project.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+          {businesses.map(biz => (
+            <BusinessKBCard key={biz.business_name} biz={biz} onRefresh={refetch} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export function KnowledgeBases() {
@@ -287,6 +408,9 @@ export function KnowledgeBases() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {visible.map(kb => <KBCard key={kb} kbType={kb} />)}
       </div>
+
+      {/* ── Business Knowledge Bases ──────────────────────────────────── */}
+      <BusinessKBSection />
 
       {/* Legend */}
       <div className="mt-6 p-4 bg-[#111820] border border-[#1e2738] rounded-lg">

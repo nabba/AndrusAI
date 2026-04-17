@@ -101,7 +101,7 @@ export function GovernanceQueue() {
           {pending.map((req) => {
             const state = actionState[req.id];
             const typeColor =
-              TYPE_COLORS[req.type] ?? TYPE_COLORS.default;
+              TYPE_COLORS[req.request_type] ?? TYPE_COLORS.default;
 
             const isResolved = state === 'approved' || state === 'rejected';
 
@@ -120,13 +120,13 @@ export function GovernanceQueue() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-2">
                       <span className={`text-xs px-2 py-0.5 rounded border ${typeColor}`}>
-                        {req.type.replace(/_/g, ' ')}
+                        {req.request_type.replace(/_/g, ' ')}
                       </span>
                       <span className="text-xs text-[#7a8599]">{timeAgo(req.created_at)}</span>
                     </div>
                     <h3 className="text-sm font-medium text-[#e2e8f0] mb-1">{req.title}</h3>
-                    {req.description && (
-                      <p className="text-xs text-[#7a8599] mb-2">{req.description}</p>
+                    {req.detail_json && (
+                      <p className="text-xs text-[#7a8599] mb-2">{JSON.stringify(req.detail_json)}</p>
                     )}
                     <p className="text-xs text-[#7a8599]">
                       Requested by{' '}

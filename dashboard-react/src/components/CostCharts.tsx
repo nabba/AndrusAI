@@ -271,19 +271,19 @@ export function CostCharts() {
             </thead>
             <tbody className="divide-y divide-[#1e2738]">
               {[...agentCosts]
-                .sort((a, b) => b.total - a.total)
+                .sort((a, b) => b.total_cost - a.total_cost)
                 .map((ac) => (
-                  <tr key={ac.agent} className="hover:bg-[#1e2738]/50 transition-colors">
-                    <td className="px-4 py-2.5 text-[#e2e8f0]">{ac.agent}</td>
+                  <tr key={ac.actor} className="hover:bg-[#1e2738]/50 transition-colors">
+                    <td className="px-4 py-2.5 text-[#e2e8f0]">{ac.actor}</td>
                     <td className="px-4 py-2.5 text-right text-[#34d399]">
-                      ${ac.total.toFixed(4)}
+                      ${ac.total_cost.toFixed(4)}
                     </td>
                     <td className="px-4 py-2.5 text-right text-[#7a8599]">
-                      {ac.count ?? '—'}
+                      {ac.calls ?? '—'}
                     </td>
                     <td className="px-4 py-2.5 text-right text-[#7a8599]">
-                      {ac.count && ac.count > 0
-                        ? `$${(ac.total / ac.count).toFixed(4)}`
+                      {ac.calls && ac.calls > 0
+                        ? `$${(ac.total_cost / ac.calls).toFixed(4)}`
                         : '—'}
                     </td>
                   </tr>

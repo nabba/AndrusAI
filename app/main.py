@@ -253,6 +253,15 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.debug("User schedule registration skipped", exc_info=True)
 
+    # ── NL cron jobs (T2-6) — persisted across restarts ─────────────────
+    try:
+        from app.agents.commander.commands import restore_nl_jobs
+        restored = restore_nl_jobs(scheduler, commander)
+        if restored:
+            logger.info(f"Restored {restored} natural-language scheduled job(s)")
+    except Exception:
+        logger.debug("NL cron restoration failed", exc_info=True)
+
     scheduler.start()
 
     # ── PARALLELIZED: cleanup + mode read are independent I/O operations ──
@@ -376,6 +385,26 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.warning("Lifecycle hooks init failed (non-fatal)", exc_info=True)
 
+    # ── MCP client (T1-1) — consume external MCP servers ────────────────
+    if settings.mcp_client_enabled:
+        try:
+            from app.mcp.registry import connect_all as mcp_connect
+            n = await asyncio.to_thread(mcp_connect)
+            if n:
+                logger.info(f"MCP client: connected to {n} external server(s)")
+            else:
+                logger.info("MCP client enabled but no servers configured")
+        except Exception:
+            logger.debug("MCP client startup failed (non-fatal)", exc_info=True)
+
+    # ── Tool plugin registry (T1-2) — MCP, browser, session search ──────
+    try:
+        from app.crews.base_crew import _register_default_plugins
+        _register_default_plugins()
+        logger.info("Tool plugin registry initialized (MCP + browser + session search)")
+    except Exception:
+        logger.debug("Tool plugin registration failed (non-fatal)", exc_info=True)
+
     # ── Phase 16a: SubIA consciousness wire-in ──────────────────────────
     # Opt-in via SUBIA_FEATURE_FLAG_LIVE=1. When disabled, the entire
     # SubIA stack stays unimported (no latency, no memory, no risk).
@@ -444,6 +473,12 @@ async def lifespan(app: FastAPI):
     idle_scheduler.stop_listener()
     if settings.workspace_backup_repo:
         await asyncio.to_thread(sync_workspace, settings.workspace_backup_repo)
+    # Disconnect any MCP client sessions
+    try:
+        from app.mcp.registry import disconnect_all as mcp_disconnect
+        mcp_disconnect()
+    except Exception:
+        pass
     report_system_offline()
     scheduler.shutdown()
 
@@ -515,7 +550,8 @@ from app.middleware import add_middleware
 add_middleware(app, settings)
 
 signal_client = SignalClient()
-commander = Commander()
+from app.history_compression import CompressionMiddleware
+commander = CompressionMiddleware(Commander())
 _signal_msg_count = 0
 _inflight_tasks = 0  # count of currently running commander.handle() calls
 _inflight_lock = threading.Lock()
@@ -797,20 +833,12 @@ async def handle_task(sender: str, text: str, attachments: list = None,
             logger.debug("Grounding ingress hook failed (non-fatal)",
                          exc_info=True)
 
-        # ── Agent Zero amendments: history + project detection ────────
+        # ── Project isolation: auto-detect venture from task text ───────
+        # History compression is now handled by CompressionMiddleware in the
+        # Commander wrapper (app.history_compression.CompressionMiddleware).
         try:
             from app.config import get_settings as _gs
             _s = _gs()
-
-            # History compression: track message in compressed history
-            if _s.history_compression_enabled:
-                from app.history_compression import get_history, Message as HMsg
-                from app.security import _sender_hash
-                h = get_history(_sender_hash(sender))
-                h.start_new_topic()
-                h.add_message(HMsg(role="user", content=text + att_note))
-
-            # Project isolation: auto-detect venture from task text
             if _s.project_isolation_enabled:
                 from app.project_isolation import get_manager as _get_pm
                 _pm = _get_pm()
@@ -819,7 +847,7 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                     _pm.activate(detected)
                     logger.debug(f"Project detected: {detected}")
         except Exception:
-            logger.debug("Amendment hooks (history/project) failed", exc_info=True)
+            logger.debug("Project detection failed", exc_info=True)
 
         # Mirror to dashboard chat (so dashboard users see Signal messages)
         report_chat_message("user", text + att_note, source="signal")
@@ -876,19 +904,8 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         # Mirror to dashboard chat (so dashboard users see Signal responses)
         report_chat_message("assistant", result, source="signal")
 
-        # ── Agent Zero: record response in compressed history + async compress ──
-        try:
-            from app.config import get_settings as _gs2
-            _s2 = _gs2()
-            if _s2.history_compression_enabled:
-                from app.history_compression import get_history, Message as HMsg
-                from app.security import _sender_hash
-                h = get_history(_sender_hash(sender))
-                h.add_message(HMsg(role="assistant", content=result[:4000]))
-                if h.needs_compression:
-                    h.compress_async()
-        except Exception:
-            logger.debug("History compression post-response failed", exc_info=True)
+        # History compression post-response is now handled by
+        # CompressionMiddleware wrapping the Commander. No block here.
 
         # Extract facts into Mem0 persistent memory (fire-and-forget background task)
         asyncio.get_running_loop().run_in_executor(None, _extract_to_mem0, text, result)
@@ -1071,7 +1088,7 @@ except Exception:
 # as MCP resources + tools via SSE at /mcp/sse. Gracefully disabled if
 # the mcp SDK is not installed.
 try:
-    from app.mcp_server import mount_mcp_routes
+    from app.mcp.server import mount_mcp_routes
     if mount_mcp_routes(app):
         logger.info("MCP server mounted at /mcp/sse")
     else:

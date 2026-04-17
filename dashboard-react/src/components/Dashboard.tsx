@@ -215,7 +215,7 @@ export function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-[#e2e8f0] truncate">{req.title}</div>
                       <div className="text-xs text-[#7a8599] mt-0.5">
-                        {req.type} · by {req.requested_by}
+                        {req.request_type} · by {req.requested_by}
                       </div>
                     </div>
                   </div>
