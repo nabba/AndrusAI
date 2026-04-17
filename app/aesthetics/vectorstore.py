@@ -40,16 +40,27 @@ class AestheticStore:
         from app.memory.chromadb_manager import get_embed_dim
         try:
             if col.count() > 0:
-                sample = col.peek(1, include=["embeddings"])
-                if sample and sample.get("embeddings") and sample["embeddings"][0]:
-                    if len(sample["embeddings"][0]) != get_embed_dim():
+                sample = col.peek(1)  # returns embeddings by default in chromadb 1.x
+                embs = sample.get("embeddings") if sample else None
+                if embs is not None and len(embs) > 0 and embs[0] is not None and len(embs[0]) > 0:
+                    if len(embs[0]) != get_embed_dim():
+                        logger.warning("AestheticStore: dimension mismatch — recreating")
                         self._client.delete_collection(self.collection_name)
                         col = self._client.get_or_create_collection(
                             name=self.collection_name,
                             metadata={"hnsw:space": "cosine"},
                         )
-        except Exception:
-            pass
+        except Exception as e:
+            if "dimension" in str(e).lower():
+                logger.warning("AestheticStore: dimension error — recreating: %s", e)
+                try:
+                    self._client.delete_collection(self.collection_name)
+                    col = self._client.get_or_create_collection(
+                        name=self.collection_name,
+                        metadata={"hnsw:space": "cosine"},
+                    )
+                except Exception:
+                    pass
 
         self._collection = col
         logger.info(

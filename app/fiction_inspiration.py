@@ -469,7 +469,7 @@ def _get_collection():
     else:
         col_name = LITERATURE_COLLECTION_NAME
 
-    return client.get_or_create_collection(
+    col = client.get_or_create_collection(
         name=col_name,
         metadata={
             "description": "Literary content for creative inspiration. "
@@ -479,6 +479,40 @@ def _get_collection():
             "hnsw:space": "cosine",
         },
     )
+
+    # Dimension-mismatch guard: recreate if collection has stale 384-dim data
+    try:
+        from app.memory.chromadb_manager import get_embed_dim
+        if col.count() > 0:
+            sample = col.peek(1)  # returns embeddings by default in chromadb 1.x
+            embs = sample.get("embeddings") if sample else None
+            if embs is not None and len(embs) > 0 and embs[0] is not None and len(embs[0]) > 0:
+                existing_dim = len(sample["embeddings"][0])
+                current_dim = get_embed_dim()
+                if existing_dim != current_dim:
+                    logger.warning(
+                        f"fiction_inspiration: dimension mismatch in '{col_name}' "
+                        f"(stored={existing_dim}, model={current_dim}). Recreating."
+                    )
+                    client.delete_collection(col_name)
+                    col = client.get_or_create_collection(
+                        name=col_name,
+                        metadata={
+                            "description": "Literary content for creative inspiration.",
+                            "epistemic_status": "fictional",
+                            "hnsw:space": "cosine",
+                        },
+                    )
+    except Exception as e:
+        if "dimension" in str(e).lower():
+            logger.warning(f"fiction_inspiration: dimension error in '{col_name}' — recreating: {e}")
+            try:
+                client.delete_collection(col_name)
+                col = client.get_or_create_collection(name=col_name)
+            except Exception:
+                pass
+
+    return col
 
 def ingest_book(filepath: Path, extract_concepts: bool = False) -> dict:
     """Ingest a single .md fiction book into ChromaDB.

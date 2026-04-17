@@ -178,9 +178,9 @@ def _get_col(name: str):
         # Check dimension compatibility if collection has data
         try:
             if col.count() > 0:
-                # Peek at one embedding to check dimension — must request include=["embeddings"]
-                sample = col.peek(1, include=["embeddings"])
-                if sample and sample.get("embeddings") and sample["embeddings"][0]:
+                sample = col.peek(1)  # returns embeddings by default in chromadb 1.x
+                embs = sample.get("embeddings") if sample else None
+                if embs is not None and len(embs) > 0 and embs[0] is not None and len(embs[0]) > 0:
                     existing_dim = len(sample["embeddings"][0])
                     current_dim = get_embed_dim()
                     if existing_dim != current_dim:
