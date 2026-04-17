@@ -867,7 +867,6 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
             cron_expr = nl_to_cron(when)
             if not cron_expr:
                 return f"Could not parse schedule: {when!r}. Try 'every day at 7am' or 'weekdays at 9:30'."
-            from apscheduler.schedulers.asyncio import AsyncIOScheduler  # noqa: F401
             from apscheduler.triggers.cron import CronTrigger
             import uuid
             job_id = f"nl_{uuid.uuid4().hex[:8]}"

@@ -70,6 +70,12 @@ def _rule_based_parse(text: str) -> str | None:
         return "0 * * * *"
 
     time_hm = _extract_time(t)
+    # Handle special time words independently of digit-based parsing
+    if time_hm is None:
+        if "noon" in t or "midday" in t:
+            time_hm = (12, 0)
+        elif "midnight" in t:
+            time_hm = (0, 0)
 
     # daily / every day / each day / each evening / each night
     if re.search(r'\b(daily|every day|each day|each morning|every morning|each evening|every evening|each night|every night)\b', t):

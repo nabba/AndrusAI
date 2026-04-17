@@ -202,7 +202,7 @@ class TestObserver:
 class TestMCPHelpers:
 
     def test_read_mcsv_returns_valid_json(self):
-        from app.mcp_server import _read_mcsv
+        from app.mcp.server import _read_mcsv
         result = _read_mcsv("")
         data = json.loads(result)
         assert "emotional_awareness" in data
@@ -214,7 +214,7 @@ class TestMCPHelpers:
         mock_score.return_value = CreativityScores(
             fluency=3, flexibility=2, originality=0.7, elaboration=0.5,
         )
-        from app.mcp_server import _score_creativity
+        from app.mcp.server import _score_creativity
         result = _score_creativity("test text with multiple ideas")
         data = json.loads(result)
         assert data["fluency"] == 3
@@ -225,7 +225,7 @@ class TestMCPHelpers:
         mock_retrieve.return_value = [
             {"text": "Finding A", "metadata": {"confidence": "high", "verification_status": "verified", "agent": "r"}},
         ]
-        from app.mcp_server import _read_blackboard
+        from app.mcp.server import _read_blackboard
         result = _read_blackboard("task1")
         assert "Finding A" in result
         assert "high" in result
@@ -233,7 +233,7 @@ class TestMCPHelpers:
     @patch("app.memory.scoped_memory.retrieve_findings")
     def test_read_blackboard_empty(self, mock_retrieve):
         mock_retrieve.return_value = []
-        from app.mcp_server import _read_blackboard
+        from app.mcp.server import _read_blackboard
         result = _read_blackboard("empty_task")
         assert "No findings" in result
 

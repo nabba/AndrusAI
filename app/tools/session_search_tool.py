@@ -36,7 +36,12 @@ def create_session_search_tools() -> list:
                 from app.conversation_store import search_messages
             except Exception:
                 return "Session search not available."
-            limit = max(1, min(int(limit or 10), 50))
+            try:
+                n = int(limit)
+            except (TypeError, ValueError):
+                n = 10
+            # Clamp to [1, 50] — respect caller's 0 as "minimum allowed"
+            limit = max(1, min(n if n > 0 else 1, 50))
             results = search_messages(query, limit=limit)
             if not results:
                 return f"No past messages matched: {query!r}"
