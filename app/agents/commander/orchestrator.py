@@ -1470,9 +1470,21 @@ class Commander:
                 # is about identity/memory, override with chronicle answer.
                 # This catches cases where the introspective gate was bypassed
                 # (e.g. follow-up questions, edge cases in fuzzy matching).
+                _direct_result = d.get("task", "")
                 if _is_introspective(user_input):
-                    return self._generate_self_description(user_input)
-                return d.get("task", "")
+                    _direct_result = self._generate_self_description(user_input)
+                # Complete ticket for direct responses (no crew execution)
+                if _ticket_id:
+                    try:
+                        from app.control_plane.tickets import get_tickets
+                        get_tickets().complete(
+                            _ticket_id, _direct_result[:500],
+                            cost_usd=0, tokens=0,
+                        )
+                    except Exception:
+                        pass
+                stop_request_tracking()
+                return _direct_result
             crew_name = d["crew"]
             difficulty = d.get("difficulty", 5)
             tracker.crew_name = crew_name
@@ -1577,7 +1589,15 @@ class Commander:
                 )
 
             if not parallel_tasks:
-                return decisions[0].get("task", "")
+                _fallback = decisions[0].get("task", "")
+                if _ticket_id:
+                    try:
+                        from app.control_plane.tickets import get_tickets
+                        get_tickets().complete(_ticket_id, _fallback[:500], cost_usd=0, tokens=0)
+                    except Exception:
+                        pass
+                stop_request_tracking()
+                return _fallback
 
             tracker.crew_name = "+".join(n for n, _ in parallel_tasks)
 
