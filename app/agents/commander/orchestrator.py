@@ -202,14 +202,17 @@ class Commander:
         active_llm = self.llm
         _routing_provider = "anthropic"
 
-        # Graceful degradation: if ALL providers exhausted, return error without attempting
+        # Graceful degradation: if ALL providers exhausted, force-probe before giving up.
+        # Background tasks (discovery, benchmarks) can trip all breakers simultaneously;
+        # user-facing requests deserve a real attempt, not a cached circuit-breaker refusal.
         try:
             from app.llm_factory import check_all_providers_health
             if not check_all_providers_health():
-                return [{"crew": "direct", "task": (
-                    "I'm currently unable to process requests — all LLM providers "
-                    "are unavailable. Please check API credits and try again shortly."
-                ), "difficulty": 1}]
+                from app.circuit_breaker import force_all_half_open
+                force_all_half_open()
+                logger.info("All circuits were open — forced HALF_OPEN for user request")
+                # Re-check after force: if providers genuinely down, this still fails
+                # but at least one real probe will be attempted per provider
         except Exception:
             pass
 
@@ -934,9 +937,9 @@ class Commander:
                 try:
                     from app.experiential.journal_writer import JournalWriter
                     JournalWriter().write_post_task_reflection(
-                        task_id=task_id if 'task_id' in dir() else crew_name,
+                        task_id=crew_name,
                         crew_name=crew_name,
-                        result=str(crew_result)[:500] if crew_result else "",
+                        result=str(result)[:500] if result else "",
                         difficulty=difficulty,
                         duration_s=duration_s,
                     )

@@ -24,7 +24,12 @@ HALF_OPEN = "half_open"
 
 
 class CircuitBreaker:
-    """Thread-safe circuit breaker for a single provider."""
+    """Thread-safe circuit breaker for a single provider.
+
+    Supports ``force_allow()`` for user-facing requests that should
+    bypass the OPEN state and probe the provider directly — this
+    prevents background-task failures from blocking real users.
+    """
 
     def __init__(
         self,
@@ -57,9 +62,36 @@ class CircuitBreaker:
         with self._lock:
             return self._failure_count
 
+    def seconds_until_half_open(self) -> float:
+        """Seconds remaining before this breaker transitions to HALF_OPEN."""
+        with self._lock:
+            if self._state != OPEN:
+                return 0.0
+            elapsed = time.monotonic() - self._opened_at
+            return max(0.0, self.cooldown_seconds - elapsed)
+
     def is_open(self) -> bool:
         """Returns True if the circuit is OPEN (should skip this provider)."""
         return self.state == OPEN
+
+    def force_allow(self) -> bool:
+        """Force-transition to HALF_OPEN for a user-facing probe request.
+
+        Returns True if the caller should proceed with a probe call.
+        Only works when OPEN — if CLOSED or HALF_OPEN already, returns True.
+        """
+        with self._lock:
+            if self._state == CLOSED:
+                return True
+            if self._state == HALF_OPEN:
+                return True
+            # OPEN → force to HALF_OPEN so exactly one probe goes through
+            self._state = HALF_OPEN
+            logger.info(
+                f"circuit_breaker[{self.name}]: OPEN → HALF_OPEN "
+                f"(forced by user-facing request)"
+            )
+            return True
 
     def record_success(self) -> None:
         """Reset the breaker on a successful call."""
@@ -97,9 +129,9 @@ class CircuitBreaker:
 # ── Module-level registry ────────────────────────────────────────────────────
 
 _breakers: dict[str, CircuitBreaker] = {
-    "ollama": CircuitBreaker("ollama", failure_threshold=3, cooldown_seconds=60),
-    "openrouter": CircuitBreaker("openrouter", failure_threshold=3, cooldown_seconds=60),
-    "anthropic": CircuitBreaker("anthropic", failure_threshold=5, cooldown_seconds=120),
+    "ollama": CircuitBreaker("ollama", failure_threshold=5, cooldown_seconds=30),
+    "openrouter": CircuitBreaker("openrouter", failure_threshold=5, cooldown_seconds=30),
+    "anthropic": CircuitBreaker("anthropic", failure_threshold=8, cooldown_seconds=45),
     "self_healer": CircuitBreaker("self_healer", failure_threshold=3, cooldown_seconds=600),
 }
 
@@ -122,6 +154,18 @@ def record_success(provider: str) -> None:
 
 def record_failure(provider: str) -> None:
     get_breaker(provider).record_failure()
+
+
+def force_all_half_open() -> None:
+    """Force all LLM breakers to HALF_OPEN for a user-facing request.
+
+    This ensures at least one probe attempt per provider, so a user
+    request isn't rejected just because background tasks tripped the
+    breakers simultaneously.
+    """
+    for name in ("anthropic", "openrouter", "ollama"):
+        if name in _breakers:
+            _breakers[name].force_allow()
 
 
 def get_all_states() -> dict[str, dict]:
