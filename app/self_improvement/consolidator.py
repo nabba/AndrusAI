@@ -247,13 +247,16 @@ def _persist_proposal(p: ConsolidationProposal) -> bool:
     if col is None:
         return False
     try:
+        doc = json.dumps(p.to_dict())
+        from app.memory.chromadb_manager import embed
         col.upsert(
             ids=[p.id],
-            documents=[json.dumps(p.to_dict())],
+            documents=[doc],
             metadatas=[{
                 "kb": p.kb, "size": p.size, "auto_merged": bool(p.auto_merged),
                 "canonical_id": p.canonical_id, "created_at": p.created_at,
             }],
+            embeddings=[embed(doc)],
         )
         return True
     except Exception:

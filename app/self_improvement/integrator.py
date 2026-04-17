@@ -202,7 +202,9 @@ def _persist_record(record: SkillRecord) -> bool:
             "kb": record.kb, "status": record.status,
             "topic": record.topic[:200], "created_at": record.created_at,
         }
-        col.upsert(ids=[record.id], documents=[doc], metadatas=[meta])
+        from app.memory.chromadb_manager import embed
+        col.upsert(ids=[record.id], documents=[doc], metadatas=[meta],
+                    embeddings=[embed(doc)])
         return True
     except Exception:
         logger.debug("_persist_record failed", exc_info=True)

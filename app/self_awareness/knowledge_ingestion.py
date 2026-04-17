@@ -213,7 +213,11 @@ def ingest_codebase(full: bool = False) -> dict:
                     "ingested_at": datetime.now(timezone.utc).isoformat(),
                 } for c in chunks]
 
-                collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+                from app.memory.chromadb_manager import embed
+                collection.upsert(
+                    ids=ids, documents=documents, metadatas=metadatas,
+                    embeddings=[embed(d) for d in documents],
+                )
                 stats["chunks_added"] += len(chunks)
 
             stats["files_processed"] += 1

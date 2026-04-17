@@ -142,9 +142,11 @@ class SelfRefRouter:
             self._exemplar_col = client.get_or_create_collection(
                 "self_ref_exemplars", metadata={"hnsw:space": "cosine"},
             )
+            from app.memory.chromadb_manager import embed
             self._exemplar_col.upsert(
                 ids=[f"ex_{i}" for i in range(len(EXEMPLARS))],
                 documents=EXEMPLARS,
+                embeddings=[embed(e) for e in EXEMPLARS],
             )
         except Exception:
             self._semantic = False

@@ -99,7 +99,9 @@ def emit_gap(gap: LearningGap) -> bool:
             "signal_strength": float(gap.signal_strength),
             "detected_at": gap.detected_at,
         }
-        col.upsert(ids=[gap.id], documents=[doc], metadatas=[meta])
+        from app.memory.chromadb_manager import embed
+        col.upsert(ids=[gap.id], documents=[doc], metadatas=[meta],
+                    embeddings=[embed(doc)])
         logger.debug(
             f"emit_gap: {gap.source.value} '{gap.description[:60]}' "
             f"strength={gap.signal_strength:.2f}"
@@ -157,7 +159,10 @@ def update_gap_status(gap_id: str, status: GapStatus, notes: str = "") -> bool:
             "signal_strength": float(gap.signal_strength),
             "detected_at": gap.detected_at,
         }
-        col.upsert(ids=[gap.id], documents=[json.dumps(gap.to_dict())], metadatas=[meta])
+        doc = json.dumps(gap.to_dict())
+        from app.memory.chromadb_manager import embed
+        col.upsert(ids=[gap.id], documents=[doc], metadatas=[meta],
+                    embeddings=[embed(doc)])
         return True
     except Exception as exc:
         logger.debug(f"update_gap_status failed: {exc}")

@@ -313,12 +313,13 @@ class ProjectManager:
                         metadata: dict | None = None) -> None:
         """Store knowledge in a project-scoped ChromaDB collection."""
         try:
-            from app.memory.chromadb_manager import get_client
+            from app.memory.chromadb_manager import get_client, embed
             client = get_client()
             collection = client.get_or_create_collection(ctx.chroma_collection)
             collection.upsert(
                 ids=[doc_id], documents=[content],
                 metadatas=[metadata or {}],
+                embeddings=[embed(content)],
             )
         except Exception:
             pass

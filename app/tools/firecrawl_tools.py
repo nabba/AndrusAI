@@ -299,7 +299,11 @@ def ingest_url_to_chromadb(
         ids = [f"{content_hash}_{i}" for i in range(len(chunks))]
         metadatas = [{**base_meta, "chunk_index": i} for i in range(len(chunks))]
 
-        collection.upsert(ids=ids, documents=chunks, metadatas=metadatas)
+        from app.memory.chromadb_manager import embed
+        collection.upsert(
+            ids=ids, documents=chunks, metadatas=metadatas,
+            embeddings=[embed(c) for c in chunks],
+        )
     except Exception as e:
         return {"chunks_ingested": 0, "error": f"ChromaDB ingest failed: {str(e)[:200]}"}
 
@@ -367,7 +371,11 @@ def ingest_crawl_to_chromadb(
             if tags:
                 meta.update(tags)
             metadatas = [{**meta, "chunk_index": i} for i in range(len(chunks))]
-            collection.upsert(ids=ids, documents=chunks, metadatas=metadatas)
+            from app.memory.chromadb_manager import embed
+            collection.upsert(
+                ids=ids, documents=chunks, metadatas=metadatas,
+                embeddings=[embed(c) for c in chunks],
+            )
             total_chunks += len(chunks)
             pages_ingested += 1
         except Exception:

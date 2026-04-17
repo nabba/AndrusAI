@@ -587,13 +587,17 @@ def ingest_book(filepath: Path, extract_concepts: bool = False) -> dict:
         documents.append(chunk["text"])
         metadatas.append(metadata)
 
-    # Batch upsert (idempotent)
+    # Batch upsert (idempotent) — MUST provide embeddings to prevent
+    # ChromaDB from using its default all-MiniLM-L6-v2 (384-dim, 79MB download).
+    from app.memory.chromadb_manager import embed
     batch = 100
     for i in range(0, len(ids), batch):
+        batch_docs = documents[i:i+batch]
         collection.upsert(
             ids=ids[i:i+batch],
-            documents=documents[i:i+batch],
+            documents=batch_docs,
             metadatas=metadatas[i:i+batch],
+            embeddings=[embed(d) for d in batch_docs],
         )
 
     logger.info(f"fiction_inspiration: ingested {len(ids)} chunks from '{book_title}'")

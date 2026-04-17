@@ -394,7 +394,11 @@ class VideoLearner:
                 })
 
             if docs:
-                collection.upsert(documents=docs, ids=ids, metadatas=metadatas)
+                from app.memory.chromadb_manager import embed
+                collection.upsert(
+                    documents=docs, ids=ids, metadatas=metadatas,
+                    embeddings=[embed(d) for d in docs],
+                )
         except Exception:
             logger.debug("video_learner: ChromaDB storage failed", exc_info=True)
 

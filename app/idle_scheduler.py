@@ -1706,7 +1706,11 @@ def _index_skills() -> None:
         batch_docs = documents[i:i + BATCH_SIZE]
         batch_meta = metadatas[i:i + BATCH_SIZE]
         try:
-            collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=batch_meta)
+            from app.memory.chromadb_manager import embed
+            collection.upsert(
+                ids=batch_ids, documents=batch_docs, metadatas=batch_meta,
+                embeddings=[embed(d) for d in batch_docs],
+            )
             total += len(batch_ids)
         except Exception as e:
             logger.debug(f"skill_index: batch upsert failed: {e}")
