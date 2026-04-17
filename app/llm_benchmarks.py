@@ -142,12 +142,8 @@ def record(
         logger.debug("llm_benchmarks: failed to record", exc_info=True)
 
 
-def get_scores(task_type: str) -> dict[str, float]:
-    """
-    Return model→score for a task type.
-    Score = success_rate * speed_factor (higher is better).
-    Only considers last 50 runs per model.
-    """
+def _internal_scores(task_type: str) -> dict[str, float]:
+    """Raw telemetry-driven scores (no external blending)."""
     _flush_writes()  # ensure pending records are visible
     try:
         conn = _get_conn()
@@ -180,6 +176,75 @@ def get_scores(task_type: str) -> dict[str, float]:
         confidence = min(1.0, runs / 10)
         scores[model] = (success_rate or 0) * speed * (0.5 + 0.5 * confidence)
     return scores
+
+
+def get_scores(task_type: str, blend_external: bool = True) -> dict[str, float]:
+    """Return model→score for a task type.
+
+    Score combines:
+      - internal telemetry: success_rate × speed × confidence,
+        weighted by ``1 - w`` where ``w = external_ranks_weight``
+      - external rankings (OpenRouter / HuggingFace / Artificial Analysis)
+        weighted by ``w``
+
+    When ``blend_external`` is False, only internal telemetry is returned
+    (matches pre-Phase-3 behaviour). When the catalog lookup succeeds
+    but external ranks are absent, the internal score is returned
+    verbatim.  When internal telemetry is absent but external ranks
+    exist, the external score alone is returned so the selector can
+    still discriminate models on outside signals.
+    """
+    internal = _internal_scores(task_type)
+
+    if not blend_external:
+        return internal
+
+    try:
+        from app.config import get_settings
+        settings = get_settings()
+        if not getattr(settings, "external_ranks_enabled", True):
+            return internal
+        weight = float(getattr(settings, "external_ranks_weight", 0.3))
+    except Exception:
+        weight = 0.3
+    weight = max(0.0, min(1.0, weight))
+    if weight <= 0:
+        return internal
+
+    try:
+        from app.llm_external_ranks import get_external_score
+        from app.llm_catalog import CATALOG
+    except Exception:
+        return internal
+
+    # Union of models that have either signal
+    candidates = set(internal)
+    # Only blend external signal for catalog-known models to avoid
+    # injecting stale rows for retired identifiers.
+    for name in CATALOG:
+        if get_external_score(name, task_type) is not None:
+            candidates.add(name)
+
+    blended: dict[str, float] = {}
+    for model in candidates:
+        internal_score = internal.get(model)
+        external_score = get_external_score(model, task_type)
+        if internal_score is None and external_score is None:
+            continue
+        if internal_score is None:
+            blended[model] = external_score
+        elif external_score is None:
+            blended[model] = internal_score
+        else:
+            blended[model] = (1 - weight) * internal_score + weight * external_score
+    return blended
+
+
+def get_combined_scores(task_type: str) -> dict[str, float]:
+    """Alias of ``get_scores(blend_external=True)`` — kept as an explicit
+    API for callers that want to signal their intent in the call site.
+    """
+    return get_scores(task_type, blend_external=True)
 
 
 def get_summary(n: int = 10) -> str:

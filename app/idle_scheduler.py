@@ -956,6 +956,21 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: LLM promotion applier failed", exc_info=True)
     jobs.append(("llm-apply-promotions", _llm_apply_promotions, JobWeight.LIGHT))
 
+    # ── External LLM ranks: pull OpenRouter / HF / AA leaderboards ────
+    # MEDIUM weight because the HF parquet fetch can exceed 30s on a
+    # cold cache. The fetcher enforces its own TTL (a week by default)
+    # so running every idle cycle is cheap — it returns immediately
+    # when the cache is fresh.
+    def _llm_external_ranks_refresh():
+        try:
+            from app.llm_external_ranks import refresh_all
+            summary = refresh_all()
+            if any(summary.values()):
+                logger.info(f"idle_scheduler: external ranks refreshed: {summary}")
+        except Exception:
+            logger.debug("idle_scheduler: external ranks refresh failed", exc_info=True)
+    jobs.append(("llm-external-ranks", _llm_external_ranks_refresh, JobWeight.MEDIUM))
+
     # ── System monitor: report all subsystem status to dashboard ────
     def _system_monitor():
         try:

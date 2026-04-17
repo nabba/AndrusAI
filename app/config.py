@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     api_tier_enabled: bool = True
     openrouter_api_key: SecretStr = SecretStr("")
 
+    # External LLM rankings — blend third-party leaderboards into the
+    # selector's benchmark scores (app/llm_external_ranks.py). The AA
+    # fetcher activates only when the key is set; OpenRouter + HF are
+    # always available.
+    external_ranks_enabled: bool = True
+    external_ranks_weight: float = 0.3  # 0.0 = ignore, 1.0 = replace internal
+    artificial_analysis_api_key: SecretStr = SecretStr("")
+
     # LLM mode — "local", "cloud", or "hybrid" (initial value; changes at runtime)
     llm_mode: str = "hybrid"
 

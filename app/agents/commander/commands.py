@@ -818,6 +818,30 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         except Exception as exc:
             return f"Error: {str(exc)[:200]}"
 
+    # "llm ranks <model>" — show external ranking breakdown
+    if lower.startswith("llm ranks"):
+        model_key = content.split(None, 2)[2].strip() if len(content.split(None, 2)) > 2 else ""
+        if not model_key:
+            return "Usage: llm ranks <catalog-key>   e.g. 'llm ranks deepseek-v3.2'"
+        try:
+            from app.llm_external_ranks import format_ranks
+            return format_ranks(model_key)
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    if lower in ("refresh ranks", "llm refresh ranks", "ranks refresh"):
+        try:
+            from app.llm_external_ranks import refresh_all
+            summary = refresh_all(force=True)
+            return (
+                "🔄 External ranks refreshed:\n"
+                f"  OpenRouter: {summary.get('openrouter', 0)} rows\n"
+                f"  HuggingFace: {summary.get('huggingface', 0)} rows\n"
+                f"  Artificial Analysis: {summary.get('artificial_analysis', 0)} rows"
+            )
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
     # ── PIM shortcut commands ──────────────────────────────────────
     if lower in ("check email", "email", "inbox"):
         try:
