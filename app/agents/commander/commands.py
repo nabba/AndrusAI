@@ -842,6 +842,29 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         except Exception as exc:
             return f"Error: {str(exc)[:200]}"
 
+    # "rebenchmark <model>" — force a full multi-role rebenchmark and
+    # report drift vs. the prior strengths columns.
+    if lower.startswith("rebenchmark"):
+        parts = content.split(None, 1)
+        model_key = parts[1].strip() if len(parts) > 1 else ""
+        if not model_key:
+            return "Usage: rebenchmark <catalog-key>  e.g. 'rebenchmark claude-sonnet-4.6'"
+        try:
+            from app.llm_discovery import rebenchmark_incumbent
+            summary = rebenchmark_incumbent(model_key)
+            if summary.get("error"):
+                return f"Rebenchmark error: {summary['error']}"
+            lines = [f"🔁 Rebenchmark {summary['model']}:"]
+            for role, new in summary["new_scores"].items():
+                old = summary["old_scores"].get(role, 0.0)
+                drift = summary["drift"].get(role, 0.0)
+                lines.append(f"  {role:<14} {old:.2f} → {new:.2f} ({drift:+.2f})")
+            if summary.get("alerted"):
+                lines.append("⚠️  Drift alert filed to governance.")
+            return "\n".join(lines)
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
     # ── PIM shortcut commands ──────────────────────────────────────
     if lower in ("check email", "email", "inbox"):
         try:

@@ -971,6 +971,33 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: external ranks refresh failed", exc_info=True)
     jobs.append(("llm-external-ranks", _llm_external_ranks_refresh, JobWeight.MEDIUM))
 
+    # ── Incumbent re-benchmark: catch silent catalog drift ────────────
+    # HEAVY because each invocation runs benchmark_model across the
+    # BENCHMARK_ROLES (three calls to the candidate × up to two judges
+    # per task). Picks one incumbent per firing; full catalog coverage
+    # follows from the idle loop's round-robin rotation over days.
+    # Gate via env flag so low-budget environments can disable.
+    def _llm_rebenchmark_incumbents():
+        import os
+        if os.environ.get("INCUMBENT_REBENCHMARK", "on").lower() == "off":
+            return
+        try:
+            from app.llm_discovery import (
+                pick_incumbent_to_rebenchmark, rebenchmark_incumbent,
+            )
+            target = pick_incumbent_to_rebenchmark()
+            if not target:
+                return
+            summary = rebenchmark_incumbent(target)
+            if summary.get("alerted"):
+                logger.warning(f"idle_scheduler: incumbent drift: {summary}")
+            else:
+                logger.info(f"idle_scheduler: rebenchmarked {target}: {summary}")
+        except Exception:
+            logger.debug("idle_scheduler: rebenchmark failed", exc_info=True)
+    jobs.append(("llm-rebenchmark-incumbents",
+                 _llm_rebenchmark_incumbents, JobWeight.HEAVY))
+
     # ── System monitor: report all subsystem status to dashboard ────
     def _system_monitor():
         try:

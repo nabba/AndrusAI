@@ -262,11 +262,138 @@ def _promote_model(model_id: str, tier: str, roles: list[str], reviewer: str = "
 
 # ── Benchmarking ─────────────────────────────────────────────────────────────
 
-def benchmark_model(model_id: str, role: str = "research", sample_size: int = 2) -> float:
-    """Run standardized benchmark against a model.
+# Rotation of judges used by benchmark_model. Each tuple is
+# (catalog_key, provider_family). Provider-family exclusion prevents
+# a candidate from being judged by a sibling in the same family (e.g.
+# a new DeepSeek variant being scored by DeepSeek V3.2). Order matters
+# only for deterministic rotation in tests; the actual exclusion is
+# commutative.
+DEFAULT_JUDGES: tuple[tuple[str, str], ...] = (
+    ("claude-sonnet-4.6", "anthropic"),
+    ("gemini-3.1-pro",    "google"),
+    ("deepseek-v3.2",     "deepseek"),
+)
 
-    Uses eval_set tasks for the given role, scores with external judge.
-    Returns 0.0-1.0 score, or -1.0 on failure.
+
+def _provider_family(model_id: str) -> str:
+    """Infer the provider family from a catalog model_id or key.
+
+    Used to exclude judges whose family matches the candidate. The
+    classification is intentionally coarse — a family boundary is
+    enough to catch the same-lab scoring bias without getting bogged
+    down in taxonomy.
+    """
+    s = (model_id or "").lower()
+    if "claude" in s or "anthropic" in s:
+        return "anthropic"
+    if "gemini" in s or "google/gemma" in s or "gemma-" in s or s.startswith("gemma"):
+        return "google"
+    if "deepseek" in s:
+        return "deepseek"
+    if "gpt-" in s or "openai" in s:
+        return "openai"
+    if "mistral" in s or "codestral" in s:
+        return "mistral"
+    # qwen (Alibaba) comes before llama because Ollama model paths
+    # like "ollama_chat/qwen3:30b-a3b" contain the substring "llama"
+    # via the "ollama" prefix.
+    if "qwen" in s or "alibaba" in s:
+        return "alibaba"
+    if "llama" in s or "meta/" in s:
+        return "meta"
+    if "kimi" in s or "moonshot" in s:
+        return "moonshot"
+    if "minimax" in s:
+        return "minimax"
+    if "glm" in s or "zhipu" in s:
+        return "zhipu"
+    if "xiaomi" in s or "mimo" in s:
+        return "xiaomi"
+    if "nemotron" in s or "nvidia" in s:
+        return "nvidia"
+    if "stepfun" in s or "step-" in s:
+        return "stepfun"
+    if "arcee" in s or "trinity" in s:
+        return "arcee"
+    return "unknown"
+
+
+def _build_judge_llm(catalog_key: str):
+    """Instantiate an LLM for the given catalog judge key. Returns None
+    on any failure (API key missing, key not in catalog, etc.).
+    """
+    try:
+        from app.llm_factory import _cached_llm
+        from app.config import get_settings, get_anthropic_api_key
+        from app.llm_catalog import get_model
+        entry = get_model(catalog_key)
+        if not entry:
+            return None
+        if entry["provider"] == "anthropic":
+            key = get_anthropic_api_key()
+            if not key:
+                return None
+            return _cached_llm(entry["model_id"], max_tokens=256, api_key=key)
+        if entry["provider"] == "openrouter":
+            or_key = get_settings().openrouter_api_key.get_secret_value()
+            if not or_key:
+                return None
+            return _cached_llm(
+                entry["model_id"], max_tokens=256,
+                base_url="https://openrouter.ai/api/v1", api_key=or_key,
+            )
+    except Exception:
+        return None
+    return None
+
+
+def _select_judges(
+    candidate_model_id: str,
+    judges: list[str] | None = None,
+) -> list[tuple[str, str, object]]:
+    """Return up to 2 callable judges whose provider family differs
+    from the candidate's.
+
+    Returns a list of (catalog_key, family, llm) tuples. Callers
+    should average verdicts across the returned judges. When none are
+    eligible (e.g. the candidate shares a family with every available
+    judge, or all keys are missing), returns [].
+    """
+    rotation = (
+        [(k, _provider_family(get_model(k)["model_id"] if get_model(k) else k))
+         for k in judges]
+        if judges else list(DEFAULT_JUDGES)
+    )
+    candidate_family = _provider_family(candidate_model_id)
+    ok: list[tuple[str, str, object]] = []
+    for key, fam in rotation:
+        if fam == candidate_family:
+            continue
+        llm = _build_judge_llm(key)
+        if llm is None:
+            continue
+        ok.append((key, fam, llm))
+        if len(ok) >= 2:
+            break
+    return ok
+
+
+def benchmark_model(
+    model_id: str,
+    role: str = "research",
+    sample_size: int = 2,
+    judges: list[str] | None = None,
+) -> float:
+    """Run a standardised benchmark and return a 0.0-1.0 score.
+
+    Multi-judge with family exclusion:
+      - Selects up to 2 judges from DEFAULT_JUDGES whose provider
+        family differs from the candidate's (so a new DeepSeek model
+        isn't scored by DeepSeek V3.2).
+      - Each judge scores every task independently; the task score is
+        the mean of the eligible judges' scores.
+      - Final score is the mean of task scores. Returns -1.0 on setup
+        failure (no key, candidate unreachable, zero eligible judges).
     """
     try:
         from app.llm_factory import _cached_llm
@@ -274,18 +401,30 @@ def benchmark_model(model_id: str, role: str = "research", sample_size: int = 2)
 
         s = get_settings()
         or_key = s.openrouter_api_key.get_secret_value()
-        if not or_key:
-            return -1.0
 
-        # Create LLM for the candidate model
+        # Candidate LLM
         if model_id.startswith("openrouter/"):
+            if not or_key:
+                return -1.0
             candidate_llm = _cached_llm(
                 model_id, max_tokens=1024,
                 base_url="https://openrouter.ai/api/v1", api_key=or_key,
             )
         elif model_id.startswith("ollama_chat/"):
             candidate_llm = _cached_llm(model_id, max_tokens=1024)
+        elif model_id.startswith("anthropic/"):
+            from app.config import get_anthropic_api_key
+            key = get_anthropic_api_key()
+            if not key:
+                return -1.0
+            candidate_llm = _cached_llm(model_id, max_tokens=1024, api_key=key)
         else:
+            return -1.0
+
+        # Judges — distinct provider families from the candidate.
+        eligible = _select_judges(model_id, judges=judges)
+        if not eligible:
+            logger.warning(f"llm_discovery: no eligible judges for {model_id}")
             return -1.0
 
         # Test tasks per role
@@ -306,17 +445,13 @@ def benchmark_model(model_id: str, role: str = "research", sample_size: int = 2)
 
         tasks = test_tasks.get(role, test_tasks["research"])[:sample_size]
 
-        # Create judge (different model — DGM compliant)
-        from app.llm_factory import create_cheap_vetting_llm
-        judge = create_cheap_vetting_llm()
-
         import re
-        scores = []
+        task_scores: list[float] = []
         for task in tasks:
             try:
                 response = str(candidate_llm.call(task)).strip()
                 if not response or len(response) < 20:
-                    scores.append(0.2)
+                    task_scores.append(0.2)
                     continue
 
                 judge_prompt = (
@@ -324,22 +459,243 @@ def benchmark_model(model_id: str, role: str = "research", sample_size: int = 2)
                     f"Task: {task}\nResponse: {response[:2000]}\n\n"
                     f'Reply ONLY: {{"score": 0.X}}'
                 )
-                raw = str(judge.call(judge_prompt)).strip()
-                match = re.search(r'"score"\s*:\s*([\d.]+)', raw)
-                if match:
-                    scores.append(min(1.0, max(0.0, float(match.group(1)))))
-                else:
-                    scores.append(0.5)
+                judge_scores: list[float] = []
+                for _, _, judge_llm in eligible:
+                    try:
+                        raw = str(judge_llm.call(judge_prompt)).strip()
+                        match = re.search(r'"score"\s*:\s*([\d.]+)', raw)
+                        if match:
+                            judge_scores.append(
+                                min(1.0, max(0.0, float(match.group(1)))),
+                            )
+                    except Exception:
+                        continue
+                task_scores.append(
+                    sum(judge_scores) / len(judge_scores) if judge_scores else 0.5,
+                )
             except Exception:
-                scores.append(0.0)
+                task_scores.append(0.0)
 
-        avg = sum(scores) / len(scores) if scores else 0.0
-        logger.info(f"llm_discovery: benchmark {model_id} on {role}: {avg:.3f}")
+        avg = sum(task_scores) / len(task_scores) if task_scores else 0.0
+        judge_keys = ",".join(k for k, _, _ in eligible)
+        logger.info(
+            f"llm_discovery: benchmark {model_id} on {role} "
+            f"via [{judge_keys}]: {avg:.3f}"
+        )
         return avg
 
     except Exception as e:
         logger.warning(f"llm_discovery: benchmark failed for {model_id}: {e}")
         return -1.0
+
+
+# ── Incumbent drift detection ────────────────────────────────────────────────
+
+# Relative quality drop that triggers a governance alert. 0.20 = 20%.
+INCUMBENT_DRIFT_ALERT_THRESHOLD = 0.20
+
+
+def rebenchmark_incumbent(
+    model_name: str,
+    *,
+    roles: list[str] | None = None,
+    sample_size: int = 2,
+) -> dict:
+    """Re-run benchmarks against a catalog incumbent and refresh its
+    strengths columns in place.
+
+    Detects silent drift (e.g. a provider swapping in a cheaper quant
+    under the same name, a mid-life quality regression) that the
+    selection pipeline would otherwise miss because CATALOG's
+    strengths values are static string-literal estimates.
+
+    Returns a dict:
+        {
+          "model": name,
+          "old_scores": {role: float, ...},   # prior strengths
+          "new_scores": {role: float, ...},   # fresh benchmark
+          "drift": {role: float, ...},        # new - old, per role
+          "alerted": bool,                    # drift triggered gov alert
+        }
+    Missing models or API-unreachable candidates return a summary with
+    an ``error`` key instead.
+    """
+    from app.llm_catalog import CATALOG
+
+    entry = CATALOG.get(model_name)
+    if not entry:
+        return {"model": model_name, "error": "not in catalog"}
+
+    roles = roles or BENCHMARK_ROLES
+    old_scores = {r: float(entry.get("strengths", {}).get(r, 0.5)) for r in roles}
+
+    new_scores: dict[str, float] = {}
+    for role in roles:
+        score = benchmark_model(entry["model_id"], role=role, sample_size=sample_size)
+        if score >= 0:
+            new_scores[role] = score
+
+    if not new_scores:
+        return {
+            "model": model_name,
+            "error": "no scores produced",
+            "old_scores": old_scores,
+        }
+
+    # Update strengths in place (runtime only; discovered_models gets
+    # an insert-if-missing row for historical tracking).
+    strengths = dict(entry.get("strengths", {}))
+    for role, score in new_scores.items():
+        strengths[role] = round(score, 2)
+    entry["strengths"] = strengths
+
+    # Drift analysis
+    drift = {
+        role: round(new_scores[role] - old_scores[role], 3)
+        for role in new_scores
+    }
+    alerted = False
+    worst = min(drift.values()) if drift else 0.0
+    if worst <= -INCUMBENT_DRIFT_ALERT_THRESHOLD:
+        alerted = _raise_drift_alert(model_name, old_scores, new_scores, drift)
+
+    # Persist into discovered_models so drift history is queryable
+    try:
+        best_role = max(new_scores, key=new_scores.get)
+        _upsert_incumbent_benchmark(model_name, entry, new_scores[best_role], best_role)
+    except Exception as exc:
+        logger.debug(f"rebenchmark: persist failed: {exc}")
+
+    return {
+        "model": model_name,
+        "old_scores": old_scores,
+        "new_scores": new_scores,
+        "drift": drift,
+        "alerted": alerted,
+    }
+
+
+def _upsert_incumbent_benchmark(
+    model_name: str, entry: dict, score: float, role: str,
+) -> None:
+    """Store a rebenchmark row in discovered_models so drift history is
+    queryable. Acts as INSERT when the incumbent has never flowed
+    through discovery; UPDATE otherwise.
+    """
+    try:
+        from app.control_plane.db import execute
+        execute(
+            """
+            INSERT INTO control_plane.discovered_models
+                   (model_id, provider, display_name, context_window,
+                    cost_input_per_m, cost_output_per_m, multimodal,
+                    tool_calling, source, raw_metadata, status,
+                    benchmark_score, benchmark_role, benchmarked_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s,
+                    'catalog_incumbent', '{}', 'promoted',
+                    %s, %s, NOW())
+            ON CONFLICT (model_id) DO UPDATE SET
+                benchmark_score = EXCLUDED.benchmark_score,
+                benchmark_role  = EXCLUDED.benchmark_role,
+                benchmarked_at  = NOW(),
+                updated_at      = NOW()
+            """,
+            (
+                entry["model_id"], entry.get("provider", "unknown"),
+                entry.get("description", model_name)[:100],
+                int(entry.get("context", 0)),
+                float(entry.get("cost_input_per_m", 0)),
+                float(entry.get("cost_output_per_m", 0)),
+                bool(entry.get("multimodal", False)),
+                bool(entry.get("supports_tools", True)),
+                score, role,
+            ),
+        )
+    except Exception as exc:
+        logger.debug(f"rebenchmark: upsert incumbent failed: {exc}")
+
+
+def _raise_drift_alert(
+    model_name: str,
+    old_scores: dict[str, float],
+    new_scores: dict[str, float],
+    drift: dict[str, float],
+) -> bool:
+    """Emit a governance request when a catalog incumbent shows
+    significant quality drift. Returns True on success.
+    """
+    try:
+        from app.control_plane.governance import get_governance
+        from app.control_plane.projects import get_projects
+        gate = get_governance()
+        pid = get_projects().get_active_project_id()
+        gate.request_approval(
+            project_id=pid,
+            request_type="incumbent_drift",
+            requested_by="llm_discovery",
+            title=f"Quality drift detected for {model_name}",
+            detail={
+                "model": model_name,
+                "old_scores": old_scores,
+                "new_scores": new_scores,
+                "drift": drift,
+                "threshold": INCUMBENT_DRIFT_ALERT_THRESHOLD,
+            },
+        )
+        logger.warning(
+            f"llm_discovery: DRIFT alert on {model_name} — drift={drift}",
+        )
+        return True
+    except Exception as exc:
+        logger.debug(f"rebenchmark: drift alert failed: {exc}")
+        return False
+
+
+def pick_incumbent_to_rebenchmark() -> str | None:
+    """Return the catalog key of the next incumbent due for rebenchmark.
+
+    Picks the model with the oldest ``benchmarked_at`` (or never
+    benchmarked). Skips discovered entries — those flow through the
+    normal discovery pipeline. Returns None when every incumbent has
+    been benchmarked within the last week.
+    """
+    from app.llm_catalog import CATALOG
+    try:
+        from app.control_plane.db import execute
+    except Exception:
+        return None
+
+    candidates = [
+        name for name, info in CATALOG.items()
+        if info.get("tier") in ("budget", "mid", "premium")
+        and not info.get("_discovered")
+    ]
+    if not candidates:
+        return None
+
+    # Look up last benchmarked_at for each catalog incumbent
+    rows = execute(
+        """
+        SELECT model_id, benchmarked_at
+          FROM control_plane.discovered_models
+         WHERE source = 'catalog_incumbent'
+        """,
+        (),
+        fetch=True,
+    ) or []
+    last_seen = {
+        r["model_id"]: r["benchmarked_at"] for r in rows
+    }
+
+    # Match catalog entries by model_id
+    dated: list[tuple[str, object]] = []
+    for name in candidates:
+        mid = CATALOG[name].get("model_id", "")
+        dated.append((name, last_seen.get(mid)))
+
+    # Never-benchmarked incumbents come first (None sorts as oldest).
+    dated.sort(key=lambda x: (x[1] is not None, x[1]))
+    return dated[0][0] if dated else None
 
 # ── Comparison + Promotion ───────────────────────────────────────────────────
 
