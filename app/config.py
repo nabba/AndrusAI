@@ -135,7 +135,7 @@ class Settings(BaseSettings):
     # github, gdrive). Servers are declared in MCP_SERVERS (JSON array) or
     # /app/workspace/mcp_servers.json. Each server's tools become available
     # to every agent via the base_crew tool plugin registry.
-    mcp_client_enabled: bool = False
+    mcp_client_enabled: bool = True
     mcp_servers_json: str = ""  # optional inline JSON override
 
     # ── Agent Zero amendments ───────────────────────────────────────────

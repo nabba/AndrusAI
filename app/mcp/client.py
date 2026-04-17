@@ -13,7 +13,8 @@ import logging
 from dataclasses import dataclass, field
 
 from app.mcp.transports import (
-    StdioTransport, SSETransport, jsonrpc_request, jsonrpc_notification,
+    StdioTransport, SSETransport, StreamableHTTPTransport,
+    jsonrpc_request, jsonrpc_notification,
 )
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class MCPServerConfig:
     url: str = ""
     timeout: float = 30.0
     enabled: bool = True
+    headers: dict[str, str] = field(default_factory=dict)  # auth headers for remote servers
 
     @classmethod
     def from_dict(cls, d: dict) -> "MCPServerConfig":
@@ -49,8 +51,20 @@ class MCPClient:
     def __init__(self, config: MCPServerConfig):
         self.config = config
         self.tools: list[MCPToolSchema] = []
-        self._transport: StdioTransport | SSETransport
-        if config.transport == "sse":
+        self._transport: StdioTransport | SSETransport | StreamableHTTPTransport
+        # Build auth headers for remote transports
+        self._headers = dict(config.headers) if config.headers else {}
+        # Auto-inject Smithery API key for Smithery-hosted servers
+        if "smithery.ai" in (config.url or "") and "Authorization" not in self._headers:
+            import os
+            _sk = os.environ.get("SMITHERY_API_KEY", "")
+            if _sk:
+                self._headers["Authorization"] = f"Bearer {_sk}"
+
+        if config.transport in ("http", "streamable-http"):
+            self._transport = StreamableHTTPTransport(config.url, config.timeout, self._headers)
+        elif config.transport == "sse":
+            # Try SSE first; if it fails, fall back to Streamable HTTP
             self._transport = SSETransport(config.url, config.timeout)
         else:
             self._transport = StdioTransport(config.command, config.args, config.env)
@@ -60,8 +74,23 @@ class MCPClient:
         try:
             self._transport.start()
         except Exception as exc:
-            logger.warning(f"mcp_client: '{self.config.name}' start failed: {exc}")
-            return False
+            # SSE → Streamable HTTP fallback for remote servers
+            if self.config.transport == "sse" and self.config.url:
+                logger.info(
+                    f"mcp_client: '{self.config.name}' SSE failed, "
+                    f"trying Streamable HTTP: {exc}"
+                )
+                self._transport = StreamableHTTPTransport(
+                    self.config.url, self.config.timeout, self._headers,
+                )
+                try:
+                    self._transport.start()
+                except Exception as exc2:
+                    logger.warning(f"mcp_client: '{self.config.name}' HTTP also failed: {exc2}")
+                    return False
+            else:
+                logger.warning(f"mcp_client: '{self.config.name}' start failed: {exc}")
+                return False
 
         # Initialize handshake
         try:

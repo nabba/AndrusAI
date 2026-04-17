@@ -314,6 +314,10 @@ def _register_default_plugins() -> None:
     register_tool_plugin(
         lambda: __import__("app.tools.session_search_tool", fromlist=["create_session_search_tools"]).create_session_search_tools()
     )
+    # MCP manager tools (search/add/list/remove MCP servers — self-service)
+    register_tool_plugin(
+        lambda: __import__("app.tools.mcp_manager_tool", fromlist=["create_mcp_manager_tools"]).create_mcp_manager_tools()
+    )
 
     # Patch crewai.Agent so every agent instance gets plugin tools automatically
     _patch_agent_for_plugins()

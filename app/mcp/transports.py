@@ -1,5 +1,10 @@
 """
-mcp/transports.py — Shared transport layer for MCP stdio and SSE connections.
+mcp/transports.py — Shared transport layer for MCP connections.
+
+Supports three transports:
+  - StdioTransport: subprocess stdin/stdout (local CLI tools)
+  - SSETransport: HTTP Server-Sent Events (classic MCP 2024 protocol)
+  - StreamableHTTPTransport: direct HTTP POST (MCP 2025 / Smithery hosted)
 
 Used by both the MCP server (exposing AndrusAI resources) and the MCP client
 (consuming external server tools). One implementation, two consumers.
@@ -154,3 +159,74 @@ class SSETransport:
     @property
     def is_alive(self) -> bool:
         return self._messages_url is not None
+
+
+class StreamableHTTPTransport:
+    """Direct HTTP POST transport (MCP 2025 / Smithery hosted servers).
+
+    No SSE handshake — just POST JSON-RPC to the URL and get a response.
+    This is the standard for remotely hosted MCP servers (Smithery, etc.).
+    """
+
+    def __init__(self, url: str, timeout: float = 30.0, headers: dict[str, str] | None = None):
+        self._url = url.rstrip("/")
+        self._timeout = timeout
+        self._extra_headers = headers or {}
+        self._started = False
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        from app.tools.web_fetch import _is_safe_url
+        safe, reason = _is_safe_url(self._url)
+        if not safe:
+            raise ValueError(f"HTTP URL blocked (SSRF): {reason}")
+        self._started = True
+
+    def send_receive(self, message: dict) -> dict:
+        with self._lock:
+            if not self._started:
+                self.start()
+            import httpx
+            try:
+                hdrs = {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    **self._extra_headers,
+                }
+                resp = httpx.post(
+                    self._url,
+                    json=message,
+                    headers=hdrs,
+                    timeout=self._timeout,
+                    follow_redirects=True,
+                )
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.HTTPStatusError as exc:
+                raise ConnectionError(
+                    f"HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+                ) from exc
+            except Exception as exc:
+                raise ConnectionError(f"HTTP request failed: {exc}") from exc
+
+    def send_notification(self, message: dict) -> None:
+        with self._lock:
+            if not self._started:
+                return
+            try:
+                import httpx
+                httpx.post(
+                    self._url,
+                    json=message,
+                    headers={"Content-Type": "application/json"},
+                    timeout=5,
+                )
+            except Exception:
+                pass
+
+    def stop(self) -> None:
+        self._started = False
+
+    @property
+    def is_alive(self) -> bool:
+        return self._started
