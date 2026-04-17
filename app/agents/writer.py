@@ -50,6 +50,14 @@ def create_writer(force_tier: str | None = None) -> Agent:
         tools.extend(create_wiki_tools("read", "write", "search", "slides"))
     except Exception:
         pass
+    # Conceptual blending tool (Mechanism 6) — writer is the analogical-blending
+    # agent in creative mode; this tool operationalizes philosophy+fiction fusion
+    # with explicit [PIT]/[PIH] epistemic tags.
+    try:
+        from app.tools.blend_tool import ConceptBlendTool
+        tools.append(ConceptBlendTool())
+    except Exception:
+        pass
 
     return Agent(
         role="Writer",

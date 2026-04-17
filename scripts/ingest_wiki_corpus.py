@@ -35,21 +35,71 @@ if not WIKI_DIR.exists():
     WIKI_DIR = Path(__file__).resolve().parent.parent / "wiki"
 
 COLLECTION_NAME = "wiki_corpus"
-CHUNK_SIZE = 500  # chars per chunk — small to get fine-grained distance
-CHUNK_OVERLAP = 50
+CHUNK_SIZE = 300  # target chars per chunk — smaller for sparse wiki content
+CHUNK_OVERLAP = 30
+MIN_CHUNK_LEN = 40  # drop fragments below this threshold
 
 
 def chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    """Split text into overlapping chunks by character count."""
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + size
-        chunk = text[start:end].strip()
-        if len(chunk) >= 50:  # skip tiny fragments
-            chunks.append(chunk)
-        start = end - overlap
-    return chunks
+    """Split text into overlapping chunks, preferring semantic boundaries.
+
+    Strategy:
+      1. First split by markdown headers (##, ###) — natural section breaks.
+      2. Further split any over-sized section by paragraph boundaries.
+      3. Fall back to character-window splitting for still-oversized blocks.
+
+    This produces more chunks from the typically short, structured wiki
+    content than naive fixed-window splitting, giving the Torrance
+    originality scorer a denser baseline to compare against.
+    """
+    import re
+    if not text or len(text.strip()) < MIN_CHUNK_LEN:
+        return []
+
+    # Step 1: split on markdown headers (## or ###) — keep the header with its section
+    header_re = re.compile(r"(?m)^(#{2,3}\s+.+)$")
+    sections: list[str] = []
+    last = 0
+    for m in header_re.finditer(text):
+        if m.start() > last:
+            sections.append(text[last:m.start()].strip())
+        last = m.start()
+    sections.append(text[last:].strip())
+    sections = [s for s in sections if s]
+
+    # Step 2: for each section, split by paragraph if it exceeds the target size
+    chunks: list[str] = []
+    for section in sections:
+        if len(section) <= size:
+            if len(section) >= MIN_CHUNK_LEN:
+                chunks.append(section)
+            continue
+        paragraphs = [p.strip() for p in section.split("\n\n") if p.strip()]
+        buf = ""
+        for p in paragraphs:
+            if len(buf) + len(p) + 2 <= size:
+                buf = f"{buf}\n\n{p}" if buf else p
+            else:
+                if len(buf) >= MIN_CHUNK_LEN:
+                    chunks.append(buf)
+                buf = p
+        if len(buf) >= MIN_CHUNK_LEN:
+            chunks.append(buf)
+
+    # Step 3: any remaining oversized chunk gets character-window split
+    final: list[str] = []
+    for c in chunks:
+        if len(c) <= size * 1.5:
+            final.append(c)
+            continue
+        start = 0
+        while start < len(c):
+            end = start + size
+            piece = c[start:end].strip()
+            if len(piece) >= MIN_CHUNK_LEN:
+                final.append(piece)
+            start = end - overlap
+    return final
 
 
 def main() -> None:
