@@ -557,7 +557,7 @@ Proprietary / All rights reserved. This is a personal system. If you want to dis
 ## Contact
 
 - GitHub: [@nabba](https://github.com/nabba)
-- Signal: (not public; one operator allow-listed)
+- E-mail: andrus@raudsalu.com
 
 ---
 
