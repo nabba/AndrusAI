@@ -152,14 +152,21 @@ def install_throttle() -> None:
                 throttle_for_provider(provider)
                 # Inject retry params if not already set
                 kwargs.setdefault("num_retries", _RETRY_COUNT)
+                # Fresh guard per call — success_callback, explicit inline
+                # record, or failure branch share the first-writer-wins rule.
+                _benchmark_recorded.set(False)
+                t_start = time.monotonic()
                 try:
                     response = _original_completion(*args, **kwargs)
                 except Exception as exc:
+                    latency_ms = int((time.monotonic() - t_start) * 1000)
+                    _record_benchmark_failure(model, latency_ms)
                     _check_credit_error(exc, provider)
                     raise
+                latency_ms = int((time.monotonic() - t_start) * 1000)
                 # Successful call — resolve any prior credit alert for this provider
                 _resolve_credit_if_needed(provider)
-                _record_token_usage(response, kwargs)
+                _record_token_usage(response, kwargs, latency_ms=latency_ms)
                 return response
 
             litellm.completion = _throttled_completion
@@ -174,8 +181,16 @@ def install_throttle() -> None:
                     provider = _detect_provider(model, base_url)
                     throttle_for_provider(provider)
                     kwargs.setdefault("num_retries", _RETRY_COUNT)
-                    response = await _original_acompletion(*args, **kwargs)
-                    _record_token_usage(response, kwargs)
+                    _benchmark_recorded.set(False)
+                    t_start = time.monotonic()
+                    try:
+                        response = await _original_acompletion(*args, **kwargs)
+                    except Exception:
+                        latency_ms = int((time.monotonic() - t_start) * 1000)
+                        _record_benchmark_failure(model, latency_ms)
+                        raise
+                    latency_ms = int((time.monotonic() - t_start) * 1000)
+                    _record_token_usage(response, kwargs, latency_ms=latency_ms)
                     return response
 
                 litellm.acompletion = _throttled_acompletion
@@ -221,10 +236,12 @@ def install_throttle() -> None:
                                 (prompt / 1_000_000) * cost_info[0]
                                 + (completion / 1_000_000) * cost_info[1]
                             )
-                        from app.llm_benchmarks import record_tokens, record
+                        from app.llm_benchmarks import record_tokens
                         record_tokens(model, prompt, completion, cost_usd)
-                        # Also record in benchmarks table for model scoring
-                        record(model, "general", True, latency_ms=0, tokens=prompt+completion)
+                        # NOTE: benchmark success/failure is recorded inside
+                        # _throttled_completion where we have accurate call
+                        # timing. Recording again here would double-count rows
+                        # in the benchmarks table and skew confidence scores.
                         tracker = _request_cost.get(None)
                         if tracker is not None:
                             tracker.record(model, prompt, completion, cost_usd)
@@ -312,10 +329,19 @@ def _find_cost(model: str) -> tuple[float, float] | None:
     return None
 
 
-def _record_token_usage(response, kwargs: dict) -> None:
-    """Extract token usage from litellm response and record it.
+def _record_token_usage(response, kwargs: dict, latency_ms: int = 0) -> None:
+    """Extract token usage from a litellm response and record it.
 
-    Also captures prompt-completion pairs for the self-training pipeline.
+    Records:
+      - per-call token + cost accounting into ``token_usage``
+      - a success row into ``benchmarks`` tagged with the canonical task
+        type from :mod:`app.llm_context` and the measured ``latency_ms``
+      - training-data capture (fire-and-forget)
+      - per-request cost accumulation for dashboard aggregation
+
+    Called both as a litellm ``success_callback`` and inline from the
+    throttled completion wrapper. The benchmark write is idempotent-per-
+    call via a ContextVar guard so the two call paths never double-count.
     """
     try:
         usage = getattr(response, "usage", None)
@@ -325,40 +351,73 @@ def _record_token_usage(response, kwargs: dict) -> None:
         prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
         completion_tokens = getattr(usage, "completion_tokens", 0) or 0
         total = prompt_tokens + completion_tokens
-        if total > 0:
-            # Estimate cost from catalog
-            cost_usd = 0.0
-            try:
-                cost_info = _find_cost(model)
-                if cost_info:
-                    cost_usd = (
-                        (prompt_tokens / 1_000_000) * cost_info[0]
-                        + (completion_tokens / 1_000_000) * cost_info[1]
-                    )
-            except Exception:
-                pass
-            from app.llm_benchmarks import record_tokens
-            record_tokens(model, prompt_tokens, completion_tokens, cost_usd)
+        if total <= 0:
+            return
 
-            # Capture for self-training pipeline (fire-and-forget)
-            try:
-                _capture_training_data(response, kwargs, model)
-            except Exception:
-                pass
+        # Cost accounting — always recorded; read-time dedup handles
+        # repeated callback firings (see llm_benchmarks.get_tokens_since).
+        cost_usd = 0.0
+        try:
+            cost_info = _find_cost(model)
+            if cost_info:
+                cost_usd = (
+                    (prompt_tokens / 1_000_000) * cost_info[0]
+                    + (completion_tokens / 1_000_000) * cost_info[1]
+                )
+        except Exception:
+            pass
 
-            # Also record benchmark for model scoring
+        from app.llm_benchmarks import record_tokens
+        record_tokens(model, prompt_tokens, completion_tokens, cost_usd)
+
+        # Training pipeline capture (fire-and-forget)
+        try:
+            _capture_training_data(response, kwargs, model)
+        except Exception:
+            pass
+
+        # Benchmark scoring — guarded so _throttled_completion's direct
+        # invocation and the success_callback don't both write a row for
+        # the same call. First writer wins; the guard is cleared when
+        # the scope ends (see llm_context.scope) or by fallthrough after
+        # the callback returns in non-scoped paths.
+        if not _benchmark_recorded.get(False):
             try:
                 from app.llm_benchmarks import record
-                record(model, "general", True, latency_ms=0, tokens=prompt_tokens + completion_tokens)
+                from app.llm_context import current as _current_ctx
+                ctx = _current_ctx()
+                task_type = ctx.task_type if ctx else "general"
+                record(model, task_type, True,
+                       latency_ms=latency_ms, tokens=total)
+                _benchmark_recorded.set(True)
             except Exception:
                 pass
 
-            # Also accumulate into the active request tracker if present
-            tracker = _request_cost.get(None)
-            if tracker is not None:
-                tracker.record(model, prompt_tokens, completion_tokens, cost_usd)
+        # Per-request cost tracker for dashboard aggregation
+        tracker = _request_cost.get(None)
+        if tracker is not None:
+            tracker.record(model, prompt_tokens, completion_tokens, cost_usd)
     except Exception:
         pass  # never fail the actual LLM call
+
+
+def _record_benchmark_failure(model: str, latency_ms: int) -> None:
+    """Record a failed LLM call into the benchmarks table.
+
+    Called from the throttled completion wrapper when the underlying
+    provider call raises. Reads the active :class:`~app.llm_context.CallContext`
+    for the canonical task type so failures land in the same task-type
+    partition that successes use.
+    """
+    try:
+        from app.llm_benchmarks import record
+        from app.llm_context import current as _current_ctx
+        ctx = _current_ctx()
+        task_type = ctx.task_type if ctx else "general"
+        record(model, task_type, False, latency_ms=latency_ms, tokens=0)
+        _benchmark_recorded.set(True)
+    except Exception:
+        pass
 
 
 # ── Credit alert integration ─────────────────────────────────────────────────
@@ -466,6 +525,15 @@ def _resolve_credit_if_needed(provider: str) -> None:
 
 _request_cost: contextvars.ContextVar["RequestCostTracker | None"] = contextvars.ContextVar(
     "request_cost", default=None,
+)
+
+# Per-call guard ensuring exactly one benchmarks row per LLM invocation.
+# Set by the first writer (either ``_throttled_completion`` directly, its
+# failure branch, or the ``success_callback`` via ``_record_token_usage``)
+# and implicitly cleared when the request-level context unwinds — a fresh
+# ContextVar read inside the next call returns False.
+_benchmark_recorded: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "llm_benchmark_recorded", default=False,
 )
 
 

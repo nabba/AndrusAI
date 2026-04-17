@@ -13,12 +13,12 @@ Selection algorithm:
 
 import logging
 import os
-import re
 
 from app.config import get_settings
 from app.llm_catalog import (
     CATALOG, TASK_ALIASES, ROLE_DEFAULTS,
     get_model, get_default_for_role, get_candidates_by_tier,
+    canonical_task_type,
 )
 from app.llm_benchmarks import get_scores
 
@@ -43,34 +43,16 @@ def difficulty_to_tier(difficulty: int, mode: str) -> str | None:
         return "premium"
     return None  # medium → use default catalog logic
 
-_KEYWORD_PATTERNS: list[tuple[str, str]] = [
-    (r"\b(debug|traceback|error|fix\s+bug|stacktrace)\b", "debugging"),
-    (r"\b(architect|design|plan|system\s+design|review)\b", "architecture"),
-    (r"\b(code|implement|function|class|module|script|program)\b", "coding"),
-    (r"\b(research|search|find|learn|investigate|analyze)\b", "research"),
-    (r"\b(write|summarize|document|report|explain|describe)\b", "writing"),
-    (r"\b(reason|think|logic|proof|math)\b", "reasoning"),
-    (r"\b(image|photo|screenshot|picture|visual|pdf|scan)\b", "multimodal"),
-    (r"\b(video|audio|podcast|youtube|camera|media|voice|music|mp[34])\b", "multimodal"),
-]
-
 _MULTIMODAL_MODELS = [name for name, info in CATALOG.items() if info.get("multimodal")]
 
 
 def detect_task_type(role: str, task_hint: str = "") -> str:
-    if task_hint:
-        hint_lower = task_hint.lower()
-        for pattern, task_type in _KEYWORD_PATTERNS:
-            if re.search(pattern, hint_lower):
-                return task_type
-    role_map = {
-        "coding": "coding", "architecture": "architecture",
-        "research": "research", "writing": "writing",
-        "media": "multimodal", "critic": "reasoning", "introspector": "reasoning",
-        "self_improve": "research", "vetting": "vetting",
-        "synthesis": "writing", "planner": "research", "default": "general",
-    }
-    return role_map.get(role, "general")
+    """Thin delegator to :func:`app.llm_catalog.canonical_task_type`.
+
+    Kept for backwards compatibility; new code should call the catalog
+    helper directly.
+    """
+    return canonical_task_type(role=role, task_hint=task_hint)
 
 
 _cached_ollama_url: str | None = None
@@ -206,9 +188,67 @@ def _select_local_resource_aware(
     return None
 
 
+def _pareto_cheaper_alternative(
+    default_model: str,
+    default_entry: dict,
+    default_score: float,
+    bench_scores: dict[str, float],
+    get_model_fn,
+    *,
+    quality_gap: float = 0.05,
+) -> str | None:
+    """Return a catalog key that Pareto-dominates ``default_model`` on
+    (cost, quality) — cheaper AND close-or-better in benchmark score.
+
+    Pareto operates inside the selector's outer envelope (tier gating,
+    availability): we only consider candidates with bench scores at
+    least ``default_score - quality_gap`` and ``cost_output_per_m``
+    strictly less than the default. Ties go to whichever is cheapest.
+    Returns None when nothing dominates.
+    """
+    if not bench_scores:
+        return None
+    default_cost = float(default_entry.get("cost_output_per_m", 0) or 0)
+    floor = default_score - quality_gap
+    best: tuple[str, float] | None = None  # (name, cost)
+    for name, score in bench_scores.items():
+        if name == default_model:
+            continue
+        if score < floor:
+            continue
+        entry = get_model_fn(name)
+        if not entry:
+            continue
+        cost = float(entry.get("cost_output_per_m", 0) or 0)
+        if cost >= default_cost:
+            continue
+        if best is None or cost < best[1]:
+            best = (name, cost)
+    return best[0] if best else None
+
+
 def select_model(
-    role: str, task_hint: str = "", max_ram_gb: float = 48.0, force_tier: str | None = None,
+    role: str,
+    task_hint: str = "",
+    max_ram_gb: float = 48.0,
+    force_tier: str | None = None,
+    *,
+    expected_input_tokens: int = 2000,
+    expected_output_tokens: int = 1500,
+    budget_usd: float | None = None,
 ) -> str:
+    """Resolve the catalog key for a role/task given the current cost
+    mode, overlay assignments, telemetry, and external ranks.
+
+    Phase 4 additions:
+      - ``expected_input_tokens``/``expected_output_tokens`` let callers
+        hint the token volume of the upcoming call. Used together with
+        ``budget_usd`` to demote premium-tier defaults whose estimated
+        cost would exceed the budget, provided a cheaper alternative
+        scores within ``quality_gap`` of the default.
+      - Cross-tier Pareto kicks in when blended benchmark scores exist
+        and the default is API-tier (local/free paths untouched).
+    """
     settings = get_settings()
 
     # Step 1: Environment override
@@ -218,7 +258,7 @@ def select_model(
         logger.info(f"llm_selector: {env_key}={env_override} (env override)")
         return env_override
 
-    # Step 2: Default from catalog
+    # Step 2: Default from catalog (consults role_assignments overlay)
     cost_mode = settings.cost_mode
     default_model = get_default_for_role(role, cost_mode)
 
@@ -282,7 +322,7 @@ def select_model(
                         logger.info(f"llm_selector: force_tier={force_tier} → {forced}")
                         return forced
 
-    # Step 4: Benchmark adjustment
+    # Step 4: Benchmark adjustment (blended internal + external — Phase 3)
     bench_scores = get_scores(task_type)
     if bench_scores:
         default_entry = _cached_get_model(default_model)
@@ -299,6 +339,64 @@ def select_model(
                         logger.info(f"llm_selector: benchmark override {default_model} → {name}")
                         default_model = name
                         break
+
+    # Step 4b: Pareto demotion — when a cheaper model scores close to
+    # the default, prefer it unless the caller explicitly asked for a
+    # tier via force_tier. Respects the outer envelope; never crosses
+    # into local from an API default (local bypasses the cost axis).
+    if bench_scores and not force_tier:
+        default_entry = _cached_get_model(default_model)
+        default_bench = bench_scores.get(default_model, 0.0)
+        if default_entry and default_entry.get("tier") in ("budget", "mid", "premium"):
+            alt = _pareto_cheaper_alternative(
+                default_model, default_entry, default_bench,
+                bench_scores, _cached_get_model,
+            )
+            if alt:
+                alt_entry = _cached_get_model(alt)
+                # Only cross-tier when the alt is cheaper AND API-tier.
+                if alt_entry and alt_entry.get("tier") in ("budget", "mid", "premium"):
+                    logger.info(
+                        "llm_selector: pareto demotion %s → %s "
+                        "(score %.2f→%.2f, cost %.2f→%.2f)",
+                        default_model, alt,
+                        default_bench, bench_scores.get(alt, 0.0),
+                        float(default_entry.get("cost_output_per_m", 0)),
+                        float(alt_entry.get("cost_output_per_m", 0)),
+                    )
+                    default_model = alt
+
+    # Step 4c: Budget enforcement. If the caller specified a hard USD
+    # ceiling for this call and the current default would blow it,
+    # demote to the cheapest bench-eligible candidate within budget
+    # whose score stays within 0.10 of the default's.
+    if budget_usd is not None and bench_scores:
+        from app.llm_catalog import estimate_task_cost
+        def _fits(name: str) -> bool:
+            return estimate_task_cost(
+                name, expected_input_tokens, expected_output_tokens,
+            ) <= budget_usd
+
+        default_cost = estimate_task_cost(
+            default_model, expected_input_tokens, expected_output_tokens,
+        )
+        if default_cost > budget_usd:
+            default_bench = bench_scores.get(default_model, 0.0)
+            best: tuple[str, float] | None = None  # (name, score)
+            for name, score in bench_scores.items():
+                if score < default_bench - 0.10:
+                    continue
+                if not _fits(name):
+                    continue
+                if best is None or score > best[1]:
+                    best = (name, score)
+            if best:
+                logger.info(
+                    "llm_selector: budget demotion %s → %s (budget=$%.4f, "
+                    "default_cost=$%.4f)",
+                    default_model, best[0], budget_usd, default_cost,
+                )
+                default_model = best[0]
 
     # Step 5: Tool-use compatibility check
     # CrewAI agents need tool calling for most roles (research, coding, writing, media).

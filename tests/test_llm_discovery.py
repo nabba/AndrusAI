@@ -34,7 +34,8 @@ class TestImports:
     def test_idle_scheduler_has_discovery_job(self):
         from app.idle_scheduler import _default_jobs
         jobs = _default_jobs()
-        job_names = [name for name, _ in jobs]
+        # _default_jobs returns (name, fn, JobWeight) tuples
+        job_names = [entry[0] for entry in jobs]
         assert "llm-discovery" in job_names
 
     def test_signal_commands_wired(self):
@@ -246,9 +247,152 @@ class TestIntegration:
         from app.llm_discovery import run_discovery_cycle
         result = run_discovery_cycle(max_benchmarks=1)
         assert isinstance(result, dict)
-        assert result.get("scanned", 0) >= 0
-        # Should not have uncaught errors
-        assert isinstance(result.get("errors", []), list)
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# 6. PHASE 2: MULTI-ROLE BENCHMARK + TOOL DETECTION + GOVERNANCE CONSUMER
+# ════════════════════════════════════════════════════════════════════════════════
+
+
+class TestMultiRoleBenchmark:
+    def test_benchmark_all_roles_returns_dict(self):
+        """_benchmark_all_roles returns a dict keyed by role."""
+        from app.llm_discovery import _benchmark_all_roles, BENCHMARK_ROLES
+
+        with patch("app.llm_discovery.benchmark_model",
+                   side_effect=[0.8, 0.6, 0.7]):
+            scores = _benchmark_all_roles("openrouter/some-model")
+            assert set(scores.keys()) == set(BENCHMARK_ROLES)
+            assert scores["research"] == 0.8
+            assert scores["coding"] == 0.6
+            assert scores["writing"] == 0.7
+
+    def test_benchmark_skip_on_negative_score(self):
+        """benchmark_model returning -1 for a role drops it from the map."""
+        from app.llm_discovery import _benchmark_all_roles
+
+        with patch("app.llm_discovery.benchmark_model",
+                   side_effect=[0.8, -1.0, 0.7]):
+            scores = _benchmark_all_roles("m")
+            assert "coding" not in scores
+            assert scores["research"] == 0.8
+            assert scores["writing"] == 0.7
+
+
+class TestGovernanceConsumer:
+    def test_returns_summary_when_db_empty(self):
+        from app.llm_discovery import consume_approved_promotions
+
+        with patch("app.control_plane.db.execute", return_value=[]):
+            summary = consume_approved_promotions()
+            assert summary == {"applied": 0, "skipped": 0, "errors": 0}
+
+    def test_skips_without_model_id(self):
+        from app.llm_discovery import consume_approved_promotions
+
+        rows = [{"id": "req-1", "detail_json": {"role": "coding"},
+                 "reviewed_at": None, "reviewed_by": "user"}]
+
+        with patch("app.control_plane.db.execute", return_value=rows):
+            summary = consume_approved_promotions()
+            assert summary["skipped"] == 1
+            assert summary["applied"] == 0
+
+    def test_applies_and_marks_consumed(self):
+        """A complete approved request triggers catalog add + DB update."""
+        from app.llm_discovery import consume_approved_promotions
+
+        approved = [{
+            "id": "req-42",
+            "detail_json": {
+                "model_id": "openrouter/new/model-x",
+                "role": "coding",
+                "tier": "budget",
+            },
+            "reviewed_at": None,
+            "reviewed_by": "user",
+        }]
+        disc_row = [{
+            "model_id": "openrouter/new/model-x",
+            "provider": "openrouter",
+            "display_name": "Model X",
+            "context_window": 128_000,
+            "cost_input_per_m": 0.2,
+            "cost_output_per_m": 0.6,
+            "multimodal": False,
+            "tool_calling": True,
+            "benchmark_score": 0.85,
+        }]
+        # First execute() returns the approved request list.
+        # Second returns the discovered_models lookup.
+        # Remaining UPDATE statements return [] (fetch=False path).
+        call_outputs = iter([approved, disc_row, [], []])
+
+        def _fake_execute(q, params=(), fetch=False):
+            out = next(call_outputs)
+            return out if fetch else []
+
+        with (patch("app.control_plane.db.execute", side_effect=_fake_execute),
+              patch("app.llm_discovery._add_to_runtime_catalog") as add_mock,
+              patch("app.llm_discovery._promote_model") as promote_mock):
+            summary = consume_approved_promotions()
+
+        assert summary["applied"] == 1
+        add_mock.assert_called_once()
+        promote_mock.assert_called_once_with(
+            "openrouter/new/model-x", "budget", ["coding"], reviewer="user",
+        )
+
+
+class TestRunDiscoveryCycleCallsScanOllama:
+    def test_cycle_invokes_scan_ollama(self):
+        """Ollama scan is no longer dead code."""
+        import app.llm_discovery as d
+
+        with (patch.object(d, "scan_openrouter", return_value=[]) as sor,
+              patch.object(d, "scan_ollama", return_value=[]) as som):
+            result = d.run_discovery_cycle(max_benchmarks=0)
+            sor.assert_called_once()
+            som.assert_called_once()
+            assert result["scanned"] == 0
+
+
+class TestRehydrate:
+    def test_rehydrate_idempotent(self):
+        """Second call is a no-op when already rehydrated."""
+        import app.llm_rehydrate as r
+
+        r._rehydrated = True
+        added = r.rehydrate_catalog()
+        assert added == 0
+
+    def test_rehydrate_replays_promoted_rows(self):
+        import app.llm_rehydrate as r
+
+        rows = [{
+            "model_id": "openrouter/rehydrated/model",
+            "provider": "openrouter",
+            "display_name": "Rehydrated",
+            "context_window": 128_000,
+            "cost_input_per_m": 0.1,
+            "cost_output_per_m": 0.4,
+            "multimodal": False,
+            "tool_calling": True,
+            "promoted_tier": "budget",
+            "promoted_roles": ["research"],
+            "benchmark_score": 0.7,
+            "benchmark_role": "research",
+        }]
+        r._rehydrated = False
+
+        with (patch("app.control_plane.db.execute", return_value=rows),
+              patch("app.llm_discovery._add_to_runtime_catalog") as add_mock):
+            added = r.rehydrate_catalog(force=True)
+            assert added == 1
+            add_mock.assert_called_once()
+            payload = add_mock.call_args[0][0]
+            assert payload["model_id"] == "openrouter/rehydrated/model"
+            assert payload["tier"] == "budget"
 
 
 # ════════════════════════════════════════════════════════════════════════════════

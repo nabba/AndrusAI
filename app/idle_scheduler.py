@@ -344,6 +344,15 @@ def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
     """
     global _idle_thread
 
+    # Rehydrate the LLM catalog from previously promoted discovered
+    # models before any job runs. Idempotent and non-fatal if the DB
+    # is unreachable.
+    try:
+        from app.llm_rehydrate import rehydrate_catalog
+        rehydrate_catalog()
+    except Exception:
+        logger.debug("idle_scheduler: llm catalog rehydration skipped", exc_info=True)
+
     if jobs is None:
         jobs = _default_jobs()
 
@@ -935,6 +944,59 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         except Exception:
             logger.debug("idle_scheduler: LLM discovery failed", exc_info=True)
     jobs.append(("llm-discovery", _llm_discovery, JobWeight.MEDIUM))
+
+    # ── LLM Promotion Applier: apply approved governance requests ─────
+    def _llm_apply_promotions():
+        try:
+            from app.llm_discovery import consume_approved_promotions
+            summary = consume_approved_promotions(limit=5)
+            if summary.get("applied"):
+                logger.info(f"idle_scheduler: applied LLM promotions: {summary}")
+        except Exception:
+            logger.debug("idle_scheduler: LLM promotion applier failed", exc_info=True)
+    jobs.append(("llm-apply-promotions", _llm_apply_promotions, JobWeight.LIGHT))
+
+    # ── External LLM ranks: pull OpenRouter / HF / AA leaderboards ────
+    # MEDIUM weight because the HF parquet fetch can exceed 30s on a
+    # cold cache. The fetcher enforces its own TTL (a week by default)
+    # so running every idle cycle is cheap — it returns immediately
+    # when the cache is fresh.
+    def _llm_external_ranks_refresh():
+        try:
+            from app.llm_external_ranks import refresh_all
+            summary = refresh_all()
+            if any(summary.values()):
+                logger.info(f"idle_scheduler: external ranks refreshed: {summary}")
+        except Exception:
+            logger.debug("idle_scheduler: external ranks refresh failed", exc_info=True)
+    jobs.append(("llm-external-ranks", _llm_external_ranks_refresh, JobWeight.MEDIUM))
+
+    # ── Incumbent re-benchmark: catch silent catalog drift ────────────
+    # HEAVY because each invocation runs benchmark_model across the
+    # BENCHMARK_ROLES (three calls to the candidate × up to two judges
+    # per task). Picks one incumbent per firing; full catalog coverage
+    # follows from the idle loop's round-robin rotation over days.
+    # Gate via env flag so low-budget environments can disable.
+    def _llm_rebenchmark_incumbents():
+        import os
+        if os.environ.get("INCUMBENT_REBENCHMARK", "on").lower() == "off":
+            return
+        try:
+            from app.llm_discovery import (
+                pick_incumbent_to_rebenchmark, rebenchmark_incumbent,
+            )
+            target = pick_incumbent_to_rebenchmark()
+            if not target:
+                return
+            summary = rebenchmark_incumbent(target)
+            if summary.get("alerted"):
+                logger.warning(f"idle_scheduler: incumbent drift: {summary}")
+            else:
+                logger.info(f"idle_scheduler: rebenchmarked {target}: {summary}")
+        except Exception:
+            logger.debug("idle_scheduler: rebenchmark failed", exc_info=True)
+    jobs.append(("llm-rebenchmark-incumbents",
+                 _llm_rebenchmark_incumbents, JobWeight.HEAVY))
 
     # ── System monitor: report all subsystem status to dashboard ────
     def _system_monitor():

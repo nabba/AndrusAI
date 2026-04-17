@@ -818,6 +818,53 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         except Exception as exc:
             return f"Error: {str(exc)[:200]}"
 
+    # "llm ranks <model>" — show external ranking breakdown
+    if lower.startswith("llm ranks"):
+        model_key = content.split(None, 2)[2].strip() if len(content.split(None, 2)) > 2 else ""
+        if not model_key:
+            return "Usage: llm ranks <catalog-key>   e.g. 'llm ranks deepseek-v3.2'"
+        try:
+            from app.llm_external_ranks import format_ranks
+            return format_ranks(model_key)
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    if lower in ("refresh ranks", "llm refresh ranks", "ranks refresh"):
+        try:
+            from app.llm_external_ranks import refresh_all
+            summary = refresh_all(force=True)
+            return (
+                "🔄 External ranks refreshed:\n"
+                f"  OpenRouter: {summary.get('openrouter', 0)} rows\n"
+                f"  HuggingFace: {summary.get('huggingface', 0)} rows\n"
+                f"  Artificial Analysis: {summary.get('artificial_analysis', 0)} rows"
+            )
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    # "rebenchmark <model>" — force a full multi-role rebenchmark and
+    # report drift vs. the prior strengths columns.
+    if lower.startswith("rebenchmark"):
+        parts = content.split(None, 1)
+        model_key = parts[1].strip() if len(parts) > 1 else ""
+        if not model_key:
+            return "Usage: rebenchmark <catalog-key>  e.g. 'rebenchmark claude-sonnet-4.6'"
+        try:
+            from app.llm_discovery import rebenchmark_incumbent
+            summary = rebenchmark_incumbent(model_key)
+            if summary.get("error"):
+                return f"Rebenchmark error: {summary['error']}"
+            lines = [f"🔁 Rebenchmark {summary['model']}:"]
+            for role, new in summary["new_scores"].items():
+                old = summary["old_scores"].get(role, 0.0)
+                drift = summary["drift"].get(role, 0.0)
+                lines.append(f"  {role:<14} {old:.2f} → {new:.2f} ({drift:+.2f})")
+            if summary.get("alerted"):
+                lines.append("⚠️  Drift alert filed to governance.")
+            return "\n".join(lines)
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
     # ── PIM shortcut commands ──────────────────────────────────────
     if lower in ("check email", "email", "inbox"):
         try:

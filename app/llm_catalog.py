@@ -24,6 +24,8 @@ Optimized for Apple M4 Max (48GB unified memory) for local tier.
 
 from __future__ import annotations
 
+import re
+
 # ── Model catalog ──────────────────────────────────────────────────────────
 
 CATALOG: dict[str, dict] = {
@@ -498,6 +500,105 @@ TASK_ALIASES: dict[str, str] = {
     "reason": "reasoning", "analyze": "reasoning", "think": "reasoning",
 }
 
+# ── Canonical task-type taxonomy ──────────────────────────────────────────
+# Nine strength-column keys used across CATALOG entries. This is the single
+# source of truth; llm_selector.detect_task_type delegates here.
+CANONICAL_TASK_TYPES: tuple[str, ...] = (
+    "coding", "debugging", "architecture", "research", "writing",
+    "reasoning", "multimodal", "vetting", "general",
+)
+
+# Crew/role → canonical task type. Covers orchestrator crew names and the
+# specialist roles registered in llm_factory. Keep in sync with
+# ROLE_DEFAULTS above and with llm_selector._KEYWORD_PATTERNS.
+_ROLE_TO_TASK: dict[str, str] = {
+    # Crew names (from orchestrator._run_crew)
+    "coding":        "coding",
+    "research":      "research",
+    "writing":       "writing",
+    "media":         "multimodal",
+    "creative":      "writing",
+    "pim":           "writing",
+    "financial":     "reasoning",
+    "desktop":       "general",
+    "repo_analysis": "architecture",
+    "devops":        "architecture",
+    "direct":        "general",
+    # Specialist roles (from ROLE_DEFAULTS)
+    "commander":     "general",
+    "critic":        "reasoning",
+    "introspector":  "reasoning",
+    "self_improve":  "research",
+    "vetting":       "vetting",
+    "synthesis":     "writing",
+    "planner":       "architecture",
+    "evo_critic":    "reasoning",
+    "architecture":  "architecture",
+    "debugging":     "debugging",
+    "reasoning":     "reasoning",
+    "multimodal":    "multimodal",
+    "default":       "general",
+}
+
+# Keyword patterns for task_hint — first match wins, so multimodal nouns
+# are checked BEFORE the "analyze/research" verbs (otherwise a prompt
+# like "analyze this screenshot" would be miscategorised as research).
+# Debugging is checked first because its vocabulary is the most specific.
+_TASK_KEYWORDS: tuple[tuple[re.Pattern, str], ...] = (
+    (re.compile(r"\b(debug|traceback|stacktrace|fix\s+bug)\b", re.I), "debugging"),
+    (re.compile(r"\b(image|photo|screenshot|picture|visual|pdf|scan)\b", re.I), "multimodal"),
+    (re.compile(r"\b(video|audio|podcast|youtube|camera|media|voice|music|mp[34])\b", re.I), "multimodal"),
+    (re.compile(r"\b(architect|design|system\s+design|review|plan)\b", re.I), "architecture"),
+    (re.compile(r"\b(code|implement|function|class|module|script|program)\b", re.I), "coding"),
+    (re.compile(r"\b(research|search|find|learn|investigate)\b", re.I), "research"),
+    (re.compile(r"\b(write|summarize|document|report|explain|describe)\b", re.I), "writing"),
+    (re.compile(r"\b(reason|think|logic|proof|math|analyze)\b", re.I), "reasoning"),
+)
+
+
+def canonical_task_type(
+    role: str = "",
+    task_hint: str = "",
+    crew_name: str = "",
+) -> str:
+    """Resolve the canonical task_type for telemetry and strength lookups.
+
+    Resolution order (most specific wins):
+      1. Keyword match inside ``task_hint``.
+      2. Direct lookup in ``TASK_ALIASES`` for ``task_hint`` or ``role``.
+      3. Crew name lookup in ``_ROLE_TO_TASK``.
+      4. Role lookup in ``_ROLE_TO_TASK``.
+      5. Fallback: ``"general"``.
+
+    Return value is guaranteed to be one of ``CANONICAL_TASK_TYPES``.
+    """
+    if task_hint:
+        hint = task_hint.strip()
+        for pattern, task_type in _TASK_KEYWORDS:
+            if pattern.search(hint):
+                return task_type
+        aliased = TASK_ALIASES.get(hint.lower())
+        if aliased in CANONICAL_TASK_TYPES:
+            return aliased
+
+    if crew_name:
+        mapped = _ROLE_TO_TASK.get(crew_name.lower())
+        if mapped:
+            return mapped
+
+    if role:
+        role_lower = role.lower()
+        mapped = _ROLE_TO_TASK.get(role_lower)
+        if mapped:
+            return mapped
+        aliased = TASK_ALIASES.get(role_lower)
+        if aliased in CANONICAL_TASK_TYPES:
+            return aliased
+        if role_lower in CANONICAL_TASK_TYPES:
+            return role_lower
+
+    return "general"
+
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -523,6 +624,24 @@ def is_multimodal(name: str) -> bool:
     return entry.get("multimodal", False) if entry else False
 
 def get_default_for_role(role: str, cost_mode: str = "balanced") -> str:
+    """Return the catalog key to use for a role in a given cost mode.
+
+    Resolution order:
+      1. Runtime overlay in ``control_plane.role_assignments`` (see
+         :mod:`app.llm_role_assignments`). Promoted models land here.
+      2. Static ROLE_DEFAULTS for the cost mode.
+      3. The cost mode's ``"default"`` entry.
+
+    The overlay hit is verified against CATALOG so a stale row pointing
+    at a retired model never returns a missing key.
+    """
+    try:
+        from app.llm_role_assignments import get_assigned_model
+        override = get_assigned_model(role, cost_mode)
+        if override and override in CATALOG:
+            return override
+    except Exception:
+        pass  # graceful degradation to static defaults
     mode_defaults = ROLE_DEFAULTS.get(cost_mode, ROLE_DEFAULTS["balanced"])
     return mode_defaults.get(role, mode_defaults["default"])
 
