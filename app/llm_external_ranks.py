@@ -59,7 +59,17 @@ _HF_LEADERBOARD_URL = (
     "https://huggingface.co/api/datasets/open-llm-leaderboard/contents/parquet/"
     "default/train/0000.parquet"
 )
-_AA_API_URL = "https://api.artificialanalysis.ai/v2/models"
+_AA_API_URL = "https://artificialanalysis.ai/api/v2/data/llms/models"
+
+# AA publishes multiple variants per model (e.g. claude-sonnet-4-6-adaptive,
+# claude-sonnet-4-6-xhigh, gpt-5-nano-xhigh). Strip the reasoning-effort /
+# adaptive-mode suffixes before catalog-key resolution so the base model
+# row wins even when AA emits multiple specialised entries.
+_AA_VARIANT_SUFFIXES: tuple[str, ...] = (
+    "-adaptive", "-thinking", "-reasoning",
+    "-xhigh", "-high", "-medium", "-low",
+    "-max-effort", "-max", "-min-effort", "-min",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,13 +112,45 @@ def _resolve_catalog_key(raw_id: str) -> str | None:
         return None
     lookup = _catalog_key_lookup()
     key = raw_id.lower()
+    # 1. Direct match
     if key in lookup:
         return lookup[key]
-    # Last-resort: suffix match on bare name
+    # 2. Suffix match on bare name (strip provider/slashes)
     bare = key.split("/")[-1]
     if bare in lookup:
         return lookup[bare]
+    # 3. Punctuation normalisation — AA emits dash-only slugs
+    #    (e.g. "deepseek-v3-2"), our catalog uses dots
+    #    (e.g. "deepseek-v3.2"). Try both directions on the bare form.
+    dashed_to_dotted = _dash_to_dot_variants(bare)
+    for variant in dashed_to_dotted:
+        if variant in lookup:
+            return lookup[variant]
     return None
+
+
+def _dash_to_dot_variants(s: str) -> list[str]:
+    """Return plausible dot/dash permutations of ``s`` for catalog match.
+
+    AA slugs like ``"deepseek-v3-2"`` correspond to catalog keys like
+    ``"deepseek-v3.2"``. The ambiguity is positional — we don't know
+    which dashes were originally dots. This helper yields a small
+    fixed set of candidates that cover the common version-number
+    conventions (``-v3.2``, ``-4.6``, ``-k2.5``) without exploding
+    into a combinatorial search.
+    """
+    out: set[str] = {s}
+    # Replace each lone digit-dash-digit with digit-dot-digit.
+    # e.g. "claude-sonnet-4-6" → "claude-sonnet-4.6"
+    #      "deepseek-v3-2"     → "deepseek-v3.2"
+    import re
+    out.add(re.sub(r"(\d)-(\d)", r"\1.\2", s))
+    # And the reverse: dot → dash (for matching catalog keys that
+    # contain dots against dashed slugs).
+    out.add(s.replace(".", "-"))
+    # Trailing version: "...v3-2" → "...3.2" (drop the v)
+    out.add(re.sub(r"-v(\d+)-(\d+)$", r"-\1.\2", s))
+    return [x for x in out if x]
 
 
 # ── Fetchers ────────────────────────────────────────────────────────────
@@ -288,36 +330,70 @@ def fetch_artificial_analysis() -> list[ExternalRank]:
 
     models = payload.get("data") or payload.get("models") or []
     ranks: list[ExternalRank] = []
-    # Intelligence and median output tok/s are the two primary AA signals.
+
+    # AA emits multiple variants per base model (reasoning modes, effort
+    # levels). Take the highest intelligence per catalog key so the base
+    # model gets its strongest available signal.
+    best_quality: dict[str, tuple[float, float]] = {}  # key -> (raw_index, normalised)
+    best_speed:   dict[str, float] = {}                # key -> tok/s
+    seen_raw:     dict[str, str] = {}                  # key -> originating slug
+
     for m in models:
         raw_id = m.get("slug") or m.get("model") or m.get("id") or ""
-        key = _resolve_catalog_key(raw_id)
+        # Strip effort/adaptive variant suffixes; fall back to the raw
+        # slug if no suffix matches so bare base rows still resolve.
+        base_id = raw_id
+        for sfx in _AA_VARIANT_SUFFIXES:
+            if base_id.endswith(sfx):
+                base_id = base_id[: -len(sfx)]
+                break
+        key = _resolve_catalog_key(base_id) or _resolve_catalog_key(raw_id)
         if not key:
             continue
 
-        intel = m.get("artificial_analysis_intelligence_index") or m.get("intelligence_index")
+        evals = m.get("evaluations") or {}
+        intel = (
+            evals.get("artificial_analysis_intelligence_index")
+            or m.get("artificial_analysis_intelligence_index")
+            or m.get("intelligence_index")
+        )
         if intel is not None:
             try:
-                val = float(intel)
+                raw_val = float(intel)
                 # AA intelligence runs roughly 0..100; clamp & normalise.
-                val = max(0.0, min(1.0, val / 100.0))
-                ranks.append(ExternalRank(
-                    source="artificial_analysis", model_id=key, metric="quality",
-                    value=round(val, 4), unit="score",
-                    raw={"raw_index": intel},
-                ))
+                norm = max(0.0, min(1.0, raw_val / 100.0))
+                prev = best_quality.get(key)
+                if prev is None or raw_val > prev[0]:
+                    best_quality[key] = (raw_val, norm)
+                    seen_raw[key] = raw_id
             except (TypeError, ValueError):
                 pass
 
-        tok_s = m.get("output_tokens_per_second_median") or m.get("tokens_per_second")
+        tok_s = (
+            m.get("median_output_tokens_per_second")
+            or m.get("output_tokens_per_second_median")
+            or m.get("tokens_per_second")
+        )
         if tok_s is not None:
             try:
-                ranks.append(ExternalRank(
-                    source="artificial_analysis", model_id=key, metric="speed_raw",
-                    value=round(float(tok_s), 2), unit="tok_s",
-                ))
+                raw_speed = float(tok_s)
+                prev = best_speed.get(key)
+                if prev is None or raw_speed > prev:
+                    best_speed[key] = raw_speed
             except (TypeError, ValueError):
                 pass
+
+    for key, (raw_val, norm) in best_quality.items():
+        ranks.append(ExternalRank(
+            source="artificial_analysis", model_id=key, metric="quality",
+            value=round(norm, 4), unit="score",
+            raw={"raw_index": raw_val, "from_slug": seen_raw.get(key, "")},
+        ))
+    for key, raw_speed in best_speed.items():
+        ranks.append(ExternalRank(
+            source="artificial_analysis", model_id=key, metric="speed_raw",
+            value=round(raw_speed, 2), unit="tok_s",
+        ))
 
     # AA speeds can be normalised against OpenRouter batch via a separate
     # reducer pass in refresh_all; we don't double-normalise here.

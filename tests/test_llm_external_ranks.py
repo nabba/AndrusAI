@@ -131,17 +131,37 @@ class TestArtificialAnalysis:
             assert ex.fetch_artificial_analysis() == []
 
     def test_emits_quality_metric(self):
+        """Matches the real AA v2 schema: evaluations nested, slug variants
+        (adaptive, xhigh, …), median_output_tokens_per_second."""
         import app.llm_external_ranks as ex
 
         payload = {
             "data": [
                 {
-                    "slug": "deepseek/deepseek-chat",
-                    "artificial_analysis_intelligence_index": 75,
-                    "output_tokens_per_second_median": 90,
+                    "slug": "deepseek-v3-2",
+                    "evaluations": {
+                        "artificial_analysis_intelligence_index": 75,
+                    },
+                    "median_output_tokens_per_second": 90,
+                },
+                # Two variants of Claude Sonnet 4.6 — the higher-intel one wins.
+                {
+                    "slug": "claude-sonnet-4-6-adaptive",
+                    "evaluations": {
+                        "artificial_analysis_intelligence_index": 51.7,
+                    },
+                    "median_output_tokens_per_second": 54.3,
                 },
                 {
-                    "slug": "anthropic/claude-sonnet-4-6",
+                    "slug": "claude-sonnet-4-6-xhigh",
+                    "evaluations": {
+                        "artificial_analysis_intelligence_index": 78,
+                    },
+                    "median_output_tokens_per_second": 47.1,
+                },
+                # Legacy/fallback field placement still supported.
+                {
+                    "slug": "gemini-3-1-pro",
                     "intelligence_index": 82,
                 },
             ],
@@ -163,7 +183,11 @@ class TestArtificialAnalysis:
         for r in ranks:
             by_model.setdefault(r.model_id, {})[r.metric] = r.value
         assert by_model["deepseek-v3.2"]["quality"] == pytest.approx(0.75)
-        assert by_model["claude-sonnet-4.6"]["quality"] == pytest.approx(0.82)
+        # xhigh variant wins for claude-sonnet-4.6 (78 > 51.7)
+        assert by_model["claude-sonnet-4.6"]["quality"] == pytest.approx(0.78)
+        # Highest tok/s wins for speed_raw (54.3 > 47.1)
+        assert by_model["claude-sonnet-4.6"]["speed_raw"] == pytest.approx(54.3)
+        assert by_model["gemini-3.1-pro"]["quality"] == pytest.approx(0.82)
 
 
 class TestBlendedScoring:
