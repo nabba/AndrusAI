@@ -14,9 +14,44 @@ All local model output still gets full vetting. Code always gets full vetting.
 import logging
 import re
 import threading
+import time
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+# ── Phase 4: vetting outcomes feed llm_benchmarks ────────────────────────────
+# The vetting gate is the richest production-quality signal the system has
+# — a failure means the model generated something that didn't survive a
+# deeper review. Feeding that back into the benchmarks table closes the
+# quality half of the feedback loop opened in Phase 1 (latency + success
+# on the tool-call path) and Phase 3 (external rankings).
+
+
+def _record_vetting_outcome(
+    generating_model: str | None,
+    crew_name: str,
+    passed: bool,
+    elapsed_ms: int,
+) -> None:
+    """Emit a benchmarks row tagged with the canonical task type.
+
+    ``generating_model`` is the model that *produced* the artefact being
+    vetted, not the model doing the vetting. Resolved via
+    ``llm_factory.get_last_model()`` at the call site when the caller
+    doesn't pass one explicitly. Silently skipped if no model can be
+    attributed to the artefact (pure-cache paths, early returns, etc.)
+    """
+    if not generating_model:
+        return
+    try:
+        from app.llm_benchmarks import record
+        from app.llm_catalog import canonical_task_type
+        task_type = canonical_task_type(role=crew_name, crew_name=crew_name)
+        record(generating_model, task_type, passed,
+               latency_ms=max(0, int(elapsed_ms)), tokens=0)
+    except Exception:
+        logger.debug("vetting: failed to record outcome", exc_info=True)
 
 # ── Cached LLM singletons for vetting (avoid re-creation per call) ───────────
 _cheap_llm = None
@@ -205,33 +240,53 @@ def assess_risk_level(
 
 # ── Verification implementations ──────────────────────────────────────────────
 
-def _verify_schema(response: str, crew_name: str) -> tuple[bool, str]:
+def _verify_schema(
+    response: str, crew_name: str,
+    generating_model: str | None = None,
+) -> tuple[bool, str]:
     """Format and sanity check — no LLM call.
 
     Returns (passed, response). If failed, caller should escalate.
+    Emits a benchmarks row for the generating model when known.
     """
+    t_start = time.monotonic()
     text = response.strip()
+
+    def _finish(ok: bool) -> tuple[bool, str]:
+        _record_vetting_outcome(
+            generating_model, crew_name, ok,
+            int((time.monotonic() - t_start) * 1000),
+        )
+        return ok, response
 
     # Check for empty or near-empty
     if len(text) < 10:
         logger.info("vetting[schema]: failed — response too short")
-        return False, response
+        return _finish(False)
 
     # Check for known failure patterns
     for pattern in _FAILURE_PATTERNS:
         if pattern.match(text):
             logger.info(f"vetting[schema]: failed — matched failure pattern")
-            return False, response
+            return _finish(False)
 
     # Length sanity (Signal messages should be <1500 chars for writing/research)
     if crew_name in ("writing", "research") and len(text) > 4000:
         logger.info("vetting[schema]: warning — response exceeds 4000 chars, but passing")
 
-    return True, response
+    return _finish(True)
 
 
-def _verify_cheap(user_request: str, response: str, crew_name: str) -> tuple[bool, str]:
-    """Quick yes/no check via budget model. Returns (passed, response)."""
+def _verify_cheap(
+    user_request: str, response: str, crew_name: str,
+    generating_model: str | None = None,
+) -> tuple[bool, str]:
+    """Quick yes/no check via budget model. Returns (passed, response).
+
+    Records the verdict against ``generating_model`` — the model that
+    *produced* the response, not the cheap judge doing the review.
+    """
+    t_start = time.monotonic()
     try:
         llm = _get_cheap_vetting_llm()
         prompt = CHEAP_VETTING_PROMPT.format(
@@ -241,15 +296,23 @@ def _verify_cheap(user_request: str, response: str, crew_name: str) -> tuple[boo
         # Direct LLM call — no Agent/Task/Crew overhead
         result = str(llm.call(prompt)).strip().upper()
 
-        if result.startswith("PASS"):
+        passed = result.startswith("PASS")
+        if passed:
             logger.info(f"vetting[cheap]: PASS for {crew_name}")
-            return True, response
         else:
             logger.info(f"vetting[cheap]: FAIL for {crew_name}: {result[:100]}")
-            return False, response
+        _record_vetting_outcome(
+            generating_model, crew_name, passed,
+            int((time.monotonic() - t_start) * 1000),
+        )
+        return passed, response
 
     except Exception as exc:
         logger.warning(f"vetting[cheap]: error ({exc}), escalating to full")
+        _record_vetting_outcome(
+            generating_model, crew_name, False,
+            int((time.monotonic() - t_start) * 1000),
+        )
         return False, response
 
 
@@ -277,7 +340,10 @@ Reply with the JSON object ONLY — no markdown fences, no prose.
 """
 
 
-def _verify_full(user_request: str, response: str, crew_name: str) -> str:
+def _verify_full(
+    user_request: str, response: str, crew_name: str,
+    generating_model: str | None = None,
+) -> str:
     """Full Claude Sonnet verification — pass/fail with targeted corrections only.
 
     Changed from rewrite mode to pass/fail+correct (Q3): Sonnet returns the
@@ -285,7 +351,10 @@ def _verify_full(user_request: str, response: str, crew_name: str) -> str:
     points, sources, and structure from the original.
 
     Includes L4 conscience check for irreversible/high-impact actions.
+    Records the verdict against ``generating_model``.
     """
+    t_start = time.monotonic()
+    passed = False
     try:
         llm = _get_full_vetting_llm()
         prompt = _FULL_VETTING_PROMPT.format(
@@ -304,6 +373,7 @@ def _verify_full(user_request: str, response: str, crew_name: str) -> str:
             if verdict == "PASS":
                 logger.info(f"vetting[full]: {crew_name} PASSED")
                 result = response  # return ORIGINAL unchanged
+                passed = True
             elif verdict == "FAIL":
                 issues = parsed.get("issues", [])
                 corrected = parsed.get("corrected", "")
@@ -321,6 +391,7 @@ def _verify_full(user_request: str, response: str, crew_name: str) -> str:
             if raw.upper().startswith("PASS"):
                 logger.info(f"vetting[full]: {crew_name} PASSED (plain text)")
                 result = response
+                passed = True
             else:
                 logger.warning(f"vetting[full]: unparseable response, keeping original")
                 result = response
@@ -331,10 +402,18 @@ def _verify_full(user_request: str, response: str, crew_name: str) -> str:
             logger.warning(f"vetting[conscience]: {conscience_reason}")
             result += f"\n\nNote: {conscience_reason}"
 
+        _record_vetting_outcome(
+            generating_model, crew_name, passed,
+            int((time.monotonic() - t_start) * 1000),
+        )
         return result
 
     except Exception as exc:
         logger.warning(f"vetting[full]: failed ({exc}), returning unvetted response")
+        _record_vetting_outcome(
+            generating_model, crew_name, False,
+            int((time.monotonic() - t_start) * 1000),
+        )
 
     return response
 
@@ -378,12 +457,19 @@ def vet_response(
     crew_name: str,
     difficulty: int = 5,
     model_tier: str = "unknown",
+    generating_model: str | None = None,
 ) -> str:
     """
     Risk-based selective verification of agent output.
 
     Determines the appropriate verification level based on crew type,
     task difficulty, and model tier, then applies the corresponding check.
+
+    ``generating_model`` is the catalog key of the model that produced
+    ``local_response``. Each vetting stage records its pass/fail verdict
+    against that model in the benchmarks table so the selector can learn
+    from real quality outcomes. Defaults to
+    ``llm_factory.get_last_model()`` when omitted.
     """
     settings = get_settings()
 
@@ -392,6 +478,13 @@ def vet_response(
 
     if not local_response or len(local_response.strip()) < 10:
         return local_response
+
+    if generating_model is None:
+        try:
+            from app.llm_factory import get_last_model
+            generating_model = get_last_model()
+        except Exception:
+            generating_model = None
 
     risk = assess_risk_level(crew_name, difficulty, model_tier)
     logger.info(
@@ -402,25 +495,25 @@ def vet_response(
         return local_response
 
     if risk == "schema":
-        passed, result = _verify_schema(local_response, crew_name)
+        passed, result = _verify_schema(local_response, crew_name, generating_model)
         if passed:
             return result
         # Schema failed → escalate to cheap
         logger.info("vetting: schema failed, escalating to cheap verification")
-        passed, result = _verify_cheap(user_request, local_response, crew_name)
+        passed, result = _verify_cheap(user_request, local_response, crew_name, generating_model)
         if passed:
             return result
         # Cheap also failed → full verification
         logger.info("vetting: cheap failed, escalating to full verification")
-        return _verify_full(user_request, local_response, crew_name)
+        return _verify_full(user_request, local_response, crew_name, generating_model)
 
     if risk == "cheap":
-        passed, result = _verify_cheap(user_request, local_response, crew_name)
+        passed, result = _verify_cheap(user_request, local_response, crew_name, generating_model)
         if passed:
             return result
         # Cheap failed → escalate to full
         logger.info("vetting: cheap failed, escalating to full verification")
-        return _verify_full(user_request, local_response, crew_name)
+        return _verify_full(user_request, local_response, crew_name, generating_model)
 
     # risk == "full"
-    return _verify_full(user_request, local_response, crew_name)
+    return _verify_full(user_request, local_response, crew_name, generating_model)
