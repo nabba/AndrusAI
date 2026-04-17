@@ -165,6 +165,34 @@ class TrainingOrchestrator:
     def __init__(self):
         ADAPTERS_DIR.mkdir(parents=True, exist_ok=True)
         MODELS_DIR.mkdir(parents=True, exist_ok=True)
+        self._load_adapter_registry()
+
+    def _load_adapter_registry(self) -> None:
+        """Hydrate _adapters from disk so promoted adapters survive restart."""
+        path = ADAPTERS_DIR / "registry.json"
+        if not path.exists():
+            return
+        try:
+            import json
+            data = json.loads(path.read_text())
+            for name, d in data.items():
+                _adapters[name] = AdapterInfo(
+                    name=d.get("name", name),
+                    base_model=d.get("base_model", DEFAULT_BASE_MODEL),
+                    adapter_path=d.get("adapter_path", ""),
+                    training_run_id=d.get("training_run_id", ""),
+                    examples_count=int(d.get("examples_count", 0)),
+                    train_loss=float(d.get("train_loss", 0)),
+                    valid_loss=float(d.get("valid_loss", 0)),
+                    eval_score=float(d.get("eval_score", 0)),
+                    collapse_metrics=d.get("collapse_metrics", {}),
+                    promoted=bool(d.get("promoted", False)),
+                    created_at=d.get("created_at", ""),
+                    agent_roles=d.get("agent_roles", []),
+                )
+            logger.info(f"training_pipeline: loaded {len(_adapters)} adapter(s) from registry")
+        except Exception:
+            logger.debug("Failed to load adapter registry", exc_info=True)
 
     def run_training_cycle(
         self,

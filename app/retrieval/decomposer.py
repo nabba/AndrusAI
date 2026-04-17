@@ -44,7 +44,7 @@ JSON array:"""
 def _decompose_cached(query: str, max_sub: int) -> tuple[str, ...]:
     """Cached decomposition (returns tuple for hashability)."""
     try:
-        from app.llm.factory import create_cheap_vetting_llm
+        from app.llm_factory import create_cheap_vetting_llm
 
         llm = create_cheap_vetting_llm()
         prompt = _DECOMPOSITION_PROMPT.format(query=query, max_sub=max_sub)

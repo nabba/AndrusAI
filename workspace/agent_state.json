@@ -1,12 +1,12 @@
 {
   "research": {
-    "tasks_completed": 102,
+    "tasks_completed": 104,
     "tasks_failed": 3,
-    "success_rate": 0.9714,
-    "avg_confidence": 0.7853,
+    "success_rate": 0.972,
+    "avg_confidence": 0.7771,
     "by_difficulty": {
       "2": {
-        "completed": 41,
+        "completed": 42,
         "failed": 2
       },
       "3": {
@@ -26,12 +26,12 @@
         "failed": 0
       },
       "4": {
-        "completed": 10,
+        "completed": 11,
         "failed": 0
       }
     },
-    "streak": 19,
-    "last_task_at": "2026-04-16T13:04:39.384854+00:00"
+    "streak": 21,
+    "last_task_at": "2026-04-16T20:06:52.980721+00:00"
   },
   "writing": {
     "tasks_completed": 18,

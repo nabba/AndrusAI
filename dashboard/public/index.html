@@ -598,7 +598,12 @@
 <div class="card">
   <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
     <span>Knowledge Base</span>
-    <label>Category: <select id="kb-category"><option value="general">general</option><option value="technical">technical</option><option value="business">business</option><option value="research">research</option></select></label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <label style="font-size:.72rem">Business: <select id="kb-business" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:.72rem;min-height:36px">
+        <option value="">Global (shared)</option>
+      </select></label>
+      <label style="font-size:.72rem">Category: <select id="kb-category"><option value="general">general</option><option value="technical">technical</option><option value="business">business</option><option value="research">research</option></select></label>
+    </div>
   </div>
   <div id="kb-upload-zone" class="kb-upload">
     <input type="file" id="kb-file" accept=".pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.html,.json" multiple />
@@ -614,6 +619,11 @@
     <button class="cmd-btn" onclick="sendCmd('kb list')">List Docs</button>
     <button class="cmd-btn" onclick="sendCmd('kb status')">KB Status</button>
     <button class="cmd-btn danger" onclick="resetKB()">Reset KB</button>
+  </div>
+  <!-- Business KB stats -->
+  <div id="biz-kb-stats" style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+    <div style="font-size:.72rem;font-weight:600;color:var(--muted);margin-bottom:6px">Business Knowledge Bases</div>
+    <div id="biz-kb-list"><div class="empty" style="font-size:.65rem">Loading business KBs…</div></div>
   </div>
 </div>
 
@@ -1767,7 +1777,9 @@ kbFile.addEventListener("change", () => { if (kbFile.files.length) uploadKBFiles
 async function uploadKBFiles(files) {
   const MAX_SIZE = 20 * 1024 * 1024; // 20MB
   const category = document.getElementById("kb-category").value;
-  kbStatus.innerHTML = `<span style="color:var(--blue)">Uploading ${files.length} file(s)…</span>`;
+  const businessId = document.getElementById("kb-business").value; // "" = global
+  const bizLabel = businessId ? ` [${businessId}]` : "";
+  kbStatus.innerHTML = `<span style="color:var(--blue)">Uploading${bizLabel} ${files.length} file(s)…</span>`;
   let success = 0, failed = 0, lastErr = "";
   for (const file of files) {
     try {
@@ -1778,14 +1790,16 @@ async function uploadKBFiles(files) {
         r.onerror = rej;
         r.readAsDataURL(file);
       });
-      await addDoc(collection(db, "kb_queue"), {
+      const queueDoc = {
         filename: file.name,
         content_b64: b64,
         category: category,
         size: file.size,
         status: "pending",
         created_at: serverTimestamp(),
-      });
+      };
+      if (businessId) queueDoc.business_id = businessId;
+      await addDoc(collection(db, "kb_queue"), queueDoc);
       success++;
     } catch (e) {
       lastErr = e.message || "Upload error";
@@ -1839,6 +1853,34 @@ window.resetKB = function() {
     setTimeout(() => { statusEl.innerHTML = ""; }, 5000);
   });
 };
+
+// ── Business Knowledge Bases ─────────────────────────────────────────────────
+// Populate the business selector dropdown and show per-business stats.
+(function loadBusinessKBs() {
+  fetch("/kb/businesses").then(r => r.json()).then(j => {
+    const select = document.getElementById("kb-business");
+    const listEl = document.getElementById("biz-kb-list");
+    const businesses = j.businesses || [];
+    // Populate dropdown
+    businesses.forEach(b => {
+      const opt = document.createElement("option");
+      opt.value = b.business_name;
+      opt.textContent = `${b.business_name} (${b.total_chunks} chunks)`;
+      select.appendChild(opt);
+    });
+    // Show stats
+    if (businesses.length) {
+      listEl.innerHTML = businesses.map(b =>
+        `<div style="display:inline-flex;gap:6px;align-items:center;font-size:.68rem;padding:4px 8px;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.2);border-radius:5px;margin:2px">
+          <strong style="color:#38bdf8">${esc(b.business_name)}</strong>
+          <span style="color:var(--muted)">${b.total_chunks} chunks · ${b.total_documents || 0} docs</span>
+        </div>`
+      ).join("");
+    } else {
+      listEl.innerHTML = '<span style="font-size:.65rem;color:var(--muted)">No business KBs yet — create a project to auto-generate one</span>';
+    }
+  }).catch(() => {});
+})();
 
 // ── Philosophy KB ────────────────────────────────────────────────────────────
 const philZone = document.getElementById("phil-upload-zone");

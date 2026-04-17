@@ -124,18 +124,27 @@ def start_kb_queue_poller() -> None:
                         # Handle delete action
                         if action == "delete":
                             source_path = data.get("source_path", "")
+                            business_id = data.get("business_id", "")
                             if source_path:
-                                from app.knowledge_base.vectorstore import KnowledgeStore
-                                ks = KnowledgeStore()
+                                if business_id and business_id != "default":
+                                    from app.knowledge_base.business_store import get_registry
+                                    ks = get_registry().get_or_create(business_id)
+                                else:
+                                    from app.knowledge_base.vectorstore import KnowledgeStore
+                                    ks = KnowledgeStore()
                                 removed = ks.remove_document(source_path)
                                 snap.reference.update({
                                     "status": "done",
                                     "removed": removed,
                                     "processed_at": _now_iso(),
                                 })
-                                logger.info(f"firebase.listeners: KB removed '{source_path}' ({removed} chunks)")
+                                biz_label = f" [{business_id}]" if business_id else ""
+                                logger.info(f"firebase.listeners: KB{biz_label} removed '{source_path}' ({removed} chunks)")
                                 from app.firebase.publish import report_knowledge_base
                                 report_knowledge_base()
+                                if business_id:
+                                    from app.firebase.publish import report_business_kb
+                                    report_business_kb(business_id)
                             else:
                                 snap.reference.update({"status": "error", "error": "No source_path"})
                             continue
@@ -154,8 +163,14 @@ def start_kb_queue_poller() -> None:
                             tmp_path = tmp.name
 
                         try:
-                            from app.knowledge_base.vectorstore import KnowledgeStore
-                            ks = KnowledgeStore()
+                            # Route to business KB or global KB based on business_id.
+                            business_id = data.get("business_id", "")
+                            if business_id and business_id != "default":
+                                from app.knowledge_base.business_store import get_registry
+                                ks = get_registry().get_or_create(business_id)
+                            else:
+                                from app.knowledge_base.vectorstore import KnowledgeStore
+                                ks = KnowledgeStore()
                             result = ks.add_document(tmp_path, category=category)
 
                             # Store original filename mapping in Firestore for dashboard
@@ -164,11 +179,16 @@ def start_kb_queue_poller() -> None:
                                 "chunks_created": result.chunks_created,
                                 "original_filename": fname,
                                 "source_path": tmp_path,
+                                "business_id": business_id or "global",
                                 "processed_at": _now_iso(),
                             })
-                            logger.info(f"firebase.listeners: KB ingested '{fname}' -> {result.chunks_created} chunks")
+                            biz_label = f" [{business_id}]" if business_id else ""
+                            logger.info(f"firebase.listeners: KB{biz_label} ingested '{fname}' -> {result.chunks_created} chunks")
                             from app.firebase.publish import report_knowledge_base
                             report_knowledge_base()
+                            if business_id:
+                                from app.firebase.publish import report_business_kb
+                                report_business_kb(business_id)
                         finally:
                             import os as _os
                             _os.unlink(tmp_path)

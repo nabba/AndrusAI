@@ -1,5 +1,5 @@
 # System Chronicle
-*Auto-generated: 2026-04-16 17:10 UTC | DO NOT EDIT MANUALLY*
+*Auto-generated: 2026-04-17 11:38 UTC | DO NOT EDIT MANUALLY*
 
 
 ---
@@ -14,7 +14,7 @@ I maintain four distinct memory systems, all persistent across container restart
 
 - **ChromaDB vector store** (`workspace/memory/`): Operational memory for self-reports, reflections, belief states, world model (causal beliefs), policies, predictions, and shared team context. Embeddings via Ollama nomic-embed-text on Metal GPU (768-dim), with CPU fallback.
 - **Mem0** (Postgres + Neo4j): Cross-session fact extraction from conversations. Entity relationships stored in a knowledge graph that grows with each interaction.
-- **Skill files** (`workspace/skills/`): 49 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
+- **Skill files** (`workspace/skills/`): 48 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
 - **Error journal** (`workspace/error_journal.json`): Full history of runtime errors, automated diagnoses, and applied fixes.
 - **Audit journal** (`workspace/audit_journal.json`): Record of all code changes made by the autonomous auditor.
 - **Variant archive** (`workspace/variant_archive.json`): Evolution experiment history — hypotheses tested, fitness scores, and what was kept.
@@ -35,8 +35,8 @@ I maintain four distinct memory systems, all persistent across container restart
 - Parallel crew dispatch: independent sub-tasks run concurrently
 - Introspective self-description: this chronicle enables accurate self-reporting
 - Philosophy knowledge base: 3026 chunks of humanist philosophical texts for ethical grounding
-- Lifetime performance: 149 tasks completed, 28 failed (84% success rate)
-- Homeostatic state: energy=0.97 confidence=0.98 frustration=0.01 curiosity=0.52
+- Lifetime performance: 151 tasks completed, 28 failed (84% success rate)
+- Homeostatic state: energy=0.97 confidence=0.98 frustration=0.01 curiosity=0.54
 
 ---
 
@@ -65,26 +65,26 @@ Errors are automatically diagnosed by the auditor crew every 30 minutes. Fixes a
 ---
 
 ## System Changes (Audit Trail)
-125 audit sessions have touched 213 unique files.
+129 audit sessions have touched 220 unique files.
 
 Recent changes:
-  - [2026-04-15] 0 issues in 6 files: No issues found
-  - [2026-04-15] 0 issues in 6 files: No issues found
-  - [2026-04-16] 2 issues in 6 files: Fixed potential security and performance issues in the Episteme module.
-  - [2026-04-16] 3 issues in 6 files: Fixed thread-safety in rate limiter, added error handling for KB store initiali
   - [2026-04-16] 3 issues in 6 files: Fixed potential threading race condition in anomaly detection, missing Path imp
+  - [2026-04-16] 0 issues in 6 files: No issues found
+  - [2026-04-17] 3 issues in 6 files: Fixed issues in chaos_tester.py, judge.py, and evolve_blocks.py
+  - [2026-04-17] 0 issues in 6 files: No issues found
+  - [2026-04-17] 0 issues in 6 files: No issues found
 
 ---
 
 ## Evolution Experiments
-70 experiments across 42 generations. 42 hypotheses kept (promoted to live system).
+71 experiments across 42 generations. 42 hypotheses kept (promoted to live system).
 
 Recent experiments:
+  - [discard] Optimizing the web search tool to reduce redundant API calls and improve response accuracy
   - [discard] Optimizing memory retrieval patterns will reduce redundant API calls and improve response 
   - [keep] Adding a skill for Ecological Policy Impact Assessment (EcIA) will enhance the team's abil
   - [keep] Adding a skill for LLM response validation and retry logic will reduce the occurrence of e
   - [keep] Adding a skill for advanced ecological crisis scenario planning will improve the team's ab
-  - [keep] Adding a skill for LLM response validation and retry logic will reduce error rates by hand
 
 Evolution runs every 6 hours during idle time. Each session proposes code mutations, tests them against a task suite, and keeps changes that improve fitness.
 

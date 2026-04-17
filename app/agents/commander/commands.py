@@ -855,5 +855,222 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         except Exception as exc:
             return f"Error: {str(exc)[:200]}"
 
+    # ── Natural-language scheduling (T2-6) ───────────────────────────────
+    # Usage: "schedule <task> <natural-language-time>"
+    #        e.g. "schedule daily briefing every weekday at 7am"
+    _schedule_match = re.match(r"^schedule\s+(.+?)\s+((?:every|each|on|at|daily|hourly|weekdays?|weekends?|mon|tue|wed|thu|fri|sat|sun).*)$", lower)
+    if _schedule_match:
+        task = _schedule_match.group(1).strip()[:200]
+        when = _schedule_match.group(2).strip()[:200]
+        try:
+            from app.cron.nl_parser import nl_to_cron, describe_cron
+            cron_expr = nl_to_cron(when)
+            if not cron_expr:
+                return f"Could not parse schedule: {when!r}. Try 'every day at 7am' or 'weekdays at 9:30'."
+            from apscheduler.schedulers.asyncio import AsyncIOScheduler  # noqa: F401
+            from apscheduler.triggers.cron import CronTrigger
+            import uuid
+            job_id = f"nl_{uuid.uuid4().hex[:8]}"
+            from app.main import scheduler as _sched
+
+            def _run_nl_job(_task=task, _sender=sender):
+                try:
+                    commander.handle(_task, _sender, [])
+                except Exception:
+                    logger.exception(f"NL scheduled job failed: {_task[:60]}")
+
+            _sched.add_job(
+                _run_nl_job,
+                CronTrigger.from_crontab(cron_expr),
+                id=job_id,
+                name=task,
+                replace_existing=True,
+            )
+            # Persist so schedules survive restart
+            try:
+                _persist_nl_job(job_id, task, cron_expr, sender)
+            except Exception:
+                logger.debug("Failed to persist NL job", exc_info=True)
+            return (
+                f"✅ Scheduled job `{job_id}`: {task}\n"
+                f"   Cron: `{cron_expr}` ({describe_cron(cron_expr)})\n"
+                f"   Use `jobs` to list, `cancel {job_id}` to remove."
+            )
+        except Exception as exc:
+            return f"Schedule error: {str(exc)[:200]}"
+
+    if lower in ("jobs", "list jobs", "show jobs"):
+        try:
+            from app.main import scheduler as _sched
+            jobs = _sched.get_jobs()
+            if not jobs:
+                return "No scheduled jobs."
+            lines = [f"🗓️  Scheduled jobs ({len(jobs)}):"]
+            for j in jobs:
+                next_run = j.next_run_time.isoformat() if j.next_run_time else "—"
+                lines.append(f"  - {j.id}: {j.name or j.id} → next {next_run}")
+            return "\n".join(lines)
+        except Exception as exc:
+            return f"Jobs error: {str(exc)[:200]}"
+
+    _cancel_match = re.match(r"^cancel\s+([A-Za-z0-9_\-]+)$", lower)
+    if _cancel_match:
+        job_id = _cancel_match.group(1)
+        try:
+            from app.main import scheduler as _sched
+            _sched.remove_job(job_id)
+            _delete_nl_job(job_id)
+            return f"✅ Cancelled job `{job_id}`."
+        except Exception as exc:
+            return f"Cancel error: {str(exc)[:200]}"
+
+    # ── /compress and /usage (T3-11) ─────────────────────────────────────
+    if lower in ("/compress", "compress"):
+        try:
+            from app.history_compression import get_history
+            from app.security import _sender_hash
+            h = get_history(_sender_hash(sender))
+            before = h.total_tokens
+            h.compress()
+            after = h.total_tokens
+            stats = h.get_stats()
+            return (
+                f"🗜️  Compression ran.\n"
+                f"   Tokens: {before} → {after}\n"
+                f"   Bulks: {stats['bulks']}, topics: {stats['topics']}, "
+                f"current: {stats['current_messages']} msgs\n"
+                f"   Utilization: {stats['utilization']}"
+            )
+        except Exception as exc:
+            return f"Compress error: {str(exc)[:200]}"
+
+    if lower in ("/usage", "usage"):
+        try:
+            from app.history_compression import get_history
+            from app.security import _sender_hash
+            h = get_history(_sender_hash(sender))
+            s = h.get_stats()
+            lines = [
+                "📊 Session usage:",
+                f"  Tokens: {s['total_tokens']} / {s['max_tokens']} ({s['utilization']})",
+                f"  Bulks: {s['bulks']}, topics: {s['topics']}, current: {s['current_messages']} msgs",
+                f"  Needs compression: {'yes' if s['needs_compression'] else 'no'}",
+            ]
+            # Day's token usage from tracker
+            try:
+                from app.rate_throttle import format_token_stats
+                lines.append("")
+                lines.append(format_token_stats("day"))
+            except Exception:
+                pass
+            return "\n".join(lines)
+        except Exception as exc:
+            return f"Usage error: {str(exc)[:200]}"
+
+    # ── MCP status (T1-1) ────────────────────────────────────────────────
+    if lower in ("mcp", "mcp status", "mcp servers"):
+        try:
+            from app.mcp.registry import format_status
+            return format_status()
+        except Exception as exc:
+            return f"MCP error: {str(exc)[:200]}"
+
+    # ── Training controls (T4-14) ────────────────────────────────────────
+    if lower in ("training", "training status"):
+        try:
+            from app.training_pipeline import get_orchestrator
+            return get_orchestrator().format_report()
+        except Exception as exc:
+            return f"Training: {str(exc)[:200]}"
+
+    if lower == "train now":
+        import threading as _th
+
+        def _bg_train():
+            try:
+                from app.training_pipeline import run_training_cycle
+                result = run_training_cycle()
+                logger.info(f"Manual training: {result.get('status')}")
+            except Exception:
+                logger.error("Manual training failed", exc_info=True)
+
+        _th.Thread(target=_bg_train, daemon=True, name="manual-train").start()
+        return "🎓 Training started in background. Check 'training status' later."
+
+    _export_match = re.match(r"^export training\s+(\w+)", lower)
+    if _export_match:
+        fmt = _export_match.group(1)
+        try:
+            from app.training_collector import get_pipeline
+            result = get_pipeline().export_format(fmt)
+            if result.get("error"):
+                return f"Export error: {result['error']}"
+            return f"✅ Exported {result['exported']} examples ({fmt})\n   Path: {result['path']}"
+        except Exception as exc:
+            return f"Export error: {str(exc)[:200]}"
+
     # No command matched
     return None
+
+
+# ── NL job persistence (T2-6) ────────────────────────────────────────────────
+
+_NL_JOBS_FILE = Path("/app/workspace/nl_jobs.json")
+
+
+def _persist_nl_job(job_id: str, task: str, cron_expr: str, sender: str) -> None:
+    import json as _json
+    jobs = _read_nl_jobs()
+    jobs[job_id] = {"task": task, "cron": cron_expr, "sender": sender}
+    _NL_JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _NL_JOBS_FILE.write_text(_json.dumps(jobs, indent=2))
+
+
+def _delete_nl_job(job_id: str) -> None:
+    jobs = _read_nl_jobs()
+    if job_id in jobs:
+        import json as _json
+        jobs.pop(job_id, None)
+        _NL_JOBS_FILE.write_text(_json.dumps(jobs, indent=2))
+
+
+def _read_nl_jobs() -> dict:
+    if not _NL_JOBS_FILE.exists():
+        return {}
+    try:
+        import json as _json
+        return _json.loads(_NL_JOBS_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def restore_nl_jobs(scheduler, commander) -> int:
+    """Re-register persisted NL jobs on startup. Returns count restored."""
+    from apscheduler.triggers.cron import CronTrigger
+    jobs = _read_nl_jobs()
+    restored = 0
+    for job_id, data in jobs.items():
+        task = data.get("task", "")
+        cron_expr = data.get("cron", "")
+        sender = data.get("sender", "")
+        if not (task and cron_expr and sender):
+            continue
+
+        def _make_runner(_task, _sender):
+            def _run():
+                try:
+                    commander.handle(_task, _sender, [])
+                except Exception:
+                    logger.exception(f"NL scheduled job failed: {_task[:60]}")
+            return _run
+
+        try:
+            scheduler.add_job(
+                _make_runner(task, sender),
+                CronTrigger.from_crontab(cron_expr),
+                id=job_id, name=task, replace_existing=True,
+            )
+            restored += 1
+        except Exception:
+            logger.debug(f"Failed to restore NL job {job_id}", exc_info=True)
+    return restored

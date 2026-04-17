@@ -405,6 +405,16 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.debug("Tool plugin registration failed (non-fatal)", exc_info=True)
 
+    # ── Training adapter registry (T4-14) — hydrate promoted adapters ───
+    # Without this, _get_promoted_adapter() in llm_factory sees an empty dict
+    # on cold start, and MLX-adapter inference never fires until a training
+    # cycle runs. Instantiating the orchestrator triggers registry load.
+    try:
+        from app.training_pipeline import get_orchestrator
+        _ = get_orchestrator()
+    except Exception:
+        logger.debug("Training orchestrator init failed (non-fatal)", exc_info=True)
+
     # ── Phase 16a: SubIA consciousness wire-in ──────────────────────────
     # Opt-in via SUBIA_FEATURE_FLAG_LIVE=1. When disabled, the entire
     # SubIA stack stays unimported (no latency, no memory, no risk).

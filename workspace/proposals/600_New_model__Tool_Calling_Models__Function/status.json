@@ -1,0 +1,10 @@
+{
+  "id": 600,
+  "title": "New model: Tool Calling Models (Function Calls)",
+  "type": "skill",
+  "status": "pending",
+  "created_at": "2026-04-17T08:55:51.649879+00:00",
+  "applied_at": null,
+  "dirname": "600_New_model__Tool_Calling_Models__Function",
+  "resolution_target": ""
+}

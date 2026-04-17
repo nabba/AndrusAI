@@ -2,3 +2,5 @@
 {"version": 2, "reason": "promoted (was v001)", "timestamp": "2026-04-15T12:54:49.024623+00:00", "status": "promoted"}
 {"version": 3, "reason": "Island evolution: fitness=0.950, strategy=inspiration", "timestamp": "2026-04-16T15:40:17.508350+00:00", "status": "proposed"}
 {"version": 3, "reason": "promoted (was v002)", "timestamp": "2026-04-16T15:40:17.511533+00:00", "status": "promoted"}
+{"version": 4, "reason": "Island evolution: fitness=0.975, strategy=depth_exploit", "timestamp": "2026-04-17T11:26:51.942324+00:00", "status": "proposed"}
+{"version": 4, "reason": "promoted (was v003)", "timestamp": "2026-04-17T11:26:51.945332+00:00", "status": "promoted"}

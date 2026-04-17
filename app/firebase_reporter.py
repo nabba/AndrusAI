@@ -45,6 +45,12 @@ from app.firebase.publish import (  # noqa: F401
     detect_credit_error,
     _active_alerts,
     _trim_chat_messages,
+    report_episteme_kb,
+    report_experiential_kb,
+    report_aesthetics_kb,
+    report_tensions_kb,
+    report_business_kb,
+    report_all_business_kbs,
 )
 
 # ── Listeners (pollers, mode listener, Firestore reads) ─────────────────────

@@ -122,6 +122,14 @@ class Settings(BaseSettings):
     bridge_host: str = "host.docker.internal"
     bridge_port: int = 9100
 
+    # ── MCP (Model Context Protocol) ────────────────────────────────────
+    # Client-side consumption of external MCP servers (e.g. filesystem,
+    # github, gdrive). Servers are declared in MCP_SERVERS (JSON array) or
+    # /app/workspace/mcp_servers.json. Each server's tools become available
+    # to every agent via the base_crew tool plugin registry.
+    mcp_client_enabled: bool = False
+    mcp_servers_json: str = ""  # optional inline JSON override
+
     # ── Agent Zero amendments ───────────────────────────────────────────
     history_compression_enabled: bool = True   # 3-tier conversation compression
     lifecycle_hooks_enabled: bool = True       # ordered execution hooks

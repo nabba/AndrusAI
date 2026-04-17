@@ -133,6 +133,10 @@ class BridgeClient:
             "output_path": output_path,
         })
 
+    def mlx_status(self) -> dict:
+        """Query MLX availability on the host."""
+        return self._request("GET", "/mlx/status")
+
     # ── Status ────────────────────────────────────────────────────
 
     def health(self) -> dict:

@@ -837,6 +837,177 @@ class TestFullPipelineSmokeTest:
         assert orch is not None
         assert orch.config.rerank_enabled is False
 
+    def test_business_store_file_exists(self):
+        path = _APP_DIR / "knowledge_base" / "business_store.py"
+        assert path.exists()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PER-BUSINESS KNOWLEDGE BASES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestBusinessKBStructure:
+    """Business KB registry source-level verification."""
+
+    def test_registry_module_exists(self):
+        src = _read_src("knowledge_base/business_store.py")
+        assert "class BusinessKBRegistry" in src
+        assert "def get_or_create" in src
+        assert "def create_store" in src
+        assert "def list_businesses" in src
+        assert "def query_business" in src
+        assert "def discover_existing" in src
+
+    def test_collection_naming(self):
+        src = _read_src("knowledge_base/business_store.py")
+        assert 'BUSINESS_KB_PREFIX = "biz_kb_"' in src
+
+    def test_thread_safety(self):
+        src = _read_src("knowledge_base/business_store.py")
+        assert "threading.Lock()" in src
+
+
+class TestBusinessKBWiring:
+    """Business KB wired into project creation and context injection."""
+
+    def test_project_isolation_creates_kb(self):
+        src = _read_src("project_isolation.py")
+        assert "business_store" in src
+        assert "create_store" in src
+
+    def test_control_plane_creates_kb(self):
+        src = _read_src("control_plane/projects.py")
+        assert "business_store" in src
+        assert "create_store" in src
+
+    def test_context_injection_queries_business_kb(self):
+        src = _read_src("agents/commander/context.py")
+        assert "business_store" in src
+        assert "active_business" in src
+        assert "biz_store" in src or "get_registry" in src
+
+    def test_kb_tool_queries_business_kb(self):
+        src = _read_src("knowledge_base/tools.py")
+        assert "business_store" in src
+        assert "active_business" in src or "project_isolation" in src
+
+    def test_context_labels_provenance(self):
+        """KB results must show whether they came from global or business KB."""
+        src = _read_src("agents/commander/context.py")
+        assert "_kb_source" in src
+        assert "global" in src
+
+
+class TestBusinessKBAPI:
+    """Business KB API endpoints exist."""
+
+    def test_business_endpoints(self):
+        src = _read_src("api/kb.py")
+        assert "/businesses" in src
+        assert "/business/{business_id}/status" in src
+        assert "/business/{business_id}/upload" in src
+        assert "/business/{business_id}/remove" in src
+        assert "/business/{business_id}/reset" in src
+
+    def test_firebase_queue_supports_business(self):
+        src = _read_src("firebase/listeners.py")
+        assert "business_id" in src
+        assert "get_registry" in src or "business_store" in src
+
+    def test_firebase_publish_business_kb(self):
+        src = _read_src("firebase/publish.py")
+        assert "def report_business_kb" in src
+        assert "def report_all_business_kbs" in src
+        assert "biz_kb_" in src
+
+
+class TestBusinessKBDashboard:
+    """Dashboard has business KB UI."""
+
+    def test_react_has_business_section(self):
+        kb_src = Path(__file__).parent.parent / "dashboard-react" / "src" / "components" / "KnowledgeBases.tsx"
+        src = kb_src.read_text()
+        assert "BusinessKBSection" in src
+        assert "BusinessKBCard" in src
+        assert "/kb/businesses" in src
+        assert "/kb/business/" in src
+
+    def test_monitor_has_business_selector(self):
+        monitor_src = Path(__file__).parent.parent / "dashboard" / "public" / "index.html"
+        src = monitor_src.read_text()
+        assert "kb-business" in src
+        assert "business_id" in src
+        assert "biz-kb-list" in src
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUDIT FIXES VERIFICATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestAuditFixes:
+    """Verify all issues from the KB architecture audit are fixed."""
+
+    def test_import_paths_correct(self):
+        """All LLM factory imports must use app.llm_factory (not app.llm.factory)."""
+        for f in ["retrieval/decomposer.py", "experiential/journal_writer.py", "tensions/detector.py"]:
+            src = _read_src(f)
+            assert "app.llm.factory" not in src, f"{f} still uses wrong import path"
+            assert "app.llm_factory" in src, f"{f} missing correct import"
+
+    def test_orchestrator_journal_uses_result(self):
+        """JournalWriter call must use 'result' not 'crew_result'."""
+        src = _read_src("agents/commander/orchestrator.py")
+        # Find the JournalWriter block
+        idx = src.find("JournalWriter().write_post_task_reflection")
+        assert idx > 0
+        block = src[idx:idx+300]
+        assert "crew_result" not in block, "Still uses undefined crew_result"
+        assert "str(result)" in block
+
+    def test_context_pruning_knows_new_blocks(self):
+        """_prune_context must recognize all KB block headers."""
+        src = _read_src("agents/commander/context.py")
+        assert '"RESEARCH CONTEXT"' in src
+        assert '"EXPERIENTIAL CONTEXT"' in src
+        assert '"QUALITY PATTERNS"' in src
+        assert '"UNRESOLVED TENSIONS"' in src
+
+    def test_episteme_api_reports_firebase(self):
+        """Episteme upload must call _report_async."""
+        src = _read_src("episteme/api.py")
+        assert "_report_async()" in src
+        assert "def _report_async" in src
+        assert "report_episteme_kb" in src
+
+    def test_firebase_reporter_exports_all(self):
+        """firebase_reporter.py must re-export all new report functions."""
+        src = (_APP_DIR.parent / "app" / "firebase_reporter.py").read_text()
+        for fn in ["report_episteme_kb", "report_experiential_kb",
+                    "report_aesthetics_kb", "report_tensions_kb",
+                    "report_business_kb", "report_all_business_kbs"]:
+            assert fn in src, f"Missing re-export: {fn}"
+
+    def test_detect_and_store_is_wired(self):
+        """detect_and_store must be called from context injection."""
+        src = _read_src("agents/commander/context.py")
+        assert "detect_and_store" in src
+
+    def test_kb_delete_handles_business_id(self):
+        """Firebase KB queue delete action must handle business_id."""
+        src = _read_src("firebase/listeners.py")
+        # Find the delete action block
+        idx = src.find('if action == "delete"')
+        assert idx > 0
+        block = src[idx:idx+600]
+        assert "business_id" in block, "Delete action ignores business_id"
+
+    def test_vectorstores_log_dimension_errors(self):
+        """Aesthetic/tension vectorstores must log dimension mismatches."""
+        for f in ["aesthetics/vectorstore.py", "tensions/vectorstore.py"]:
+            src = _read_src(f)
+            assert "logger.warning" in src, f"{f} has silent error handling"
+            assert "dimension" in src.lower()
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

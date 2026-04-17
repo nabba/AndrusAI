@@ -155,3 +155,35 @@ class SkillRecord:
     last_used_at: str = ""
     provenance: dict = field(default_factory=dict)  # gap_id, draft_id, …
     created_at: str = field(default_factory=_now_iso)
+
+    # ── Conditional activation (T3-9) ─────────────────────────────────
+    # Skill is only surfaced to agents when the current execution context
+    # matches all of these predicates. Empty string / empty list = no filter.
+    requires_mode: str = ""         # "local" | "cloud" | "hybrid" | "insane" | "" (any)
+    requires_tier: str = ""         # "local" | "budget" | "mid" | "premium" | "" (any)
+    fallback_for_mode: str = ""     # Show ONLY when this mode is NOT active
+    requires_tools: list[str] = field(default_factory=list)
+
+    def matches_context(self, mode: str = "", cost_mode: str = "") -> bool:
+        """Check if this skill should activate in the current context.
+
+        Args:
+            mode: Current LLM mode (local/cloud/hybrid/insane)
+            cost_mode: Current cost mode (budget/balanced/quality)
+
+        Returns True if all conditions are met (or if no conditions set).
+        """
+        if self.requires_mode and self.requires_mode != mode:
+            return False
+        if self.fallback_for_mode and self.fallback_for_mode == mode:
+            return False
+        if self.requires_tier and cost_mode:
+            _tier_access = {
+                "budget": {"local", "budget"},
+                "balanced": {"local", "budget", "mid"},
+                "quality": {"local", "budget", "mid", "premium"},
+            }
+            allowed = _tier_access.get(cost_mode, {"local", "budget", "mid", "premium"})
+            if self.requires_tier not in allowed:
+                return False
+        return True

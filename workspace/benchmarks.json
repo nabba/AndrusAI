@@ -1454,5 +1454,21 @@
     "metadata": {
       "crew": "research"
     }
+  },
+  {
+    "ts": "2026-04-16T18:57:36.135317+00:00",
+    "metric": "task_completion_time",
+    "value": 7.6871431279869284,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-16T20:06:52.703582+00:00",
+    "metric": "task_completion_time",
+    "value": 78.61749903601594,
+    "metadata": {
+      "crew": "research"
+    }
   }
 ]

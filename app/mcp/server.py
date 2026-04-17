@@ -1,5 +1,7 @@
 """
-mcp_server.py — Model Context Protocol server for AndrusAI (P6).
+mcp/server.py — Model Context Protocol server for AndrusAI (P6).
+
+(Moved from app/mcp_server.py as part of the unified MCP package.)
 
 Exposes five resource types and three tools via the MCP standard, enabling
 external LLM applications (Claude Desktop, custom agents, IDE copilots)
@@ -19,9 +21,6 @@ Tools (actions MCP clients can invoke):
 
 Transport: SSE (Server-Sent Events) mounted on the existing FastAPI app
 at /mcp/sse — no separate process needed.
-
-IMMUTABLE — infrastructure-level module. Agents do not access this directly;
-external clients connect via MCP protocol.
 """
 from __future__ import annotations
 
@@ -48,14 +47,16 @@ def mount_mcp_routes(app: Any) -> bool:
 
     try:
         from mcp.server import Server
+        # Keep SDK SSE transport for serving (it handles the SSE protocol).
+        # Our shared app/mcp/transports.py is for client-side consumption.
         from mcp.server.sse import SseServerTransport
         from mcp.types import Resource, Tool, TextContent
     except ImportError:
-        logger.info("mcp_server: mcp SDK not installed — MCP endpoints disabled. "
+        logger.info("mcp.server: mcp SDK not installed — MCP endpoints disabled. "
                      "Install with: pip install mcp")
         return False
 
-    from starlette.routing import Route, Mount
+    from starlette.routing import Route
 
     server = Server("andrusai")
     sse_transport = SseServerTransport("/mcp/messages/")
@@ -200,7 +201,7 @@ def mount_mcp_routes(app: Any) -> bool:
     app.routes.append(Route("/mcp/messages/", endpoint=handle_messages, methods=["POST"]))
 
     _mounted = True
-    logger.info("mcp_server: MCP SSE endpoints mounted at /mcp/sse")
+    logger.info("mcp.server: MCP SSE endpoints mounted at /mcp/sse")
     return True
 
 
@@ -230,7 +231,7 @@ def _read_philosophy(query: str, tradition: str | None = None, n: int = 5) -> st
 
 def _read_mcsv(agent_id: str) -> str:
     try:
-        from app.subia.belief.internal_state import MetacognitiveStateVector, CertaintyVector, SomaticMarker
+        from app.subia.belief.internal_state import MetacognitiveStateVector
         # Return a default MCSV — live integration requires hooking into the
         # sentience pipeline, which runs per-request. This gives the schema.
         mcsv = MetacognitiveStateVector()

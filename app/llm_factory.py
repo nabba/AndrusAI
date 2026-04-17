@@ -72,10 +72,87 @@ def _cached_llm(model_id: str, max_tokens: int = 4096, *, sampling_key: str = ""
         if cached is not None:
             return cached
         LLM = _get_LLM_class()
+
+        # ── Anthropic prompt caching: enable via extra_headers ──
+        # Reduces cost by ~90% on cached prefix tokens (system prompt,
+        # constitution, soul files). Only activates for Claude models.
+        # litellm passes extra_headers through to the Anthropic SDK.
+        if _is_anthropic_model(model_id):
+            extra_headers = kwargs.pop("extra_headers", {}) or {}
+            extra_headers["anthropic-beta"] = "prompt-caching-2024-07-31"
+            kwargs["extra_headers"] = extra_headers
+
         llm = LLM(model=model_id, max_tokens=max_tokens, **kwargs)
         _llm_cache[key] = llm
         logger.debug(f"llm_cache: new entry for {model_id} max={max_tokens} sampling={sampling_key!r} (cache size: {len(_llm_cache)})")
         return llm
+
+
+def _is_anthropic_model(model_id: str) -> bool:
+    """Check if a model ID is an Anthropic Claude model."""
+    lower = model_id.lower()
+    return any(k in lower for k in ("claude-opus", "claude-sonnet", "claude-haiku", "anthropic/claude"))
+
+
+def _get_promoted_adapter(role: str) -> str | None:
+    """Get promoted LoRA adapter path for an agent role, if one exists."""
+    try:
+        from app.training_pipeline import list_adapters
+        from pathlib import Path
+        for adapter in list_adapters():
+            if adapter.promoted and (role in adapter.agent_roles or "all" in adapter.agent_roles):
+                if Path(adapter.adapter_path).exists():
+                    return adapter.adapter_path
+    except Exception:
+        pass
+    return None
+
+
+class _AdapterLLM:
+    """LLM wrapper that routes inference through host bridge MLX with a LoRA adapter.
+
+    Drop-in replacement for crewai.LLM — implements the .call() interface.
+    Used when a promoted adapter exists for the agent's role AND local mode
+    is active (adapter inference only makes sense on the host Metal GPU).
+    """
+
+    def __init__(self, model: str, adapter_path: str, max_tokens: int = 4096):
+        self.model = f"mlx-adapter/{model}"
+        self._base_model = model
+        self._adapter = adapter_path
+        self._max_tokens = max_tokens
+
+    def call(self, prompt, **kwargs) -> str:
+        try:
+            from app.bridge_client import get_bridge
+            bridge = get_bridge("specialist")
+            if not bridge or not bridge.is_available():
+                raise ConnectionError("Host bridge unavailable")
+            result = bridge.mlx_generate(
+                prompt=str(prompt)[:4000],
+                model=self._base_model,
+                adapter_path=self._adapter,
+                max_tokens=self._max_tokens,
+            )
+            if "error" in result:
+                raise RuntimeError(result["error"])
+            return result.get("response", "")
+        except Exception:
+            # Fall back to Ollama base model (no adapter)
+            logger.debug("AdapterLLM falling back to Ollama", exc_info=True)
+            from app.config import get_settings
+            s = get_settings()
+            LLM = _get_LLM_class()
+            fallback = LLM(
+                model=f"ollama/{s.local_model_default}",
+                max_tokens=self._max_tokens,
+                base_url=s.local_llm_base_url,
+            )
+            return str(fallback.call(prompt))
+
+    # CrewAI compatibility — LLM is referenced via getattr in some places
+    def __str__(self):
+        return self.model
 
 
 def _get_last(attr: str) -> str | None:
@@ -337,6 +414,28 @@ def _try_local(model_name: str, entry: dict, max_tokens: int, role: str, phase: 
     if not circuit_breaker.is_available("ollama"):
         logger.info(f"llm_factory: skipping Ollama (circuit open)")
         return None
+
+    # ── Adapter-aware inference (T4-14): if a promoted LoRA adapter exists
+    #    for this role AND the host bridge's MLX is available, prefer the
+    #    _AdapterLLM path which runs on Metal GPU with the fine-tune applied.
+    adapter_path = _get_promoted_adapter(role or "default")
+    if adapter_path:
+        try:
+            from app.bridge_client import get_bridge
+            bridge = get_bridge("specialist")
+            if bridge and bridge.is_available():
+                status = bridge.mlx_status()
+                if status.get("available"):
+                    _set_last(model_name, "local")
+                    logger.info(
+                        f"llm_factory: role={role} → MLX ADAPTER "
+                        f"{adapter_path} (base={model_name})"
+                    )
+                    return _AdapterLLM(model_name, adapter_path, max_tokens)
+        except Exception:
+            logger.debug("adapter selection failed, falling back to Ollama",
+                         exc_info=True)
+
     try:
         from app.ollama_native import spawn_model
         start = time.monotonic()

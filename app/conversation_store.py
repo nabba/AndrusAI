@@ -30,44 +30,77 @@ _local = threading.local()
 _init_lock = threading.Lock()
 
 
+# ── Schema migrations (T3-10) ────────────────────────────────────────────────
+
+_MIGRATIONS: list[tuple[str, str]] = [
+    ("v1_messages", """
+        CREATE TABLE IF NOT EXISTS messages (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id TEXT    NOT NULL,
+            role      TEXT    NOT NULL,
+            content   TEXT    NOT NULL,
+            ts        TEXT    NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_sender_ts ON messages(sender_id, ts);
+    """),
+    ("v2_tasks", """
+        CREATE TABLE IF NOT EXISTS tasks (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id   TEXT    NOT NULL,
+            crew        TEXT    NOT NULL DEFAULT '',
+            started_at  TEXT    NOT NULL,
+            completed_at TEXT,
+            success     INTEGER NOT NULL DEFAULT 1,
+            duration_s  REAL,
+            error_type  TEXT    DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_tasks_started ON tasks(started_at);
+    """),
+    ("v3_fts5", """
+        CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts
+        USING fts5(content, sender_id UNINDEXED, role UNINDEXED, ts UNINDEXED,
+                   content='messages', content_rowid='id');
+    """),
+    ("v3_fts5_triggers", """
+        CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, content, sender_id, role, ts)
+            VALUES (new.id, new.content, new.sender_id, new.role, new.ts);
+        END;
+        CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, content, sender_id, role, ts)
+            VALUES ('delete', old.id, old.content, old.sender_id, old.role, old.ts);
+        END;
+    """),
+]
+
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Run pending schema migrations. Idempotent."""
+    conn.execute("CREATE TABLE IF NOT EXISTS _schema_version (name TEXT PRIMARY KEY, applied_at TEXT)")
+    applied = {r[0] for r in conn.execute("SELECT name FROM _schema_version").fetchall()}
+    for name, sql in _MIGRATIONS:
+        if name not in applied:
+            try:
+                conn.executescript(sql)
+                conn.execute(
+                    "INSERT INTO _schema_version VALUES (?, ?)",
+                    (name, datetime.now(timezone.utc).isoformat()),
+                )
+                logger.info(f"conversation_store: applied migration '{name}'")
+            except sqlite3.OperationalError as exc:
+                # FTS5 may not be compiled in on some SQLite builds — log and skip
+                logger.warning(f"conversation_store: migration '{name}' skipped: {exc}")
+    conn.commit()
+
+
 def _get_conn() -> sqlite3.Connection:
     """Return a thread-local SQLite connection, creating it if needed."""
     if not hasattr(_local, "conn") or _local.conn is None:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-        conn.execute("PRAGMA journal_mode=WAL")   # concurrent reads during writes
-        conn.execute("PRAGMA synchronous=NORMAL") # durable without full fsync overhead
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id        INTEGER PRIMARY KEY AUTOINCREMENT,
-                sender_id TEXT    NOT NULL,
-                role      TEXT    NOT NULL,  -- 'user' or 'assistant'
-                content   TEXT    NOT NULL,
-                ts        TEXT    NOT NULL
-            )
-        """)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_sender_ts "
-            "ON messages(sender_id, ts)"
-        )
-        # Task tracking table — records timing and success for metrics
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS tasks (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                sender_id   TEXT    NOT NULL,
-                crew        TEXT    NOT NULL DEFAULT '',
-                started_at  TEXT    NOT NULL,
-                completed_at TEXT,
-                success     INTEGER NOT NULL DEFAULT 1,
-                duration_s  REAL,
-                error_type  TEXT    DEFAULT ''
-            )
-        """)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tasks_started "
-            "ON tasks(started_at)"
-        )
-        conn.commit()
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        _run_migrations(conn)
         _local.conn = conn
     return _local.conn
 
@@ -322,3 +355,60 @@ def get_crew_avg_duration(crew: str) -> float:
 def estimate_eta(crew: str) -> int:
     """Return estimated seconds for a task on this crew, based on history."""
     return int(get_crew_avg_duration(crew))
+
+
+# ── FTS5 full-text search (T3-10) ────────────────────────────────────────────
+
+def search_messages(query: str, sender: str | None = None, limit: int = 10) -> list[dict]:
+    """Full-text search across conversations using FTS5.
+
+    Returns a list of dicts: {role, content_snippet, ts}. Empty list on no
+    results or if FTS5 is unavailable on this SQLite build.
+    """
+    if not query or not query.strip():
+        return []
+    import re
+    clean = re.sub(r'[^\w\s]', ' ', query).strip()
+    if not clean:
+        return []
+    try:
+        conn = _get_conn()
+        if sender:
+            sid = _sender_id(sender)
+            rows = conn.execute(
+                """SELECT m.role, m.content, m.ts,
+                          snippet(messages_fts, 0, '>>>', '<<<', '...', 40)
+                   FROM messages_fts
+                   JOIN messages m ON m.id = messages_fts.rowid
+                   WHERE messages_fts MATCH ? AND m.sender_id = ?
+                   ORDER BY m.ts DESC LIMIT ?""",
+                (clean, sid, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT m.role, m.content, m.ts,
+                          snippet(messages_fts, 0, '>>>', '<<<', '...', 40)
+                   FROM messages_fts
+                   JOIN messages m ON m.id = messages_fts.rowid
+                   WHERE messages_fts MATCH ?
+                   ORDER BY m.ts DESC LIMIT ?""",
+                (clean, limit),
+            ).fetchall()
+        return [{"role": r[0], "content_snippet": r[3] or r[1][:200], "ts": r[2]} for r in rows]
+    except Exception:
+        logger.debug("search_messages failed", exc_info=True)
+        return []
+
+
+def rebuild_fts_index() -> int:
+    """Rebuild FTS5 index from existing data. Idempotent."""
+    try:
+        conn = _get_conn()
+        conn.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+        conn.commit()
+        count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        logger.info(f"FTS5 rebuilt: {count} messages")
+        return count
+    except Exception:
+        logger.debug("FTS5 rebuild failed", exc_info=True)
+        return 0

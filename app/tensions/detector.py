@@ -53,7 +53,7 @@ def detect_tension(
     try:
         import json
         import re
-        from app.llm.factory import create_cheap_vetting_llm
+        from app.llm_factory import create_cheap_vetting_llm
 
         llm = create_cheap_vetting_llm()
         prompt = _DETECTION_PROMPT.format(

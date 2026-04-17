@@ -512,6 +512,108 @@ class CurationPipeline:
         messages.append({"role": "assistant", "content": record.get("response", "")})
         return {"messages": messages}
 
+    # ── ShareGPT / Alpaca export (T4-14) ──────────────────────────────
+
+    def _to_sharegpt(self, record: dict) -> dict:
+        conversations = []
+        role_map = {"user": "human", "assistant": "gpt", "system": "system"}
+        for m in record.get("messages", []):
+            conversations.append({
+                "from": role_map.get(m.get("role", "user"), "human"),
+                "value": m.get("content", ""),
+            })
+        conversations.append({"from": "gpt", "value": record.get("response", "")})
+        return {"conversations": conversations}
+
+    def _to_alpaca(self, record: dict) -> dict:
+        instruction = ""
+        input_ctx = ""
+        for m in reversed(record.get("messages", [])):
+            if m.get("role") == "user":
+                instruction = m.get("content", "")
+                break
+        for m in record.get("messages", []):
+            if m.get("role") == "system":
+                input_ctx = m.get("content", "")[:500]
+                break
+        return {"instruction": instruction, "input": input_ctx,
+                "output": record.get("response", "")}
+
+    def _fetch_eligible(self) -> list[dict]:
+        """Return already-scored interactions that pass the quality threshold."""
+        scored = self._load_unscored()
+        # Interactions with quality_score already set come from _load_unscored's
+        # merge path (JSONL tier) — also pull graded rows from PG directly.
+        try:
+            from app.config import get_settings
+            import psycopg2
+            s = get_settings()
+            if s.mem0_postgres_url:
+                conn = psycopg2.connect(s.mem0_postgres_url)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """SELECT id, agent_role, task_description, messages, response,
+                                  source_model, source_tier, provenance, quality_score
+                             FROM training.interactions
+                             WHERE quality_score >= %s
+                             ORDER BY created_at DESC LIMIT 2000""",
+                        (QUALITY_THRESHOLD,),
+                    )
+                    for r in cur.fetchall():
+                        scored.append({
+                            "id": r[0], "agent_role": r[1], "task_description": r[2],
+                            "messages": r[3] if isinstance(r[3], list) else json.loads(r[3] or "[]"),
+                            "response": r[4], "source_model": r[5],
+                            "source_tier": r[6], "provenance": r[7],
+                            "quality_score": float(r[8] or 0.0),
+                        })
+                conn.close()
+        except Exception:
+            pass
+
+        # Deduplicate by id and keep only eligible
+        seen: dict[str, dict] = {}
+        for r in scored:
+            rid = r.get("id", "")
+            if rid and (r.get("quality_score") or 0) >= QUALITY_THRESHOLD:
+                seen.setdefault(rid, r)
+        return list(seen.values())
+
+    def export_format(self, fmt: str, output_path: str | None = None) -> dict:
+        """Export curated data in the specified format.
+
+        Formats: 'sharegpt', 'alpaca', 'mlx' (default).
+        Returns: {"exported": int, "path": str}
+        """
+        interactions = self._fetch_eligible()
+        if not interactions:
+            return {"exported": 0, "error": "No eligible data"}
+
+        converter = {
+            "sharegpt": self._to_sharegpt,
+            "alpaca": self._to_alpaca,
+            "mlx": self._to_mlx_format,
+        }.get(fmt)
+
+        if not converter:
+            return {"exported": 0, "error": f"Unknown format: {fmt}"}
+
+        from pathlib import Path
+        from app.safe_io import safe_write
+
+        records = [converter(r) for r in interactions]
+        ext = "json" if fmt in ("sharegpt", "alpaca") else "jsonl"
+        out = Path(output_path or str(CURATED_DIR / f"{fmt}_export.{ext}"))
+        out.parent.mkdir(parents=True, exist_ok=True)
+
+        if ext == "jsonl":
+            content = "\n".join(json.dumps(r) for r in records) + "\n"
+        else:
+            content = json.dumps(records, indent=2, ensure_ascii=False)
+
+        safe_write(out, content)
+        return {"exported": len(records), "path": str(out)}
+
     def get_stats(self) -> dict:
         """Get training data collection stats."""
         try:

@@ -34,6 +34,12 @@ class ProjectManager:
                 resource_type="project",
                 detail={"name": name, "mission": mission[:200]},
             )
+            # Auto-create per-business knowledge base collection.
+            try:
+                from app.knowledge_base.business_store import get_registry
+                get_registry().create_store(name)
+            except Exception:
+                pass
         return row or {}
 
     def list_all(self) -> list[dict]:

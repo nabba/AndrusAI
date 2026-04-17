@@ -28,7 +28,8 @@ psycopg2-binary>=2.9.9
 reportlab>=4.0
 firecrawl-py>=1.0
 neo4j>=5.0
-mcp>=1.0  # Model Context Protocol — SSE server for cross-agent context
+mcp>=1.0  # Model Context Protocol — SSE server + client for cross-agent context
+playwright>=1.45  # Headless browser automation for JS-heavy pages (T1-4)
 yfinance>=0.2.0  # Free Yahoo Finance API — stock data, financials, SEC CIK mapping
 # ShinkaEvolve installed separately (httpx version conflict with crewai)
 # Install via: pip install --no-deps shinka-evolve @ git+https://github.com/SakanaAI/ShinkaEvolve.git

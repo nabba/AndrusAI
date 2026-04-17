@@ -197,6 +197,11 @@ def _persist_record(record: SkillRecord) -> bool:
             "status": record.status, "superseded_by": record.superseded_by,
             "usage_count": record.usage_count, "last_used_at": record.last_used_at,
             "created_at": record.created_at, "provenance": record.provenance,
+            "content_markdown": record.content_markdown,
+            "requires_mode": record.requires_mode,
+            "requires_tier": record.requires_tier,
+            "fallback_for_mode": record.fallback_for_mode,
+            "requires_tools": record.requires_tools,
         })
         meta = {
             "kb": record.kb, "status": record.status,
@@ -252,19 +257,64 @@ def list_records(
             try:
                 d = json.loads(doc)
                 out.append(SkillRecord(
-                    id=d["id"], topic=d["topic"], content_markdown="",
+                    id=d["id"], topic=d["topic"], content_markdown=d.get("content_markdown", ""),
                     kb=d["kb"], status=d["status"],
                     superseded_by=d.get("superseded_by", ""),
                     usage_count=int(d.get("usage_count", 0)),
                     last_used_at=d.get("last_used_at", ""),
                     provenance=d.get("provenance", {}),
                     created_at=d.get("created_at", ""),
+                    requires_mode=d.get("requires_mode", ""),
+                    requires_tier=d.get("requires_tier", ""),
+                    fallback_for_mode=d.get("fallback_for_mode", ""),
+                    requires_tools=d.get("requires_tools", []),
                 ))
             except Exception:
                 continue
         return out
     except Exception:
         return []
+
+
+def search_skills(query: str, n: int = 6) -> list[SkillRecord]:
+    """Semantic search over active SkillRecords.
+
+    Falls back to list_records() when the collection does not support
+    `query()` (e.g. during unit tests using a stub).
+    """
+    col = _get_records_collection()
+    if col is None:
+        return []
+    try:
+        if hasattr(col, "query"):
+            res = col.query(query_texts=[query], n_results=n)
+            docs = res.get("documents", [[]])[0]
+        else:
+            return list_records(limit=n)
+    except Exception:
+        return list_records(limit=n)
+
+    out: list[SkillRecord] = []
+    for doc in docs:
+        try:
+            d = json.loads(doc)
+            out.append(SkillRecord(
+                id=d["id"], topic=d["topic"],
+                content_markdown=d.get("content_markdown", ""),
+                kb=d["kb"], status=d.get("status", "active"),
+                superseded_by=d.get("superseded_by", ""),
+                usage_count=int(d.get("usage_count", 0)),
+                last_used_at=d.get("last_used_at", ""),
+                provenance=d.get("provenance", {}),
+                created_at=d.get("created_at", ""),
+                requires_mode=d.get("requires_mode", ""),
+                requires_tier=d.get("requires_tier", ""),
+                fallback_for_mode=d.get("fallback_for_mode", ""),
+                requires_tools=d.get("requires_tools", []),
+            ))
+        except Exception:
+            continue
+    return out
 
 
 def update_record(record: SkillRecord) -> bool:

@@ -364,6 +364,15 @@ class ProjectManager:
 
         (project_dir / "variables.env").write_text("# Project variables\n")
         self._projects[name] = config
+
+        # Auto-create per-business knowledge base collection.
+        try:
+            from app.knowledge_base.business_store import get_registry
+            get_registry().create_store(name)
+            logger.info(f"project_isolation: created KB collection for '{name}'")
+        except Exception as e:
+            logger.debug(f"project_isolation: KB creation for '{name}' deferred: {e}")
+
         logger.info(f"project_isolation: created project '{name}'")
         return config
 

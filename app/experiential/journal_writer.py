@@ -54,7 +54,7 @@ class JournalWriter:
 
         # Generate reflective narrative via cheap LLM.
         try:
-            from app.llm.factory import create_cheap_vetting_llm
+            from app.llm_factory import create_cheap_vetting_llm
             llm = create_cheap_vetting_llm()
             prompt = _REFLECTION_PROMPT.format(
                 crew_name=crew_name,

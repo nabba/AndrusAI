@@ -575,3 +575,49 @@ def clear_history(sender_id: str) -> None:
     """Clear a sender's compressed history."""
     with _histories_lock:
         _histories.pop(sender_id, None)
+
+
+# ── Compression Middleware ────────────────────────────────────────────────────
+
+class CompressionMiddleware:
+    """Wraps commander.handle() with automatic history tracking + compression.
+
+    Eliminates the two copy-paste blocks in main.py handle_task() by
+    centralizing message tracking and compression triggering.
+    """
+
+    def __init__(self, commander):
+        self._commander = commander
+
+    def handle(self, text: str, sender: str, attachments: list = None) -> str:
+        # Track user message in compressed history
+        try:
+            from app.config import get_settings
+            if get_settings().history_compression_enabled:
+                from app.security import _sender_hash
+                h = get_history(_sender_hash(sender))
+                h.start_new_topic()
+                h.add_message(Message(role="user", content=text[:4000]))
+        except Exception:
+            logger.debug("Compression middleware: pre failed", exc_info=True)
+
+        # Delegate to actual commander
+        result = self._commander.handle(text, sender, attachments or [])
+
+        # Track assistant response + trigger compression
+        try:
+            from app.config import get_settings
+            if get_settings().history_compression_enabled:
+                from app.security import _sender_hash
+                h = get_history(_sender_hash(sender))
+                h.add_message(Message(role="assistant", content=result[:4000]))
+                if h.needs_compression:
+                    h.compress_async()
+        except Exception:
+            logger.debug("Compression middleware: post failed", exc_info=True)
+
+        return result
+
+    # Proxy all other attributes to the underlying commander
+    def __getattr__(self, name):
+        return getattr(self._commander, name)

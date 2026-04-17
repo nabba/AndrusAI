@@ -24,6 +24,10 @@ RUN pip install --no-cache-dir --no-deps \
     pip install --no-cache-dir --no-deps hydra-core==1.3.2 omegaconf==2.3.0 antlr4-python3-runtime==4.9.3 \
     unidiff radon mando || true
 
+# Install Playwright + Chromium for browser automation tools (T1-4).
+# Chromium + its system libs are large; build skips the fonts pack to save space.
+RUN playwright install --with-deps chromium || true
+
 # Copy application code
 COPY app/ app/
 

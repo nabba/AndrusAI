@@ -74,6 +74,7 @@ class KnowledgeSearchTool(BaseTool):
         except Exception as e:
             return f"Knowledge base unavailable: {e}"
 
+        # Query global enterprise KB.
         try:
             results = store.query_reranked(
                 question=query,
@@ -87,9 +88,33 @@ class KnowledgeSearchTool(BaseTool):
                 category=category,
             )
 
+        # Also query active business KB (if project is active).
+        active_business = None
+        try:
+            from app.project_isolation import get_manager
+            ctx = get_manager().active
+            if ctx and ctx.name and ctx.name != "default":
+                active_business = ctx.name
+                from app.knowledge_base.business_store import get_registry
+                biz_results = get_registry().query_business(
+                    active_business, query, top_k=min(top_k, 10),
+                )
+                for r in biz_results:
+                    r["source"] = f"[{active_business}] {r.get('source', 'unknown')}"
+                results.extend(biz_results)
+                # Re-sort by score after merging.
+                results.sort(
+                    key=lambda r: r.get("rerank_score", r.get("blended_score", r.get("score", 0))),
+                    reverse=True,
+                )
+                results = results[:min(top_k, 15)]
+        except Exception:
+            pass
+
         if not results:
+            biz_note = f" or {active_business} business KB" if active_business else ""
             return (
-                f"No relevant information found in the knowledge base "
+                f"No relevant information found in the knowledge base{biz_note} "
                 f"for: '{query}'. The knowledge base may not contain "
                 "information on this topic."
             )
@@ -98,7 +123,7 @@ class KnowledgeSearchTool(BaseTool):
         for i, r in enumerate(results, 1):
             parts.append(
                 f"--- Result {i} (relevance: {r['score']:.0%}) ---\n"
-                f"Source: {r['source']} | Category: {r['category']}\n"
+                f"Source: {r['source']} | Category: {r.get('category', '')}\n"
                 f"Content:\n{r['text']}\n"
             )
         parts.append(

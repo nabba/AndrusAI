@@ -647,6 +647,34 @@ def report_tensions_kb() -> None:
         logger.debug("firebase.publish: tensions_kb write failed", exc_info=True)
 
 
+def report_business_kb(business_id: str) -> None:
+    """Push a business-specific KB stats to Firestore."""
+    db = _get_db()
+    if not db:
+        return
+    try:
+        from app.knowledge_base.business_store import get_registry
+        store = get_registry().get_store(business_id)
+        if store is None:
+            return
+        stats = store.stats()
+        stats["business_id"] = business_id
+        stats["updated_at"] = _now_iso()
+        db.collection("status").document(f"biz_kb_{business_id}").set(stats)
+    except Exception:
+        logger.debug("firebase.publish: biz_kb_%s write failed", business_id, exc_info=True)
+
+
+def report_all_business_kbs() -> None:
+    """Push stats for all business KBs to Firestore."""
+    try:
+        from app.knowledge_base.business_store import get_registry
+        for biz in get_registry().list_businesses():
+            report_business_kb(biz["business_name"])
+    except Exception:
+        logger.debug("firebase.publish: all business KBs write failed", exc_info=True)
+
+
 # ── L5: Ecological awareness stats ────────────────────────────────────────────
 
 def report_ecological_stats() -> None:

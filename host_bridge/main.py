@@ -620,6 +620,23 @@ def approval_respond(req: ApprovalResponse):
         return {"status": "recorded"}
     return {"status": "unknown_approval_id"}
 
+# ── MLX status (public — no auth needed; reports availability only) ──────────
+
+@app.get("/mlx/status")
+def mlx_status():
+    """MLX availability + currently-loaded model/adapter."""
+    try:
+        from host_bridge.mlx_routes import get_status
+        return get_status()
+    except Exception:
+        # Fallback: quick import check
+        try:
+            import mlx_lm  # noqa: F401
+            return {"available": True, "loaded_model": None, "loaded_adapter": None}
+        except ImportError:
+            return {"available": False}
+
+
 # ── Health / Status ───────────────────────────────────────────────────────────
 
 @app.get("/health")

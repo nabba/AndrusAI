@@ -307,3 +307,57 @@ def compose_backstory(role: str, reasoning_method: str | None = None) -> str:
     result = "\n\n".join(parts) if parts else ""
     _backstory_cache[cache_key] = result
     return result
+
+
+def compose_backstory_with_cache_blocks(role: str, reasoning_method: str | None = None) -> list[dict]:
+    """Compose backstory as content blocks with Anthropic cache_control markers.
+
+    Returns a list of content blocks suitable for Anthropic's Messages API.
+    For non-Anthropic models, call compose_backstory() which returns a plain string.
+
+    The static prefix (constitution + soul + protocol + style) gets
+    cache_control=ephemeral, so Anthropic caches it for 5 minutes.
+    The dynamic suffix (self-model, metacognitive preamble, few-shot)
+    does NOT get cached — it changes per request.
+    """
+    _check_cache_valid()
+
+    # Build the static prefix (cacheable)
+    static_parts = []
+    for loader in [load_constitution, lambda: load_soul(role), load_agents_protocol, load_style]:
+        text = loader()
+        if text:
+            static_parts.append(text)
+
+    if reasoning_method:
+        method_text = get_reasoning_method(reasoning_method)
+        if method_text:
+            static_parts.append(method_text)
+
+    # Build the dynamic suffix (not cached)
+    dynamic_parts = []
+    self_model = format_self_model_block(role)
+    if self_model:
+        dynamic_parts.append(self_model)
+    dynamic_parts.append(METACOGNITIVE_PREAMBLE)
+    fse = _build_few_shot_section()
+    if fse:
+        dynamic_parts.append(fse)
+    style_instructions = _build_style_instructions()
+    if style_instructions:
+        dynamic_parts.append(style_instructions)
+
+    blocks: list[dict] = []
+    if static_parts:
+        blocks.append({
+            "type": "text",
+            "text": "\n\n".join(static_parts),
+            "cache_control": {"type": "ephemeral"},
+        })
+    if dynamic_parts:
+        blocks.append({
+            "type": "text",
+            "text": "\n\n".join(dynamic_parts),
+        })
+
+    return blocks
