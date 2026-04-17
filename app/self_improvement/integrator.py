@@ -287,7 +287,8 @@ def search_skills(query: str, n: int = 6) -> list[SkillRecord]:
         return []
     try:
         if hasattr(col, "query"):
-            res = col.query(query_texts=[query], n_results=n)
+            from app.memory.chromadb_manager import embed
+            res = col.query(query_embeddings=[embed(query)], n_results=n)
             docs = res.get("documents", [[]])[0]
         else:
             return list_records(limit=n)
