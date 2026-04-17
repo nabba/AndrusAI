@@ -21,6 +21,10 @@ except Exception:
 from app.rate_throttle import install_throttle
 install_throttle()
 
+# Install Anthropic prompt-caching hook — must be before any litellm.completion call
+from app.prompt_cache_hook import install_cache_hook
+install_cache_hook()
+
 from fastapi import FastAPI, Request, HTTPException
 from contextlib import asynccontextmanager
 from app.config import get_settings, get_gateway_secret
