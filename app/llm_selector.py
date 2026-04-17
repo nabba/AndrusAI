@@ -13,12 +13,12 @@ Selection algorithm:
 
 import logging
 import os
-import re
 
 from app.config import get_settings
 from app.llm_catalog import (
     CATALOG, TASK_ALIASES, ROLE_DEFAULTS,
     get_model, get_default_for_role, get_candidates_by_tier,
+    canonical_task_type,
 )
 from app.llm_benchmarks import get_scores
 
@@ -43,34 +43,16 @@ def difficulty_to_tier(difficulty: int, mode: str) -> str | None:
         return "premium"
     return None  # medium → use default catalog logic
 
-_KEYWORD_PATTERNS: list[tuple[str, str]] = [
-    (r"\b(debug|traceback|error|fix\s+bug|stacktrace)\b", "debugging"),
-    (r"\b(architect|design|plan|system\s+design|review)\b", "architecture"),
-    (r"\b(code|implement|function|class|module|script|program)\b", "coding"),
-    (r"\b(research|search|find|learn|investigate|analyze)\b", "research"),
-    (r"\b(write|summarize|document|report|explain|describe)\b", "writing"),
-    (r"\b(reason|think|logic|proof|math)\b", "reasoning"),
-    (r"\b(image|photo|screenshot|picture|visual|pdf|scan)\b", "multimodal"),
-    (r"\b(video|audio|podcast|youtube|camera|media|voice|music|mp[34])\b", "multimodal"),
-]
-
 _MULTIMODAL_MODELS = [name for name, info in CATALOG.items() if info.get("multimodal")]
 
 
 def detect_task_type(role: str, task_hint: str = "") -> str:
-    if task_hint:
-        hint_lower = task_hint.lower()
-        for pattern, task_type in _KEYWORD_PATTERNS:
-            if re.search(pattern, hint_lower):
-                return task_type
-    role_map = {
-        "coding": "coding", "architecture": "architecture",
-        "research": "research", "writing": "writing",
-        "media": "multimodal", "critic": "reasoning", "introspector": "reasoning",
-        "self_improve": "research", "vetting": "vetting",
-        "synthesis": "writing", "planner": "research", "default": "general",
-    }
-    return role_map.get(role, "general")
+    """Thin delegator to :func:`app.llm_catalog.canonical_task_type`.
+
+    Kept for backwards compatibility; new code should call the catalog
+    helper directly.
+    """
+    return canonical_task_type(role=role, task_hint=task_hint)
 
 
 _cached_ollama_url: str | None = None

@@ -34,7 +34,8 @@ class TestImports:
     def test_idle_scheduler_has_discovery_job(self):
         from app.idle_scheduler import _default_jobs
         jobs = _default_jobs()
-        job_names = [name for name, _ in jobs]
+        # _default_jobs returns (name, fn, JobWeight) tuples
+        job_names = [entry[0] for entry in jobs]
         assert "llm-discovery" in job_names
 
     def test_signal_commands_wired(self):
