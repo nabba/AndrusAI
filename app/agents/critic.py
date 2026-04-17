@@ -12,8 +12,10 @@ from app.tools.memory_tool import create_memory_tools
 from app.tools.scoped_memory_tool import create_scoped_memory_tools
 from app.tools.self_report_tool import create_self_report_tool
 from app.tools.reflection_tool import ReflectionTool
+from app.tools.web_search import web_search
 from app.souls.loader import compose_backstory
 from app.philosophy.rag_tool import PhilosophyRAGTool
+from app.knowledge_base.tools import KnowledgeSearchTool
 
 # Critic doesn't have its own soul file yet — compose_backstory will
 # return just the self-model block, which preserves Phase 1 behavior.
@@ -49,12 +51,27 @@ def create_critic() -> Agent:
         ReflectionTool(agent_role="critic"),
     ]
 
+    # Critic needs fact-checking tools + dialectical reasoning
+    tools = [web_search, KnowledgeSearchTool(), PhilosophyRAGTool()] + memory_tools + scoped_tools + awareness_tools
+    # Dialectics tool — critic's primary weapon: find counter-arguments to claims
+    try:
+        from app.philosophy.dialectics_tool import FindCounterArgumentTool
+        tools.append(FindCounterArgumentTool())
+    except Exception:
+        pass
+    # Tension tools — critic is a natural tension detector
+    try:
+        from app.tensions.tools import get_tension_tools
+        tools.extend(get_tension_tools("critic"))
+    except Exception:
+        pass
+
     return Agent(
         role="Critic",
         goal="Adversarially review work from other agents to catch errors, gaps, and unjustified claims.",
         backstory=CRITIC_BACKSTORY,
         llm=llm,
-        tools=[PhilosophyRAGTool()] + memory_tools + scoped_tools + awareness_tools,
+        tools=tools,
         max_execution_time=300,
         verbose=True,
     )

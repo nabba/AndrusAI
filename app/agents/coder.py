@@ -24,9 +24,16 @@ def create_coder(force_tier: str | None = None) -> Agent:
     scoped_tools = create_scoped_memory_tools("coder")
     mem0_tools = create_mem0_tools("coder")
 
-    # New KB tools (Phase 2/3): aesthetics for elegant code patterns.
+    # New KB tools (Phase 2/3): aesthetics for elegant code patterns + journal for past experience.
     from app.aesthetics.tools import get_aesthetic_tools
-    tools = [execute_code, file_manager, web_search, read_attachment, KnowledgeSearchTool()] + memory_tools + scoped_tools + mem0_tools + get_fiction_tools() + get_aesthetic_tools("coder")
+    from app.experiential.tools import get_experiential_tools
+    tools = [execute_code, file_manager, web_search, read_attachment, KnowledgeSearchTool()] + memory_tools + scoped_tools + mem0_tools + get_fiction_tools() + get_aesthetic_tools("coder") + get_experiential_tools("coder")
+    # Tension tools — coder records conflicts between approaches (e.g. speed vs readability)
+    try:
+        from app.tensions.tools import get_tension_tools
+        tools.extend(get_tension_tools("coder"))
+    except Exception:
+        pass
     # Host Bridge tools (read/write host files, execute commands on Mac)
     try:
         from app.tools.bridge_tools import create_bridge_tools

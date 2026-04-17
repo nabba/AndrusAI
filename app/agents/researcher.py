@@ -48,10 +48,13 @@ def create_researcher(force_tier: str | None = None, light: bool = False, task_i
     llm = create_specialist_llm(max_tokens=4096, role="research", force_tier=force_tier)
 
     if light:
-        # S8: Only the tools needed for a quick factual lookup
-        tools = [web_search, web_fetch, KnowledgeSearchTool()]
-        # Add firecrawl search+scrape even for light researcher — needed for
-        # current-events and web-content questions that fast-route as difficulty ≤ 3.
+        # S8→S10: "Medium-light" — enough tools for most factual questions
+        # without the full 40+ tool overhead.  Adds file/attachment access,
+        # Mem0 conversational context, and Firecrawl so the agent can actually
+        # answer current-events and web-content questions routed as difficulty ≤ 3.
+        mem0_tools = create_mem0_tools("researcher")
+        tools = [web_search, web_fetch, file_manager, read_attachment, KnowledgeSearchTool()] + mem0_tools
+        # Firecrawl search+scrape
         try:
             from app.tools.firecrawl_tools import create_firecrawl_tools
             fc = create_firecrawl_tools()
@@ -111,6 +114,20 @@ def create_researcher(force_tier: str | None = None, light: bool = False, task_i
                 tools.extend(bb_tools)
             except Exception:
                 pass
+        # Tension tools — researcher records contradictions found during research
+        try:
+            from app.tensions.tools import get_tension_tools
+            tools.extend(get_tension_tools("researcher"))
+        except Exception:
+            pass
+        # OCR tool — extract text from images (screenshots, documents, receipts)
+        try:
+            from app.tools.ocr_tool import create_ocr_tool
+            ocr = create_ocr_tool()
+            if ocr:
+                tools.append(ocr)
+        except Exception:
+            pass
         backstory = RESEARCHER_BACKSTORY
 
     return Agent(

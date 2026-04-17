@@ -58,6 +58,18 @@ def create_writer(force_tier: str | None = None) -> Agent:
         tools.append(ConceptBlendTool())
     except Exception:
         pass
+    # Dialectics tool — writer challenges own arguments via counter-argument graph
+    try:
+        from app.philosophy.dialectics_tool import FindCounterArgumentTool
+        tools.append(FindCounterArgumentTool())
+    except Exception:
+        pass
+    # Tension tools — writer notices and records creative/structural tensions
+    try:
+        from app.tensions.tools import get_tension_tools
+        tools.extend(get_tension_tools("writer"))
+    except Exception:
+        pass
 
     return Agent(
         role="Writer",
