@@ -64,10 +64,9 @@ def get_plugin_tools() -> list:
                 if result:
                     tools.extend(result)
             except Exception:
-                logger.debug(f"Tool plugin failed: {factory}", exc_info=True)
+                logger.warning(f"Tool plugin failed: {factory}", exc_info=True)
         _plugin_tools_cache = tools
-        if tools:
-            logger.info(f"Tool plugin registry: {len(tools)} tools from {len(_tool_plugins)} plugins")
+        logger.info(f"Tool plugin registry: {len(tools)} tools from {len(_tool_plugins)} plugins")
         return tools
 
 
@@ -163,11 +162,16 @@ def run_single_agent_crew(
     force_tier = difficulty_to_tier(difficulty, get_mode())
     agent = create_agent_fn(force_tier=force_tier)
 
-    # Inject plugin tools (MCP, browser, etc.) into the agent
+    # Inject plugin tools (MCP, browser, etc.) into the agent.
+    # NOTE: The monkey-patched Agent.__init__ already injects these, so
+    # only add tools whose names aren't already present (avoids _2 duplicates).
     plugin_tools = get_plugin_tools()
     if plugin_tools:
         existing = list(agent.tools) if agent.tools else []
-        agent.tools = existing + plugin_tools
+        existing_names = {getattr(t, "name", "") for t in existing}
+        new_plugins = [t for t in plugin_tools if getattr(t, "name", "") not in existing_names]
+        if new_plugins:
+            agent.tools = existing + new_plugins
     if extra_tools:
         existing = list(agent.tools) if agent.tools else []
         agent.tools = existing + extra_tools
@@ -321,10 +325,15 @@ _agent_patched = False
 def _patch_agent_for_plugins() -> None:
     """Monkey-patch crewai.Agent so every Agent auto-appends plugin tools.
 
-    This is the ONE place where plugin tools reach every agent — multi-agent
-    crews (research / media / critic / creative / etc.) don't use
-    run_single_agent_crew but do construct crewai.Agent, so hooking the
-    constructor ensures no agent is missed.
+    Hooks the constructor so multi-agent crews (research / media / critic /
+    creative / etc.) that construct crewai.Agent directly — without going
+    through run_single_agent_crew — still get plugin tools.
+
+    Injection happens BEFORE original __init__ runs, so CrewAI's
+    field_validator("tools") processes plugin tools uniformly (wrapping
+    langchain-style tools, validating BaseTool subclasses). Post-init
+    assignment to self.tools bypasses that validator and caused subtle bugs
+    where dynamically-added MCP tools weren't picked up by the executor.
     """
     global _agent_patched
     if _agent_patched:
@@ -338,17 +347,27 @@ def _patch_agent_for_plugins() -> None:
     original_init = Agent.__init__
 
     def patched_init(self, *args, **kwargs):
-        original_init(self, *args, **kwargs)
+        # Pre-init injection — extend kwargs["tools"] before pydantic validates.
         try:
             plugins = get_plugin_tools()
             if plugins:
-                existing = list(self.tools) if self.tools else []
-                # Avoid double-registration if the same tool name is already present
-                names = {getattr(t, "name", "") for t in existing}
-                self.tools = existing + [t for t in plugins if getattr(t, "name", "") not in names]
+                existing = list(kwargs.get("tools") or [])
+                existing_names = {getattr(t, "name", "") for t in existing}
+                additions = [
+                    t for t in plugins
+                    if getattr(t, "name", "") and getattr(t, "name", "") not in existing_names
+                ]
+                if additions:
+                    kwargs["tools"] = existing + additions
+                    logger.debug(
+                        f"Agent('{kwargs.get('role', '?')}') + {len(additions)} plugin tools: "
+                        f"{[getattr(t, 'name', '?') for t in additions]}"
+                    )
         except Exception:
-            logger.debug("Agent plugin injection failed (non-fatal)", exc_info=True)
+            logger.debug("Agent plugin pre-init failed (non-fatal)", exc_info=True)
+
+        original_init(self, *args, **kwargs)
 
     Agent.__init__ = patched_init
     _agent_patched = True
-    logger.info("crewai.Agent patched for plugin-tool auto-injection")
+    logger.info("crewai.Agent patched for plugin-tool auto-injection (pre-init)")

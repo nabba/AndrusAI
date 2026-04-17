@@ -328,10 +328,13 @@ class TestE2E_SkillConditionalFlow:
 # ═════════════════════════════════════════════════════════════════════════════
 
 class TestE2E_PluginRegistryPatchesAgent:
+    """Verify pre-init plugin injection extends kwargs['tools'] for Agent().
+
+    Uses a stand-in Agent class to avoid crewai's strict LLM/role validators
+    in unit-test environments.
+    """
 
     def test_patched_agent_gets_plugin_tools(self, monkeypatch):
-        pytest.importorskip("crewai")
-        from crewai import Agent
         from app.crews import base_crew
 
         # Reset state
@@ -343,33 +346,34 @@ class TestE2E_PluginRegistryPatchesAgent:
             def __init__(self, name):
                 self.name = name
 
-        # Register plugins + apply the Agent patch
-        base_crew.register_tool_plugin(lambda: [FakeTool("plugin_a"),
-                                                FakeTool("plugin_b")])
-        base_crew._patch_agent_for_plugins()
+        class FakeAgent:
+            def __init__(self, *, role=None, tools=None, **kw):
+                self.role = role
+                self.tools = list(tools) if tools else []
 
-        # Construct a bare-minimum Agent
-        from app.llm_factory import _AdapterLLM  # any callable LLM stub
+        # Substitute a FakeAgent in the "crewai" module before applying the patch
+        import sys, types
+        fake_mod = types.ModuleType("crewai_test_module")
+        fake_mod.Agent = FakeAgent
+        original = sys.modules.get("crewai")
+        sys.modules["crewai"] = fake_mod
         try:
-            agent = Agent(
-                role="Test",
-                goal="Validate plugin injection",
-                backstory="You exist to prove the patch works.",
-                llm=MagicMock(),
-                tools=[FakeTool("builtin")],
-                allow_delegation=False,
-            )
-        except Exception:
-            pytest.skip("Could not construct a test Agent (crewai wiring changed)")
+            base_crew.register_tool_plugin(lambda: [FakeTool("plugin_a"), FakeTool("plugin_b")])
+            base_crew._patch_agent_for_plugins()
 
-        tool_names = {getattr(t, "name", "") for t in (agent.tools or [])}
-        assert "builtin" in tool_names
-        assert "plugin_a" in tool_names
-        assert "plugin_b" in tool_names
+            agent = FakeAgent(role="Tester", tools=[FakeTool("builtin")])
+            names = {t.name for t in agent.tools}
+            assert "builtin" in names
+            assert "plugin_a" in names
+            assert "plugin_b" in names
+        finally:
+            if original is None:
+                sys.modules.pop("crewai", None)
+            else:
+                sys.modules["crewai"] = original
+            base_crew._agent_patched = False
 
     def test_patch_deduplicates_by_name(self, monkeypatch):
-        pytest.importorskip("crewai")
-        from crewai import Agent
         from app.crews import base_crew
 
         base_crew._tool_plugins.clear()
@@ -380,19 +384,61 @@ class TestE2E_PluginRegistryPatchesAgent:
             def __init__(self, name):
                 self.name = name
 
-        base_crew.register_tool_plugin(lambda: [FakeTool("shared_name")])
-        base_crew._patch_agent_for_plugins()
+        class FakeAgent:
+            def __init__(self, *, role=None, tools=None, **kw):
+                self.role = role
+                self.tools = list(tools) if tools else []
 
+        import sys, types
+        fake_mod = types.ModuleType("crewai_test_dedupe")
+        fake_mod.Agent = FakeAgent
+        original = sys.modules.get("crewai")
+        sys.modules["crewai"] = fake_mod
         try:
-            agent = Agent(
-                role="Test", goal="g", backstory="b",
-                llm=MagicMock(),
-                tools=[FakeTool("shared_name")],  # same name as plugin
-                allow_delegation=False,
-            )
-        except Exception:
-            pytest.skip("Agent construction failed")
+            base_crew.register_tool_plugin(lambda: [FakeTool("shared_name")])
+            base_crew._patch_agent_for_plugins()
 
-        names = [getattr(t, "name", "") for t in (agent.tools or [])]
-        # "shared_name" appears exactly once (dedupe)
-        assert names.count("shared_name") == 1
+            agent = FakeAgent(role="T", tools=[FakeTool("shared_name")])
+            names = [t.name for t in agent.tools]
+            assert names.count("shared_name") == 1
+        finally:
+            if original is None:
+                sys.modules.pop("crewai", None)
+            else:
+                sys.modules["crewai"] = original
+            base_crew._agent_patched = False
+
+    def test_patch_preserves_agent_without_tools_kwarg(self):
+        """An Agent created with no `tools=` still gets plugin tools injected."""
+        from app.crews import base_crew
+
+        base_crew._tool_plugins.clear()
+        base_crew._plugin_tools_cache = None
+        base_crew._agent_patched = False
+
+        class FakeTool:
+            def __init__(self, name):
+                self.name = name
+
+        class FakeAgent:
+            def __init__(self, *, role=None, tools=None, **kw):
+                self.tools = list(tools) if tools else []
+
+        import sys, types
+        fake_mod = types.ModuleType("crewai_test_notools")
+        fake_mod.Agent = FakeAgent
+        original = sys.modules.get("crewai")
+        sys.modules["crewai"] = fake_mod
+        try:
+            base_crew.register_tool_plugin(lambda: [FakeTool("only_plugin")])
+            base_crew._patch_agent_for_plugins()
+
+            agent = FakeAgent(role="T")  # no tools=
+            assert len(agent.tools) == 1
+            assert agent.tools[0].name == "only_plugin"
+        finally:
+            if original is None:
+                sys.modules.pop("crewai", None)
+            else:
+                sys.modules["crewai"] = original
+            base_crew._agent_patched = False

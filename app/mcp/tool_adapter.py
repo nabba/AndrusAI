@@ -33,7 +33,8 @@ def create_crewai_tools() -> list:
     for schema in schemas:
         try:
             tool = _build_tool(schema, BaseTool, Field, create_model, call_tool)
-            tools.append(tool)
+            if tool is not None:
+                tools.append(tool)
         except Exception:
             logger.debug(f"mcp_tool_adapter: failed to wrap '{schema.name}'", exc_info=True)
     return tools
@@ -42,10 +43,27 @@ def create_crewai_tools() -> list:
 def _build_tool(schema, BaseTool, Field, create_model, call_fn):
     properties = schema.input_schema.get("properties", {})
     required = set(schema.input_schema.get("required", []))
-    type_map = {"string": str, "integer": int, "number": float, "boolean": bool, "array": list, "object": dict}
-    fields = {}
+    # Use concrete generic types so pydantic can emit valid JSON schemas for
+    # Anthropic/OpenAI tool calling. Bare `list`/`dict` produce schemas
+    # without `items`/`properties` which some providers reject.
+    type_map = {
+        "string": str,
+        "integer": int,
+        "number": float,
+        "boolean": bool,
+        "array": list,       # upgraded to list[str] below
+        "object": dict,      # upgraded to dict[str, str] below
+    }
+    fields: dict = {}
     for pname, pschema in properties.items():
-        ptype = type_map.get(pschema.get("type", "string"), str)
+        raw_type = pschema.get("type", "string")
+        if raw_type == "array":
+            item_type = (pschema.get("items") or {}).get("type", "string")
+            ptype = list[type_map.get(item_type, str)]
+        elif raw_type == "object":
+            ptype = dict[str, type_map.get("string", str)]
+        else:
+            ptype = type_map.get(raw_type, str)
         desc = pschema.get("description", "")
         if pname in required:
             fields[pname] = (ptype, Field(description=desc))
@@ -54,7 +72,16 @@ def _build_tool(schema, BaseTool, Field, create_model, call_fn):
     if not fields:
         fields["query"] = (str, Field(default="", description="Input"))
 
-    InputModel = create_model(f"MCP_{schema.server_name}_{schema.name}_Input", **fields)
+    try:
+        InputModel = create_model(f"MCP_{schema.server_name}_{schema.name}_Input", **fields)
+    except Exception as exc:
+        # Invalid schema — skip this tool but don't break the whole adapter.
+        logger.warning(
+            f"mcp_tool_adapter: cannot build args_schema for "
+            f"'{schema.server_name}.{schema.name}': {exc}"
+        )
+        return None
+
     _server, _name = schema.server_name, schema.name
     _desc = schema.description
 
