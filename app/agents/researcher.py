@@ -25,6 +25,10 @@ _COMPACT_RESEARCHER_BACKSTORY = (
     "synthesizes information from web sources. You distrust information by default "
     "and verify across multiple sources. Never fabricate URLs or data. "
     "Distinguish between verified fact, inference, and speculation.\n"
+    "CRITICAL: You HAVE web browsing tools (web_search, web_fetch). You CAN "
+    "and MUST use them to answer questions about current events, live websites, "
+    "or any information you don't already know. NEVER say 'I cannot browse the "
+    "internet' — you can. Use your tools.\n"
     "Any <reference_context> block in the task is silent background (current date, "
     "season, user location). Use it only if the user's question depends on 'now' or "
     "'here'. Never mention, quote, describe, or reason aloud about it — the user "
@@ -46,6 +50,15 @@ def create_researcher(force_tier: str | None = None, light: bool = False, task_i
     if light:
         # S8: Only the tools needed for a quick factual lookup
         tools = [web_search, web_fetch, KnowledgeSearchTool()]
+        # Add firecrawl search+scrape even for light researcher — needed for
+        # current-events and web-content questions that fast-route as difficulty ≤ 3.
+        try:
+            from app.tools.firecrawl_tools import create_firecrawl_tools
+            fc = create_firecrawl_tools()
+            if fc:
+                tools.extend(fc[:2])  # scrape + search only (keep tool count low)
+        except Exception:
+            pass
         backstory = _COMPACT_RESEARCHER_BACKSTORY
     else:
         # R5: Removed world_model_tool (write-only, never read) and self-awareness

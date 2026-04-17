@@ -406,18 +406,22 @@ class Commander:
             f_experiential = _ctx_pool.submit(_load_experiential_context, crew_task)
             f_aesthetic = _ctx_pool.submit(_load_aesthetic_context, crew_task)
             f_tensions = _ctx_pool.submit(_load_tensions_context, crew_task)
-            context = (
-                f_skills.result(timeout=5)
-                + f_memory.result(timeout=5)
-                + f_kb.result(timeout=5)
-                + f_policies.result(timeout=5)
-                + f_world.result(timeout=5)
-                + f_state.result(timeout=1)
-                + f_episteme.result(timeout=5)
-                + f_experiential.result(timeout=5)
-                + f_aesthetic.result(timeout=3)
-                + f_tensions.result(timeout=3)
-            )
+            # Collect context from all loaders — graceful degradation on timeout.
+            # Individual timeouts generous enough to survive cold-start (first
+            # query after restart may need model loading). A single timeout
+            # must never crash the entire crew dispatch.
+            _ctx_parts: list[str] = []
+            for _f, _to in [
+                (f_skills, 8), (f_memory, 8), (f_kb, 8),
+                (f_policies, 5), (f_world, 5), (f_state, 2),
+                (f_episteme, 8), (f_experiential, 8),
+                (f_aesthetic, 5), (f_tensions, 5),
+            ]:
+                try:
+                    _ctx_parts.append(_f.result(timeout=_to))
+                except Exception:
+                    _ctx_parts.append("")  # skip — don't crash the crew
+            context = "".join(_ctx_parts)
 
         # Inject conversation history so specialist crews understand follow-ups (Q2)
         # Sanitize: strip internal system responses that could contaminate task context
