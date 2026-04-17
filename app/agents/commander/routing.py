@@ -107,6 +107,18 @@ _IDENTITY_WORDS = {
     "architecture", "capabilities", "limitations",
 }
 
+# Regex that detects when the question is about the physical machine / hardware,
+# NOT about the AI system's identity.  Uses word boundaries to avoid false
+# positives (e.g. "ram" inside "program", "os" inside "most").
+_HARDWARE_RE = re.compile(
+    r"\b(?:computer|server|machine|hardware|infrastructure|gpu|cpu|ram|vram"
+    r"|processor|specs|specifications|docker|linux|ubuntu|cores|threads"
+    r"|operating\s+system)\b"
+    r"|(?:memory\s+usage|disk\s+space"
+    r"|running\s+on\b.*\b(?:computer|server|machine))",
+    re.IGNORECASE,
+)
+
 
 def _is_introspective(text: str) -> bool:
     """Detect identity/memory/self-awareness questions with typo tolerance.
@@ -115,9 +127,17 @@ def _is_introspective(text: str) -> bool:
     - Any multi-word identity phrase found as substring
     - 2+ identity keywords (exact or fuzzy match)
     - 1 identity keyword + short question (<100 chars with ?)
+
+    Does NOT fire when the question is about hardware/infrastructure
+    (e.g. "what capabilities has the computer you are running on?").
     """
     lower = text.lower().strip()
     if not lower:
+        return False
+
+    # Hardware exclusion: if the question mentions the physical machine,
+    # it's asking about hardware — not about the AI system's identity.
+    if _HARDWARE_RE.search(lower):
         return False
 
     # Quick check: exact substring match on multi-word phrases
