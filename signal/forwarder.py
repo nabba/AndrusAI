@@ -136,13 +136,18 @@ def _process_envelope(envelope: dict) -> None:
         headers = {}
         if GATEWAY_SECRET:
             headers["Authorization"] = f"Bearer {GATEWAY_SECRET}"
-        try:
-            resp = _gateway_session.post(
-                GATEWAY_URL, json=payload, headers=headers, timeout=10,
-            )
-            log(f"Reaction forwarded: {resp.status_code}")
-        except Exception as e:
-            log(f"Failed to forward reaction: {e}")
+        for attempt in range(3):
+            try:
+                resp = _gateway_session.post(
+                    GATEWAY_URL, json=payload, headers=headers, timeout=10,
+                )
+                log(f"Reaction forwarded: {resp.status_code}")
+                break
+            except Exception as e:
+                if attempt < 2:
+                    time.sleep(2)
+                else:
+                    log(f"Failed to forward reaction: {e}")
         return
 
     if not data_msg.get("message") and not data_msg.get("attachments"):
@@ -177,13 +182,21 @@ def _process_envelope(envelope: dict) -> None:
     if GATEWAY_SECRET:
         headers["Authorization"] = f"Bearer {GATEWAY_SECRET}"
 
-    try:
-        resp = _gateway_session.post(
-            GATEWAY_URL, json=payload, headers=headers, timeout=30,
-        )
-        log(f"Forwarded to gateway: {resp.status_code}")
-    except Exception as e:
-        log(f"Failed to forward: {e}")
+    # Retry with back-off so messages aren't lost during gateway restarts
+    for attempt in range(4):
+        try:
+            resp = _gateway_session.post(
+                GATEWAY_URL, json=payload, headers=headers, timeout=30,
+            )
+            log(f"Forwarded to gateway: {resp.status_code}")
+            break
+        except Exception as e:
+            if attempt < 3:
+                wait = [2, 5, 15][attempt]
+                log(f"Forward attempt {attempt+1} failed ({e}), retrying in {wait}s…")
+                time.sleep(wait)
+            else:
+                log(f"Failed to forward after 4 attempts: {e}")
 
 
 _LOCATION_FILE = "/tmp/botarmy-location.json"
