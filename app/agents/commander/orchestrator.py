@@ -48,7 +48,52 @@ logger = logging.getLogger(__name__)
 # Shared pool for lightweight context-fetching I/O (ChromaDB queries, Mem0 search,
 # skill name loading).  Replaces ephemeral ThreadPoolExecutors that were created
 # per-request in _route() and _run_crew(), eliminating thread churn.
-_ctx_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ctx-fetch")
+_ctx_pool = ThreadPoolExecutor(max_workers=12, thread_name_prefix="ctx-fetch")
+
+# Stage 5.1 — dedicated pool for concurrent sentience sub-steps. Small
+# deliberately: the consciousness block has at most 2-3 independent ops that
+# benefit from parallelization (HOT-3 consult alongside PP-1/gate/AST-1).
+_consc_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="consc")
+
+# Stage 5.2 — tiny, short-TTL task-embedding LRU. Reflexion retries call the
+# consciousness block with the same (crew_task[:300], crew_name) within seconds;
+# re-embedding each time wastes 15-50 ms. Cache the VECTOR only — PP-1 predict,
+# workspace-gate evaluate, and HOT-3 consult all continue to run fresh on
+# every retry (no caching of sentience decisions).
+import functools as _ft
+@_ft.lru_cache(maxsize=64)
+def _task_embed_cached(text_head: str) -> tuple:
+    from app.memory.chromadb_manager import embed as _embed_fn
+    try:
+        return tuple(_embed_fn(text_head))
+    except Exception:
+        return ()
+
+# ── Phase-timing (Stage 6 observability) ────────────────────────────────────
+# Env-gated: LOG_PHASE_TIMING=1 to enable. Zero cost when disabled (one
+# module-scope boolean check per call). Emits `phase=<name> duration_ms=<n>`
+# lines that bench_histo.sh can awk/histogram.
+import os as _os
+_PHASE_LOG_ENABLED = _os.environ.get("LOG_PHASE_TIMING", "0") == "1"
+
+def _phase_log(phase: str, start_mono: float, **kwargs) -> None:
+    """Emit a phase-timing line if LOG_PHASE_TIMING=1. No-op otherwise."""
+    if not _PHASE_LOG_ENABLED:
+        return
+    try:
+        ms = int((time.monotonic() - start_mono) * 1000)
+        try:
+            from app.trace import get_trace_id
+            tid = get_trace_id() or "-"
+        except Exception:
+            tid = "-"
+        extras = " ".join(f"{k}={v}" for k, v in kwargs.items() if v is not None)
+        logger.info(
+            "phase=%s duration_ms=%s trace_id=%s %s",
+            phase, ms, tid, extras,
+        )
+    except Exception:
+        pass  # observability must never crash the hot path
 
 
 def _extract_chronicle_section(chronicle: str, header: str) -> str:
@@ -379,6 +424,7 @@ class Commander:
             return cached
 
         t0 = _time.monotonic()
+        _ctx_t0 = t0  # Stage 6 — ctx_load phase starts with t0
 
         # Temporal + spatial context: injected unconditionally (tiny, essential)
         try:
@@ -406,22 +452,30 @@ class Commander:
             f_experiential = _ctx_pool.submit(_load_experiential_context, crew_task)
             f_aesthetic = _ctx_pool.submit(_load_aesthetic_context, crew_task)
             f_tensions = _ctx_pool.submit(_load_tensions_context, crew_task)
-            # Collect context from all loaders — graceful degradation on timeout.
-            # Individual timeouts generous enough to survive cold-start (first
-            # query after restart may need model loading). A single timeout
-            # must never crash the entire crew dispatch.
-            _ctx_parts: list[str] = []
-            for _f, _to in [
-                (f_skills, 8), (f_memory, 8), (f_kb, 8),
-                (f_policies, 5), (f_world, 5), (f_state, 2),
-                (f_episteme, 8), (f_experiential, 8),
-                (f_aesthetic, 5), (f_tensions, 5),
-            ]:
-                try:
-                    _ctx_parts.append(_f.result(timeout=_to))
-                except Exception:
-                    _ctx_parts.append("")  # skip — don't crash the crew
-            context = "".join(_ctx_parts)
+            # Stage 4.1: true concurrent join with a single global deadline.
+            # Previous version walked futures in order with per-future timeouts,
+            # which compounded waits up to 8 s even though loaders ran in
+            # parallel. as_completed + one deadline caps total wait at
+            # max(loaders) rather than sum-of-worst-cases.
+            from concurrent.futures import as_completed as _ac, TimeoutError as _TO
+            _futs = [
+                (f_skills, "skills"), (f_memory, "memory"), (f_kb, "kb"),
+                (f_policies, "policies"), (f_world, "world"), (f_state, "state"),
+                (f_episteme, "episteme"), (f_experiential, "experiential"),
+                (f_aesthetic, "aesthetic"), (f_tensions, "tensions"),
+            ]
+            _parts: dict = {lbl: "" for _, lbl in _futs}
+            _fut_to_lbl = {f: lbl for f, lbl in _futs}
+            try:
+                for _f in _ac(_fut_to_lbl.keys(), timeout=6.0):
+                    try:
+                        _parts[_fut_to_lbl[_f]] = _f.result(timeout=0.05) or ""
+                    except Exception:
+                        pass
+            except _TO:
+                pass  # partial context is fine — no loader blocks the crew
+            context = "".join(_parts[lbl] for _, lbl in _futs)
+        _phase_log("ctx_load", _ctx_t0, crew=crew_name, difficulty=difficulty)
 
         # Inject conversation history so specialist crews understand follow-ups (Q2)
         # Sanitize: strip internal system responses that could contaminate task context
@@ -494,6 +548,7 @@ class Commander:
             pass
 
         # ── Consciousness: GWT-2 workspace submission + GWT-3 broadcast + HOT-3 consultation ──
+        _consc_t0 = _time.monotonic()  # Stage 6 — consciousness phase timer
         try:
             from app.config import get_settings as _gs
             if _gs().consciousness_enabled:
@@ -525,10 +580,12 @@ class Commander:
                 except Exception:
                     pass
 
-                # Create workspace item from the task
+                # Create workspace item from the task.
+                # Stage 5.2 — use short-TTL cache: on reflexion retries the
+                # same prefix is embedded within seconds. The vector alone is
+                # cached; every sentience consumer still sees a fresh decision.
                 try:
-                    from app.memory.chromadb_manager import embed as _embed
-                    _task_emb = _embed(crew_task[:300])
+                    _task_emb = list(_task_embed_cached(crew_task[:300])) or []
                 except Exception:
                     _task_emb = []
 
@@ -539,6 +596,27 @@ class Commander:
                     source_channel="user_input",
                     agent_urgency=min(1.0, difficulty / 10.0),
                 )
+
+                # ── Stage 5.1: fire HOT-3 consult_beliefs concurrently ───
+                # It only depends on crew_task + crew_name (strings, immutable
+                # within this request), so it can run in parallel with the
+                # PP-1 → salience → gate → meta → AST-1 → broadcast chain.
+                # SENTIENCE_PARALLEL=0 reverts to fully sequential behavior.
+                _hot3_future = None
+                if _os.environ.get("SENTIENCE_PARALLEL", "1") == "1":
+                    try:
+                        if _gs().belief_store_enabled:
+                            from app.consciousness.metacognitive_monitor import get_monitor as _get_hot3_early
+                            def _consult():
+                                try:
+                                    return _get_hot3_early().consult_beliefs(
+                                        crew_task[:300], crew_name,
+                                    )
+                                except Exception:
+                                    return None
+                            _hot3_future = _consc_pool.submit(_consult)
+                    except Exception:
+                        _hot3_future = None
 
                 # PP-1: Generate prediction BEFORE processing (anticipatory coding)
                 _surprise = 0.0
@@ -619,11 +697,24 @@ class Commander:
                         )
 
                 # HOT-3: Consult beliefs for this task
+                # Stage 5.1: reuse the in-flight future when SENTIENCE_PARALLEL=1,
+                # otherwise run inline (original behavior). Same semantics either
+                # way — consult_beliefs is called exactly once per request with
+                # the same arguments.
                 try:
                     if _gs().belief_store_enabled:
-                        from app.consciousness.metacognitive_monitor import get_monitor
-                        _action_rec = get_monitor().consult_beliefs(crew_task[:300], crew_name)
-                        if _action_rec.beliefs_consulted:
+                        _action_rec = None
+                        if _hot3_future is not None:
+                            try:
+                                _action_rec = _hot3_future.result(timeout=5.0)
+                            except Exception:
+                                _action_rec = None
+                        if _action_rec is None:
+                            from app.consciousness.metacognitive_monitor import get_monitor
+                            _action_rec = get_monitor().consult_beliefs(
+                                crew_task[:300], crew_name,
+                            )
+                        if _action_rec and _action_rec.beliefs_consulted:
                             context += (
                                 f"\n<beliefs_consulted count={len(_action_rec.beliefs_consulted)}>"
                                 f"{_action_rec.selection_reasoning[:200]}"
@@ -636,6 +727,7 @@ class Commander:
                 _engine.advance_cycle() if _gate_result.admitted else None
         except Exception:
             logger.debug("Consciousness indicators failed (non-fatal)", exc_info=True)
+        _phase_log("consciousness", _consc_t0, crew=crew_name, difficulty=difficulty)
 
         # Context pruning: compress injected context to a token budget.
         context = _prune_context(context, difficulty)
@@ -774,6 +866,7 @@ class Commander:
         result = ""
         success = True
         crew_error = None
+        _exec_t0 = _time.monotonic()  # Stage 6 — crew_exec phase timer
         # Tag all LLM calls made inside this crew with the canonical task
         # type so the telemetry recorder in rate_throttle can attribute
         # them correctly to benchmarks/get_scores.
@@ -847,6 +940,8 @@ class Commander:
                 pass
 
         duration_s = _time.monotonic() - t0
+        _phase_log("crew_exec", _exec_t0, crew=crew_name, difficulty=difficulty, ok=success)
+        _phase_log("run_crew", t0, crew=crew_name, difficulty=difficulty, ok=success)
 
         # ── Sentience: POST_LLM_CALL hooks (compute internal state, log, broadcast) ──
         try:
@@ -1260,6 +1355,71 @@ class Commander:
         logger.debug("Grounded response detected ungrounded phrases, falling back")
         return None
 
+    def _try_answer_model_question(self, user_input: str) -> str | None:
+        """If the user is asking which LLM/model handled the previous response,
+        answer from actual telemetry.  Returns the answer string, or None if
+        the question isn't about the model.
+
+        Matches questions in English and Estonian:
+          - "which LLM/model did you use?"
+          - "what model are you running on?"
+          - "millist LLM-i/mudelit sa kasutasid?"
+        """
+        import re as _re
+        text = user_input.strip().lower()
+        # Keep the match tight so we don't intercept unrelated questions.
+        patterns = [
+            _re.compile(
+                r"\b(?:which|what)\s+(?:llm|model|ai)\b.*\b(?:did you use|are you (?:using|running)|was used)\b",
+                _re.IGNORECASE,
+            ),
+            _re.compile(
+                r"\bmillist\s+(?:llm-?i?|mudelit|ai-?d)\b.*\b(?:kasutasid|kasutati|kasutad)\b",
+                _re.IGNORECASE,
+            ),
+            # "what LLM did you use for the last/previous answer"
+            _re.compile(r"\b(?:llm|model)\s+(?:for|kasutasid).*(?:previous|last|eelmise|eelmine)\b", _re.IGNORECASE),
+        ]
+        if not any(p.search(text) for p in patterns):
+            return None
+
+        # Collect actual telemetry.  These attrs are set by handle() on every
+        # request; also pull get_last_tier() as a fallback.
+        last_crew = getattr(self, "_last_crew", "") or "unknown"
+        last_model = getattr(self, "last_model_used", "") or ""
+        try:
+            from app.llm_factory import get_last_tier
+            last_tier = get_last_tier() or ""
+        except Exception:
+            last_tier = ""
+
+        # Build an answer in the same language as the question.
+        is_estonian = any(w in text for w in ("millist", "mudelit", "kasutasid", "eelmise"))
+        if not last_model and not last_tier:
+            if is_estonian:
+                return (
+                    "Eelmine vastus genereeriti, aga mudeli täpset nime "
+                    "ei õnnestunud telemeetriast leida. Tavaliselt kasutab "
+                    "Commander Claude Opus 4.6, spetsialistid Claude Sonnet 4.6 "
+                    "või kohalikku Ollama mudelit (qwen3/deepseek-r1)."
+                )
+            return (
+                "I couldn't find the exact model name in telemetry. Typically "
+                "Commander uses Claude Opus 4.6, specialists use Claude Sonnet "
+                "4.6 or a local Ollama model (qwen3/deepseek-r1)."
+            )
+
+        model_desc = last_model or last_tier
+        if is_estonian:
+            return (
+                f"Eelmise vastuse koostas {last_crew} meeskond kasutades mudelit "
+                f"`{model_desc}`."
+            )
+        return (
+            f"The previous response was produced by the {last_crew} crew using "
+            f"model `{model_desc}`."
+        )
+
     def _generate_self_description(self, user_input: str) -> str:
         """Return a truthful, specific self-description from the system chronicle.
 
@@ -1371,6 +1531,14 @@ class Commander:
             user_input = "Analyze the attached file(s) and provide a summary."
             lower = user_input.lower()
 
+        # ── "Which LLM/model did you use?" — answer from telemetry ──
+        # The system tracks which tier/model handled the last request.  Giving
+        # a deterministic factual answer prevents the LLM from hallucinating
+        # generic statements like "my model is not revealed".
+        _model_q = self._try_answer_model_question(user_input)
+        if _model_q is not None:
+            return _model_q
+
         # ── Introspective gate — answer identity/memory questions from chronicle ──
         # Must run before special commands and before the LLM router.
         # Uses fuzzy keyword matching to handle typos (e.g. "meory" → "memory").
@@ -1432,11 +1600,13 @@ class Commander:
         from app.conversation_store import estimate_eta
         task_id = crew_started("commander", f"Route: {user_input[:80]}", eta_seconds=estimate_eta("commander"))
         tracker = start_request_tracking(task_id)
+        _route_t0 = time.monotonic()
         try:
             decisions = self._route(user_input, sender, attachment_context)
         except Exception as exc:
             crew_failed("commander", task_id, str(exc)[:200])
             return "Sorry, I had trouble understanding that request. Please try again."
+        _phase_log("route", _route_t0, decisions=len(decisions))
 
         crew_names = ", ".join(d.get("crew", "?") for d in decisions)
         self._last_crew = decisions[0].get("crew", "") if decisions else ""
@@ -1567,6 +1737,7 @@ class Commander:
 
             # S10: Run vetting + proactive scan in parallel (independent operations)
             # Skip proactive scan for easy tasks — saves 5-10s of LLM latency
+            _vet_t0 = time.monotonic()
             _vet_future = _ctx_pool.submit(
                 vet_response, user_input, final_result, crew_name,
                 difficulty, get_last_tier() or "unknown",
@@ -1576,6 +1747,7 @@ class Commander:
             else:
                 _proactive_notes = ""
             final_result = _vet_future.result(timeout=30)
+            _phase_log("vetting", _vet_t0, crew=crew_name, difficulty=difficulty)
 
             # Critic review for high-difficulty tasks (≥7) — adversarial quality gate
             if difficulty >= 7:

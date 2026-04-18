@@ -52,6 +52,28 @@ _INTERNAL_METADATA_PATTERNS = [
     re.compile(r"[^\n]*zero factual verification[^\n]*\n?", re.IGNORECASE),
     # "Trend indicators suggest declining" — single line
     re.compile(r"[^\n]*Trend indicators suggest[^\n]*\n?", re.IGNORECASE),
+    # Q11: Agent "thinking aloud" / meta-reasoning prefixes that leaked.
+    # These are internal thoughts the agent should NOT output.
+    # English — "The user is asking...", "User asks...", "The question is..."
+    re.compile(
+        r"^\s*(?:The\s+)?[Uu]ser\s+(?:is\s+)?(?:asking|asks|wants|wants to know|is wondering)[^\n.]*?\.\s*",
+        re.IGNORECASE,
+    ),
+    # English — "Answer:" / "Respond:" / "Reply:" as a label at start of line
+    re.compile(r"^\s*(?:Answer|Respond|Reply)\s*(?:in\s+\w+)?\s*:\s*", re.IGNORECASE | re.MULTILINE),
+    # Estonian — "Kasutaja küsib..." / "Kasutaja soovib..."
+    re.compile(
+        r"^\s*Kasutaja\s+(?:küsib|soovib|tahab|pärib)[^\n.]*?\.\s*",
+        re.IGNORECASE,
+    ),
+    # Estonian — "Vasta [language]:" self-instruction
+    re.compile(r"^\s*Vasta\s+\w+\s*keeles\s*:\s*", re.IGNORECASE | re.MULTILINE),
+    # Estonian — "Vastus:" / "Vastan:" label
+    re.compile(r"^\s*Vastu(?:s|n)\s*:\s*", re.IGNORECASE | re.MULTILINE),
+    # Second-person self-address that leaked from system-prompt — "Sa oled Commander..."
+    # happens when agent quotes its own backstory as if it were the answer.
+    re.compile(r"^\s*Sa\s+oled\s+(?:Commander|Komander|the\s+\w+)[^\n]*\n?", re.IGNORECASE),
+    re.compile(r"^\s*You\s+are\s+(?:the\s+)?Commander[^\n]*\n?", re.IGNORECASE),
 ]
 
 
