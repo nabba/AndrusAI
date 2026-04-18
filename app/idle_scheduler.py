@@ -344,9 +344,22 @@ def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
     """
     global _idle_thread
 
-    # Rehydrate the LLM catalog from previously promoted discovered
-    # models before any job runs. Idempotent and non-fatal if the DB
-    # is unreachable.
+    # Auto-populate the LLM catalog from live sources before any job
+    # runs. Idempotent — refresh respects a 24h on-disk TTL so cold
+    # boot pulls fresh data while warm restarts load the cached snapshot.
+    try:
+        from app.llm_catalog_builder import refresh as _refresh_catalog
+        summary = _refresh_catalog()
+        logger.info(
+            "idle_scheduler: catalog populated — %s entries",
+            summary.get("catalog_size"),
+        )
+    except Exception:
+        logger.debug("idle_scheduler: llm catalog refresh skipped", exc_info=True)
+
+    # Rehydrate previously promoted models from the discovered_models
+    # table. Runs after the catalog builder so promoted overrides layer
+    # on top of the auto-populated snapshot.
     try:
         from app.llm_rehydrate import rehydrate_catalog
         rehydrate_catalog()
@@ -955,6 +968,22 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         except Exception:
             logger.debug("idle_scheduler: LLM promotion applier failed", exc_info=True)
     jobs.append(("llm-apply-promotions", _llm_apply_promotions, JobWeight.LIGHT))
+
+    # ── LLM Catalog Refresh: auto-populate from OpenRouter/AA/Ollama ──
+    # LIGHT: the builder's 24h TTL means most invocations are a no-op;
+    # when it does fire, the three network fetches total ~3-5s.
+    def _llm_refresh_catalog():
+        try:
+            from app.llm_catalog_builder import refresh, format_refresh_summary
+            summary = refresh(force=False)
+            if summary.get("added_or_updated", 0) > 0:
+                logger.info(
+                    "idle_scheduler: %s",
+                    format_refresh_summary(summary).replace("\n", " | "),
+                )
+        except Exception:
+            logger.debug("idle_scheduler: catalog refresh failed", exc_info=True)
+    jobs.append(("llm-refresh-catalog", _llm_refresh_catalog, JobWeight.LIGHT))
 
     # ── External LLM ranks: pull OpenRouter / HF / AA leaderboards ────
     # MEDIUM weight because the HF parquet fetch can exceed 30s on a

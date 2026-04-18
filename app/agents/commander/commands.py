@@ -842,6 +842,17 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         except Exception as exc:
             return f"Error: {str(exc)[:200]}"
 
+    # "refresh catalog" — force-rebuild the live LLM catalog from AA /
+    # OpenRouter / Ollama. Useful after a new model launches and you
+    # don't want to wait for the 24h idle-scheduler tick.
+    if lower in ("refresh catalog", "catalog refresh", "llm refresh catalog"):
+        try:
+            from app.llm_catalog_builder import refresh, format_refresh_summary
+            summary = refresh(force=True)
+            return format_refresh_summary(summary)
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
     # "rebenchmark <model>" — force a full multi-role rebenchmark and
     # report drift vs. the prior strengths columns.
     if lower.startswith("rebenchmark"):

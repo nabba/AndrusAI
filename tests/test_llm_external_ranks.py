@@ -159,10 +159,13 @@ class TestArtificialAnalysis:
                     },
                     "median_output_tokens_per_second": 47.1,
                 },
-                # Legacy/fallback field placement still supported.
+                # Legacy/fallback field placement still supported — but
+                # the slug must resolve to a bootstrap catalog key. Sonnet
+                # is the sole non-DeepSeek bootstrap entry.
                 {
-                    "slug": "gemini-3-1-pro",
-                    "intelligence_index": 82,
+                    "slug": "claude-sonnet-4-6-non-reasoning-low-effort",
+                    "intelligence_index": 40,
+                    "median_output_tokens_per_second": 60,
                 },
             ],
         }
@@ -183,11 +186,10 @@ class TestArtificialAnalysis:
         for r in ranks:
             by_model.setdefault(r.model_id, {})[r.metric] = r.value
         assert by_model["deepseek-v3.2"]["quality"] == pytest.approx(0.75)
-        # xhigh variant wins for claude-sonnet-4.6 (78 > 51.7)
+        # xhigh variant wins for claude-sonnet-4.6 (78 > 51.7 > 40)
         assert by_model["claude-sonnet-4.6"]["quality"] == pytest.approx(0.78)
-        # Highest tok/s wins for speed_raw (54.3 > 47.1)
-        assert by_model["claude-sonnet-4.6"]["speed_raw"] == pytest.approx(54.3)
-        assert by_model["gemini-3.1-pro"]["quality"] == pytest.approx(0.82)
+        # Highest tok/s wins for speed_raw (60 > 54.3 > 47.1)
+        assert by_model["claude-sonnet-4.6"]["speed_raw"] == pytest.approx(60.0)
 
 
 class TestBlendedScoring:

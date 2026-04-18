@@ -124,30 +124,27 @@ class TestParetoDemotion:
         )
 
     def test_pareto_picks_cheaper_when_score_close(self, silence_db, monkeypatch):
-        """Given two budget-tier models where the cheaper one scores
-        within quality_gap of the default, Pareto demotion fires."""
+        """Given two models where the cheaper one scores within quality_gap
+        of the premium default, Pareto demotion fires. Uses bootstrap
+        catalog keys only (claude-sonnet-4.6 as premium, deepseek-v3.2
+        as budget)."""
         from app import llm_selector
 
-        # Fake get_scores to return a close-enough cheaper alternative.
         scores = {
-            "claude-opus-4.6": 0.88,
-            "deepseek-v3.2":   0.85,
+            "claude-sonnet-4.6": 0.88,
+            "deepseek-v3.2":     0.85,
         }
         monkeypatch.setattr(llm_selector, "get_scores", lambda t: scores)
 
-        # Force balanced commander default to claude-opus-4.6.
         # The selector imports get_default_for_role by name, so we must
-        # patch the binding on llm_selector (not llm_catalog) for the
-        # mock to take effect.
+        # patch the binding on llm_selector for the mock to take effect.
         monkeypatch.setattr(
             "app.llm_selector.get_default_for_role",
-            lambda role, cost_mode: "claude-opus-4.6",
+            lambda role, cost_mode: "claude-sonnet-4.6",
         )
-        # Convince _model_available that both are reachable.
         monkeypatch.setattr(
             llm_selector, "_model_available", lambda *a, **kw: True,
         )
-        # Clear env overrides.
         monkeypatch.delenv("ROLE_MODEL_COMMANDER", raising=False)
 
         chosen = llm_selector.select_model("commander", task_hint="routing")
@@ -157,16 +154,13 @@ class TestParetoDemotion:
         from app import llm_selector
 
         scores = {
-            "claude-opus-4.6": 0.92,
-            "deepseek-v3.2":   0.50,  # too far below default
+            "claude-sonnet-4.6": 0.92,
+            "deepseek-v3.2":     0.50,  # too far below default
         }
         monkeypatch.setattr(llm_selector, "get_scores", lambda t: scores)
-        # The selector imports get_default_for_role by name, so we must
-        # patch the binding on llm_selector (not llm_catalog) for the
-        # mock to take effect.
         monkeypatch.setattr(
             "app.llm_selector.get_default_for_role",
-            lambda role, cost_mode: "claude-opus-4.6",
+            lambda role, cost_mode: "claude-sonnet-4.6",
         )
         monkeypatch.setattr(
             llm_selector, "_model_available", lambda *a, **kw: True,
@@ -174,7 +168,7 @@ class TestParetoDemotion:
         monkeypatch.delenv("ROLE_MODEL_COMMANDER", raising=False)
 
         chosen = llm_selector.select_model("commander", task_hint="routing")
-        assert chosen == "claude-opus-4.6"
+        assert chosen == "claude-sonnet-4.6"
 
 
 class TestBudgetEnforcement:
@@ -189,43 +183,37 @@ class TestBudgetEnforcement:
         from app import llm_selector
 
         scores = {
-            "claude-opus-4.6": 0.92,
-            "deepseek-v3.2":   0.88,
+            "claude-sonnet-4.6": 0.92,
+            "deepseek-v3.2":     0.88,
         }
         monkeypatch.setattr(llm_selector, "get_scores", lambda t: scores)
-        # The selector imports get_default_for_role by name, so we must
-        # patch the binding on llm_selector (not llm_catalog) for the
-        # mock to take effect.
         monkeypatch.setattr(
             "app.llm_selector.get_default_for_role",
-            lambda role, cost_mode: "claude-opus-4.6",
+            lambda role, cost_mode: "claude-sonnet-4.6",
         )
         monkeypatch.setattr(
             llm_selector, "_model_available", lambda *a, **kw: True,
         )
         monkeypatch.delenv("ROLE_MODEL_COMMANDER", raising=False)
 
-        # Opus costs ~$25/M output; 2000 tokens output = ~$0.05
+        # Sonnet at $5/M output; 2000 tokens output = ~$0.01
         # DeepSeek V3.2 at $0.42/M output; 2000 tokens = ~$0.0008
-        # Budget of $0.01 forces demotion to deepseek.
+        # Budget of $0.002 forces demotion to deepseek.
         chosen = llm_selector.select_model(
             "commander", task_hint="routing",
             expected_input_tokens=2000, expected_output_tokens=2000,
-            budget_usd=0.01,
+            budget_usd=0.002,
         )
         assert chosen == "deepseek-v3.2"
 
     def test_budget_kept_default_when_within_budget(self, silence_db, monkeypatch):
         from app import llm_selector
 
-        scores = {"claude-opus-4.6": 0.92}
+        scores = {"claude-sonnet-4.6": 0.92}
         monkeypatch.setattr(llm_selector, "get_scores", lambda t: scores)
-        # The selector imports get_default_for_role by name, so we must
-        # patch the binding on llm_selector (not llm_catalog) for the
-        # mock to take effect.
         monkeypatch.setattr(
             "app.llm_selector.get_default_for_role",
-            lambda role, cost_mode: "claude-opus-4.6",
+            lambda role, cost_mode: "claude-sonnet-4.6",
         )
         monkeypatch.setattr(
             llm_selector, "_model_available", lambda *a, **kw: True,
@@ -237,4 +225,4 @@ class TestBudgetEnforcement:
             expected_input_tokens=200, expected_output_tokens=200,
             budget_usd=10.0,
         )
-        assert chosen == "claude-opus-4.6"
+        assert chosen == "claude-sonnet-4.6"

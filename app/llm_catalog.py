@@ -1,511 +1,44 @@
 """
-llm_catalog.py — Multi-tier LLM registry with cost, quality, and capability metadata.
+llm_catalog.py — Runtime-built LLM registry.
 
-Architecture (three tiers + local):
-  LOCAL:    Ollama on Metal GPU — free, fast, moderate quality
-  BUDGET:   Frontier API models via OpenRouter — cheap, high quality
-  MID:      Strong API models via OpenRouter — moderate cost, strong quality
-  PREMIUM:  Anthropic Claude + Gemini — expensive, highest reliability
+Architecture:
+  - ``_BOOTSTRAP_CATALOG``: 3 survival entries (Sonnet, DeepSeek, qwen3:30b-a3b)
+    hand-coded so the system can boot with no network and no snapshot cache.
+  - ``CATALOG``: the live mutable dict everything else imports. At startup
+    it's a copy of ``_BOOTSTRAP_CATALOG``; ``app.llm_catalog_builder.refresh``
+    mutates it in place with entries derived from Artificial Analysis +
+    OpenRouter + Ollama.
+  - ``resolve_role_default(role, cost_mode)``: score-based selection that
+    replaces the old static ``ROLE_DEFAULTS`` dict. Candidates are filtered
+    by tier floor / multimodal / tool-support requirements, then ranked by a
+    blend of internal telemetry, catalog strengths, tool-use reliability and
+    a cost-mode-dependent price penalty.
 
-Each model entry includes:
-  - tier: local | budget | mid | premium
-  - provider: ollama | openrouter | anthropic
-  - model_id: string used to create crewai.LLM (provider-prefixed)
-  - cost_input_per_m / cost_output_per_m: USD per 1M tokens (0 for local)
-  - context: max context window in tokens
-  - multimodal: supports image/video input
-  - strengths: task_type → score (0.0-1.0)
-  - tool_use_reliability: 0.0-1.0 (critical for CrewAI tool-calling loops)
+Hand-curated surface area (deliberately tiny):
+  * 3 bootstrap entries (for degraded-mode operation).
+  * Two policy tables: ``_COST_MODE_CEILING`` (soft penalty weight) and
+    ``_ROLE_TIER_FLOOR`` (hard tier requirement per role).
+  * The ``canonical_task_type`` classifier keywords.
 
-Pricing as of March 2026. Verify at https://openrouter.ai/models before deploying.
-
-Optimized for Apple M4 Max (48GB unified memory) for local tier.
+Everything else — model_id, cost, context, multimodal, tool_calling,
+strengths, tool_use_reliability — is populated by the builder from live
+sources every 24h (Signal ``refresh catalog`` command for instant refresh).
 """
 
 from __future__ import annotations
 
 import re
 
-# ── Model catalog ──────────────────────────────────────────────────────────
 
-CATALOG: dict[str, dict] = {
+# ── Canonical task-type taxonomy ──────────────────────────────────────────
+# Nine strength-column keys used across CATALOG entries. Stable contract —
+# llm_catalog_builder.derive_strengths populates every entry with all nine.
 
-    # ═══════════════════════════════════════════════════════════════════════
-    # LOCAL — Ollama on Metal GPU (free, ~15-25 tok/s on M4 Max)
-    # ═══════════════════════════════════════════════════════════════════════
+CANONICAL_TASK_TYPES: tuple[str, ...] = (
+    "coding", "debugging", "architecture", "research", "writing",
+    "reasoning", "multimodal", "vetting", "general",
+)
 
-    "qwen3:30b-a3b": {
-        "tier": "local",
-        "provider": "ollama",
-        "model_id": "ollama_chat/qwen3:30b-a3b",
-        "size_gb": 18, "ram_gb": 20, "speed": "very_fast",
-        "context": 32_768, "multimodal": False,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.70,
-        "description": "MoE ~3B active — best local all-rounder on Metal GPU",
-        "strengths": {
-            "coding": 0.82, "architecture": 0.75, "research": 0.75,
-            "writing": 0.75, "general": 0.78, "debugging": 0.75,
-            "reasoning": 0.75, "routing": 0.55, "vetting": 0.50,
-        },
-    },
-    "deepseek-r1:32b": {
-        "tier": "local",
-        "provider": "ollama",
-        "model_id": "ollama_chat/deepseek-r1:32b",
-        "size_gb": 19, "ram_gb": 22, "speed": "medium",
-        "context": 32_768, "multimodal": False,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.60,
-        "description": "Strong local reasoning — architecture, debugging, proofs",
-        "strengths": {
-            "architecture": 0.85, "debugging": 0.80, "coding": 0.75,
-            "reasoning": 0.88, "research": 0.70,
-        },
-    },
-    "codestral:22b": {
-        "tier": "local",
-        "provider": "ollama",
-        "model_id": "ollama_chat/codestral:22b",
-        "size_gb": 13, "ram_gb": 15, "speed": "fast",
-        "context": 32_768, "multimodal": False,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.0,
-        "supports_tools": False,  # Ollama codestral does NOT support tool calling
-        "description": "Mistral code specialist — code completion only, no tool use",
-        "strengths": {"coding": 0.88, "debugging": 0.80, "general": 0.50},
-    },
-    "gemma4:26b": {
-        "tier": "local",
-        "provider": "ollama",
-        "model_id": "ollama_chat/gemma4:26b",
-        "size_gb": 18, "ram_gb": 20, "speed": "very_fast",
-        "context": 256_000, "multimodal": True,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.75,
-        "description": "Gemma 4 MoE — 3.8B active params, vision+text, 256K context, function calling",
-        "strengths": {
-            "coding": 0.82, "architecture": 0.78, "research": 0.80,
-            "writing": 0.80, "general": 0.82, "debugging": 0.78,
-            "reasoning": 0.80, "routing": 0.60, "vetting": 0.55,
-            "multimodal": 0.75,
-        },
-    },
-    "gemma4:31b": {
-        "tier": "local",
-        "provider": "ollama",
-        "model_id": "ollama_chat/gemma4:31b",
-        "size_gb": 20, "ram_gb": 23, "speed": "medium",
-        "context": 256_000, "multimodal": True,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.78,
-        "description": "Gemma 4 dense 31B — strongest local Google model, vision, 256K context",
-        "strengths": {
-            "coding": 0.85, "architecture": 0.82, "research": 0.85,
-            "writing": 0.85, "general": 0.85, "debugging": 0.82,
-            "reasoning": 0.85, "routing": 0.65, "vetting": 0.60,
-            "multimodal": 0.80,
-        },
-    },
-    "gemma3:27b": {
-        "tier": "local",
-        "provider": "ollama",
-        "model_id": "ollama_chat/gemma3:27b",
-        "size_gb": 17, "ram_gb": 19, "speed": "medium",
-        "context": 128_000, "multimodal": False,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.62,
-        "description": "Google reasoning model — huge local context window (superseded by gemma4)",
-        "strengths": {
-            "reasoning": 0.80, "writing": 0.75, "research": 0.75,
-            "coding": 0.65, "general": 0.75,
-        },
-    },
-    "llama3.1:8b": {
-        "tier": "local",
-        "provider": "ollama",
-        "model_id": "ollama_chat/llama3.1:8b",
-        "size_gb": 5, "ram_gb": 6, "speed": "very_fast",
-        "context": 131_072, "multimodal": False,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.45,
-        "description": "Fast small fallback — keeps things running when RAM is tight",
-        "strengths": {
-            "general": 0.55, "writing": 0.55, "coding": 0.45,
-            "research": 0.50, "reasoning": 0.45,
-        },
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # FREE — $0 API models via OpenRouter (free tier, rate-limited)
-    # Best for: bulk parallel work, media analysis, low-priority background
-    # ═══════════════════════════════════════════════════════════════════════
-
-    "nemotron-nano-2-vl": {
-        "tier": "free",
-        "provider": "openrouter",
-        "model_id": "openrouter/nvidia/nemotron-nano-12b-v2-vl:free",
-        "context": 32_768, "multimodal": True,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.55,
-        "description": (
-            "NVIDIA Nemotron Nano 2 VL — 12B hybrid Transformer-Mamba. "
-            "Multimodal: text + multi-image. Leading OCRBench v2. "
-            "Free tier. Video understanding + document intelligence."
-        ),
-        "strengths": {
-            "multimodal": 0.88, "research": 0.65, "writing": 0.60,
-            "general": 0.62, "coding": 0.55, "reasoning": 0.60,
-        },
-    },
-    "nemotron-3-super": {
-        "tier": "free",
-        "provider": "openrouter",
-        "model_id": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
-        "context": 1_000_000, "multimodal": False,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.65,
-        "description": (
-            "NVIDIA Nemotron 3 Super — 120B MoE (12B active). "
-            "1M context, cross-document reasoning, multi-step planning. "
-            "Free tier. Strong for synthesis and long-context tasks."
-        ),
-        "strengths": {
-            "research": 0.78, "reasoning": 0.80, "architecture": 0.75,
-            "writing": 0.75, "general": 0.76, "coding": 0.72,
-            "synthesis": 0.80,
-        },
-    },
-    "trinity-large": {
-        "tier": "free",
-        "provider": "openrouter",
-        "model_id": "openrouter/arcee-ai/trinity-large-preview:free",
-        "context": 128_000, "multimodal": False,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.60,
-        "description": (
-            "Arcee Trinity Large — 400B sparse MoE (13B active). "
-            "Strong creative writing, agentic tool use. "
-            "Free tier. Natively supports 512K (128K in preview)."
-        ),
-        "strengths": {
-            "writing": 0.82, "general": 0.75, "research": 0.72,
-            "coding": 0.70, "reasoning": 0.72, "architecture": 0.68,
-        },
-    },
-    "step-3.5-flash": {
-        "tier": "free",
-        "provider": "openrouter",
-        "model_id": "openrouter/stepfun/step-3.5-flash:free",
-        "context": 256_000, "multimodal": False,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.60,
-        "description": (
-            "StepFun Step 3.5 Flash — 196B sparse MoE (11B active). "
-            "Speed-optimized reasoning. 256K context. Free tier."
-        ),
-        "strengths": {
-            "reasoning": 0.78, "research": 0.72, "coding": 0.70,
-            "writing": 0.70, "general": 0.72, "architecture": 0.68,
-        },
-    },
-    "minimax-m2.5-free": {
-        "tier": "free",
-        "provider": "openrouter",
-        "model_id": "openrouter/minimax/minimax-m2.5:free",
-        "context": 196_608, "multimodal": False,
-        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.75,
-        "description": (
-            "MiniMax M2.5 free tier — 80.2% SWE-bench, token-efficient. "
-            "Strong agentic coding + office document fluency."
-        ),
-        "strengths": {
-            "coding": 0.88, "debugging": 0.85, "reasoning": 0.82,
-            "writing": 0.78, "general": 0.80, "research": 0.78,
-            "architecture": 0.80,
-        },
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # BUDGET — Frontier API at <$1.50/M output (via OpenRouter)
-    # Best for: parallel sub-agents, background jobs, high-volume work
-    # ═══════════════════════════════════════════════════════════════════════
-
-    "deepseek-v3.2": {
-        "tier": "budget",
-        "provider": "openrouter",
-        "model_id": "openrouter/deepseek/deepseek-chat",
-        "context": 128_000, "multimodal": False,
-        "cost_input_per_m": 0.28, "cost_output_per_m": 0.42,
-        "tool_use_reliability": 0.82,
-        "description": (
-            "DeepSeek V3.2 — cheapest frontier model. Built for agentic tool use "
-            "with Sparse Attention + RL-trained on 1800+ environments. "
-            "SWE-bench 73.1%, AIME 91.7%. Text-only."
-        ),
-        "strengths": {
-            "coding": 0.87, "reasoning": 0.90, "research": 0.85,
-            "writing": 0.82, "debugging": 0.87, "architecture": 0.85,
-            "general": 0.85, "routing": 0.70, "vetting": 0.78,
-        },
-    },
-    "minimax-m2.5": {
-        "tier": "budget",
-        "provider": "openrouter",
-        "model_id": "openrouter/minimax/minimax-m2.5",
-        "context": 128_000, "multimodal": False,
-        "cost_input_per_m": 0.30, "cost_output_per_m": 1.20,
-        "tool_use_reliability": 0.80,
-        "description": (
-            "MiniMax M2.5 — 80.2% SWE-bench Verified at budget pricing. "
-            "Open-weight community favorite. Interleaved thinking."
-        ),
-        "strengths": {
-            "coding": 0.90, "debugging": 0.88, "reasoning": 0.85,
-            "writing": 0.80, "general": 0.83, "research": 0.80,
-            "architecture": 0.82,
-        },
-    },
-
-    "gemma-4-26b": {
-        "tier": "budget",
-        "provider": "openrouter",
-        "model_id": "openrouter/google/gemma-4-26b-a4b-it",
-        "context": 256_000, "multimodal": True,
-        "cost_input_per_m": 0.13, "cost_output_per_m": 0.40,
-        "tool_use_reliability": 0.78,
-        "description": "Gemma 4 26B MoE via OpenRouter — 3.8B active, vision+text, function calling, 256K context",
-        "strengths": {
-            "coding": 0.82, "architecture": 0.78, "research": 0.80,
-            "writing": 0.80, "general": 0.82, "debugging": 0.78,
-            "reasoning": 0.80, "multimodal": 0.75,
-        },
-    },
-    "gemma-4-31b": {
-        "tier": "budget",
-        "provider": "openrouter",
-        "model_id": "openrouter/google/gemma-4-31b-it",
-        "context": 256_000, "multimodal": True,
-        "cost_input_per_m": 0.14, "cost_output_per_m": 0.40,
-        "tool_use_reliability": 0.80,
-        "description": "Gemma 4 31B dense via OpenRouter — strongest open Google model, vision, 256K, function calling",
-        "strengths": {
-            "coding": 0.85, "architecture": 0.82, "research": 0.85,
-            "writing": 0.85, "general": 0.85, "debugging": 0.82,
-            "reasoning": 0.85, "multimodal": 0.80,
-        },
-    },
-
-    "mimo-v2-omni": {
-        "tier": "budget",
-        "provider": "openrouter",
-        "model_id": "openrouter/xiaomi/mimo-v2-omni",
-        "context": 256_000, "multimodal": True,
-        "cost_input_per_m": 0.40, "cost_output_per_m": 2.00,
-        "tool_use_reliability": 0.80,
-        "description": (
-            "Xiaomi MiMo-V2-Omni — frontier omni-modal model. Natively processes "
-            "image, video, and audio inputs. Visual grounding, multi-step planning, "
-            "tool use, code execution. 256K context."
-        ),
-        "strengths": {
-            "multimodal": 0.92, "research": 0.82, "coding": 0.80,
-            "reasoning": 0.82, "writing": 0.78, "general": 0.82,
-            "architecture": 0.78, "debugging": 0.78,
-        },
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # MID — Strong API at $1-4/M output (via OpenRouter)
-    # Best for: quality research, multimodal, agentic coding
-    # ═══════════════════════════════════════════════════════════════════════
-
-    "mimo-v2-pro": {
-        "tier": "mid",
-        "provider": "openrouter",
-        "model_id": "openrouter/xiaomi/mimo-v2-pro",
-        "context": 1_000_000, "multimodal": False,
-        "cost_input_per_m": 1.00, "cost_output_per_m": 3.00,
-        "tool_use_reliability": 0.90,
-        "description": (
-            "Xiaomi MiMo-V2-Pro (ex-Hunter Alpha) — 1T+ params, 1M context. "
-            "Top-tier agentic model. #1 on ClawBench, approaches Opus 4.6 on "
-            "PinchBench. Designed as agent brain for complex orchestration."
-        ),
-        "strengths": {
-            "coding": 0.92, "reasoning": 0.93, "architecture": 0.92,
-            "research": 0.90, "writing": 0.85, "debugging": 0.90,
-            "general": 0.90, "routing": 0.85, "vetting": 0.85,
-        },
-    },
-    "kimi-k2.5": {
-        "tier": "mid",
-        "provider": "openrouter",
-        "model_id": "openrouter/moonshotai/kimi-k2.5",
-        "context": 262_000, "multimodal": True,
-        "cost_input_per_m": 0.60, "cost_output_per_m": 3.00,
-        "tool_use_reliability": 0.85,
-        "description": (
-            "Kimi K2.5 — 1T MoE (32B active). Natively multimodal (MoonViT). "
-            "256K context. Agent Swarm capable. AIME 96.1%, GPQA 87.6%. "
-            "Best open-weight all-rounder."
-        ),
-        "strengths": {
-            "research": 0.92, "reasoning": 0.90, "coding": 0.88,
-            "writing": 0.85, "architecture": 0.88, "debugging": 0.85,
-            "general": 0.88, "multimodal": 0.92,
-        },
-    },
-    "glm-5": {
-        "tier": "mid",
-        "provider": "openrouter",
-        "model_id": "openrouter/zhipu/glm-5",
-        "context": 200_000, "multimodal": False,
-        "cost_input_per_m": 1.00, "cost_output_per_m": 3.20,
-        "tool_use_reliability": 0.83,
-        "description": (
-            "GLM-5 — 744B MoE (40B active). #1 open-weight on Artificial Analysis "
-            "and LMArena. 98% frontend build success, 200K context. "
-            "Strong agentic engineering."
-        ),
-        "strengths": {
-            "coding": 0.90, "architecture": 0.88, "reasoning": 0.88,
-            "writing": 0.83, "research": 0.85, "debugging": 0.87,
-            "general": 0.87,
-        },
-    },
-
-    # ═══════════════════════════════════════════════════════════════════════
-    # PREMIUM — Highest quality + tool-use reliability
-    # Best for: commander routing, user-facing output, vetting, critic
-    # ═══════════════════════════════════════════════════════════════════════
-
-    "gemini-3.1-pro": {
-        "tier": "premium",
-        "provider": "openrouter",
-        "model_id": "openrouter/google/gemini-3.1-pro-preview",
-        "context": 1_000_000, "multimodal": True,
-        "cost_input_per_m": 2.00, "cost_output_per_m": 12.00,
-        "tool_use_reliability": 0.90,
-        "description": (
-            "Gemini 3.1 Pro — #1 on 13/16 benchmarks. ARC-AGI-2 77.1%, "
-            "GPQA 94.3%. 1M context. Same price as predecessor."
-        ),
-        "strengths": {
-            "reasoning": 0.95, "research": 0.92, "coding": 0.90,
-            "writing": 0.88, "architecture": 0.90, "debugging": 0.88,
-            "general": 0.92, "multimodal": 0.90, "vetting": 0.88,
-        },
-    },
-    "claude-sonnet-4.6": {
-        "tier": "premium",
-        "provider": "anthropic",
-        "model_id": "anthropic/claude-sonnet-4-6",
-        "context": 1_000_000, "multimodal": True,
-        "cost_input_per_m": 1.00, "cost_output_per_m": 5.00,
-        "tool_use_reliability": 0.95,
-        "description": (
-            "Claude Sonnet 4.6 — #1 GDPval-AA human preference (1633 Elo). "
-            "Near-Opus quality at 1/5 the cost. SWE-bench 79.6%. "
-            "Default on Claude.ai + GitHub Copilot agent."
-        ),
-        "strengths": {
-            "writing": 0.93, "coding": 0.91, "research": 0.90,
-            "reasoning": 0.90, "architecture": 0.88, "debugging": 0.88,
-            "general": 0.92, "routing": 0.90, "vetting": 0.92,
-        },
-    },
-    "claude-opus-4.6": {
-        "tier": "premium",
-        "provider": "anthropic",
-        "model_id": "anthropic/claude-opus-4-6",
-        "context": 1_000_000, "multimodal": True,
-        "cost_input_per_m": 5.00, "cost_output_per_m": 25.00,
-        "tool_use_reliability": 0.98,
-        "description": (
-            "Claude Opus 4.6 — superseded by 4.7 but retained for the "
-            "budget-premium path. SWE-bench 80.8%, ARC-AGI-2 68.8%, "
-            "GDPval-AA 1606 Elo."
-        ),
-        "strengths": {
-            "routing": 0.98, "vetting": 0.95, "coding": 0.92,
-            "writing": 0.92, "research": 0.90, "reasoning": 0.92,
-            "architecture": 0.92, "debugging": 0.90, "general": 0.93,
-        },
-    },
-    "claude-opus-4.7": {
-        "tier": "premium",
-        "provider": "anthropic",
-        "model_id": "anthropic/claude-opus-4-7",
-        "context": 1_000_000, "multimodal": True,
-        "cost_input_per_m": 5.00, "cost_output_per_m": 25.00,
-        "tool_use_reliability": 0.99,
-        "description": (
-            "Claude Opus 4.7 — successor to 4.6. Same pricing envelope, "
-            "stronger coding + routing. Default for commander, vetting, "
-            "and critic in balanced/quality/insane modes."
-        ),
-        "strengths": {
-            "routing": 0.99, "vetting": 0.97, "coding": 0.95,
-            "writing": 0.93, "research": 0.92, "reasoning": 0.94,
-            "architecture": 0.94, "debugging": 0.92, "general": 0.95,
-        },
-    },
-}
-
-
-# ── Default role → model assignments ───────────────────────────────────────
-
-ROLE_DEFAULTS: dict[str, dict[str, str]] = {
-    "budget": {
-        "commander":    "claude-sonnet-4.6",
-        "research":     "deepseek-v3.2",
-        "coding":       "minimax-m2.5",
-        "writing":      "deepseek-v3.2",
-        "media":        "mimo-v2-omni",
-        "critic":       "deepseek-v3.2",
-        "introspector": "deepseek-v3.2",
-        "self_improve":  "deepseek-v3.2",
-        "vetting":      "deepseek-v3.2",
-        "synthesis":    "deepseek-v3.2",
-        "planner":      "deepseek-v3.2",
-        "evo_critic":   "deepseek-v3.2",
-        "default":      "deepseek-v3.2",
-    },
-    "balanced": {
-        "commander":    "claude-opus-4.7",
-        "research":     "deepseek-v3.2",
-        "coding":       "minimax-m2.5",
-        "writing":      "claude-sonnet-4.6",
-        "media":        "gemma4:26b",         # Vision-capable local model
-        "critic":       "gemini-3.1-pro",
-        "introspector": "gemma4:26b",         # Local — saves API cost for self-reflection
-        "self_improve":  "gemma4:26b",        # Local — background task, no API spend
-        "vetting":      "claude-sonnet-4.6",
-        "synthesis":    "claude-sonnet-4.6",
-        "planner":      "gemma4:26b",         # Local — background task
-        "evo_critic":   "gemma4:26b",         # Local — evolution judging
-        "default":      "deepseek-v3.2",
-    },
-    "quality": {
-        "commander":    "claude-opus-4.7",
-        "research":     "mimo-v2-pro",
-        "coding":       "mimo-v2-pro",
-        "writing":      "claude-sonnet-4.6",
-        "media":        "mimo-v2-omni",
-        "critic":       "gemini-3.1-pro",
-        "introspector": "mimo-v2-pro",
-        "self_improve":  "deepseek-v3.2",
-        "vetting":      "claude-opus-4.7",
-        "synthesis":    "claude-sonnet-4.6",
-        "planner":      "mimo-v2-pro",
-        "evo_critic":   "claude-sonnet-4.6",
-        "default":      "mimo-v2-pro",
-    },
-}
-
-# Task type aliases
 TASK_ALIASES: dict[str, str] = {
     "code": "coding", "implement": "coding", "program": "coding",
     "fix": "debugging", "debug": "debugging",
@@ -518,17 +51,7 @@ TASK_ALIASES: dict[str, str] = {
     "reason": "reasoning", "analyze": "reasoning", "think": "reasoning",
 }
 
-# ── Canonical task-type taxonomy ──────────────────────────────────────────
-# Nine strength-column keys used across CATALOG entries. This is the single
-# source of truth; llm_selector.detect_task_type delegates here.
-CANONICAL_TASK_TYPES: tuple[str, ...] = (
-    "coding", "debugging", "architecture", "research", "writing",
-    "reasoning", "multimodal", "vetting", "general",
-)
-
-# Crew/role → canonical task type. Covers orchestrator crew names and the
-# specialist roles registered in llm_factory. Keep in sync with
-# ROLE_DEFAULTS above and with llm_selector._KEYWORD_PATTERNS.
+# Crew/role → canonical task type.
 _ROLE_TO_TASK: dict[str, str] = {
     # Crew names (from orchestrator._run_crew)
     "coding":        "coding",
@@ -542,7 +65,7 @@ _ROLE_TO_TASK: dict[str, str] = {
     "repo_analysis": "architecture",
     "devops":        "architecture",
     "direct":        "general",
-    # Specialist roles (from ROLE_DEFAULTS)
+    # Specialist roles
     "commander":     "general",
     "critic":        "reasoning",
     "introspector":  "reasoning",
@@ -558,10 +81,6 @@ _ROLE_TO_TASK: dict[str, str] = {
     "default":       "general",
 }
 
-# Keyword patterns for task_hint — first match wins, so multimodal nouns
-# are checked BEFORE the "analyze/research" verbs (otherwise a prompt
-# like "analyze this screenshot" would be miscategorised as research).
-# Debugging is checked first because its vocabulary is the most specific.
 _TASK_KEYWORDS: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"\b(debug|traceback|stacktrace|fix\s+bug)\b", re.I), "debugging"),
     (re.compile(r"\b(image|photo|screenshot|picture|visual|pdf|scan)\b", re.I), "multimodal"),
@@ -587,8 +106,6 @@ def canonical_task_type(
       3. Crew name lookup in ``_ROLE_TO_TASK``.
       4. Role lookup in ``_ROLE_TO_TASK``.
       5. Fallback: ``"general"``.
-
-    Return value is guaranteed to be one of ``CANONICAL_TASK_TYPES``.
     """
     if task_hint:
         hint = task_hint.strip()
@@ -618,7 +135,201 @@ def canonical_task_type(
     return "general"
 
 
-# ── Public API ─────────────────────────────────────────────────────────────
+# ── Bootstrap catalog (hand-curated survival minimum) ────────────────────
+# These three entries exist so the system boots when every external API is
+# down and no snapshot is on disk. llm_catalog_builder refreshes their
+# derived fields (cost, strengths, tool_use_reliability) from live sources
+# but never removes them.
+
+_BOOTSTRAP_CATALOG: dict[str, dict] = {
+    "claude-sonnet-4.6": {
+        "tier": "premium", "provider": "anthropic",
+        "model_id": "anthropic/claude-sonnet-4-6",
+        "context": 1_000_000, "multimodal": True,
+        "cost_input_per_m": 1.00, "cost_output_per_m": 5.00,
+        "tool_use_reliability": 0.95,
+        "supports_tools": True,
+        "description": "Claude Sonnet 4.6 — survival bootstrap (Anthropic fallback).",
+        "strengths": {
+            "coding": 0.91, "debugging": 0.88, "architecture": 0.88,
+            "research": 0.90, "writing": 0.93, "reasoning": 0.90,
+            "multimodal": 1.0, "vetting": 0.92, "general": 0.92,
+        },
+    },
+    "deepseek-v3.2": {
+        "tier": "budget", "provider": "openrouter",
+        "model_id": "openrouter/deepseek/deepseek-chat",
+        "context": 128_000, "multimodal": False,
+        "cost_input_per_m": 0.28, "cost_output_per_m": 0.42,
+        "tool_use_reliability": 0.82,
+        "supports_tools": True,
+        "description": "DeepSeek V3.2 — survival bootstrap (budget API fallback).",
+        "strengths": {
+            "coding": 0.87, "debugging": 0.87, "architecture": 0.85,
+            "research": 0.85, "writing": 0.82, "reasoning": 0.90,
+            "multimodal": 0.0, "vetting": 0.78, "general": 0.85,
+        },
+    },
+    "qwen3:30b-a3b": {
+        "tier": "local", "provider": "ollama",
+        "model_id": "ollama_chat/qwen3:30b-a3b",
+        "context": 32_768, "multimodal": False,
+        "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
+        "tool_use_reliability": 0.70,
+        "supports_tools": True,
+        "size_gb": 18, "ram_gb": 20, "speed": "very_fast",
+        "description": "Qwen3 30B MoE — survival bootstrap (fully offline).",
+        "strengths": {
+            "coding": 0.82, "debugging": 0.75, "architecture": 0.75,
+            "research": 0.75, "writing": 0.75, "reasoning": 0.75,
+            "multimodal": 0.0, "vetting": 0.50, "general": 0.78,
+        },
+    },
+}
+
+# Live mutable catalog. ``app.llm_catalog_builder.refresh()`` adds or updates
+# entries here in place. Code across the app imports ``CATALOG`` by reference;
+# mutating it keeps every caller's view current without any listener plumbing.
+CATALOG: dict[str, dict] = {name: dict(entry) for name, entry in _BOOTSTRAP_CATALOG.items()}
+
+
+# ── Policy (tiny, rarely changed) ────────────────────────────────────────
+
+# Cost-mode soft penalty weights: higher = more aggressively prefer cheaper
+# models. Applied as ``quality - weight * (cost / max_cost_in_candidates)``
+# so a 5% quality improvement isn't worth a 20× cost increase under budget.
+_COST_MODE_WEIGHT: dict[str, float] = {
+    "budget":   0.35,
+    "balanced": 0.10,
+    "quality":  0.00,
+}
+
+# Hard tier requirements per role — commander/vetting/critic must be premium
+# regardless of cost_mode. Everything else accepts budget or above.
+_ROLE_TIER_FLOOR: dict[str, str] = {
+    "commander":  "premium",
+    "vetting":    "premium",
+    "critic":     "premium",
+    "default":    "budget",
+}
+
+# Roles that can opt into local tier when one is available and cost_mode
+# isn't "quality" (self-reflection, background jobs — cost sensitivity high).
+_ROLE_LOCAL_PREFERRED: set[str] = {
+    "introspector", "self_improve", "planner", "evo_critic",
+}
+
+# Roles whose crews use tool-calling — must pick models with tool support.
+_ROLES_NEEDING_TOOLS: set[str] = {
+    "coding", "research", "writing", "media", "self_improve", "critic",
+    "vetting", "commander", "synthesis",
+}
+
+_TIER_RANK: dict[str, int] = {
+    "local": 0, "free": 1, "budget": 2, "mid": 3, "premium": 4,
+}
+
+
+def _tier_meets_floor(tier: str, floor: str) -> bool:
+    return _TIER_RANK.get(tier, 0) >= _TIER_RANK.get(floor, 0)
+
+
+def _filter_candidates(
+    tier_floor: str,
+    needs_multimodal: bool,
+    prefer_local: bool,
+    needs_tools: bool,
+) -> list[str]:
+    """Return catalog keys that satisfy the hard constraints.
+
+    Hard constraints:
+      * Tier floor (unless prefer_local is set and the local tier is allowed)
+      * Multimodal capability when the task requires it
+      * Tool-calling support when the role needs tools
+
+    Cost is NOT a hard filter — it enters via the scoring function so the
+    selector can surface a cheaper model that meets the tier floor.
+    """
+    candidates: list[str] = []
+    for name, entry in CATALOG.items():
+        tier = entry.get("tier", "budget")
+        if needs_multimodal and not entry.get("multimodal"):
+            continue
+        if needs_tools and entry.get("supports_tools") is False:
+            continue
+        if not _tier_meets_floor(tier, tier_floor):
+            if not (prefer_local and tier == "local"):
+                continue
+        candidates.append(name)
+    return candidates
+
+
+def resolve_role_default(role: str, cost_mode: str = "balanced") -> str:
+    """Score-based role → catalog-key resolution.
+
+    Replaces the hand-coded ``ROLE_DEFAULTS`` dict. Picks the highest-
+    scoring candidate that satisfies the role's hard constraints, where
+    the score is a blend of live telemetry, auto-derived strengths,
+    tool-use reliability, and a cost penalty controlled by ``cost_mode``.
+
+    When no candidate survives the hard filters (possible if the catalog
+    hasn't been refreshed and only 3 bootstrap entries exist), returns
+    ``"claude-sonnet-4.6"`` — the universal bootstrap fallback.
+    """
+    task_type = canonical_task_type(role=role)
+    tier_floor = _ROLE_TIER_FLOOR.get(role, _ROLE_TIER_FLOOR["default"])
+    needs_multimodal = task_type == "multimodal"
+    prefer_local = role in _ROLE_LOCAL_PREFERRED and cost_mode != "quality"
+    needs_tools = role in _ROLES_NEEDING_TOOLS
+
+    candidates = _filter_candidates(
+        tier_floor, needs_multimodal, prefer_local, needs_tools,
+    )
+
+    if prefer_local:
+        local_cands = [c for c in candidates if CATALOG[c].get("tier") == "local"]
+        if local_cands:
+            candidates = local_cands
+
+    if not candidates:
+        return "claude-sonnet-4.6"
+
+    # Blended quality signal: live benchmark if present, catalog strengths
+    # otherwise. Bench gets the dominant weight because it's grounded in
+    # real production outcomes.
+    try:
+        from app.llm_benchmarks import get_combined_scores
+        bench = get_combined_scores(task_type)
+    except Exception:
+        bench = {}
+
+    cost_weight = _COST_MODE_WEIGHT.get(cost_mode, _COST_MODE_WEIGHT["balanced"])
+    # Normalise the cost penalty against the most expensive candidate so
+    # the penalty stays comparable across roles with different tier floors.
+    costs = [CATALOG[n].get("cost_output_per_m", 0.0) for n in candidates]
+    max_cost = max(costs) if costs else 1.0
+    if max_cost <= 0:
+        max_cost = 1.0
+
+    def _score(name: str) -> float:
+        entry = CATALOG[name]
+        s_bench = float(bench.get(name, 0.0))
+        strengths = entry.get("strengths", {})
+        s_strength = float(strengths.get(task_type, strengths.get("general", 0.5)))
+        s_tool = float(entry.get("tool_use_reliability", 0.7)) if needs_tools else 1.0
+        quality = (
+            0.60 * s_bench + 0.35 * s_strength + 0.05 * s_tool
+            if s_bench > 0
+            else 0.80 * s_strength + 0.20 * s_tool
+        )
+        cost = float(entry.get("cost_output_per_m", 0.0))
+        cost_penalty = cost_weight * (cost / max_cost)
+        return quality - cost_penalty
+
+    return max(candidates, key=_score)
+
+
+# ── Public API ────────────────────────────────────────────────────────────
 
 def get_model(name: str) -> dict | None:
     return CATALOG.get(name)
@@ -641,17 +352,16 @@ def is_multimodal(name: str) -> bool:
     entry = CATALOG.get(name)
     return entry.get("multimodal", False) if entry else False
 
+
 def get_default_for_role(role: str, cost_mode: str = "balanced") -> str:
-    """Return the catalog key to use for a role in a given cost mode.
+    """Return the catalog key to use for a role + cost_mode pair.
 
     Resolution order:
-      1. Runtime overlay in ``control_plane.role_assignments`` (see
-         :mod:`app.llm_role_assignments`). Promoted models land here.
-      2. Static ROLE_DEFAULTS for the cost mode.
-      3. The cost mode's ``"default"`` entry.
-
-    The overlay hit is verified against CATALOG so a stale row pointing
-    at a retired model never returns a missing key.
+      1. Runtime overlay in ``control_plane.role_assignments`` (manual
+         override / governance-approved promotion — see
+         :mod:`app.llm_role_assignments`).
+      2. :func:`resolve_role_default` — score-based selection against the
+         live ``CATALOG``.
     """
     try:
         from app.llm_role_assignments import get_assigned_model
@@ -659,66 +369,155 @@ def get_default_for_role(role: str, cost_mode: str = "balanced") -> str:
         if override and override in CATALOG:
             return override
     except Exception:
-        pass  # graceful degradation to static defaults
-    mode_defaults = ROLE_DEFAULTS.get(cost_mode, ROLE_DEFAULTS["balanced"])
-    return mode_defaults.get(role, mode_defaults["default"])
+        pass
+    return resolve_role_default(role, cost_mode)
+
 
 def get_candidates(task_type: str) -> list[tuple[str, float]]:
     task_type = TASK_ALIASES.get(task_type, task_type)
     scored = []
     for name, info in CATALOG.items():
-        score = info["strengths"].get(task_type, info["strengths"].get("general", 0.5))
+        strengths = info.get("strengths", {})
+        score = strengths.get(task_type, strengths.get("general", 0.5))
         scored.append((name, score))
     scored.sort(key=lambda x: -x[1])
     return scored
 
-def get_candidates_by_tier(task_type: str, tiers: list[str] | None = None) -> list[tuple[str, float]]:
+
+def get_candidates_by_tier(
+    task_type: str, tiers: list[str] | None = None,
+) -> list[tuple[str, float]]:
     task_type = TASK_ALIASES.get(task_type, task_type)
     scored = []
     for name, info in CATALOG.items():
-        if tiers and info["tier"] not in tiers:
+        if tiers and info.get("tier") not in tiers:
             continue
-        score = info["strengths"].get(task_type, info["strengths"].get("general", 0.5))
+        strengths = info.get("strengths", {})
+        score = strengths.get(task_type, strengths.get("general", 0.5))
         scored.append((name, score))
     scored.sort(key=lambda x: -x[1])
     return scored
 
+
 def get_smallest_model() -> str:
-    local = {k: v for k, v in CATALOG.items() if v["tier"] == "local"}
+    local = {k: v for k, v in CATALOG.items() if v.get("tier") == "local"}
     if not local:
         return "deepseek-v3.2"
     return min(local, key=lambda m: local[m].get("ram_gb", 99))
+
 
 def get_ram_requirement(model: str) -> float:
     info = CATALOG.get(model)
     return info["ram_gb"] if info and "ram_gb" in info else 20.0
 
-def estimate_task_cost(model_name: str, input_tokens: int = 2000, output_tokens: int = 2000) -> float:
+
+def estimate_task_cost(
+    model_name: str, input_tokens: int = 2000, output_tokens: int = 2000,
+) -> float:
     entry = CATALOG.get(model_name)
     if not entry:
         return 0.0
-    return (input_tokens / 1_000_000) * entry["cost_input_per_m"] + (output_tokens / 1_000_000) * entry["cost_output_per_m"]
+    return (
+        (input_tokens / 1_000_000) * entry.get("cost_input_per_m", 0)
+        + (output_tokens / 1_000_000) * entry.get("cost_output_per_m", 0)
+    )
+
 
 def format_catalog() -> str:
+    """Human-readable catalog snapshot for Signal output."""
     lines = ["LLM Model Catalog:\n"]
-    for tier_name in ("local", "budget", "mid", "premium"):
-        tier_models = {k: v for k, v in CATALOG.items() if v["tier"] == tier_name}
+    for tier_name in ("local", "free", "budget", "mid", "premium"):
+        tier_models = {k: v for k, v in CATALOG.items() if v.get("tier") == tier_name}
         if not tier_models:
             continue
         lines.append(f"\n  [{tier_name.upper()}]")
-        for name, info in sorted(tier_models.items(), key=lambda x: -max(x[1]["strengths"].values())):
-            top = max(info["strengths"], key=info["strengths"].get)
-            cost = info["cost_output_per_m"]
+
+        def _top_strength(info: dict) -> float:
+            s = info.get("strengths", {})
+            return max(s.values()) if s else 0.0
+
+        for name, info in sorted(tier_models.items(), key=lambda x: -_top_strength(x[1])):
+            s = info.get("strengths", {})
+            top = max(s, key=s.get) if s else "?"
+            cost = info.get("cost_output_per_m", 0)
             cost_str = "free" if cost == 0 else f"${cost:.2f}/Mo"
-            lines.append(f"  {name}  ({cost_str}, tool:{info.get('tool_use_reliability', 0):.0%}) — best: {top}")
+            marker = "·" if info.get("_auto") else "★"  # ★ = bootstrap
+            lines.append(
+                f"  {marker} {name}  ({cost_str}, "
+                f"tool:{info.get('tool_use_reliability', 0):.0%}) — best: {top}"
+            )
     return "\n".join(lines)
 
+
 def format_role_assignments(cost_mode: str = "balanced") -> str:
-    defaults = ROLE_DEFAULTS.get(cost_mode, ROLE_DEFAULTS["balanced"])
-    lines = [f"Role Assignments [{cost_mode}]:\n"]
-    for role, model in sorted(defaults.items()):
-        entry = CATALOG.get(model, {})
+    """Show the resolver's current pick for every role under a cost_mode."""
+    roles_to_show = [
+        "commander", "coding", "research", "writing", "media", "critic",
+        "introspector", "self_improve", "vetting", "synthesis", "planner",
+        "evo_critic", "default",
+    ]
+    lines = [f"Role Assignments [{cost_mode}] (resolved):\n"]
+    for role in roles_to_show:
+        picked = get_default_for_role(role, cost_mode)
+        entry = CATALOG.get(picked, {})
         cost = entry.get("cost_output_per_m", 0)
         cost_str = "free" if cost == 0 else f"${cost:.2f}/Mo"
-        lines.append(f"  {role:<14} → {model} ({cost_str})")
+        lines.append(f"  {role:<14} → {picked} ({cost_str})")
     return "\n".join(lines)
+
+
+# ── Back-compat: ROLE_DEFAULTS as a lazy view over the resolver ────────────
+# A handful of call sites (``firebase/publish.py``, older ``llm_discovery``
+# paths) read ``ROLE_DEFAULTS[mode][role]`` directly. Rather than rewrite
+# each, expose a dict-like wrapper that computes entries on access via
+# ``resolve_role_default``. Always reflects the live CATALOG.
+
+class _ResolvedRoleMap:
+    """Dict-like view: ``m[role]`` → resolve_role_default(role, cost_mode)."""
+
+    __slots__ = ("_cost_mode",)
+
+    def __init__(self, cost_mode: str) -> None:
+        self._cost_mode = cost_mode
+
+    def __contains__(self, role: object) -> bool:
+        return isinstance(role, str)
+
+    def __getitem__(self, role: str) -> str:
+        return resolve_role_default(role, self._cost_mode)
+
+    def get(self, role: str, default=None):
+        try:
+            return resolve_role_default(role, self._cost_mode)
+        except Exception:
+            return default
+
+    def items(self):
+        for role in _ROLE_TO_TASK:
+            yield role, resolve_role_default(role, self._cost_mode)
+
+    def keys(self):
+        return list(_ROLE_TO_TASK.keys())
+
+
+class _RoleDefaultsView:
+    """Back-compat shim for the ``ROLE_DEFAULTS[mode][role]`` idiom."""
+
+    __slots__ = ()
+
+    def __contains__(self, mode: object) -> bool:
+        return isinstance(mode, str) and mode in _COST_MODE_WEIGHT
+
+    def __getitem__(self, mode: str) -> _ResolvedRoleMap:
+        if mode not in _COST_MODE_WEIGHT:
+            raise KeyError(mode)
+        return _ResolvedRoleMap(mode)
+
+    def get(self, mode: str, default=None):
+        if mode in _COST_MODE_WEIGHT:
+            return _ResolvedRoleMap(mode)
+        return default
+
+
+# Exposed for legacy callers; new code should use ``get_default_for_role``.
+ROLE_DEFAULTS: _RoleDefaultsView = _RoleDefaultsView()
