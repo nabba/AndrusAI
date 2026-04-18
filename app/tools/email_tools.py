@@ -123,6 +123,21 @@ def create_email_tools(agent_id: str) -> list:
                 "Use this for queries like 'emails from last week'."
             ),
         )
+        from_sender: str = Field(
+            default="",
+            description=(
+                "If set, only count/list emails whose From header contains this "
+                "string. Can be a full address (alice@example.com), a domain "
+                "(@example.com), or a name fragment (Alice). Case-insensitive."
+            ),
+        )
+        subject_contains: str = Field(
+            default="",
+            description=(
+                "If set, only count/list emails whose Subject contains this "
+                "string (case-insensitive IMAP SUBJECT search)."
+            ),
+        )
         count_only: bool = Field(
             default=False,
             description=(
@@ -134,16 +149,18 @@ def create_email_tools(agent_id: str) -> list:
     class CheckEmailTool(BaseTool):
         name: str = "check_email"
         description: str = (
-            "Check email inbox. Supports time-window filtering via hours_back "
-            "or days_back, and count-only mode via count_only. Returns a list "
-            "of matching emails with sender, subject, date."
+            "Check email inbox. Supports time-window filtering (hours_back / "
+            "days_back), sender filtering (from_sender), subject filtering "
+            "(subject_contains), and count-only mode (count_only). Returns "
+            "matching emails with sender, subject, date."
         )
         args_schema: Type[BaseModel] = _CheckEmailInput
 
         def _run(
             self, folder: str = "INBOX", limit: int = 10,
             unread_only: bool = False, hours_back: int = 0,
-            days_back: int = 0, count_only: bool = False,
+            days_back: int = 0, from_sender: str = "",
+            subject_contains: str = "", count_only: bool = False,
         ) -> str:
             try:
                 conn = _connect_imap(cfg)
@@ -162,6 +179,13 @@ def create_email_tools(agent_id: str) -> list:
                 elif days_back > 0:
                     since_dt = datetime.now() - timedelta(days=days_back)
                     criteria_parts.append(f'SINCE "{since_dt.strftime("%d-%b-%Y")}"')
+                if from_sender:
+                    # IMAP FROM is a substring match on the From header
+                    safe_sender = from_sender.replace('"', '\\"')
+                    criteria_parts.append(f'FROM "{safe_sender}"')
+                if subject_contains:
+                    safe_subj = subject_contains.replace('"', '\\"')
+                    criteria_parts.append(f'SUBJECT "{safe_subj}"')
                 criteria = " ".join(criteria_parts) if criteria_parts else "ALL"
 
                 _, msg_nums = conn.search(None, criteria)
@@ -189,26 +213,28 @@ def create_email_tools(agent_id: str) -> list:
                             continue
                     nums = filtered
 
+                def _scope_desc() -> str:
+                    parts = []
+                    if from_sender:
+                        parts.append(f"from '{from_sender}'")
+                    if subject_contains:
+                        parts.append(f"with subject containing '{subject_contains}'")
+                    if hours_back > 0:
+                        parts.append(f"in the last {hours_back} hour(s)")
+                    elif days_back > 0:
+                        parts.append(f"in the last {days_back} day(s)")
+                    return (" " + " ".join(parts)) if parts else ""
+
                 if not nums:
                     conn.close()
                     conn.logout()
-                    scope = ""
-                    if hours_back > 0:
-                        scope = f" in the last {hours_back} hour(s)"
-                    elif days_back > 0:
-                        scope = f" in the last {days_back} day(s)"
-                    return f"No {'unread ' if unread_only else ''}emails found{scope}."
+                    return f"No {'unread ' if unread_only else ''}emails found{_scope_desc()}."
 
                 if count_only:
                     conn.close()
                     conn.logout()
-                    scope = ""
-                    if hours_back > 0:
-                        scope = f" in the last {hours_back} hour(s)"
-                    elif days_back > 0:
-                        scope = f" in the last {days_back} day(s)"
                     label = "unread " if unread_only else ""
-                    return f"{len(nums)} {label}email(s){scope}."
+                    return f"{len(nums)} {label}email(s){_scope_desc()}."
 
                 # Take the most recent N
                 recent = nums[-limit:]
@@ -230,12 +256,7 @@ def create_email_tools(agent_id: str) -> list:
                 conn.logout()
                 total = len(nums)
                 shown = len(results)
-                scope = ""
-                if hours_back > 0:
-                    scope = f" in the last {hours_back} hour(s)"
-                elif days_back > 0:
-                    scope = f" in the last {days_back} day(s)"
-                count_label = f"{total} email(s){scope}"
+                count_label = f"{total} email(s){_scope_desc()}"
                 if shown < total:
                     count_label += f" (showing most recent {shown})"
                 return f"{count_label}:\n\n" + "\n\n".join(results)
@@ -329,33 +350,63 @@ def create_email_tools(agent_id: str) -> list:
                 return f"Error sending email: {str(e)[:300]}"
 
     class _SearchEmailInput(BaseModel):
-        query: str = Field(description="Search query (matches subject and sender)")
+        query: str = Field(
+            default="",
+            description=(
+                "Subject keyword to search for (IMAP SUBJECT match). Optional "
+                "if from_sender is specified."
+            ),
+        )
+        from_sender: str = Field(
+            default="",
+            description=(
+                "If set, only match emails whose From header contains this "
+                "string (full address, domain, or name fragment)."
+            ),
+        )
         folder: str = Field(default="INBOX", description="Mailbox folder")
         days_back: int = Field(default=30, description="Search within last N days")
 
     class SearchEmailTool(BaseTool):
         name: str = "search_email"
         description: str = (
-            "Search emails by keyword across subjects. "
+            "Search emails by subject keyword and/or sender. Pass query for "
+            "subject match, from_sender for sender match, or both. "
             "Returns matching emails from the specified time period."
         )
         args_schema: Type[BaseModel] = _SearchEmailInput
 
-        def _run(self, query: str, folder: str = "INBOX", days_back: int = 30) -> str:
+        def _run(
+            self, query: str = "", from_sender: str = "",
+            folder: str = "INBOX", days_back: int = 30,
+        ) -> str:
+            if not query and not from_sender:
+                return "search_email: provide at least one of 'query' or 'from_sender'."
             try:
                 conn = _connect_imap(cfg)
                 conn.select(folder, readonly=True)
 
                 since = (datetime.now() - timedelta(days=days_back)).strftime("%d-%b-%Y")
-                _, msg_nums = conn.search(
-                    None, f'(SINCE {since} SUBJECT "{query}")'
-                )
+                criteria = [f"SINCE {since}"]
+                if query:
+                    safe_q = query.replace('"', '\\"')
+                    criteria.append(f'SUBJECT "{safe_q}"')
+                if from_sender:
+                    safe_s = from_sender.replace('"', '\\"')
+                    criteria.append(f'FROM "{safe_s}"')
+                criteria_str = "(" + " ".join(criteria) + ")"
+                _, msg_nums = conn.search(None, criteria_str)
                 nums = msg_nums[0].split()
 
                 if not nums:
                     conn.close()
                     conn.logout()
-                    return f"No emails matching '{query}' in last {days_back} days."
+                    scope = []
+                    if query:
+                        scope.append(f"subject '{query}'")
+                    if from_sender:
+                        scope.append(f"from '{from_sender}'")
+                    return f"No emails matching {' and '.join(scope)} in last {days_back} days."
 
                 results = []
                 for num in reversed(nums[-20:]):  # Max 20 results
