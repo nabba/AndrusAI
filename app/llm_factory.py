@@ -347,10 +347,10 @@ def get_last_tier() -> str | None:
 # ── INSANE mode role → model mapping ──────────────────────────────────────
 # Critical roles get Opus; heavy-lifting roles get Gemini 3.1 Pro; support roles get Sonnet.
 _INSANE_ROLE_MAP = {
-    # Critical: Claude Opus 4.6
-    "commander":    "claude-opus-4.6",
-    "vetting":      "claude-opus-4.6",
-    "critic":       "claude-opus-4.6",
+    # Critical: Claude Opus 4.7
+    "commander":    "claude-opus-4.7",
+    "vetting":      "claude-opus-4.7",
+    "critic":       "claude-opus-4.7",
     # Heavy-lifting: Gemini 3.1 Pro
     "coding":       "gemini-3.1-pro",
     "research":     "gemini-3.1-pro",

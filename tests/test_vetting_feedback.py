@@ -136,8 +136,11 @@ class TestParetoDemotion:
         monkeypatch.setattr(llm_selector, "get_scores", lambda t: scores)
 
         # Force balanced commander default to claude-opus-4.6.
+        # The selector imports get_default_for_role by name, so we must
+        # patch the binding on llm_selector (not llm_catalog) for the
+        # mock to take effect.
         monkeypatch.setattr(
-            "app.llm_catalog.get_default_for_role",
+            "app.llm_selector.get_default_for_role",
             lambda role, cost_mode: "claude-opus-4.6",
         )
         # Convince _model_available that both are reachable.
@@ -158,8 +161,11 @@ class TestParetoDemotion:
             "deepseek-v3.2":   0.50,  # too far below default
         }
         monkeypatch.setattr(llm_selector, "get_scores", lambda t: scores)
+        # The selector imports get_default_for_role by name, so we must
+        # patch the binding on llm_selector (not llm_catalog) for the
+        # mock to take effect.
         monkeypatch.setattr(
-            "app.llm_catalog.get_default_for_role",
+            "app.llm_selector.get_default_for_role",
             lambda role, cost_mode: "claude-opus-4.6",
         )
         monkeypatch.setattr(
@@ -187,8 +193,11 @@ class TestBudgetEnforcement:
             "deepseek-v3.2":   0.88,
         }
         monkeypatch.setattr(llm_selector, "get_scores", lambda t: scores)
+        # The selector imports get_default_for_role by name, so we must
+        # patch the binding on llm_selector (not llm_catalog) for the
+        # mock to take effect.
         monkeypatch.setattr(
-            "app.llm_catalog.get_default_for_role",
+            "app.llm_selector.get_default_for_role",
             lambda role, cost_mode: "claude-opus-4.6",
         )
         monkeypatch.setattr(
@@ -211,8 +220,11 @@ class TestBudgetEnforcement:
 
         scores = {"claude-opus-4.6": 0.92}
         monkeypatch.setattr(llm_selector, "get_scores", lambda t: scores)
+        # The selector imports get_default_for_role by name, so we must
+        # patch the binding on llm_selector (not llm_catalog) for the
+        # mock to take effect.
         monkeypatch.setattr(
-            "app.llm_catalog.get_default_for_role",
+            "app.llm_selector.get_default_for_role",
             lambda role, cost_mode: "claude-opus-4.6",
         )
         monkeypatch.setattr(

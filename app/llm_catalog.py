@@ -424,14 +424,32 @@ CATALOG: dict[str, dict] = {
         "cost_input_per_m": 5.00, "cost_output_per_m": 25.00,
         "tool_use_reliability": 0.98,
         "description": (
-            "Claude Opus 4.6 — highest tool-use reliability (0.98). "
-            "SWE-bench 80.8%. ARC-AGI-2 68.8%. GDPval-AA 1606 Elo. "
-            "Reserve for routing and critical-path vetting."
+            "Claude Opus 4.6 — superseded by 4.7 but retained for the "
+            "budget-premium path. SWE-bench 80.8%, ARC-AGI-2 68.8%, "
+            "GDPval-AA 1606 Elo."
         ),
         "strengths": {
             "routing": 0.98, "vetting": 0.95, "coding": 0.92,
             "writing": 0.92, "research": 0.90, "reasoning": 0.92,
             "architecture": 0.92, "debugging": 0.90, "general": 0.93,
+        },
+    },
+    "claude-opus-4.7": {
+        "tier": "premium",
+        "provider": "anthropic",
+        "model_id": "anthropic/claude-opus-4-7",
+        "context": 1_000_000, "multimodal": True,
+        "cost_input_per_m": 5.00, "cost_output_per_m": 25.00,
+        "tool_use_reliability": 0.99,
+        "description": (
+            "Claude Opus 4.7 — successor to 4.6. Same pricing envelope, "
+            "stronger coding + routing. Default for commander, vetting, "
+            "and critic in balanced/quality/insane modes."
+        ),
+        "strengths": {
+            "routing": 0.99, "vetting": 0.97, "coding": 0.95,
+            "writing": 0.93, "research": 0.92, "reasoning": 0.94,
+            "architecture": 0.94, "debugging": 0.92, "general": 0.95,
         },
     },
 }
@@ -456,7 +474,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "default":      "deepseek-v3.2",
     },
     "balanced": {
-        "commander":    "claude-opus-4.6",
+        "commander":    "claude-opus-4.7",
         "research":     "deepseek-v3.2",
         "coding":       "minimax-m2.5",
         "writing":      "claude-sonnet-4.6",
@@ -471,7 +489,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "default":      "deepseek-v3.2",
     },
     "quality": {
-        "commander":    "claude-opus-4.6",
+        "commander":    "claude-opus-4.7",
         "research":     "mimo-v2-pro",
         "coding":       "mimo-v2-pro",
         "writing":      "claude-sonnet-4.6",
@@ -479,7 +497,7 @@ ROLE_DEFAULTS: dict[str, dict[str, str]] = {
         "critic":       "gemini-3.1-pro",
         "introspector": "mimo-v2-pro",
         "self_improve":  "deepseek-v3.2",
-        "vetting":      "claude-opus-4.6",
+        "vetting":      "claude-opus-4.7",
         "synthesis":    "claude-sonnet-4.6",
         "planner":      "mimo-v2-pro",
         "evo_critic":   "claude-sonnet-4.6",
