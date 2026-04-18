@@ -305,14 +305,17 @@ async def lifespan(app: FastAPI):
             return "Empty or blocked message."
         # Run commander synchronously (we're already in a thread)
         result = commander.handle(text, settings.signal_owner_number, [])
-        # Mirror to Signal so the user sees it there too (sync call)
+        # Mirror to Signal so the user sees it there too (sync call).
+        # BOTH the question AND the response are prefixed with [Dashboard]
+        # so the user can distinguish dashboard-originated messages from
+        # their own Signal queries.
         try:
             from app.signal_client import _chunk_at_sentences, MAX_SIGNAL_LENGTH
             signal_client._send_sync(settings.signal_owner_number, f"[Dashboard] {text}"[:MAX_SIGNAL_LENGTH])
             from app.agents.commander import _MAX_RESPONSE_LENGTH, truncate_for_signal
             resp_text = truncate_for_signal(result) if len(result) > _MAX_RESPONSE_LENGTH else result
             for chunk in _chunk_at_sentences(resp_text, MAX_SIGNAL_LENGTH):
-                signal_client._send_sync(settings.signal_owner_number, chunk)
+                signal_client._send_sync(settings.signal_owner_number, f"[Dashboard] {chunk}")
         except Exception:
             logger.debug("Failed to mirror chat response to Signal", exc_info=True)
         return result
