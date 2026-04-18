@@ -52,17 +52,17 @@
     "last_task_at": "2026-04-18T17:01:58.263209+00:00"
   },
   "coding": {
-    "tasks_completed": 8,
+    "tasks_completed": 9,
     "tasks_failed": 1,
-    "success_rate": 0.8889,
-    "avg_confidence": 0.579,
+    "success_rate": 0.9,
+    "avg_confidence": 0.5811,
     "by_difficulty": {
       "7": {
         "completed": 2,
         "failed": 1
       },
       "5": {
-        "completed": 2,
+        "completed": 3,
         "failed": 0
       },
       "3": {
@@ -74,8 +74,8 @@
         "failed": 0
       }
     },
-    "streak": 4,
-    "last_task_at": "2026-04-17T19:34:37.662125+00:00"
+    "streak": 5,
+    "last_task_at": "2026-04-18T21:34:57.049583+00:00"
   },
   "test_crew_sr": {
     "tasks_completed": 3,
@@ -176,21 +176,21 @@
     "last_task_at": "2026-04-08T23:49:28.620094+00:00"
   },
   "pim": {
-    "tasks_completed": 8,
+    "tasks_completed": 12,
     "tasks_failed": 0,
     "success_rate": 1.0,
-    "avg_confidence": 0.7278,
+    "avg_confidence": 0.6838,
     "by_difficulty": {
       "3": {
-        "completed": 5,
+        "completed": 6,
         "failed": 0
       },
       "2": {
-        "completed": 3,
+        "completed": 6,
         "failed": 0
       }
     },
-    "streak": 8,
-    "last_task_at": "2026-04-18T20:46:00.330819+00:00"
+    "streak": 12,
+    "last_task_at": "2026-04-18T22:09:22.534393+00:00"
   }
 }
