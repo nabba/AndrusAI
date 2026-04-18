@@ -174,6 +174,117 @@ def create_calendar_tools(agent_id: str) -> list:
             return f"Calendar error: {stderr[:500]}"
         return output
 
+    # ── Swift/EventKit fast path ──────────────────────────────────────────
+    # AppleScript's `whose` predicate is O(total-events-in-history) per
+    # calendar.  EventKit queries the indexed Calendar Store in ~100ms
+    # regardless of history size.  If the Swift helper has Calendar
+    # permission granted, we skip AppleScript entirely.
+    #
+    # Cached probe result per tool-factory call so we don't retry the
+    # permission check on every tool invocation.
+    _swift_probe_state: dict = {"available": None}
+
+    def _swift_script_host_path() -> str:
+        """Return the host-filesystem path to the Swift helper.
+
+        The script lives in workspace/scripts/ which is volume-mounted,
+        so `workspace_host_path` + '/scripts/calendar_events.swift' is the
+        host path the bridge can actually read.
+        """
+        from app.config import get_settings
+        s = get_settings()
+        host_ws = getattr(s, "workspace_host_path", "") or ""
+        if not host_ws:
+            return ""
+        return f"{host_ws.rstrip('/')}/scripts/calendar_events.swift"
+
+    def _swift_query_events(
+        start_dt: datetime, end_dt: datetime, calendar_name: str = "",
+    ) -> list[dict] | None:
+        """Query events via the Swift EventKit helper.
+
+        Returns a list of event dicts on success, None if Swift is
+        unavailable or permissions weren't granted.  Events have keys:
+        calendar, title, start, end, location, allDay, notes.
+        """
+        if _swift_probe_state["available"] is False:
+            return None  # already failed once, don't retry every call
+
+        script_path = _swift_script_host_path()
+        if not script_path:
+            _swift_probe_state["available"] = False
+            logger.debug("calendar_tools: workspace_host_path unset, can't locate Swift helper")
+            return None
+
+        cmd = [
+            "swift", script_path, "list",
+            "--start", start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+            "--end", end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+        ]
+        if calendar_name:
+            cmd += ["--calendar", calendar_name]
+
+        try:
+            result = bridge.execute(cmd, timeout=20)
+        except Exception as exc:
+            logger.debug(f"calendar_tools: Swift bridge call failed: {exc}")
+            _swift_probe_state["available"] = False
+            return None
+
+        if "error" in result and "detail" in result:
+            logger.debug(f"calendar_tools: Swift bridge error: {result.get('detail')}")
+            _swift_probe_state["available"] = False
+            return None
+
+        stdout = (result.get("stdout") or "").strip()
+        stderr = (result.get("stderr") or "").strip()
+
+        import json as _json
+        try:
+            parsed = _json.loads(stdout) if stdout else None
+        except Exception:
+            logger.debug(f"calendar_tools: Swift stdout not JSON: {stdout[:200]}")
+            _swift_probe_state["available"] = False
+            return None
+
+        # Permission / error payload from Swift
+        if isinstance(parsed, dict) and "error" in parsed:
+            err = parsed["error"]
+            logger.info(f"calendar_tools: Swift helper error: {err}")
+            if "access denied" in err.lower() or "grant" in err.lower():
+                # Mark unavailable so we don't retry.  The error message
+                # is surfaced to the user by the caller so they know to
+                # grant permission.
+                _swift_probe_state["available"] = False
+                _swift_probe_state["permission_msg"] = err
+            else:
+                _swift_probe_state["available"] = False
+            return None
+
+        if not isinstance(parsed, list):
+            _swift_probe_state["available"] = False
+            return None
+
+        # Success — remember that Swift works for the rest of this session
+        _swift_probe_state["available"] = True
+        return parsed
+
+    def _format_swift_events(events: list[dict]) -> str:
+        """Render Swift EventKit output as a readable text block."""
+        if not events:
+            return ""
+        lines = []
+        for evt in events:
+            title = evt.get("title", "(no title)")
+            start = evt.get("start", "")
+            loc = evt.get("location", "")
+            cal = evt.get("calendar", "?")
+            line = f"[{cal}] {start} | {title}"
+            if loc:
+                line += f" @ {loc}"
+            lines.append(line)
+        return "\n".join(lines)
+
     def _list_calendar_names() -> list[str]:
         """Return names of all enabled calendars (one quick AppleScript call).
 
@@ -266,6 +377,35 @@ end timeout
                 hour=23, minute=59, second=59
             )
 
+            # Fast path: try Swift/EventKit helper — one bridge call, ~100ms.
+            swift_events = _swift_query_events(start_dt, end_dt, calendar_name)
+            if swift_events is not None:
+                if not swift_events:
+                    scope = f"the {max(days_ahead, 1)}-day window"
+                    if calendar_name:
+                        return f"No events in '{calendar_name}' for {scope}."
+                    return f"No events found in {scope}."
+                # Sort by start time (ISO strings sort correctly)
+                swift_events_sorted = sorted(swift_events, key=lambda e: e.get("start", ""))
+                return (
+                    f"{len(swift_events_sorted)} event(s) via EventKit:\n\n"
+                    + _format_swift_events(swift_events_sorted)
+                )
+
+            # Swift unavailable — check if it's a permission issue and give
+            # the user actionable instructions.
+            if _swift_probe_state.get("permission_msg"):
+                return (
+                    "⚠️ Calendar access not granted to the BotArmy bridge.\n\n"
+                    "To enable fast calendar queries:\n"
+                    "1. Open System Settings > Privacy & Security > Calendars\n"
+                    "2. Add 'python3' (the process running the bridge) — you may need\n"
+                    "   to click the + button and navigate to /usr/bin/python3\n"
+                    "3. Restart the bridge: `launchctl kickstart -k gui/$UID/com.crewai.bridge`\n\n"
+                    "Falling back to the slow AppleScript path..."
+                )
+
+            # Slow fallback: per-calendar serial AppleScript with time budget
             # Single-calendar path — one fast query
             if calendar_name:
                 _, result = _query_one_calendar_events(calendar_name, start_dt, end_dt)
@@ -434,6 +574,23 @@ end tell
             end_dt = (start_dt + timedelta(days=days_ahead)).replace(
                 hour=23, minute=59, second=59
             )
+
+            # Fast path: Swift/EventKit
+            swift_events = _swift_query_events(start_dt, end_dt)
+            if swift_events is not None:
+                q = query.lower()
+                matches = [
+                    e for e in swift_events
+                    if q in (e.get("title", "") + " " + e.get("notes", "")
+                             + " " + e.get("location", "")).lower()
+                ]
+                if not matches:
+                    return f"No events matching '{query}' in the next {days_ahead} day(s)."
+                matches.sort(key=lambda e: e.get("start", ""))
+                return (
+                    f"{len(matches)} match(es) for '{query}':\n\n"
+                    + _format_swift_events(matches)
+                )
 
             all_cal_names = _list_calendar_names()
             if not all_cal_names:
