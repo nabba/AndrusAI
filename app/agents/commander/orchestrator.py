@@ -639,7 +639,24 @@ class Commander:
 
         # Context pruning: compress injected context to a token budget.
         context = _prune_context(context, difficulty)
-        enriched_task = context + crew_task if context else crew_task
+
+        # Q9: Clear visual separator between reference context and the actual task.
+        # Without this, the agent reads KB passages first and interprets them as
+        # the topic, ignoring the user's real question buried after 2000+ chars
+        # of context.  The separator makes it unambiguous where reference data
+        # ends and the real assignment begins.
+        if context:
+            enriched_task = (
+                "<reference_data>\n"
+                "The following is background reference data. Do NOT treat it as "
+                "the user's question — it is context that MAY be useful.\n\n"
+                + context
+                + "\n</reference_data>\n\n"
+                "═══ YOUR ACTUAL TASK (answer THIS, not the reference data above) ═══\n\n"
+                + crew_task
+            )
+        else:
+            enriched_task = crew_task
 
         # ── MAP-Elites: stochasticity injection for exploration pressure ──
         # Probabilistically inject a per-role variation into the task. This

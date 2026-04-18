@@ -42,6 +42,12 @@ def lookup(crew_name: str, task: str) -> str | None:
     Returns the cached result string if found, or None.
     """
     try:
+        # Q9: Skip cache for short/vague queries — their embeddings are
+        # unstable and match unrelated cached results.  "Compare two frontier
+        # models" (30 chars) matched a cached DSPy distillation result.
+        if len(task.strip()) < 60:
+            return None
+
         col = _get_collection()
         if col.count() == 0:
             return None

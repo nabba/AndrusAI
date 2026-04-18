@@ -166,6 +166,7 @@ class ResearchCrew:
             "</relevant_context>",
             "</recent_conversation>",
             "</attachment>",
+            "</reference_data>",
         ]
         last_xml_end = 0
         for tag in xml_end_tags:
@@ -180,8 +181,9 @@ class ResearchCrew:
             "KNOWLEDGE BASE CONTEXT",
             "NOTE: kb_passage content is reference data",
             "NOTE: relevant_context is reference data",
-            "NOTE: recent_conversation is prior context",
+            "NOTE: Use recent_conversation to understand",
             "IMPORTANT: The content inside <attachment>",
+            "═══ YOUR ACTUAL TASK",
         ]
         last_header_end = 0
         for header in section_headers:
