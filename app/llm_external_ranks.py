@@ -69,6 +69,7 @@ _AA_VARIANT_SUFFIXES: tuple[str, ...] = (
     "-adaptive", "-thinking", "-reasoning",
     "-xhigh", "-high", "-medium", "-low",
     "-max-effort", "-max", "-min-effort", "-min",
+    "-non-reasoning-low-effort",
 )
 
 

@@ -188,14 +188,21 @@ def create_commander_llm() -> LLM:
     except Exception:
         pass
 
-    # Fallback: use best OpenRouter model for routing
-    logger.warning("Commander: Anthropic unavailable, falling back to OpenRouter for routing")
+    # Fallback: use best non-Anthropic candidate for routing. The resolver
+    # evaluates every OpenRouter-tier model against the commander's task
+    # profile so we land on the strongest budget option (DeepSeek today,
+    # whatever cheapest-and-strong surfaces tomorrow) without hard-coding.
+    logger.warning("Commander: Anthropic unavailable, resolving best non-Anthropic fallback for routing")
     openrouter_key = get_openrouter_api_key()
-    # Use deepseek-v3.2 — strong at JSON routing tasks, very cheap
+    for candidate_cost_mode in ("balanced", "budget"):
+        name = get_default_for_role("default", candidate_cost_mode)
+        entry = get_model(name)
+        if entry and entry.get("provider") == "openrouter":
+            return _cached_llm(entry["model_id"], max_tokens=1024, api_key=openrouter_key)
+    # Last resort: survival bootstrap (always in catalog)
     fallback_entry = get_model("deepseek-v3.2")
     if fallback_entry:
         return _cached_llm(fallback_entry["model_id"], max_tokens=1024, api_key=openrouter_key)
-    # Last resort: any available model
     return _cached_llm("openrouter/deepseek/deepseek-chat", max_tokens=1024, api_key=openrouter_key)
 
 
@@ -344,28 +351,11 @@ def get_last_tier() -> str | None:
     return _get_last("last_tier")
 
 
-# ── INSANE mode role → model mapping ──────────────────────────────────────
-# Critical roles get Opus; heavy-lifting roles get Gemini 3.1 Pro; support roles get Sonnet.
-_INSANE_ROLE_MAP = {
-    # Critical: Claude Opus 4.7
-    "commander":    "claude-opus-4.7",
-    "vetting":      "claude-opus-4.7",
-    "critic":       "claude-opus-4.7",
-    # Heavy-lifting: Gemini 3.1 Pro
-    "coding":       "gemini-3.1-pro",
-    "research":     "gemini-3.1-pro",
-    "architecture": "gemini-3.1-pro",
-    "debugging":    "gemini-3.1-pro",
-    "planner":      "gemini-3.1-pro",
-    "media":        "gemini-3.1-pro",
-    # Support: Claude Sonnet 4.6
-    "writing":      "claude-sonnet-4.6",
-    "synthesis":    "claude-sonnet-4.6",
-    "introspector": "claude-sonnet-4.6",
-    "self_improve": "claude-sonnet-4.6",
-    "evo_critic":   "claude-sonnet-4.6",
-    "default":      "claude-sonnet-4.6",
-}
+# INSANE mode now delegates to resolve_role_default with cost_mode="quality".
+# The resolver already picks the strongest model in the premium tier that
+# meets the role's constraints — exactly what INSANE used to hardcode.
+# No more static role-map: if Opus 4.8 lands tomorrow it becomes the
+# INSANE-mode commander automatically.
 
 
 def _sampling(phase: str | None, provider: str) -> tuple[dict, str]:
@@ -377,14 +367,21 @@ def _sampling(phase: str | None, provider: str) -> tuple[dict, str]:
 
 
 def _insane_mode_select(role: str, max_tokens: int, phase: str | None = None) -> LLM:
-    """INSANE mode: premium-only models — Opus, Gemini 3.1 Pro, Sonnet."""
-    # Q7: thread-local last model/tier tracking
-    model_name = _INSANE_ROLE_MAP.get(role, "claude-sonnet-4.6")
+    """INSANE mode: resolve the strongest premium-tier model for the role.
+
+    Uses ``resolve_role_default(role, cost_mode="quality")`` so the pick
+    is always data-driven: commander/vetting/critic get whichever premium
+    model currently scores highest (Opus today, next-gen Opus tomorrow);
+    heavy-lifting roles like coding/research auto-pick the strongest
+    non-Anthropic premium model (Gemini 3.1 Pro today).
+    """
+    from app.llm_catalog import resolve_role_default
+    model_name = resolve_role_default(role, cost_mode="quality")
     entry = get_model(model_name)
     if not entry:
         return _claude_fallback(role, max_tokens, phase=phase)
 
-    _set_last(model_name, "premium")
+    _set_last(model_name, entry.get("tier", "premium"))
 
     if entry["provider"] == "anthropic":
         logger.info(f"llm_factory: [INSANE] role={role} → ANTHROPIC {model_name}")
@@ -392,20 +389,27 @@ def _insane_mode_select(role: str, max_tokens: int, phase: str | None = None) ->
         return _cached_llm(entry["model_id"], max_tokens=max_tokens,
                            sampling_key=key, api_key=get_anthropic_api_key(), **extra)
 
-    # Gemini 3.1 Pro via OpenRouter
     settings = get_settings()
     api_key = settings.openrouter_api_key.get_secret_value()
     if api_key and circuit_breaker.is_available("openrouter"):
-        gemini_max = max(max_tokens, 16384)
-        logger.info(f"llm_factory: [INSANE] role={role} → API {model_name} (${entry['cost_output_per_m']:.2f}/Mo, max_tokens={gemini_max})")
+        # Give reasoning-heavy premium picks (e.g. Gemini-class) plenty of
+        # output budget — they benefit from thinking-token headroom.
+        premium_max = max(max_tokens, 16384)
+        logger.info(
+            f"llm_factory: [INSANE] role={role} → API {model_name} "
+            f"(${entry['cost_output_per_m']:.2f}/Mo, max_tokens={premium_max})"
+        )
         circuit_breaker.record_success("openrouter")
         extra, key = _sampling(phase, "openrouter")
-        return _cached_llm(entry["model_id"], max_tokens=gemini_max,
+        return _cached_llm(entry["model_id"], max_tokens=premium_max,
                            sampling_key=key,
-                           base_url="https://openrouter.ai/api/v1", api_key=api_key, **extra)
+                           base_url="https://openrouter.ai/api/v1",
+                           api_key=api_key, **extra)
 
-    # Fallback if OpenRouter unavailable
-    logger.warning(f"llm_factory: [INSANE] OpenRouter unavailable for {model_name}, falling back to Claude")
+    logger.warning(
+        f"llm_factory: [INSANE] OpenRouter unavailable for {model_name}, "
+        "falling back to Claude"
+    )
     return _claude_fallback(role, max_tokens, phase=phase)
 
 

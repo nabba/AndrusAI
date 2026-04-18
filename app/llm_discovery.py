@@ -262,17 +262,68 @@ def _promote_model(model_id: str, tier: str, roles: list[str], reviewer: str = "
 
 # ── Benchmarking ─────────────────────────────────────────────────────────────
 
-# Rotation of judges used by benchmark_model. Each tuple is
-# (catalog_key, provider_family). Provider-family exclusion prevents
-# a candidate from being judged by a sibling in the same family (e.g.
-# a new DeepSeek variant being scored by DeepSeek V3.2). Order matters
-# only for deterministic rotation in tests; the actual exclusion is
-# commutative.
-DEFAULT_JUDGES: tuple[tuple[str, str], ...] = (
-    ("claude-sonnet-4.6", "anthropic"),
-    ("gemini-3.1-pro",    "google"),
-    ("deepseek-v3.2",     "deepseek"),
-)
+# The judge rotation is computed dynamically from the current catalog:
+# ``_discover_judges`` picks the highest-intelligence catalog entry in each
+# of three different provider families. This way a freshly-launched stronger
+# model (e.g. Opus 4.8, Gemini 4) automatically becomes the reference judge
+# the week after it lands — no hand-curated list to maintain.
+#
+# The previous hand-coded tuple is kept here commented-out as a reference
+# for what the fallback-of-last-resort looks like when the catalog is in
+# bootstrap-only state.
+#   DEFAULT_JUDGES = (
+#       ("claude-sonnet-4.6", "anthropic"),
+#       ("gemini-3.1-pro",    "google"),
+#       ("deepseek-v3.2",     "deepseek"),
+#   )
+
+
+def _discover_judges(
+    target_families: int = 3,
+    min_strength: float = 0.70,
+) -> tuple[tuple[str, str], ...]:
+    """Pick the strongest catalog entries across distinct provider families.
+
+    Scans the live CATALOG, scores each entry by its ``reasoning`` strength
+    (the closest proxy to "good at judging another model's output"), and
+    returns one representative per provider family up to ``target_families``
+    in descending strength order.
+
+    Falls back to whatever the bootstrap provides if the catalog hasn't
+    been refreshed yet — survival mode still benchmarks, just with one
+    judge instead of three.
+    """
+    from app.llm_catalog import CATALOG
+    # Rank every catalog entry by its judging-relevant strength.
+    scored: list[tuple[str, str, float]] = []
+    for name, entry in CATALOG.items():
+        if entry.get("supports_tools") is False:
+            continue  # must be able to return structured JSON verdicts
+        strengths = entry.get("strengths", {})
+        # reasoning is the best single proxy for judge ability;
+        # fall back to vetting or general if missing.
+        s = float(
+            strengths.get("reasoning")
+            or strengths.get("vetting")
+            or strengths.get("general")
+            or 0.0
+        )
+        if s < min_strength:
+            continue
+        scored.append((name, _provider_family(entry.get("model_id", name)), s))
+    scored.sort(key=lambda t: -t[2])
+
+    # One winner per family, up to target_families.
+    picks: list[tuple[str, str]] = []
+    seen_families: set[str] = set()
+    for name, family, _score in scored:
+        if family in seen_families:
+            continue
+        seen_families.add(family)
+        picks.append((name, family))
+        if len(picks) >= target_families:
+            break
+    return tuple(picks)
 
 
 def _provider_family(model_id: str) -> str:
@@ -354,16 +405,25 @@ def _select_judges(
     """Return up to 2 callable judges whose provider family differs
     from the candidate's.
 
-    Returns a list of (catalog_key, family, llm) tuples. Callers
-    should average verdicts across the returned judges. When none are
-    eligible (e.g. the candidate shares a family with every available
-    judge, or all keys are missing), returns [].
+    Rotation source:
+      * Explicit ``judges`` list if provided (for tests / manual rebenchmark).
+      * Otherwise :func:`_discover_judges` — scans the live CATALOG and
+        returns one representative per provider family ranked by judging
+        ability. Automatically tracks the current strongest models.
+
+    Returns a list of (catalog_key, family, llm) tuples. Callers should
+    average verdicts across the returned judges. When none are eligible
+    (the candidate shares a family with every available judge, or all
+    keys are missing), returns [].
     """
-    rotation = (
-        [(k, _provider_family(get_model(k)["model_id"] if get_model(k) else k))
-         for k in judges]
-        if judges else list(DEFAULT_JUDGES)
-    )
+    if judges:
+        rotation = [
+            (k, _provider_family(get_model(k)["model_id"] if get_model(k) else k))
+            for k in judges
+        ]
+    else:
+        rotation = list(_discover_judges())
+
     candidate_family = _provider_family(candidate_model_id)
     ok: list[tuple[str, str, object]] = []
     for key, fam in rotation:
