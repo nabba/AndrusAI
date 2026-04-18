@@ -131,5 +131,29 @@
     ],
     "max_requests_per_minute": 30,
     "risk_ceiling": "high"
+  },
+  {
+    "agent_id": "pim",
+    "token": "pim-f8fb374b45779397a98aaa6daa85d935",
+    "allowed_actions": [
+      "filesystem.read",
+      "filesystem.list",
+      "execute",
+      "status"
+    ],
+    "allowed_paths": [
+      "/Users/andrus/BotArmy/crewai-team/workspace/*",
+      "/Users/andrus/Pictures/*",
+      "/Users/andrus/Library/Application Support/AddressBook/*",
+      "/tmp/crewai-pim-*"
+    ],
+    "blocked_paths": [
+      "/Users/andrus/BotArmy/crewai-team/app/souls/*",
+      "/Users/andrus/BotArmy/crewai-team/host_bridge/*",
+      "/Users/andrus/.crewai-bridge/*"
+    ],
+    "allowed_hosts": [],
+    "max_requests_per_minute": 60,
+    "risk_ceiling": "medium"
   }
 ]

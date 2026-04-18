@@ -46,6 +46,15 @@ def create_pim_agent(force_tier: str | None = None) -> Agent:
     except Exception:
         pass
 
+    # Photos tools (macOS Photos.app via AppleScript through bridge)
+    try:
+        from app.tools.photos_tools import create_photos_tools
+        photo_tools = create_photos_tools("pim")
+        if photo_tools:
+            tools.extend(photo_tools)
+    except Exception:
+        pass
+
     # Wiki tools
     try:
         from app.tools.wiki_tool_registry import create_wiki_tools

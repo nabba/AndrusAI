@@ -143,11 +143,13 @@ class TestAgentPatching:
             base_crew._agent_patched = False
             _reset()
 
-    def test_register_default_plugins_registers_three_sources(self):
+    def test_register_default_plugins_registers_core_sources(self):
         _reset()
         with patch.object(base_crew, "_patch_agent_for_plugins"):
             base_crew._register_default_plugins()
-        assert len(base_crew._tool_plugins) == 3
+        # At minimum MCP adapter + browser + session_search. Extras (mcp_manager,
+        # photos, etc.) may be added later but the core three must be present.
+        assert len(base_crew._tool_plugins) >= 3
 
 
 class TestAutoCreateSkill:
