@@ -228,12 +228,210 @@ def _validate_code_proposal_content(files: dict[str, str]) -> list[str]:
     return violations
 
 
+# ── Proposal explainer ──────────────────────────────────────────────────────
+# Every proposal gets a human-readable .md document with three sections:
+#   • Why useful — plain-English motivation
+#   • What changes — overview of the diff and affected subsystems
+#   • Potential risks — subsystems that could break, rollback plan
+# Callers may supply these directly; if not, we generate them via a local
+# LLM and fall back to a deterministic skeleton if the LLM is unavailable.
+
+# Map known app/ subdirectories to subsystem names and what relies on them.
+# Used by both the LLM prompt (as context) and the deterministic fallback.
+_SUBSYSTEM_MAP: list[tuple[str, str, str]] = [
+    ("app/agents/commander/", "Commander orchestrator",
+     "routes every Signal message — errors here block all user traffic"),
+    ("app/agents/", "Specialist agent factory",
+     "affects the crew it defines; other crews unaffected"),
+    ("app/crews/", "Crew execution",
+     "affects one crew's run path; routing decisions unchanged"),
+    ("app/tools/", "Agent tool",
+     "agents that have this tool in their registry may behave differently"),
+    ("app/mcp/", "MCP client/server",
+     "external MCP tool access; no impact on built-in tools"),
+    ("app/memory/", "Memory layer",
+     "ChromaDB / Mem0 persistence; data durability-sensitive"),
+    ("app/self_awareness/", "Self-awareness telemetry",
+     "non-critical metrics; failures degrade gracefully"),
+    ("app/subia/", "SubIA belief/grounding",
+     "background reflection loops; runtime chat unaffected"),
+    ("app/knowledge_base/", "Knowledge base / RAG",
+     "KB search results shown to agents during tasks"),
+    ("app/control_plane/", "Control plane (tickets, budgets, projects)",
+     "ticket tracking and project isolation; not core chat path"),
+    ("app/evolution.py", "Evolution loop",
+     "self-improvement scheduler; does not affect chat"),
+    ("app/auto_deployer.py", "Auto-deployer",
+     "CRITICAL — deploy pipeline itself; mistakes can brick self-modification"),
+    ("app/proposals.py", "Proposal system",
+     "CRITICAL — this module itself; bugs here break the approval flow"),
+    ("app/main.py", "Gateway entrypoint",
+     "CRITICAL — Signal webhook handler; bugs here take the bot offline"),
+    ("app/config.py", "Configuration",
+     "settings loaded at startup; changes need container restart"),
+    ("app/signal_client.py", "Signal client",
+     "CRITICAL — message delivery path to the user"),
+    ("app/security.py", "Security / sender authorization",
+     "CRITICAL — authentication layer; never remove checks"),
+    ("app/vetting.py", "Output vetting",
+     "CRITICAL — final safety pass before replying to user"),
+    ("app/sanitize.py", "Input sanitization",
+     "CRITICAL — prompt-injection defense"),
+]
+
+
+def _identify_affected_subsystems(files: dict[str, str]) -> list[tuple[str, str, str]]:
+    """Return (subsystem, description, file_list) tuples for each impacted area."""
+    hits: dict[str, list[str]] = {}
+    for fpath in files or {}:
+        norm = fpath.replace("\\", "/").lstrip("/")
+        matched = False
+        for prefix, name, desc in _SUBSYSTEM_MAP:
+            if norm == prefix or norm.startswith(prefix):
+                key = f"{name}|{desc}"
+                hits.setdefault(key, []).append(norm)
+                matched = True
+                break
+        if not matched:
+            key = f"Uncategorised ({norm.split('/')[0]})|impact scope unclear"
+            hits.setdefault(key, []).append(norm)
+    return [
+        (key.split("|")[0], key.split("|")[1], fs)
+        for key, fs in hits.items()
+    ]
+
+
+def _explain_proposal(
+    title: str, description: str,
+    files: dict[str, str] | None, proposal_type: str,
+) -> dict[str, str]:
+    """Generate rationale / changes / risks sections via a local LLM.
+
+    Returns a dict with keys: rationale, changes_summary, risks.
+    Falls back to a deterministic skeleton if the LLM is unavailable —
+    so proposal creation never blocks on LLM failure.
+    """
+    affected = _identify_affected_subsystems(files or {})
+    affected_text = "\n".join(
+        f"- {name} ({', '.join(fs)}): {desc}"
+        for name, desc, fs in affected
+    ) or "- (no files listed)"
+
+    # Collapse file contents into a compact diff-style preview for the LLM.
+    # Cap to avoid blowing the local model's context.
+    preview_parts: list[str] = []
+    if files:
+        for fp, content in list(files.items())[:5]:
+            snippet = content[:800]
+            preview_parts.append(f"### {fp}\n```\n{snippet}\n```")
+    preview = "\n\n".join(preview_parts) if preview_parts else "(no files)"
+
+    prompt = (
+        "You are writing a human-readable summary for a system-modification proposal.\n"
+        "The user reads this on their phone before deciding to approve or reject.\n"
+        "Be specific, concrete, and honest about what could go wrong.\n\n"
+        f"TITLE: {title}\n"
+        f"TYPE: {proposal_type}\n"
+        f"DESCRIPTION: {description[:1500]}\n\n"
+        f"AFFECTED SUBSYSTEMS:\n{affected_text}\n\n"
+        f"FILE PREVIEWS:\n{preview}\n\n"
+        "Produce a JSON object with EXACTLY these three string keys:\n"
+        '  "rationale": 2-4 sentences explaining WHY this change is useful in plain\n'
+        "      language. What user-visible problem does it fix, or what capability\n"
+        "      does it add? Avoid jargon.\n"
+        '  "changes_summary": 2-5 bullet points (joined by \\n) describing WHAT\n'
+        "      changes. Name the concrete functions/files/behaviors affected.\n"
+        '  "risks": 2-5 bullet points (joined by \\n) describing REAL risks to\n'
+        "      other subsystems after deploy. If there are no meaningful risks\n"
+        "      (e.g. a tiny docstring change), say so honestly — do NOT invent\n"
+        "      risks. Always mention whether a container restart is required.\n\n"
+        'Respond with ONLY the JSON object — no prose, no fences.'
+    )
+
+    try:
+        from app.llm_factory import create_specialist_llm
+        from app.utils import safe_json_parse
+        llm = create_specialist_llm(
+            max_tokens=500, role="self_improve", force_tier="local",
+        )
+        raw = str(llm.call(prompt)).strip()
+        parsed, _ = safe_json_parse(raw)
+        if parsed and all(k in parsed for k in ("rationale", "changes_summary", "risks")):
+            return {
+                "rationale": str(parsed["rationale"])[:1500],
+                "changes_summary": str(parsed["changes_summary"])[:1500],
+                "risks": str(parsed["risks"])[:1500],
+            }
+    except Exception as exc:
+        logger.debug(f"Proposal explainer LLM failed, using fallback: {exc}")
+
+    # Deterministic fallback — always yields a usable (if terse) document
+    changes_lines = [
+        f"- Modifies `{p}`" for p in list((files or {}).keys())[:10]
+    ] or ["- (no file changes)"]
+    risks_lines = []
+    for name, desc, _fs in affected:
+        if "CRITICAL" in desc:
+            risks_lines.append(f"- **{name}** — {desc}")
+        else:
+            risks_lines.append(f"- {name}: {desc}")
+    if proposal_type == "code":
+        risks_lines.append("- Requires `docker compose up -d --build gateway` to take effect")
+    elif proposal_type == "config":
+        risks_lines.append("- Requires container restart to load new configuration")
+
+    return {
+        "rationale": description[:800] or "(no rationale provided by proposer)",
+        "changes_summary": "\n".join(changes_lines),
+        "risks": "\n".join(risks_lines) or "- No subsystems identified as affected",
+    }
+
+
+def _render_proposal_md(
+    pid: int, title: str, description: str, proposal_type: str,
+    files: dict[str, str] | None, rationale: str, changes_summary: str,
+    risks: str, resolution_target: str,
+) -> str:
+    """Assemble the full human-readable proposal document."""
+    file_list = (
+        "\n".join(f"- `{p}`" for p in files) if files else "None"
+    )
+    approve_line = f"`approve {pid}`"
+    reject_line = f"`reject {pid}`"
+    return (
+        f"# Proposal #{pid}: {title}\n\n"
+        f"**Type:** {proposal_type}  \n"
+        f"**Created:** {datetime.now(timezone.utc).isoformat()}  \n"
+        + (f"**Resolves:** `{resolution_target}`  \n" if resolution_target else "")
+        + f"\n"
+        f"## Why this is useful\n\n{rationale}\n\n"
+        f"## What will change\n\n{changes_summary}\n\n"
+        f"## Potential risks to other subsystems\n\n{risks}\n\n"
+        f"## Files touched\n\n{file_list}\n\n"
+        f"## Original description\n\n{description}\n\n"
+        f"---\n\n"
+        f"Reply {approve_line} via Signal to deploy, or {reject_line} to discard.\n"
+    )
+
+
+def get_proposal_md_path(pid: int) -> Path | None:
+    """Return the absolute path to a proposal's human-readable .md, or None."""
+    pdir = _get_proposal_dir(pid)
+    if not pdir:
+        return None
+    md = pdir / "proposal.md"
+    return md if md.exists() else None
+
+
 def create_proposal(
     title: str,
     description: str,
     proposal_type: str = "skill",
     files: dict[str, str] | None = None,
     resolution_target: str = "",
+    rationale: str = "",
+    changes_summary: str = "",
+    risks: str = "",
 ) -> int:
     """
     Create a new improvement proposal.
@@ -246,6 +444,12 @@ def create_proposal(
         description: Detailed description of what and why
         proposal_type: "skill", "code", or "config"
         files: dict of {relative_path: file_content} to be applied on approval
+        rationale: optional — plain-English "why this is useful".  Auto-generated
+            via LLM if empty.
+        changes_summary: optional — bullet list of what changes.  Auto-generated
+            if empty.
+        risks: optional — bullet list of risks to other subsystems.  Auto-
+            generated if empty.
 
     Returns:
         The proposal ID (integer), or -1 if skipped as duplicate
@@ -296,15 +500,21 @@ def create_proposal(
     pdir = PROPOSALS_DIR / dirname
     pdir.mkdir(parents=True, exist_ok=True)
 
-    # Write human-readable proposal
-    (pdir / "proposal.md").write_text(
-        f"# Proposal #{pid}: {title}\n\n"
-        f"**Type:** {proposal_type}\n"
-        f"**Created:** {datetime.now(timezone.utc).isoformat()}\n\n"
-        f"## Description\n\n{description}\n\n"
-        f"## Files\n\n"
-        + (("\n".join(f"- `{p}`" for p in files) + "\n") if files else "None\n")
-    )
+    # Fill in any missing human-readable sections via the explainer.
+    # If the caller passed all three, skip the LLM call entirely.
+    if not (rationale and changes_summary and risks):
+        explained = _explain_proposal(title, description, files, proposal_type)
+        rationale = rationale or explained["rationale"]
+        changes_summary = changes_summary or explained["changes_summary"]
+        risks = risks or explained["risks"]
+
+    # Write the enriched human-readable proposal document
+    (pdir / "proposal.md").write_text(_render_proposal_md(
+        pid=pid, title=title, description=description,
+        proposal_type=proposal_type, files=files,
+        rationale=rationale, changes_summary=changes_summary,
+        risks=risks, resolution_target=resolution_target,
+    ))
 
     # Write status
     status = {

@@ -681,16 +681,23 @@ def _propose_mutation_legacy(context: str, tried_hashes: set[str]) -> MutationSp
             status="pending",
             files_changed=[],
         )
-        # Notify user about pending proposal via Signal
+        # Notify user about pending proposal via Signal — attach the full
+        # proposal.md so the user can read the rationale / changes / risks
+        # breakdown on their phone before approving.
         try:
             from app.signal_client import send_message
             from app.config import get_settings
+            from app.proposals import get_proposal_md_path
             s = get_settings()
+            md_path = get_proposal_md_path(pid) if pid > 0 else None
+            attachments = [str(md_path)] if md_path else None
             send_message(
                 s.signal_owner_number,
                 f"🔬 EVOLUTION PROPOSAL #{pid}: {hypothesis[:100]}\n"
                 f"Files: {', '.join(code_files.keys())}\n"
+                f"Full writeup attached (rationale, changes, risks).\n"
                 f"Reply 'approve {pid}' to deploy or 'reject {pid}' to discard.",
+                attachments=attachments,
             )
         except Exception:
             pass

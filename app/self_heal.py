@@ -310,16 +310,22 @@ def _diagnose_background(entry: dict) -> None:
                     logger.info(f"self_heal: created code proposal #{pid} for {entry['error_type']}")
                     # Link diagnosis back to the failed task for dashboard tracing
                     _update_task_healing(entry, "proposal_created", f"Proposal #{pid}: {title}", pid)
-                    # Notify user via Signal about the proposal
+                    # Notify user via Signal about the proposal — attach the
+                    # proposal.md so the user sees rationale/changes/risks.
                     try:
                         from app.signal_client import send_message
                         from app.config import get_settings
+                        from app.proposals import get_proposal_md_path
                         s = get_settings()
+                        md_path = get_proposal_md_path(pid)
+                        attachments = [str(md_path)] if md_path else None
                         send_message(
                             s.signal_owner_number,
                             f"🔧 SELF-HEAL PROPOSAL #{pid}: {title}\n"
                             f"Error: {entry['error_type']}\n"
+                            f"Full writeup attached (rationale, changes, risks).\n"
                             f"Reply 'approve {pid}' to deploy or 'diff {pid}' to review.",
+                            attachments=attachments,
                         )
                     except Exception:
                         pass
