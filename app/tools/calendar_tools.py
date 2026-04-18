@@ -163,14 +163,9 @@ def create_calendar_tools(agent_id: str) -> list:
     except ImportError:
         return []
 
-    def _run_applescript(script: str) -> str:
-        """Execute AppleScript via bridge and return output.
-
-        Uses a 120s subprocess timeout — Calendar.app can take 30-60s to
-        iterate ~30 calendars on first query (cloud sync). Subsequent
-        queries are near-instant because Calendar warms up.
-        """
-        result = bridge.execute(["osascript", "-e", script], timeout=120)
+    def _run_applescript(script: str, timeout: int = 30) -> str:
+        """Execute AppleScript via bridge and return output."""
+        result = bridge.execute(["osascript", "-e", script], timeout=timeout)
         if "error" in result:
             return f"Error: {result.get('detail', result['error'])}"
         output = result.get("stdout", "").strip()
@@ -178,6 +173,71 @@ def create_calendar_tools(agent_id: str) -> list:
         if stderr and not output:
             return f"Calendar error: {stderr[:500]}"
         return output
+
+    def _list_calendar_names() -> list[str]:
+        """Return names of all enabled calendars (one quick AppleScript call).
+
+        Cached per-tool-factory call — the calendar list rarely changes
+        during a single session.
+        """
+        script = '''
+tell application "Calendar"
+    set out to ""
+    repeat with c in calendars
+        set out to out & (name of c) & linefeed
+    end repeat
+    return out
+end tell
+'''
+        raw = _run_applescript(script, timeout=15)
+        if raw.startswith("Error:") or raw.startswith("Calendar error:"):
+            return []
+        return [line.strip() for line in raw.splitlines() if line.strip()]
+
+    def _query_one_calendar_events(
+        cal_name: str, start_dt: datetime, end_dt: datetime,
+    ) -> tuple[str, str]:
+        """Query events from ONE calendar in the date range.
+
+        Returns (calendar_name, formatted_events_block).  Designed to be
+        called in parallel across calendars — each call is an independent
+        bridge.execute() with its own 15s timeout, so one slow calendar
+        doesn't block the others.
+        """
+        start_script = _applescript_date_from_components("startDate", start_dt, at_midnight=True)
+        end_script = _applescript_date_from_components("endDate", end_dt, at_midnight=False)
+        safe_name = _escape_applescript_string(cal_name)
+        script = f'''
+with timeout of 12 seconds
+tell application "Calendar"
+    {start_script}
+    {end_script}
+    set output to ""
+    try
+        set cal to calendar "{safe_name}"
+        set evts to (every event of cal whose start date >= startDate and start date <= endDate)
+        repeat with evt in evts
+            set evtStart to start date of evt
+            set evtTitle to summary of evt
+            set evtLoc to location of evt
+            if evtLoc is missing value then set evtLoc to ""
+            set output to output & (evtStart as string) & " | " & evtTitle
+            if evtLoc is not "" then
+                set output to output & " @ " & evtLoc
+            end if
+            set output to output & linefeed
+        end repeat
+    on error errMsg
+        return ""
+    end try
+    return output
+end tell
+end timeout
+'''
+        result = _run_applescript(script, timeout=15)
+        if result.startswith("Error:") or result.startswith("Calendar error:"):
+            return cal_name, ""
+        return cal_name, result
 
     # ── Tool definitions ──────────────────────────────────────────
 
@@ -200,101 +260,86 @@ def create_calendar_tools(agent_id: str) -> list:
         args_schema: Type[BaseModel] = _ListEventsInput
 
         def _run(self, days_ahead: int = 1, calendar_name: str = "") -> str:
-            # Compute start/end as literal AppleScript dates (avoid TZ bugs by
-            # building via year/month/day accessors).
+            # Compute date window (midnight today → end of target day)
             start_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
             end_dt = (start_dt + timedelta(days=max(days_ahead, 1))).replace(
                 hour=23, minute=59, second=59
             )
-            start_script = _applescript_date_from_components("startDate", start_dt, at_midnight=True)
-            end_script = _applescript_date_from_components("endDate", end_dt, at_midnight=False)
 
-            # Two paths:
-            #   1. Caller named a specific calendar → query it directly (fast).
-            #   2. No calendar named → iterate EVERY calendar individually with a
-            #      20s timeout each and skip the slow/noisy ones. Querying
-            #      `every event whose` across all 50+ calendars at once reliably
-            #      hangs Calendar.app because cloud-backed calendars (Google,
-            #      TripIt, Holidays, Siri Suggestions) don't return synchronously.
+            # Single-calendar path — one fast query
             if calendar_name:
-                script = f'''
-with timeout of 30 seconds
-tell application "Calendar"
-    {start_script}
-    {end_script}
-    set output to ""
-    try
-        set cal to calendar "{_escape_applescript_string(calendar_name)}"
-        set allEvents to (every event of cal whose start date >= startDate and start date <= endDate)
-        repeat with evt in allEvents
-            set evtStart to start date of evt
-            set evtTitle to summary of evt
-            set evtLoc to location of evt
-            if evtLoc is missing value then set evtLoc to ""
-            set output to output & (evtStart as string) & " | " & evtTitle
-            if evtLoc is not "" then
-                set output to output & " @ " & evtLoc
-            end if
-            set output to output & linefeed
-        end repeat
-    on error errMsg
-        return "Calendar '{_escape_applescript_string(calendar_name)}' not found or unreadable: " & errMsg
-    end try
-    if output is "" then
-        return "No events in '{_escape_applescript_string(calendar_name)}' for this window."
-    end if
-    return output
-end tell
-end timeout
-'''
-                return _run_applescript(script)
+                _, result = _query_one_calendar_events(calendar_name, start_dt, end_dt)
+                if not result.strip():
+                    return f"No events in '{calendar_name}' for this window."
+                tagged = "\n".join(
+                    f"[{calendar_name}] {line}" for line in result.splitlines() if line.strip()
+                )
+                return tagged
 
-            # Iterate-per-calendar path with skip list
-            skip_names = _CALENDAR_SKIP_LIST
-            skip_list_str = ", ".join(f'"{s}"' for s in skip_names)
-            script = f'''
-with timeout of 60 seconds
-tell application "Calendar"
-    {start_script}
-    {end_script}
-    set output to ""
-    set skipList to {{{skip_list_str}}}
-    set matchCount to 0
-    repeat with cal in calendars
-        set calName to name of cal
-        if calName is in skipList then
-            -- skip slow / cloud-only / duplicate calendars
-        else
-            try
-                with timeout of 10 seconds
-                    set evts to (every event of cal whose start date >= startDate and start date <= endDate)
-                    repeat with evt in evts
-                        set evtStart to start date of evt
-                        set evtTitle to summary of evt
-                        set evtLoc to location of evt
-                        if evtLoc is missing value then set evtLoc to ""
-                        set output to output & (evtStart as string) & " | [" & calName & "] " & evtTitle
-                        if evtLoc is not "" then
-                            set output to output & " @ " & evtLoc
-                        end if
-                        set output to output & linefeed
-                        set matchCount to matchCount + 1
-                    end repeat
-                end timeout
-            on error errMsg
-                -- single-calendar failure is not fatal; keep going
-                set output to output & "[" & calName & "] skipped: " & errMsg & linefeed
-            end try
-        end if
-    end repeat
-    if matchCount is 0 then
-        return "No events found in the " & ((days_ahead_display as string)) & "-day window."
-    end if
-    return output
-end tell
-end timeout
-'''.replace("days_ahead_display", str(max(days_ahead, 1)))
-            return _run_applescript(script)
+            # Multi-calendar path — SERIAL per-calendar queries.  Calendar.app
+            # serializes AppleScript access internally, so launching multiple
+            # concurrent osascript processes queues them up on Calendar.app's
+            # side and reliably causes -1712 AppleEvent timeouts.  Serial
+            # queries avoid this, and each individual query has its own short
+            # Python-level timeout so one stuck calendar doesn't block the
+            # whole run.  A total wall-clock budget bounds the worst case.
+            import time as _time
+
+            all_cal_names = _list_calendar_names()
+            if not all_cal_names:
+                return "Calendar error: could not list calendars."
+
+            skip_set = set(_CALENDAR_SKIP_LIST)
+            target_cals = [c for c in all_cal_names if c not in skip_set]
+
+            if not target_cals:
+                return (
+                    f"No calendars to query (all {len(all_cal_names)} are in the "
+                    f"skip list). Adjust CALENDAR_SKIP_LIST env var."
+                )
+
+            output_lines: list[str] = []
+            skipped: list[str] = []
+            queried: list[str] = []
+
+            # Total wall-clock budget — return what we have even if some
+            # calendars haven't been reached yet.  Prioritises responsiveness
+            # over completeness; user gets a "partial results" note.
+            TOTAL_BUDGET_S = 45.0
+            deadline = _time.monotonic() + TOTAL_BUDGET_S
+
+            for cal in target_cals:
+                if _time.monotonic() >= deadline:
+                    skipped.append(cal)
+                    continue
+                try:
+                    _, events_block = _query_one_calendar_events(cal, start_dt, end_dt)
+                    queried.append(cal)
+                    for line in events_block.splitlines():
+                        if line.strip():
+                            output_lines.append(f"[{cal}] {line}")
+                except Exception:
+                    skipped.append(cal)
+
+            reached = len(queried)
+            total_target = len(target_cals)
+            budget_exceeded = len(skipped) > (total_target - reached - 1)
+
+            if not output_lines:
+                scope = f"{max(days_ahead, 1)}-day"
+                note = ""
+                if skipped:
+                    note = (
+                        f" ({reached}/{total_target} calendars queried; "
+                        f"{len(skipped)} deferred due to time budget)"
+                    )
+                return f"No events found in the {scope} window{note}."
+
+            output_lines.sort()
+            header = f"{len(output_lines)} event(s) across {reached}/{total_target} calendars"
+            if skipped:
+                header += f" — {len(skipped)} deferred (hit {TOTAL_BUDGET_S:.0f}s budget)"
+            return header + ":\n\n" + "\n".join(output_lines)
 
     class _CreateEventInput(BaseModel):
         title: str = Field(description="Event title/summary")
@@ -381,59 +426,56 @@ end tell
         args_schema: Type[BaseModel] = _SearchEventsInput
 
         def _run(self, query: str, days_ahead: int = 30) -> str:
+            # Serial per-calendar query + client-side filter (same strategy as
+            # list_calendar_events).  See note there re: why not parallel.
+            import time as _time
+
             start_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
             end_dt = (start_dt + timedelta(days=days_ahead)).replace(
                 hour=23, minute=59, second=59
             )
-            query_escaped = query.replace('"', '\\"')
 
-            start_script = _applescript_date_from_components("startDate", start_dt, at_midnight=True)
-            end_script = _applescript_date_from_components("endDate", end_dt, at_midnight=False)
+            all_cal_names = _list_calendar_names()
+            if not all_cal_names:
+                return "Calendar error: could not list calendars."
 
-            # Iterate per-calendar to avoid the `every event` hang on 50+ calendars.
-            skip_list_str = ", ".join(f'"{_escape_applescript_string(s)}"' for s in _CALENDAR_SKIP_LIST)
-            script = f'''
-with timeout of 60 seconds
-tell application "Calendar"
-    {start_script}
-    {end_script}
-    set output to ""
-    set skipList to {{{skip_list_str}}}
-    set matchCount to 0
-    repeat with cal in calendars
-        set calName to name of cal
-        if calName is in skipList then
-            -- skipped
-        else
-            try
-                with timeout of 10 seconds
-                    set evts to (every event of cal whose start date >= startDate and start date <= endDate and summary contains "{query_escaped}")
-                    repeat with evt in evts
-                        set evtStart to start date of evt
-                        set evtTitle to summary of evt
-                        set evtLoc to location of evt
-                        if evtLoc is missing value then set evtLoc to ""
-                        set output to output & (evtStart as string) & " | [" & calName & "] " & evtTitle
-                        if evtLoc is not "" then
-                            set output to output & " @ " & evtLoc
-                        end if
-                        set output to output & linefeed
-                        set matchCount to matchCount + 1
-                    end repeat
-                end timeout
-            on error errMsg
-                -- skip this calendar silently; searching continues
-            end try
-        end if
-    end repeat
-    if matchCount is 0 then
-        return "No events matching '{query_escaped}' found."
-    end if
-    return output
-end tell
-end timeout
-'''
-            return _run_applescript(script)
+            skip_set = set(_CALENDAR_SKIP_LIST)
+            target_cals = [c for c in all_cal_names if c not in skip_set]
+
+            matches: list[str] = []
+            skipped: list[str] = []
+            reached = 0
+            query_lower = query.lower()
+
+            # Longer budget for search because it spans more days (default 30d).
+            TOTAL_BUDGET_S = 60.0
+            deadline = _time.monotonic() + TOTAL_BUDGET_S
+
+            for cal in target_cals:
+                if _time.monotonic() >= deadline:
+                    skipped.append(cal)
+                    continue
+                try:
+                    _, events_block = _query_one_calendar_events(cal, start_dt, end_dt)
+                    reached += 1
+                    for line in events_block.splitlines():
+                        if line.strip() and query_lower in line.lower():
+                            matches.append(f"[{cal}] {line}")
+                except Exception:
+                    skipped.append(cal)
+
+            if not matches:
+                note = (
+                    f" ({reached}/{len(target_cals)} calendars searched; "
+                    f"{len(skipped)} deferred)" if skipped else ""
+                )
+                return f"No events matching '{query}' in the next {days_ahead} day(s){note}."
+
+            matches.sort()
+            header = f"{len(matches)} match(es) for '{query}' across {reached}/{len(target_cals)} calendars"
+            if skipped:
+                header += f" ({len(skipped)} deferred)"
+            return header + ":\n\n" + "\n".join(matches)
 
     class _DeleteEventInput(BaseModel):
         title: str = Field(description="Exact title of the event to delete")
