@@ -29,10 +29,13 @@ Research the following topic thoroughly:
 Search the web for at least 3 high-quality sources. Read articles and extract key
 information.
 
-Compile a structured research report with:
-1. Key findings
-2. Important details and data points
-3. Sources (with URLs)
+IMPORTANT: The user reads your answer on a PHONE via Signal. Keep it focused:
+- Lead with the direct answer to the question asked.
+- Include the most important facts and data points.
+- Cite key sources.
+- Do NOT pad with tangential topics the user didn't ask about.
+- Do NOT write a "Unified Report" or "Synthesis Report" — just answer the question.
+- Aim for 200-400 words, not 2000.
 """
 
 # Concise template for simple factual questions (difficulty 1-3).
@@ -66,14 +69,19 @@ researched in parallel. Topic: {topic}
 Reply with ONLY a JSON array of strings:
 ["subtopic 1", "subtopic 2"]
 
-IMPORTANT: Each subtopic must be a COMPLETE, self-contained question that
-preserves the full context of what is being asked. Do NOT split into just
-country/entity names — include the specific data being requested.
+RULES:
+1. Each subtopic must be a COMPLETE, self-contained question that preserves
+   the full context of what is being asked.
+2. Do NOT split into just country/entity names — include the specific data.
+3. Stay STRICTLY within the scope of what the user asked. Do NOT add tangential
+   topics (e.g., do not add ecology subtopics for a business/economics question).
+4. If the question is simple or asks for a direct comparison, return a single-item array.
+5. Prefer FEWER subtopics — only split when genuinely independent parts exist.
 
 WRONG: ["Finland", "Estonia"]
 RIGHT: ["woodland hectares per capita in Finland", "woodland hectares per capita in Estonia"]
-
-If the question is simple or asks for a direct comparison, return a single-item array.\
+WRONG: ["economic outlook 2027", "ecological trends 2027"] (ecology not asked for)
+RIGHT: ["economic outlook and business risks for 2027"]\
 """
 
 
@@ -229,7 +237,7 @@ class ResearchCrew:
         # S6: Policy loading moved to commander._run_crew() parallel context fetch
         task = Task(
             description=RESEARCH_TASK_TEMPLATE.format(user_input=wrap_user_input(topic)),
-            expected_output="A structured research report with key findings and sources.",
+            expected_output="A concise answer with key findings and sources (200-400 words).",
             agent=researcher,
         )
         crew = Crew(agents=[researcher], tasks=[task], process=Process.sequential, verbose=True)
@@ -429,7 +437,7 @@ class ResearchCrew:
         return result
 
     def _synthesize(self, topic: str, results: list, parent_task_id: str) -> str:
-        """Combine parallel research results into a unified report."""
+        """Combine parallel research results into a concise answer."""
         successful = [r.result for r in results if r.success and r.result]
         failed = [r.label for r in results if not r.success]
 
@@ -440,9 +448,15 @@ class ResearchCrew:
         # Direct LLM call — no Crew overhead for synthesis
         llm = create_specialist_llm(max_tokens=4096, role="synthesis")
         prompt = (
-            f"Synthesize these parallel research findings into one unified report on: {topic}\n\n"
-            f"Individual findings:\n{combined_input[:6000]}\n\n"
-            f"Create a cohesive report with: key findings, details, and all sources."
+            f"The user asked: {topic[:500]}\n\n"
+            f"Below are findings from parallel research:\n{combined_input[:6000]}\n\n"
+            f"Synthesize into a CONCISE answer (200-400 words) that:\n"
+            f"1. DIRECTLY answers the user's question first\n"
+            f"2. Includes the most important supporting facts\n"
+            f"3. Cites key sources\n"
+            f"4. EXCLUDES tangential topics the user did NOT ask about\n"
+            f"5. Does NOT use titles like 'Unified Report' or 'Synthesis Report'\n"
+            f"The user reads this on a phone — brevity is essential."
             + (f"\n\nNote: {len(failed)} sub-tasks failed." if failed else "")
         )
         result = str(llm.call(prompt)).strip()
