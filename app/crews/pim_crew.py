@@ -9,9 +9,19 @@ Handle this personal information management task:
 {user_input}
 
 You have access to:
-- Email (IMAP/SMTP): check inbox, read, send, search, organize
+- Email (IMAP/SMTP): check inbox, read, send, search, organize.
+  The check_email tool supports hours_back, days_back, and count_only
+  parameters — use them for time-windowed queries like "emails from last
+  3 hours" or count-only questions like "how many emails today".
 - Calendar (macOS Calendar): list, create, search, delete events
 - Tasks (local database): create, list, update, complete, search
+
+CRITICAL: You DO have email/calendar/task tools — they are loaded in your
+tool list.  If a tool call fails, report the ACTUAL error message from the
+tool.  NEVER respond with "integration is not connected" or "tool not
+available" without first calling the tool and getting an error response.
+If you are asked about emails/calendar/tasks, USE the tools before
+answering.
 
 Determine which tools are needed. Summarize findings concisely.
 If the task involves sending email or creating events, confirm the details

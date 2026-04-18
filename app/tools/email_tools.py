@@ -108,27 +108,107 @@ def create_email_tools(agent_id: str) -> list:
     class _CheckEmailInput(BaseModel):
         folder: str = Field(default="INBOX", description="Mailbox folder to check")
         limit: int = Field(default=10, description="Max number of emails to return")
-        unread_only: bool = Field(default=True, description="Only show unread emails")
+        unread_only: bool = Field(default=False, description="Only show unread emails")
+        hours_back: int = Field(
+            default=0,
+            description=(
+                "If >0, only count/list emails received within the last N hours. "
+                "Use this for queries like 'emails from last 3 hours'."
+            ),
+        )
+        days_back: int = Field(
+            default=0,
+            description=(
+                "If >0, only count/list emails received within the last N days. "
+                "Use this for queries like 'emails from last week'."
+            ),
+        )
+        count_only: bool = Field(
+            default=False,
+            description=(
+                "If True, return just the count (e.g. '7 emails'). Faster than "
+                "listing. Use for 'how many emails...' queries."
+            ),
+        )
 
     class CheckEmailTool(BaseTool):
         name: str = "check_email"
         description: str = (
-            "Check email inbox. Returns a list of recent emails with "
-            "sender, subject, date, and a short preview."
+            "Check email inbox. Supports time-window filtering via hours_back "
+            "or days_back, and count-only mode via count_only. Returns a list "
+            "of matching emails with sender, subject, date."
         )
         args_schema: Type[BaseModel] = _CheckEmailInput
 
-        def _run(self, folder: str = "INBOX", limit: int = 10, unread_only: bool = True) -> str:
+        def _run(
+            self, folder: str = "INBOX", limit: int = 10,
+            unread_only: bool = False, hours_back: int = 0,
+            days_back: int = 0, count_only: bool = False,
+        ) -> str:
             try:
                 conn = _connect_imap(cfg)
                 conn.select(folder, readonly=True)
-                criteria = "UNSEEN" if unread_only else "ALL"
+
+                # Build IMAP search criteria.  "SINCE <date>" filters by day;
+                # for sub-day windows we post-filter on the Date header.
+                criteria_parts = []
+                if unread_only:
+                    criteria_parts.append("UNSEEN")
+                since_dt: datetime | None = None
+                if hours_back > 0:
+                    since_dt = datetime.now() - timedelta(hours=hours_back)
+                    # IMAP SINCE is day-granular — use the day of since_dt
+                    criteria_parts.append(f'SINCE "{since_dt.strftime("%d-%b-%Y")}"')
+                elif days_back > 0:
+                    since_dt = datetime.now() - timedelta(days=days_back)
+                    criteria_parts.append(f'SINCE "{since_dt.strftime("%d-%b-%Y")}"')
+                criteria = " ".join(criteria_parts) if criteria_parts else "ALL"
+
                 _, msg_nums = conn.search(None, criteria)
                 nums = msg_nums[0].split()
+
+                # Post-filter for sub-day windows (hours_back): parse Date header
+                if hours_back > 0 and since_dt and nums:
+                    filtered = []
+                    for num in nums:
+                        _, data = conn.fetch(num, "(BODY.PEEK[HEADER.FIELDS (DATE)])")
+                        if not data or not data[0]:
+                            continue
+                        raw = data[0][1]
+                        if isinstance(raw, bytes):
+                            raw = raw.decode("utf-8", errors="replace")
+                        date_line = raw.strip().replace("Date: ", "", 1).strip()
+                        try:
+                            msg_dt = email.utils.parsedate_to_datetime(date_line)
+                            # Normalize to naive local time for comparison
+                            if msg_dt.tzinfo is not None:
+                                msg_dt = msg_dt.astimezone().replace(tzinfo=None)
+                            if msg_dt >= since_dt:
+                                filtered.append(num)
+                        except Exception:
+                            continue
+                    nums = filtered
+
                 if not nums:
                     conn.close()
                     conn.logout()
-                    return "No emails found." if not unread_only else "No unread emails."
+                    scope = ""
+                    if hours_back > 0:
+                        scope = f" in the last {hours_back} hour(s)"
+                    elif days_back > 0:
+                        scope = f" in the last {days_back} day(s)"
+                    return f"No {'unread ' if unread_only else ''}emails found{scope}."
+
+                if count_only:
+                    conn.close()
+                    conn.logout()
+                    scope = ""
+                    if hours_back > 0:
+                        scope = f" in the last {hours_back} hour(s)"
+                    elif days_back > 0:
+                        scope = f" in the last {days_back} day(s)"
+                    label = "unread " if unread_only else ""
+                    return f"{len(nums)} {label}email(s){scope}."
 
                 # Take the most recent N
                 recent = nums[-limit:]
@@ -148,7 +228,16 @@ def create_email_tools(agent_id: str) -> list:
 
                 conn.close()
                 conn.logout()
-                count_label = f"{len(results)} email(s)"
+                total = len(nums)
+                shown = len(results)
+                scope = ""
+                if hours_back > 0:
+                    scope = f" in the last {hours_back} hour(s)"
+                elif days_back > 0:
+                    scope = f" in the last {days_back} day(s)"
+                count_label = f"{total} email(s){scope}"
+                if shown < total:
+                    count_label += f" (showing most recent {shown})"
                 return f"{count_label}:\n\n" + "\n\n".join(results)
             except Exception as e:
                 return f"Error checking email: {str(e)[:300]}"
