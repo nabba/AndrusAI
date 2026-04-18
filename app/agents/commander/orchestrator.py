@@ -1357,17 +1357,14 @@ class Commander:
 
     def _try_answer_model_question(self, user_input: str) -> str | None:
         """If the user is asking which LLM/model handled the previous response,
-        answer from actual telemetry.  Returns the answer string, or None if
-        the question isn't about the model.
+        answer from actual telemetry in `request_costs` SQLite table.  Returns
+        a full breakdown (model(s), tokens, cost, crew) — no hallucination.
 
-        Matches questions in English and Estonian:
-          - "which LLM/model did you use?"
-          - "what model are you running on?"
-          - "millist LLM-i/mudelit sa kasutasid?"
+        Matches English and Estonian phrasings.  Returns None if the question
+        isn't about the model.
         """
         import re as _re
         text = user_input.strip().lower()
-        # Keep the match tight so we don't intercept unrelated questions.
         patterns = [
             _re.compile(
                 r"\b(?:which|what)\s+(?:llm|model|ai)\b.*\b(?:did you use|are you (?:using|running)|was used)\b",
@@ -1377,47 +1374,71 @@ class Commander:
                 r"\bmillist\s+(?:llm-?i?|mudelit|ai-?d)\b.*\b(?:kasutasid|kasutati|kasutad)\b",
                 _re.IGNORECASE,
             ),
-            # "what LLM did you use for the last/previous answer"
             _re.compile(r"\b(?:llm|model)\s+(?:for|kasutasid).*(?:previous|last|eelmise|eelmine)\b", _re.IGNORECASE),
+            # Token/cost inspection questions — same answer shape.
+            _re.compile(
+                r"\b(?:how many|what)\s+tokens\b.*\b(?:use|consumed|spent|last|previous)\b",
+                _re.IGNORECASE,
+            ),
+            _re.compile(r"\bmitu\s+tokenit\b", _re.IGNORECASE),
+            _re.compile(r"\b(?:cost|hind|price)\b.*\b(?:last|previous|eelmise)\b.*\b(?:request|response|vastus)\b", _re.IGNORECASE),
         ]
         if not any(p.search(text) for p in patterns):
             return None
 
-        # Collect actual telemetry.  These attrs are set by handle() on every
-        # request; also pull get_last_tier() as a fallback.
-        last_crew = getattr(self, "_last_crew", "") or "unknown"
-        last_model = getattr(self, "last_model_used", "") or ""
-        try:
-            from app.llm_factory import get_last_tier
-            last_tier = get_last_tier() or ""
-        except Exception:
-            last_tier = ""
+        is_estonian = any(w in text for w in (
+            "millist", "mudelit", "kasutasid", "eelmise", "mitu", "tokenit", "hind",
+        ))
 
-        # Build an answer in the same language as the question.
-        is_estonian = any(w in text for w in ("millist", "mudelit", "kasutasid", "eelmise"))
-        if not last_model and not last_tier:
+        # Read telemetry from the request_costs SQLite table populated by
+        # record_request_cost() in the rate_throttle pipeline.
+        try:
+            from app.llm_benchmarks import get_last_request_cost
+            tele = get_last_request_cost()
+        except Exception:
+            tele = None
+
+        if not tele:
             if is_estonian:
                 return (
-                    "Eelmine vastus genereeriti, aga mudeli täpset nime "
-                    "ei õnnestunud telemeetriast leida. Tavaliselt kasutab "
-                    "Commander Claude Opus 4.6, spetsialistid Claude Sonnet 4.6 "
-                    "või kohalikku Ollama mudelit (qwen3/deepseek-r1)."
+                    "Telemeetriast ei leidnud veel ühegi vastuse kirjet — "
+                    "võimalik, et see on pärast viimast taaskäivitust esimene "
+                    "päring, või et request_costs tabel on tühi. Tavaliselt "
+                    "kasutab Commander Claude Opus 4.6, spetsialistid Sonnet 4.6 "
+                    "või kohalikku Ollama (qwen3/deepseek-r1)."
                 )
             return (
-                "I couldn't find the exact model name in telemetry. Typically "
-                "Commander uses Claude Opus 4.6, specialists use Claude Sonnet "
-                "4.6 or a local Ollama model (qwen3/deepseek-r1)."
+                "No completed request found in telemetry yet — may be the "
+                "first request since startup, or the request_costs table is "
+                "empty. Normally Commander uses Claude Opus 4.6, specialists "
+                "use Sonnet 4.6 or a local Ollama model (qwen3/deepseek-r1)."
             )
 
-        model_desc = last_model or last_tier
+        crew = tele["crew"] or "unknown"
+        models = tele["models"] or ["unknown"]
+        total_tokens = tele["total_tokens"]
+        prompt_toks = tele["prompt_tokens"]
+        completion_toks = tele["completion_tokens"]
+        cost = tele["cost_usd"]
+        calls = tele["call_count"]
+        models_str = ", ".join(f"`{m}`" for m in models)
+
         if is_estonian:
             return (
-                f"Eelmise vastuse koostas {last_crew} meeskond kasutades mudelit "
-                f"`{model_desc}`."
+                f"Eelmise vastuse koostas **{crew}** meeskond.\n"
+                f"Mudel(id): {models_str}\n"
+                f"Tokeneid kokku: {total_tokens:,} "
+                f"({prompt_toks:,} sisend + {completion_toks:,} väljund) "
+                f"üle {calls} LLM-kutsumise.\n"
+                f"Hind: ${cost:.4f}"
             )
         return (
-            f"The previous response was produced by the {last_crew} crew using "
-            f"model `{model_desc}`."
+            f"Previous response was produced by the **{crew}** crew.\n"
+            f"Model(s): {models_str}\n"
+            f"Tokens: {total_tokens:,} total "
+            f"({prompt_toks:,} prompt + {completion_toks:,} completion) "
+            f"across {calls} LLM call(s).\n"
+            f"Cost: ${cost:.4f}"
         )
 
     def _generate_self_description(self, user_input: str) -> str:

@@ -423,6 +423,56 @@ def record_request_cost(tracker) -> None:
         logger.debug("llm_benchmarks: failed to record request cost", exc_info=True)
 
 
+def get_last_request_cost() -> dict | None:
+    """Return telemetry for the most recent completed request.
+
+    Reads from the request_costs SQLite table populated by record_request_cost().
+    Returns None if no requests have been recorded yet, otherwise a dict:
+        {
+          "request_id": str,
+          "crew": str,
+          "models": list[str],   # sorted, deduplicated
+          "prompt_tokens": int,
+          "completion_tokens": int,
+          "total_tokens": int,
+          "cost_usd": float,
+          "call_count": int,
+          "ts": str,             # ISO timestamp
+        }
+    Used by Commander to answer "which LLM did you use for the previous response?"
+    without hallucinating.  Also handy for cost-inspection slash commands.
+    """
+    try:
+        # IMPORTANT: flush the buffered-write queue first so the very last
+        # request's row is actually visible in SQLite.  Without this we'd
+        # miss the most recent completion in systems under low load.
+        _flush_writes()
+        conn = _get_conn()
+        row = conn.execute(
+            "SELECT request_id, crew_name, total_prompt, total_completion, "
+            "total_cost_usd, call_count, models_used, ts "
+            "FROM request_costs ORDER BY ts DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        req_id, crew, pt, ct, cost, calls, models_csv, ts = row
+        models = [m.strip() for m in (models_csv or "").split(",") if m.strip() and m != "none"]
+        return {
+            "request_id": req_id,
+            "crew": crew or "",
+            "models": models,
+            "prompt_tokens": int(pt),
+            "completion_tokens": int(ct),
+            "total_tokens": int(pt) + int(ct),
+            "cost_usd": float(cost),
+            "call_count": int(calls),
+            "ts": ts,
+        }
+    except Exception:
+        logger.debug("llm_benchmarks: get_last_request_cost failed", exc_info=True)
+        return None
+
+
 def get_request_cost_stats(period: str = "day") -> dict:
     """Aggregate request-level cost stats for a time period.
 
