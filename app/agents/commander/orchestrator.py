@@ -1492,8 +1492,8 @@ class Commander:
             return None
 
         # Parse the time window from the question.
-        from datetime import timedelta as _td
-        now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        from datetime import datetime as _dt, timedelta as _td
+        now = _dt.now().replace(hour=0, minute=0, second=0, microsecond=0)
         start_dt, end_dt, label = now, now + _td(days=1) - _td(seconds=1), "today"
 
         weekday_en = {
