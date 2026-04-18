@@ -785,23 +785,20 @@ def _register_defaults(registry: HookRegistry) -> None:
         description="Beautiful Loop: predict entire processing path (self-referential)",
     )
 
-    # Priority 5: Inject previous internal state into task prompt (C3 fix: recursive self-awareness)
+    # Priority 5: Store previous internal state in metadata for hook use.
+    # NOTE: Previously injected raw state text into task descriptions, which
+    # caused LLMs to write reports about internal metadata instead of answering
+    # the user's question.  Internal state is now metadata-only — hooks can
+    # read ctx.metadata["_internal_state"] but it never reaches the LLM prompt.
     def _inject_internal_state_hook(ctx: HookContext) -> HookContext:
-        try:
-            prev_state = ctx.metadata.get("_internal_state")
-            if prev_state and hasattr(prev_state, "to_context_string"):
-                state_str = prev_state.to_context_string()
-                current_desc = ctx.task_description or ""
-                ctx.modified_data["task_description"] = f"{state_str}\n\n{current_desc}"
-        except Exception:
-            pass
+        # Keep state in metadata for other hooks — do NOT inject into task text.
         return ctx
 
     registry.register(
         "inject_internal_state", HookPoint.PRE_TASK,
         _inject_internal_state_hook,
         priority=5,
-        description="Inject previous internal state into task prompt (recursive self-awareness)",
+        description="Store internal state in metadata (no longer injected into prompt)",
     )
 
     # Priority 15: Meta-cognitive layer (M1 fix: singleton per agent, not per-call)

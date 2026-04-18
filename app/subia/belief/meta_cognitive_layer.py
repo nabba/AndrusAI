@@ -173,7 +173,14 @@ class MetaCognitiveLayer:
 
         if mod_type == "refine_task_description":
             desc = task_context.get("description", "")
-            task_context["description"] = f"{desc}\n\n[Meta-cognitive refinement]: {content}"
+            # Wrap in reference_context so the agent uses it for reasoning
+            # but NEVER includes it in user-facing output.
+            task_context["description"] = (
+                f"{desc}\n\n"
+                f"<reference_context type=\"meta_cognitive\" visibility=\"internal\">\n"
+                f"{content}\n"
+                f"</reference_context>"
+            )
         elif mod_type == "adjust_tool_selection":
             task_context.setdefault("tool_hints", []).append(content)
         elif mod_type == "add_strategy_hint":

@@ -30,6 +30,28 @@ _INTERNAL_METADATA_PATTERNS = [
     re.compile(r"<reference_context[^>]*>.*?</reference_context>\s*\n?", re.DOTALL),
     # "Somatic Context Note" sections the LLM elaborated from somatic input
     re.compile(r"\d+\.\s*\*\*Somatic Context Note[:\*]*\*?\*?.*?(?=\n\d+\.\s|\n---|\n##|\Z)", re.DOTALL | re.IGNORECASE),
+    # Internal state / MCSV single-line markers that leaked into output
+    re.compile(r"\[Internal State\][^\n]*\n?"),
+    re.compile(r"\[MCSV\][^\n]*\n?"),
+    re.compile(r"\[Meta-cognitive refinement\]:[^\n]*\n?"),
+    # "Synthesis Conditions & Epistemic Status" header + following italic block
+    re.compile(
+        r"\*?\*?Synthesis Conditions\s*&?\s*Epistemic Status\*?\*?\s*\n"
+        r"\*[^*]+\*\s*\n?",
+        re.IGNORECASE,
+    ),
+    # "Report compiled under conditions of..." — single paragraph
+    re.compile(r"\*?Report compiled under conditions of[^*]*\*?\s*\n?", re.IGNORECASE),
+    # "Classification: Technical Research..." — single line
+    re.compile(r"\*?\*?Classification:\*?\*?\s*Technical Research[^\n]*\n?", re.IGNORECASE),
+    # "Confidence: ... | Trend: ..." — single-line metrics
+    re.compile(r"\*?\*?Confidence:\*?\*?\s*\w+[^\n]*Trend:[^\n]*\n?", re.IGNORECASE),
+    # "Disposition is cautious; findings..." — single line
+    re.compile(r"Disposition\s+is\s+\w+;[^\n]*\n?", re.IGNORECASE),
+    # "zero factual verification" disclaimers — single line
+    re.compile(r"[^\n]*zero factual verification[^\n]*\n?", re.IGNORECASE),
+    # "Trend indicators suggest declining" — single line
+    re.compile(r"[^\n]*Trend indicators suggest[^\n]*\n?", re.IGNORECASE),
 ]
 
 
