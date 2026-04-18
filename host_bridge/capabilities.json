@@ -154,6 +154,6 @@
     ],
     "allowed_hosts": [],
     "max_requests_per_minute": 60,
-    "risk_ceiling": "medium"
+    "risk_ceiling": "high"
   }
 ]
