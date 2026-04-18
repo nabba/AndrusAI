@@ -70,6 +70,113 @@ def get_plugin_tools() -> list:
         return tools
 
 
+# ── Tool Manifest (Tool-First affordance) ──────────────────────────────────
+
+_TOOL_MANIFEST_MARKER = "## Your Tools (Tool-First Protocol)"
+_TOOL_MANIFEST_MAX = 40  # cap so the backstory doesn't explode past context limits
+
+
+def _append_tool_manifest(backstory: str, tools: list) -> str:
+    """Append a concise list of tool names + one-liners to the backstory.
+
+    Idempotent — detects the marker and refreshes rather than duplicating.
+    Keeps descriptions short so the system prompt stays lean.
+    """
+    if not tools:
+        return backstory
+    entries = []
+    for t in tools[:_TOOL_MANIFEST_MAX]:
+        name = getattr(t, "name", "")
+        if not name:
+            continue
+        desc = (getattr(t, "description", "") or "").strip()
+        # Collapse whitespace + trim to first sentence / 100 chars
+        desc = " ".join(desc.split())[:120]
+        entries.append(f"- `{name}` — {desc}")
+    if not entries:
+        return backstory
+    extra = len(tools) - _TOOL_MANIFEST_MAX
+    extra_note = f"\n  (+{extra} more — see function-calling schema)" if extra > 0 else ""
+    manifest = (
+        f"\n\n{_TOOL_MANIFEST_MARKER}\n"
+        "You have these tools attached RIGHT NOW. Scan this list before answering any request.\n"
+        "If ANY entry plausibly maps to the user's ask, CALL IT before saying you cannot. "
+        "Refusing without a tool attempt violates your operating protocol.\n\n"
+        + "\n".join(entries)
+        + extra_note
+    )
+    # Idempotent refresh: strip any previous manifest block
+    if _TOOL_MANIFEST_MARKER in backstory:
+        backstory = backstory.split(_TOOL_MANIFEST_MARKER)[0].rstrip()
+    return backstory + manifest
+
+
+# ── Refusal Detection (Tool-First enforcement) ──────────────────────────────
+# When a specialist answers with a refusal phrase AND has tools AND hasn't
+# actually called any, we retry once with an explicit nudge listing available
+# tool names. This captures the "LLM defaults to 'I can't' despite having
+# working tools" failure mode that users observe most often.
+
+_REFUSAL_PATTERNS = (
+    "i don't have access",
+    "i do not have access",
+    "i can't help",
+    "i cannot help",
+    "i'm unable to",
+    "i am unable to",
+    "i cannot do that",
+    "i can't do that",
+    "i don't have the ability",
+    "i do not have the ability",
+    "i'm not able to",
+    "i am not able to",
+    "i'm sorry, but i can't",
+    "i'm sorry, but i cannot",
+    "i apologize, but i can't",
+    "i apologize, but i cannot",
+    "unfortunately, i can't",
+    "unfortunately, i cannot",
+    "as an ai",
+    "i don't have real-time",
+    "i don't have the capability",
+)
+
+_REFUSAL_MAX_LEN = 2000  # only scan the first N chars — long answers are rarely refusals
+
+
+def _looks_like_refusal(result: str) -> bool:
+    """Heuristic: does this response refuse to act without having called a tool?"""
+    if not result:
+        return False
+    head = result[:_REFUSAL_MAX_LEN].lower()
+    # If the agent clearly called tools (Action: / Observation: markers present),
+    # it's not a pre-emptive refusal — it's a reasoned one after trying.
+    if "observation:" in head or "action:" in head:
+        return False
+    return any(p in head for p in _REFUSAL_PATTERNS)
+
+
+def _build_retry_prompt(original_task: str, agent_tools: list, refusal_text: str) -> str:
+    """Compose an explicit re-prompt listing the tools the agent already has."""
+    tool_lines = []
+    for t in agent_tools[:25]:
+        name = getattr(t, "name", "")
+        desc = (getattr(t, "description", "") or "")[:120]
+        if name:
+            tool_lines.append(f"  - `{name}`: {desc}")
+    tool_list = "\n".join(tool_lines) or "  (tool list empty — this is a bug)"
+    return (
+        "Your previous response refused to act, but you DO have tools that can help. "
+        "Retry the task — this time call at least one of your tools before answering.\n\n"
+        f"Original task:\n{original_task}\n\n"
+        f"Your tools (call one of these):\n{tool_list}\n\n"
+        f"What you said last time (don't repeat this):\n{refusal_text[:400]}\n\n"
+        "Tool-First protocol: try the most plausible tool, inspect the output, chain if needed, "
+        "and synthesise an answer from what the tools actually returned. Refusing again without "
+        "a tool call is not acceptable."
+    )
+
+
 # ── Auto-Skill Creation ──────────────────────────────────────────────────────
 
 _SKILL_CREATION_THRESHOLD = 5  # Minimum tool calls to trigger skill creation
@@ -221,6 +328,36 @@ def run_single_agent_crew(
 
     try:
         result = str(crew.kickoff())
+
+        # Tool-First enforcement: if the agent refused without calling tools, retry once
+        # with an explicit nudge listing the tools it has.
+        if _looks_like_refusal(result) and agent.tools:
+            retry_prompt = _build_retry_prompt(task_description, agent.tools, result)
+            logger.info(
+                f"base_crew: refusal detected in {crew_name}, retrying with tool-first nudge "
+                f"({len(agent.tools)} tools available)"
+            )
+            try:
+                retry_task = Task(
+                    description=retry_prompt,
+                    expected_output=expected_output,
+                    agent=agent,
+                )
+                retry_crew = Crew(
+                    agents=[agent],
+                    tasks=[retry_task],
+                    process=Process.sequential,
+                    verbose=True,
+                )
+                retry_result = str(retry_crew.kickoff())
+                if retry_result and not _looks_like_refusal(retry_result):
+                    result = retry_result
+                    record_metric("refusal_retry_success", 1.0, {"crew": crew_name})
+                else:
+                    record_metric("refusal_retry_failed", 1.0, {"crew": crew_name})
+            except Exception:
+                logger.debug(f"base_crew: refusal retry in {crew_name} crashed", exc_info=True)
+
         duration = _time.monotonic() - start
 
         update_belief(agent_role, "completed", current_task=task_description[:100])
@@ -369,6 +506,19 @@ def _patch_agent_for_plugins() -> None:
                     )
         except Exception:
             logger.debug("Agent plugin pre-init failed (non-fatal)", exc_info=True)
+
+        # Tool-First affordance: append a short manifest of available tools to the
+        # backstory so the LLM sees "I have tools X, Y, Z — USE THEM" in its system
+        # prompt. CrewAI already lists tool schemas for function-calling, but this
+        # second-person narrative is much stickier for refusal-prone LLMs.
+        # Only modify `backstory` if the caller already supplied one — don't add
+        # a kwarg the callee doesn't accept.
+        try:
+            tools = kwargs.get("tools") or []
+            if tools and "backstory" in kwargs and kwargs["backstory"]:
+                kwargs["backstory"] = _append_tool_manifest(kwargs["backstory"], tools)
+        except Exception:
+            logger.debug("Agent tool-manifest injection failed (non-fatal)", exc_info=True)
 
         original_init(self, *args, **kwargs)
 
