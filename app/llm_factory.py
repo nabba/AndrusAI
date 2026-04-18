@@ -276,7 +276,8 @@ def create_specialist_llm(
     if tier == "local" and settings.local_llm_enabled:
         llm = _try_local(model_name, entry, max_tokens, role, phase=phase)
         if llm:
-            return llm
+            # Stage 4.3 — race local vs API on short prompts (default OFF).
+            return _maybe_race_wrap(llm, role, max_tokens, phase)
         # Local failed — try API tier
         if settings.api_tier_enabled:
             logger.info(f"llm_factory: local failed for role={role}, trying API tier")
@@ -336,6 +337,85 @@ def create_cheap_vetting_llm() -> LLM:
             return _cached_llm(budget_model["model_id"], max_tokens=256,
                                base_url="https://openrouter.ai/api/v1", api_key=or_key)
     return _cached_llm("anthropic/claude-sonnet-4-6", max_tokens=256, api_key=get_anthropic_api_key())
+
+
+class _RacingLLM:
+    """Stage 4.3 — cascade race wrapper (hybrid mode, short prompts only).
+
+    On `.call(prompt)`:
+      * if len(prompt) >= threshold, delegates to primary (cost-safe).
+      * otherwise races primary + secondary, returns first non-error.
+
+    Invariant: primary is always the Ollama local LLM; secondary is the
+    OpenRouter fallback. Both are crewai.LLM objects (same .call() contract).
+
+    Gated by settings.cascade_race_short — default False.
+    """
+
+    def __init__(self, primary, secondary, *, threshold_chars: int, timeout_s: float):
+        self._primary = primary
+        self._secondary = secondary
+        self._threshold = threshold_chars
+        self._timeout = timeout_s
+        self.model = getattr(primary, "model", "racing-llm")
+
+    def __str__(self):
+        return f"race({self._primary}, {self._secondary})"
+
+    def call(self, prompt, **kwargs):
+        from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+        prompt_str = prompt if isinstance(prompt, str) else str(prompt)
+        if len(prompt_str) >= self._threshold:
+            return self._primary.call(prompt, **kwargs)
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="llm-race") as ex:
+            f_primary = ex.submit(self._primary.call, prompt, **kwargs)
+            f_secondary = ex.submit(self._secondary.call, prompt, **kwargs)
+            done, pending = wait(
+                {f_primary, f_secondary}, timeout=self._timeout,
+                return_when=FIRST_COMPLETED,
+            )
+            for p in pending:
+                p.cancel()
+            for f in done:
+                try:
+                    return f.result(timeout=0.1)
+                except Exception:
+                    continue
+            # Both futures failed or timed out in the first window — give
+            # primary a bit more time, then fall through to secondary.
+            try:
+                return f_primary.result(timeout=2.0)
+            except Exception:
+                return f_secondary.result(timeout=2.0)
+
+    # Some callers invoke LLM attributes directly; forward to primary.
+    def __getattr__(self, name):
+        return getattr(self._primary, name)
+
+
+def _maybe_race_wrap(primary, role: str, max_tokens: int, phase: str | None):
+    """If cascade_race_short is enabled, return a _RacingLLM wrapping primary
+    with an API-tier secondary. On any failure, returns primary unwrapped.
+    """
+    try:
+        settings = get_settings()
+        if not getattr(settings, "cascade_race_short", False):
+            return primary
+        if not settings.api_tier_enabled:
+            return primary
+        api_model = get_default_for_role(role, settings.cost_mode)
+        api_entry = get_model(api_model)
+        if not (api_entry and api_entry.get("tier") in ("free", "budget", "mid")):
+            return primary
+        secondary = _try_api(api_model, api_entry, max_tokens, role, phase=phase)
+        if secondary is None:
+            return primary
+        threshold_chars = int(settings.cascade_race_token_threshold * 4)  # ~4 chars/tok
+        timeout_s = float(settings.cascade_race_timeout_s)
+        return _RacingLLM(primary, secondary,
+                          threshold_chars=threshold_chars, timeout_s=timeout_s)
+    except Exception:
+        return primary
 
 
 def is_using_local() -> bool:

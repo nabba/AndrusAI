@@ -1,0 +1,69 @@
+{
+  "name": "ReportLab",
+  "base_url": null,
+  "version": "3.1.0",
+  "description": "The provided text contains documentation for the OpenAPI Specification (OAS), which is a standard for defining HTTP APIs, rather than the functional API documentation for a service named ReportLab.",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://spec.openapis.org/oas/v3.1.0",
+      "title": "OpenAPI Specification v3.1.0 | Introduction, Definitions, & ...",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://openapispec.com/docs/how/how-does-openapi-support-json-and-yaml-formats/",
+      "title": "How does OpenAPI support JSON and YAML formats? | OpenAPI Specification",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://learn.openapis.org/specification/structure.html",
+      "title": "Structure of an OpenAPI Description",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://pypi.org/project/reportlab/",
+      "title": "reportlab \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/reportlab-x/",
+      "title": "reportlab-x \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://docs.reportlab.com/developerfaqs/",
+      "title": "Developer FAQs - ReportLab Docs",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://www.reportlab.com/docs/reportlab-reference.pdf",
+      "title": "ReportLab API Reference Introduction",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://docs.reportlab.com/",
+      "title": "ReportLab Docs",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://docs.reportlab.com/install/open_source_installation/",
+      "title": "Open source installation - ReportLab Docs",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-18T15:59:20.172160+00:00"
+}

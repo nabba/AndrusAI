@@ -310,7 +310,7 @@ class SelfImprovementCrew:
                 agent=learner,
             )
 
-            crew = Crew(agents=[learner], tasks=[task], process=Process.sequential, verbose=True)
+            crew = Crew(agents=[learner], tasks=[task], process=Process.sequential, verbose=settings.crew_verbose)
             result = str(crew.kickoff())
 
             tracker = stop_request_tracking()
@@ -375,7 +375,7 @@ class SelfImprovementCrew:
             ),
             llm=llm,
             tools=[web_search, web_fetch] + memory_tools,
-            verbose=True,
+            verbose=settings.crew_verbose,
         )
 
         task = Task(
@@ -401,7 +401,7 @@ class SelfImprovementCrew:
             agent=analyst,
         )
 
-        crew = Crew(agents=[analyst], tasks=[task], process=Process.sequential, verbose=True)
+        crew = Crew(agents=[analyst], tasks=[task], process=Process.sequential, verbose=settings.crew_verbose)
         raw = str(crew.kickoff()).strip()
 
         # Parse proposals — use safe_json_parse which handles fences + prose preamble

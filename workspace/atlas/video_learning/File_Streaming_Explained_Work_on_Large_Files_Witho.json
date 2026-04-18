@@ -1,0 +1,66 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=NdvMqZW2jSk",
+  "source_title": "File Streaming Explained: Work on Large Files Without Downloading",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "File Streaming",
+      "definition": "A data access model that allows users to access and work with files instantly from the cloud without downloading them in full, making them behave as if they were stored locally.",
+      "prerequisites": [
+        "Cloud Storage"
+      ],
+      "related_concepts": [
+        "Sync and Share",
+        "Cloud File Space"
+      ]
+    },
+    {
+      "name": "Sync and Share",
+      "definition": "A traditional cloud storage model where files must be fully downloaded to a local device before they can be used and must be uploaded before changes are visible to others.",
+      "prerequisites": [
+        "Cloud Storage"
+      ],
+      "related_concepts": [
+        "File Streaming",
+        "Sync Conflicts"
+      ]
+    },
+    {
+      "name": "Sync Conflicts",
+      "definition": "Issues that arise in sync-based workflows when multiple versions of the same file are created and modified simultaneously across different devices.",
+      "prerequisites": [
+        "Sync and Share"
+      ],
+      "related_concepts": [
+        "Version Control",
+        "Source of Truth"
+      ]
+    },
+    {
+      "name": "Source of Truth",
+      "definition": "A centralized data location where the most current and authoritative version of a file resides, ensuring all collaborators see the same data in real time.",
+      "prerequisites": [],
+      "related_concepts": [
+        "File Streaming",
+        "Collaboration"
+      ]
+    }
+  ],
+  "procedures": [],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Performance degradation and fragility with large files",
+      "context": "Occurs when using traditional 'Sync and Share' tools as file sizes increase (e.g., terabytes of data).",
+      "solution": "Implement File Streaming to stream only the required data rather than syncing the entire file."
+    },
+    {
+      "description": "Sync conflicts and version confusion",
+      "context": "Occurs in traditional cloud storage when multiple users edit files and the system creates multiple conflicting copies.",
+      "solution": "Use a shared cloud file space (like Lucid Link) where everyone accesses the same source of truth directly from the cloud."
+    }
+  ],
+  "confidence": 0.6000000000000001,
+  "extracted_at": "2026-04-18T16:02:43.280536+00:00"
+}

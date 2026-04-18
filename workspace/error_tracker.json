@@ -57,7 +57,7 @@
   },
   "coding:TimeoutError": {
     "attempts": 1,
-    "resolved": false,
+    "resolved": true,
     "last_attempt": "2026-04-17T20:00:12.229051+00:00",
     "fixes_applied": [
       "Increase the max_execution_time parameter in the _execute_with_timeout method to allow more time for task completion. The current timeout of 300 seconds is insufficient. Modify the value from 300 to a"

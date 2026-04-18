@@ -1,0 +1,36 @@
+{
+  "skill_id": "learned/from_youtube/Filter_and_Sort_Chain",
+  "name": "Filter and Sort Chain",
+  "category": "learned",
+  "version": "1.0.0",
+  "language": "python",
+  "description": "Filter a list based on a condition and then sort the remaining elements alphabetically.",
+  "confidence": 0.0,
+  "source_type": "youtube_tutorial",
+  "source_urls": [
+    "https://www.youtube.com/watch?v=FWoYpM-E3EQ"
+  ],
+  "dependencies": [
+    "java.util.stream.*",
+    "java.util.Comparator",
+    "java.util.List",
+    "java.util.Collectors"
+  ],
+  "auth_pattern": "",
+  "tests_total": 0,
+  "tests_passing": 0,
+  "tests_failing": 0,
+  "last_tested": "",
+  "usage_count": 0,
+  "usage_success_count": 0,
+  "last_used": "",
+  "created_at": "2026-04-18T16:04:00.050116+00:00",
+  "last_verified": "2026-04-18T16:04:00.050116+00:00",
+  "code_hash": "b3894b8c956d451f67b65b38d545812b",
+  "known_limitations": [],
+  "tags": [
+    "youtube",
+    "coding_tutorial",
+    "Java"
+  ]
+}

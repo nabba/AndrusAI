@@ -228,7 +228,7 @@ class ResearchCrew:
             expected_output="A concise, direct answer to the question.",
             agent=researcher,
         )
-        crew = Crew(agents=[researcher], tasks=[task], process=Process.sequential, verbose=True)
+        crew = Crew(agents=[researcher], tasks=[task], process=Process.sequential, verbose=settings.crew_verbose)
         result_str = str(crew.kickoff())
         crew_completed("research", task_id, result_str[:2000])
         return result_str
@@ -242,7 +242,7 @@ class ResearchCrew:
             expected_output="A concise answer with key findings and sources (200-400 words).",
             agent=researcher,
         )
-        crew = Crew(agents=[researcher], tasks=[task], process=Process.sequential, verbose=True)
+        crew = Crew(agents=[researcher], tasks=[task], process=Process.sequential, verbose=settings.crew_verbose)
         result_str = str(crew.kickoff())
         crew_completed("research", task_id, result_str[:2000])
         return result_str
@@ -342,7 +342,7 @@ class ResearchCrew:
                         )
                         crew = Crew(
                             agents=[researcher], tasks=[task],
-                            process=Process.sequential, verbose=True,
+                            process=Process.sequential, verbose=settings.crew_verbose,
                         )
                         result = str(crew.kickoff())
                         if not result or result.strip().lower() in ("none", ""):

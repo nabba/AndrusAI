@@ -65,8 +65,10 @@ def extract_to_mem0(user_text: str, assistant_result: str) -> None:
     if len(assistant_result.strip()) < 20:
         return
     try:
-        from app.memory.mem0_manager import store_conversation
-        store_conversation(
+        # Stage 5.4 — async write: Mem0's LLM-based fact extraction moves off
+        # the critical path. Saves 1-3 s from every p95 user response.
+        from app.memory.mem0_manager import store_conversation_async
+        store_conversation_async(
             messages=[
                 {"role": "user", "content": user_text[:2000]},
                 {"role": "assistant", "content": assistant_result[:4000]},

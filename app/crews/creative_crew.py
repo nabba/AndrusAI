@@ -35,6 +35,7 @@ from typing import Callable
 
 from crewai import Agent, Crew, Process, Task
 
+from app.config import get_settings
 from app.benchmarks import record_metric
 from app.crews.creative_prompts import (
     render_anti_conformity,
@@ -138,7 +139,7 @@ def _make_agent(role: str, reasoning_method: str, phase: str, create_fn: Callabl
         llm=llm,
         tools=tools,
         max_execution_time=300,
-        verbose=True,
+        verbose=get_settings().crew_verbose,
     )
 
 
@@ -340,7 +341,7 @@ def _phase_convergence(
         llm=llm,
         tools=[],
         max_execution_time=300,
-        verbose=True,
+        verbose=get_settings().crew_verbose,
     )
     prompt = render_convergence(
         task=wrap_user_input(task_description),

@@ -1,0 +1,16 @@
+workload,iter,seconds
+easy,1,0.085937
+easy,2,0.003626
+easy,3,0.004833
+easy2,1,0.004602
+easy2,2,0.002612
+easy2,3,0.007262
+medium,1,0.004323
+medium,2,0.005893
+medium,3,0.004761
+hard,1,0.011653
+hard,2,0.015095
+hard,3,0.006644
+creative,1,0.003381
+creative,2,0.002095
+creative,3,0.024509

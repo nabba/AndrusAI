@@ -1,452 +1,452 @@
 [
   {
-    "task_hash": "cd4bd335fd73bd56",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nExamine Joosep Volkmann's entrepreneuria",
-    "failure_count": 3,
-    "last_tool": "web_fetch",
-    "last_error": "",
-    "ts": 1776277512.4649165,
+    "task_hash": "305eb921196b8abf",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776532772.088568,
     "replan_suggested": false
   },
   {
-    "task_hash": "cd4bd335fd73bd56",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nExamine Joosep Volkmann's entrepreneuria",
+    "task_hash": "305eb921196b8abf",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: handle_task.py",
+    "ts": 1776532788.6128652,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "fb0cb92e137f4006",
+    "task": "Handle this personal information management task:\n\n<user_request>\n<reference_context type=\"somatic_b",
+    "failure_count": 1,
+    "last_tool": "check_email",
+    "last_error": "Error checking email: b'[AUTHENTICATIONFAILED] Invalid credentials (Failure)'",
+    "ts": 1776532795.074942,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "305eb921196b8abf",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: src/handle_task.py",
+    "ts": 1776532874.607956,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "305eb921196b8abf",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 4,
-    "last_tool": "web_fetch",
-    "last_error": "",
-    "ts": 1776277518.1883073,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "cd4bd335fd73bd56",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nExamine Joosep Volkmann's entrepreneuria",
-    "failure_count": 5,
-    "last_tool": "web_fetch",
-    "last_error": "",
-    "ts": 1776277519.6125588,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "911265d40fea4b34",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776341702.551043,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "911265d40fea4b34",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776341706.007387,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "911265d40fea4b34",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776341709.4465737,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "b4100a749fb7fd8a",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776354893.0995114,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "b4100a749fb7fd8a",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776354896.8208401,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "b4100a749fb7fd8a",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776354900.4043567,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "04ce3f623a6ed728",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776362421.215792,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "c4cacb0fbf435ee2",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776362459.072556,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "c4cacb0fbf435ee2",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776362462.353082,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7ed60a51c145e422",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: Cannot write to 'applied_code/app/eval_sandbox.py'. Writable directories: output, proposals, ",
-    "ts": 1776369674.338233,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "4ecfc3117040fe3a",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776384161.0147014,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "cd51e7ca299d6038",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776384263.099909,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "cd51e7ca299d6038",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776384266.337415,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "eb91393935be9bf8",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization_techniques.md",
-    "ts": 1776411734.3972442,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "8e428d27f54b120d",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 5,
-    "last_tool": "file_manager",
-    "last_error": "Error: Cannot write to 'applied_code/app/agents/repo_analyst.py'. Writable directories: output, prop",
-    "ts": 1776412945.0440776,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "59db51797e13c97c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization.md",
-    "ts": 1776423417.4946117,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "59db51797e13c97c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/advanced_web_search_summarization.md",
-    "ts": 1776423421.0024037,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "0ad92ea765662ab3",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 1,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776450529.6786098,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "0ad92ea765662ab3",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 2,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776450534.7595425,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "0ad92ea765662ab3",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 3,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776450539.9259865,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7bf0cbb417ab446d",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 1,
-    "last_tool": "execute_on_host",
-    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
-    "ts": 1776452697.6700916,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7bf0cbb417ab446d",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 2,
-    "last_tool": "execute_on_host",
-    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
-    "ts": 1776452722.4609587,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7bf0cbb417ab446d",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 3,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776454305.2431843,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: Cannot write to 'system_inspector.py'. Writable directories: output, proposals, skills",
-    "ts": 1776454344.1398287,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7bf0cbb417ab446d",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 4,
-    "last_tool": "list_host_files",
-    "last_error": "Error: Path not in allowed paths for agent 'coder'",
-    "ts": 1776454347.5224996,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "7bf0cbb417ab446d",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 5,
-    "last_tool": "list_host_files",
-    "last_error": "Error: Path not in allowed paths for agent 'coder'",
-    "ts": 1776454350.9932315,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "7bf0cbb417ab446d",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 6,
-    "last_tool": "list_host_files",
-    "last_error": "Error: Path not in allowed paths for agent 'coder'",
-    "ts": 1776454352.2922153,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 2,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776454364.7283378,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7bf0cbb417ab446d",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 7,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776454365.0931466,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "7bf0cbb417ab446d",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 8,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776454366.8596828,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 3,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776454371.6099596,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 4,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776454372.8899508,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "7bf0cbb417ab446d",
-    "task": "Complete the following coding task:\n\n<user_request>\nKNOWLEDGE BASE CONTEXT (retrieved from ingested ",
-    "failure_count": 9,
     "last_tool": "browser_fetch",
     "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776454373.467065,
+    "ts": 1776532913.5408642,
     "replan_suggested": true
   },
   {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "task_hash": "305eb921196b8abf",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 5,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776454376.734401,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'codeinterpreter'. Check command/URL and credentials.",
+    "ts": 1776532939.438421,
     "replan_suggested": true
   },
   {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "task_hash": "09863c7fcbc66f22",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: workspace",
+    "ts": 1776533062.962268,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "09863c7fcbc66f22",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'Vivek-k3/modelsplus'. Check command/URL and credentials.",
+    "ts": 1776533106.1631944,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "09863c7fcbc66f22",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: config.py",
+    "ts": 1776533122.6693738,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "a5f4b527485bfb04",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'clarityai'. Check command/URL and credentials.",
+    "ts": 1776533243.959823,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "a5f4b527485bfb04",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
+    "failure_count": 2,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'weathermap'. Check command/URL and credentials.",
+    "ts": 1776533251.5729456,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "a5f4b527485bfb04",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
+    "failure_count": 3,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'smithery-ai/github'. Check command/URL and credentials.",
+    "ts": 1776533273.1494935,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "a5f4b527485bfb04",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
+    "failure_count": 4,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'node2flow/slack'. Check command/URL and credentials.",
+    "ts": 1776533293.0661256,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "b3bebd035b1e8da0",
+    "task": "Handle this personal information management task:\n\n<user_request>\n<reference_context type=\"somatic_b",
+    "failure_count": 1,
+    "last_tool": "check_email",
+    "last_error": "Error checking email: b'[AUTHENTICATIONFAILED] Invalid credentials (Failure)'",
+    "ts": 1776533761.6262438,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "ab8c1a36b6d520e5",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "session_search",
+    "last_error": "No past messages matched: 'ImportError exception handling'",
+    "ts": 1776535259.3376508,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "ab8c1a36b6d520e5",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: agents/__init__.py",
+    "ts": 1776535271.612815,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "ab8c1a36b6d520e5",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 6,
-    "last_tool": "execute_on_host",
-    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
-    "ts": 1776454391.9170988,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/handle_task.py",
+    "ts": 1776535273.549753,
     "replan_suggested": true
   },
   {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "task_hash": "ab8c1a36b6d520e5",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 7,
-    "last_tool": "write_host_file",
-    "last_error": "Error: Path not in allowed paths for agent 'coder'",
-    "ts": 1776454403.3083005,
+    "last_tool": "web_search",
+    "last_error": "**ImportError | Python\u2019s Built-in Exceptions \u2013 Real Python**\nhttps://realpython.com/ref/builtin-exce",
+    "ts": 1776535278.2020743,
     "replan_suggested": true
   },
   {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "task_hash": "ab8c1a36b6d520e5",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 8,
-    "last_tool": "list_host_files",
-    "last_error": "Error: Path not in allowed paths for agent 'coder'",
-    "ts": 1776454405.8222325,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776535288.0463755,
     "replan_suggested": true
   },
   {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 9,
-    "last_tool": "list_host_files",
-    "last_error": "Error: Path not in allowed paths for agent 'coder'",
-    "ts": 1776454407.6252503,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 10,
-    "last_tool": "list_host_files",
-    "last_error": "Error: Path not in allowed paths for agent 'coder'",
-    "ts": 1776454409.8221796,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "task_hash": "ab8c1a36b6d520e5",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 11,
-    "last_tool": "execute_on_host",
-    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
-    "ts": 1776454418.2677975,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: config.py",
+    "ts": 1776535295.8810117,
     "replan_suggested": true
   },
   {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 12,
-    "last_tool": "execute_on_host",
-    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
-    "ts": 1776454424.2392719,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "830ac859a0e4c770",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 13,
-    "last_tool": "execute_on_host",
-    "last_error": "Error: Server error '500 Internal Server Error' for url 'http://host.docker.internal:9100/execute'\nF",
-    "ts": 1776454427.78219,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "91015af8749f4f1c",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "task_hash": "8e50ca4cb51dd701",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
     "failure_count": 1,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776455813.374036,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'neon'. Check command/URL and credentials.",
+    "ts": 1776537032.7518795,
     "replan_suggested": false
   },
   {
-    "task_hash": "91015af8749f4f1c",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "task_hash": "8e50ca4cb51dd701",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
     "failure_count": 2,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776455816.9690895,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'node2flow/sqlite-remote'. Check command/URL and credentials.",
+    "ts": 1776537061.938898,
     "replan_suggested": false
   },
   {
-    "task_hash": "91015af8749f4f1c",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 3,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776455840.3179579,
+    "task_hash": "c834cc3fb1fac88e",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776537622.1872869,
     "replan_suggested": false
   },
   {
-    "task_hash": "91015af8749f4f1c",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 4,
+    "task_hash": "c834cc3fb1fac88e",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: agents.py",
+    "ts": 1776537701.597638,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "b862e3eb8a44a9bc",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
     "last_tool": "browser_fetch",
     "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776455850.3840718,
+    "ts": 1776537797.8064363,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "b862e3eb8a44a9bc",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: main.py",
+    "ts": 1776537810.014803,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "b862e3eb8a44a9bc",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: server.py",
+    "ts": 1776537811.3034341,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "b862e3eb8a44a9bc",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 4,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776537816.974704,
     "replan_suggested": true
   },
   {
-    "task_hash": "91015af8749f4f1c",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "task_hash": "b862e3eb8a44a9bc",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 5,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: It looks like you are using Playwright Sync API inside the asyncio loop.\nPlease",
-    "ts": 1776455872.650512,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: prepare.py",
+    "ts": 1776537883.9371858,
     "replan_suggested": true
+  },
+  {
+    "task_hash": "7093a3593e386d39",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
+    "failure_count": 1,
+    "last_tool": "session_search",
+    "last_error": "No past messages matched: 'error failed missing tool capability'",
+    "ts": 1776539274.6745553,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "0659104ceaccc943",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776540103.0910995,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "64faa24779e801be",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: agents/coding_agent.py",
+    "ts": 1776540852.6994717,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "64faa24779e801be",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776540859.7906246,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "64faa24779e801be",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 6,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: error_utils.py",
+    "ts": 1776540865.995372,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "64faa24779e801be",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 7,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1776540923.4000251,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "64faa24779e801be",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 8,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: README.md",
+    "ts": 1776540926.3872151,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "64faa24779e801be",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 9,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1776540985.3665626,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "874f758bfb17e497",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/commander/context.py",
+    "ts": 1776542652.4118602,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "874f758bfb17e497",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/commander/context.py",
+    "ts": 1776542719.9092658,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "874f758bfb17e497",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/commander/context.py",
+    "ts": 1776542726.874893,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "874f758bfb17e497",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 6,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/commander/commands.py",
+    "ts": 1776542731.6682625,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "874f758bfb17e497",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 7,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/__init__.py",
+    "ts": 1776542764.1811128,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "018b92baa55dda55",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: handle_task.py",
+    "ts": 1776544276.2162786,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "018b92baa55dda55",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/workspace/handle_task.py",
+    "ts": 1776544277.7851553,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "018b92baa55dda55",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776544289.5948553,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "018b92baa55dda55",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 4,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1776544329.1067078,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "018b92baa55dda55",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 5,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/handle_task.py",
+    "ts": 1776544426.6157672,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "68884769fe6d5b04",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: handle_task.py",
+    "ts": 1776544562.8162527,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "68884769fe6d5b04",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: agents/",
+    "ts": 1776544564.2276192,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "922fe72c8a0fa4ce",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
+    "failure_count": 1,
+    "last_tool": "session_search",
+    "last_error": "No past messages matched: \"error failed unable couldn't\"",
+    "ts": 1776546808.477811,
+    "replan_suggested": false
   }
 ]

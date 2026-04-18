@@ -24,6 +24,31 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# ── Stage 2: shared httpx client for Ollama embeddings ──────────────────────
+# Module-level Client with connection pooling + keepalive. Saves 3-8ms per
+# embed by reusing the TCP/TLS connection across the hundreds of embed calls
+# per user request. Lazy-init so imports don't fail if httpx isn't installed.
+_ollama_http_client = None
+_ollama_http_lock = threading.Lock()
+
+
+def _get_ollama_http():
+    global _ollama_http_client
+    if _ollama_http_client is not None:
+        return _ollama_http_client
+    with _ollama_http_lock:
+        if _ollama_http_client is not None:
+            return _ollama_http_client
+        try:
+            import httpx
+            _ollama_http_client = httpx.Client(
+                timeout=10.0,
+                limits=httpx.Limits(max_keepalive_connections=20, max_connections=40),
+            )
+        except ImportError:
+            _ollama_http_client = False  # sentinel: httpx unavailable
+        return _ollama_http_client
+
 PERSIST_DIR = Path("/app/workspace/memory")
 TEAM_COLLECTION = "team_shared"
 
@@ -47,8 +72,24 @@ class EmbeddingUnavailableError(RuntimeError):
 
 
 def _ollama_embed(text: str) -> list[float] | None:
-    """Get embedding from Ollama via Metal GPU. Returns None on failure."""
+    """Get embedding from Ollama via Metal GPU. Returns None on failure.
+
+    Uses a shared pooled httpx.Client for TCP keepalive (~3-8ms/call saved).
+    Falls back to the legacy `requests.post` path if httpx is unavailable.
+    """
+    client = _get_ollama_http()
     try:
+        if client and client is not False:
+            resp = client.post(
+                f"{_OLLAMA_URL}/api/embeddings",
+                json={"model": _OLLAMA_MODEL, "prompt": text},
+            )
+            if resp.status_code == 200:
+                emb = resp.json().get("embedding")
+                if emb:
+                    return emb
+            return None
+        # Fallback: httpx not installed
         import requests
         resp = requests.post(
             f"{_OLLAMA_URL}/api/embeddings",
@@ -124,14 +165,31 @@ def _raw_embed(text: str) -> list[float]:
     )
 
 
-@functools.lru_cache(maxsize=512)
+@functools.lru_cache(maxsize=4096)
 def _embed_cached(text: str) -> tuple:
-    """LRU-cached embedding computation.
+    """LRU-cached embedding computation (L1, in-proc).
 
-    Avoids re-encoding the same text multiple times per request.
+    Avoids re-encoding the same text multiple times per request. Size bumped
+    from 512 → 4096 in Stage 3 since sentience runs many embeds per request.
     Returns tuple for hashability.
     """
-    return tuple(_raw_embed(text))
+    # L2: check disk cache first — survives container restart.
+    try:
+        from app.memory import disk_cache as _dc
+        cached = _dc.embed_get(text)
+        if cached is not None and len(cached) == _EMBED_DIM:
+            return tuple(cached)
+    except Exception:
+        pass
+
+    vec = _raw_embed(text)
+    # Write-through to L2 (fire-and-forget).
+    try:
+        from app.memory import disk_cache as _dc
+        _dc.embed_put(text, list(vec))
+    except Exception:
+        pass
+    return tuple(vec)
 
 
 def embed(text: str) -> list[float]:

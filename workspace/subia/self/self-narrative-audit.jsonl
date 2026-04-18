@@ -1,1 +1,3 @@
 {"at": "2026-04-13T23:29:49.458102+00:00", "loop_count": 0, "finding": "User correction captured: topic=share_price value=\u20ac0.595 source=(none)", "sources": ["correction_capture"], "severity": "info"}
+{"at": "2026-04-18T20:43:39.420046+00:00", "loop_count": 10, "finding": "DGM felt-constraint: safety -0.20 (signals: integrity_drift)", "sources": ["dgm_felt_constraint"], "severity": "drift"}
+{"at": "2026-04-18T20:43:39.430397+00:00", "loop_count": 10, "finding": "DGM felt-constraint: safety -0.20 (signals: integrity_drift)", "sources": ["dgm_felt_constraint"], "severity": "drift"}

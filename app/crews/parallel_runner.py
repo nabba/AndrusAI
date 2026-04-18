@@ -13,6 +13,7 @@ Ollama concurrency control:
 """
 
 import logging
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -22,6 +23,11 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# Stage 4.4 — parallel-crew head-of-line cap. Previously default 600 s let one
+# slow crew block the final response for 10 min. 120 s covers even a slow hard
+# task while keeping the tail bounded. Env-overridable for debugging.
+_PARALLEL_DEFAULT_TIMEOUT = int(os.environ.get("PARALLEL_CREW_TIMEOUT", "120"))
 
 # Single shared pool for the entire process — caps total concurrency
 _pool = ThreadPoolExecutor(
@@ -45,7 +51,7 @@ class ParallelResult:
 
 def run_parallel(
     tasks: list[tuple[str, Callable[[], str]]],
-    timeout_seconds: int = 600,
+    timeout_seconds: int = _PARALLEL_DEFAULT_TIMEOUT,
     on_complete: Callable[["ParallelResult"], None] | None = None,
 ) -> list[ParallelResult]:
     """
@@ -103,7 +109,17 @@ def run_parallel(
                 except Exception:
                     logger.debug(f"on_complete callback failed for '{label}'", exc_info=True)
     except TimeoutError:
-        logger.error("run_parallel: timed out waiting for tasks")
+        # Stage 4.4 — cancel the pending stragglers so the semaphore is
+        # released and Ollama/API slots don't stay held by slow crews.
+        pending = [f for f in futures if not f.done()]
+        logger.warning(
+            "run_parallel: timeout %ds reached, cancelling %d pending crew(s) "
+            "(%s). Best-effort results returned.",
+            timeout_seconds, len(pending),
+            ", ".join(futures[f] for f in pending),
+        )
+        for f in pending:
+            f.cancel()
 
     # Return in original order; mark missing (timed-out) tasks
     ordered = []

@@ -1,0 +1,26 @@
+{
+  "reflection_id": "cogito_20260418_180738",
+  "timestamp": "2026-04-18T18:07:38.330808+00:00",
+  "self_model_stale": false,
+  "discrepancies": [
+    {
+      "type": "memory_neo4j_error",
+      "detail": "{neo4j_code: Neo.ClientError.Security.AuthenticationRateLimit} {message: The client has provided incorrect authentication details too many times in a row.} {gql_status: 50N42} {gql_status_description:",
+      "severity": "medium"
+    }
+  ],
+  "failure_patterns": [],
+  "observations": [
+    "Agent 'desktop' has no versioned prompt",
+    "Agent 'devops' has no versioned prompt",
+    "Agent 'financial_analyst' has no versioned prompt",
+    "Agent 'pim' has no versioned prompt",
+    "Agent 'reasoning_methods' has no versioned prompt",
+    "Agent 'repo_analyst' has no versioned prompt",
+    "Agent 'introspector' has no versioned prompt",
+    "Empty ChromaDB collections: healing_knowledge, experiential_journal, episteme_research, enterprise_knowledge, critic, unresolved_tensions, aesthetic_patterns, scope_reflections, introspector, reflections_researcher, reflections_critic, reflections_coder, writer, reflections_writer, scope_project_renewable_energy"
+  ],
+  "improvement_proposals": [],
+  "overall_health": "degraded",
+  "narrative": "I noticed a medium-severity Neo4j authentication error blocking memory access in my knowledge graph system. Five agents\u2014desktop, devops, financial_analyst, pim, and reasoning_methods\u2014currently lack versioned prompts, creating operational inconsistencies. While my system health remains stable with 19 active agents, this prompt gap risks future reasoning errors during cross-agent collaboration. I must prioritize implementing versioned prompts for these agents before the next self-improvement cycle."
+}

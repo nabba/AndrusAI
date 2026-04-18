@@ -40,9 +40,24 @@ Query: {query}
 JSON array:"""
 
 
-@functools.lru_cache(maxsize=128)
+@functools.lru_cache(maxsize=512)
 def _decompose_cached(query: str, max_sub: int) -> tuple[str, ...]:
-    """Cached decomposition (returns tuple for hashability)."""
+    """Cached decomposition (returns tuple for hashability).
+
+    L1: in-proc lru_cache (size bumped 128 → 512 in Stage 3).
+    L2: SQLite disk cache keyed by (query, max_sub) — survives restart.
+    Miss path: LLM call via create_cheap_vetting_llm.
+    """
+    # L2: disk cache — cheap lookup before paying for an LLM call.
+    try:
+        from app.memory import disk_cache as _dc
+        _l2_key = f"{query}\x00{max_sub}"
+        cached = _dc.decomp_get(_l2_key)
+        if cached is not None and cached:
+            return tuple(cached[:max_sub])
+    except Exception:
+        pass
+
     try:
         from app.llm_factory import create_cheap_vetting_llm
 
@@ -62,6 +77,12 @@ def _decompose_cached(query: str, max_sub: int) -> tuple[str, ...]:
                 # Cap at max_sub and remove empty strings.
                 result = [s.strip() for s in parsed if s.strip()][:max_sub]
                 if result:
+                    # Write-through to L2.
+                    try:
+                        from app.memory import disk_cache as _dc
+                        _dc.decomp_put(f"{query}\x00{max_sub}", result)
+                    except Exception:
+                        pass
                     return tuple(result)
 
         logger.debug("retrieval.decomposer: could not parse LLM response: %s", text[:200])

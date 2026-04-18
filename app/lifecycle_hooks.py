@@ -351,9 +351,11 @@ def create_tool_memorizer_hook() -> HookFn:
 
         if success and result and len(str(result)) > 50:
             try:
-                from app.memory.mem0_manager import Mem0Manager
-                manager = Mem0Manager()
-                manager.store_memory(
+                # Stage 5.4 — async write: POST_TOOL_USE fires on every tool
+                # call; blocking store_memory() here accumulates 1-2 s per tool
+                # across a tool-use chain. Fire-and-forget eliminates that.
+                from app.memory.mem0_manager import store_memory_async
+                store_memory_async(
                     f"Tool '{tool_name}' succeeded: {str(result)[:1000]}",
                     agent_id="tools",
                 )

@@ -1,0 +1,84 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=SN9-81pje30",
+  "source_title": "How to Add Pagination in Word | Step-by-Step Tutorial \ud83d\udcc4\ud83d\udd22",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Pagination",
+      "definition": "The process of adding page numbers to a document to help readers navigate the content and maintain a professional structure.",
+      "prerequisites": [
+        "Microsoft Word installation",
+        "A document with content"
+      ],
+      "related_concepts": [
+        "Headers",
+        "Footers",
+        "Page Layout"
+      ]
+    },
+    {
+      "name": "Header",
+      "definition": "The top margin area of a page where consistent information (like page numbers) can be placed across multiple pages.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Footer"
+      ]
+    },
+    {
+      "name": "Footer",
+      "definition": "The bottom margin area of a page typically used for page numbering, citations, or dates.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Header"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Adding Page Numbers in Microsoft Word",
+      "steps": [
+        {
+          "action": "Navigate to the 'Insert' tab",
+          "explanation": "The Insert tab contains all tools for adding external elements like tables, images, and page numbers.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Click on 'Page Number'",
+          "explanation": "This opens the pagination menu to choose the position and style of the numbers.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Select the position (Top of Page or Bottom of Page)",
+          "explanation": "Determines whether the number appears in the Header or the Footer.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Choose a numbering style",
+          "explanation": "Allows the user to select alignment (Left, Center, Right) or specific formatting styles.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Close Header and Footer",
+          "explanation": "Returns the user to the main document editing mode.",
+          "code_snippet": null,
+          "gotcha": null
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Accidentally editing the main body text while in Header/Footer mode",
+      "context": "When the user is trying to style the page number.",
+      "solution": "Double-click the main body of the document or click 'Close Header and Footer' in the ribbon to return to normal editing."
+    }
+  ],
+  "confidence": 0.6000000000000001,
+  "extracted_at": "2026-04-18T16:01:20.787813+00:00"
+}

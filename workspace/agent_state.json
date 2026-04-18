@@ -1,16 +1,16 @@
 {
   "research": {
-    "tasks_completed": 106,
+    "tasks_completed": 107,
     "tasks_failed": 3,
-    "success_rate": 0.9725,
-    "avg_confidence": 0.7705,
+    "success_rate": 0.9727,
+    "avg_confidence": 0.7834,
     "by_difficulty": {
       "2": {
         "completed": 44,
         "failed": 2
       },
       "3": {
-        "completed": 41,
+        "completed": 42,
         "failed": 1
       },
       "5": {
@@ -30,17 +30,17 @@
         "failed": 0
       }
     },
-    "streak": 23,
-    "last_task_at": "2026-04-17T18:50:44.673549+00:00"
+    "streak": 24,
+    "last_task_at": "2026-04-18T17:01:35.487446+00:00"
   },
   "writing": {
-    "tasks_completed": 18,
+    "tasks_completed": 19,
     "tasks_failed": 0,
     "success_rate": 1.0,
-    "avg_confidence": 0.783,
+    "avg_confidence": 0.7647,
     "by_difficulty": {
       "2": {
-        "completed": 11,
+        "completed": 12,
         "failed": 0
       },
       "3": {
@@ -48,8 +48,8 @@
         "failed": 0
       }
     },
-    "streak": 18,
-    "last_task_at": "2026-04-15T00:00:40.998897+00:00"
+    "streak": 19,
+    "last_task_at": "2026-04-18T17:01:58.263209+00:00"
   },
   "coding": {
     "tasks_completed": 8,
@@ -174,5 +174,23 @@
     },
     "streak": 0,
     "last_task_at": "2026-04-08T23:49:28.620094+00:00"
+  },
+  "pim": {
+    "tasks_completed": 8,
+    "tasks_failed": 0,
+    "success_rate": 1.0,
+    "avg_confidence": 0.7278,
+    "by_difficulty": {
+      "3": {
+        "completed": 5,
+        "failed": 0
+      },
+      "2": {
+        "completed": 3,
+        "failed": 0
+      }
+    },
+    "streak": 8,
+    "last_task_at": "2026-04-18T20:46:00.330819+00:00"
   }
 }

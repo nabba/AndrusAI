@@ -37,13 +37,23 @@ class BridgeClient:
         self._base = BRIDGE_URL
 
     def _request(self, method: str, path: str, **kwargs) -> dict:
-        """Make a request to the bridge with capability token."""
+        """Make a request to the bridge with capability token.
+
+        HTTP timeout derives from the `timeout` field inside the JSON body
+        if present (so slow osascript / mlx_generate jobs survive), otherwise
+        defaults to 60s. Bridge itself caps per-action timeouts separately.
+        """
         import httpx
+        # If the caller supplies a body timeout (common for /execute, /mlx/generate),
+        # match httpx to body timeout + 30s grace so the request doesn't drop before
+        # the subprocess finishes.
+        body = kwargs.get("json") or {}
+        http_timeout = max(60, int(body.get("timeout", 0)) + 30) if isinstance(body, dict) else 60
         try:
             response = httpx.request(
                 method, f"{self._base}{path}",
                 headers={"X-Capability-Token": self.token},
-                timeout=60,
+                timeout=http_timeout,
                 **kwargs,
             )
             if response.status_code == 403:

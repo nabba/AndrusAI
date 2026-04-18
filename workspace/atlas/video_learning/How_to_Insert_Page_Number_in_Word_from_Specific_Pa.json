@@ -1,0 +1,93 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=f4iOj96PoRg",
+  "source_title": "How to Insert Page Number in Word from Specific Page",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Section Break",
+      "definition": "A formatting tool in Microsoft Word that divides a document into separate sections, allowing for different headers, footers, and page numbering schemes within the same file.",
+      "prerequisites": [
+        "Basic knowledge of MS Word"
+      ],
+      "related_concepts": [
+        "Page Break",
+        "Headers and Footers"
+      ]
+    },
+    {
+      "name": "Link to Previous",
+      "definition": "A setting in the Header/Footer menu that determines whether the current section's header/footer inherits the content and formatting of the preceding section.",
+      "prerequisites": [
+        "Section Break"
+      ],
+      "related_concepts": [
+        "Section Formatting"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Insert Page Numbers Starting from a Specific Page",
+      "steps": [
+        {
+          "action": "Place cursor at the bottom of the page immediately preceding the page where numbering should start.",
+          "explanation": "To define the boundary between the unnumbered/differently numbered section and the new section.",
+          "code_snippet": null,
+          "gotcha": "Ensure the cursor is at the very end of the text to avoid creating unnecessary empty pages."
+        },
+        {
+          "action": "Go to 'Layout' tab -> 'Breaks' -> 'Next Page'.",
+          "explanation": "This creates a Section Break, separating the document into Section 1 and Section 2.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Double-click the header or footer area on the target page.",
+          "explanation": "To activate the Header & Footer Tools menu.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Click 'Link to Previous' to deselect/disable it.",
+          "explanation": "This breaks the connection between the current section and the previous one, allowing independent page numbering.",
+          "code_snippet": null,
+          "gotcha": "If this is not disabled, page numbers will still appear on the previous pages."
+        },
+        {
+          "action": "Go to 'Insert' -> 'Page Number' -> 'Format Page Numbers'.",
+          "explanation": "To specify the starting number for the new section.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Select 'Start at' and enter '1' (or the desired starting number), then click OK.",
+          "explanation": "Forces the sequence to begin at a specific digit rather than continuing from the previous section.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Go to 'Insert' -> 'Page Number' and select the desired position (Top/Bottom).",
+          "explanation": "To physically place the numbers on the page.",
+          "code_snippet": null,
+          "gotcha": null
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Page numbers appearing on all pages despite section breaks.",
+      "context": "Happens when the 'Link to Previous' option remains enabled in the Header/Footer settings.",
+      "solution": "Navigate to the Header/Footer of the second section and click 'Link to Previous' to turn it off before inserting page numbers."
+    },
+    {
+      "description": "Page numbering starting at the wrong digit (e.g., starting at 3 instead of 1).",
+      "context": "Happens when 'Continue from previous section' is selected in the Page Number Format menu.",
+      "solution": "Change the setting to 'Start at:' and manually enter '1'."
+    }
+  ],
+  "confidence": 0.55,
+  "extracted_at": "2026-04-18T16:00:26.287899+00:00"
+}

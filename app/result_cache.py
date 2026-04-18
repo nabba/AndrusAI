@@ -10,6 +10,7 @@ Cache entries expire after a configurable TTL (default 1 hour).
 """
 
 import logging
+import os
 import threading
 import time
 import uuid
@@ -19,8 +20,12 @@ logger = logging.getLogger(__name__)
 _COLLECTION_NAME = "result_cache"
 _store_counter = 0  # E3: only prune every 50 stores
 _SIMILARITY_THRESHOLD = 0.92  # cosine similarity cutoff
-_TTL_SECONDS = 3600  # 1 hour default
-_MAX_CACHED = 500  # prune beyond this
+# Stage 3.5 — bump TTL 1h → 6h and cap 500 → 2000. Safe because entries are
+# still guarded by the similarity threshold; old results on changed topics
+# won't re-match because the embedding drifts. Env-overridable for tuning.
+_TTL_SECONDS = int(os.environ.get("RESULT_CACHE_TTL_S", "21600"))      # 6 hours
+_MAX_CACHED = int(os.environ.get("RESULT_CACHE_MAX", "2000"))          # was 500
+_BYPASS = os.environ.get("CACHE_BYPASS", "0") == "1"                    # testing knob
 
 _lock = threading.Lock()
 
@@ -42,6 +47,9 @@ def lookup(crew_name: str, task: str) -> str | None:
     Returns the cached result string if found, or None.
     """
     try:
+        # Stage 3.5 — CACHE_BYPASS=1 disables entirely (benchmark/debug).
+        if _BYPASS:
+            return None
         # Q9: Skip cache for short/vague queries — their embeddings are
         # unstable and match unrelated cached results.  "Compare two frontier
         # models" (30 chars) matched a cached DSPy distillation result.

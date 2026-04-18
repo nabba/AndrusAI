@@ -218,7 +218,14 @@ class RetrievalOrchestrator:
         where_filter: dict | None,
         min_score: float,
     ) -> list[dict]:
-        """Fetch candidates from all (sub_query, collection) pairs in parallel."""
+        """Fetch candidates from all (sub_query, collection) pairs in parallel.
+
+        Stage 4.2 fixes: graceful degradation on overall timeout (previously
+        `as_completed` raising TimeoutError crashed the retrieve() call and
+        returned nothing). Now we collect whatever completed within the
+        deadline and cancel the rest.
+        """
+        from concurrent.futures import TimeoutError as _FutTimeout
         futures = {}
         for sq in sub_queries:
             for col_name in collections:
@@ -228,20 +235,31 @@ class RetrievalOrchestrator:
                 futures[fut] = (sq, col_name)
 
         results = []
-        for fut in as_completed(futures, timeout=self.config.timeout_s):
-            sq, col_name = futures[fut]
-            try:
-                docs = fut.result()
-                for doc in docs:
-                    doc.setdefault("provenance", {})
-                    doc["provenance"]["collection"] = col_name
-                    doc["provenance"]["sub_query"] = sq
-                results.extend(docs)
-            except Exception as exc:
-                logger.debug(
-                    "retrieval.orchestrator: failed for (%s, %s): %s",
-                    sq[:50], col_name, exc,
-                )
+        try:
+            for fut in as_completed(futures, timeout=self.config.timeout_s):
+                sq, col_name = futures[fut]
+                try:
+                    docs = fut.result(timeout=0.1)
+                    for doc in docs:
+                        doc.setdefault("provenance", {})
+                        doc["provenance"]["collection"] = col_name
+                        doc["provenance"]["sub_query"] = sq
+                    results.extend(docs)
+                except Exception as exc:
+                    logger.debug(
+                        "retrieval.orchestrator: failed for (%s, %s): %s",
+                        sq[:50], col_name, exc,
+                    )
+        except _FutTimeout:
+            # Global deadline hit — return partial results instead of crashing.
+            n_done = sum(1 for f in futures if f.done())
+            logger.debug(
+                "retrieval.orchestrator: deadline %.1fs reached, %d/%d pairs done",
+                self.config.timeout_s, n_done, len(futures),
+            )
+            for f in futures:
+                if not f.done():
+                    f.cancel()
 
         return results
 

@@ -2,6 +2,7 @@ import logging
 import time as _time
 from crewai import Task, Crew, Process
 from app.agents.media_analyst import create_media_analyst
+from app.config import get_settings
 from app.sanitize import wrap_user_input
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
 from app.rate_throttle import start_request_tracking, stop_request_tracking
@@ -11,6 +12,7 @@ from app.benchmarks import record_metric
 from app.llm_selector import difficulty_to_tier
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 # Static task template for media analysis.
 MEDIA_TASK_TEMPLATE = """\
@@ -73,7 +75,7 @@ class MediaCrew:
             agents=[analyst],
             tasks=[task],
             process=Process.sequential,
-            verbose=True,
+            verbose=settings.crew_verbose,
         )
 
         try:

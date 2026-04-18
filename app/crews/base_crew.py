@@ -21,6 +21,7 @@ from pathlib import Path
 
 from crewai import Task, Crew, Process
 
+from app.config import get_settings
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
 from app.memory.belief_state import update_belief
 from app.benchmarks import record_metric
@@ -29,6 +30,7 @@ from app.sanitize import wrap_user_input
 from app.self_heal import diagnose_and_fix
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 # ── Tool Plugin Registry ──────────────────────────────────────────────────────
 
@@ -323,7 +325,7 @@ def run_single_agent_crew(
         agents=[agent],
         tasks=[task],
         process=Process.sequential,
-        verbose=True,
+        verbose=settings.crew_verbose,
     )
 
     try:
@@ -347,7 +349,7 @@ def run_single_agent_crew(
                     agents=[agent],
                     tasks=[retry_task],
                     process=Process.sequential,
-                    verbose=True,
+                    verbose=settings.crew_verbose,
                 )
                 retry_result = str(retry_crew.kickoff())
                 if retry_result and not _looks_like_refusal(retry_result):

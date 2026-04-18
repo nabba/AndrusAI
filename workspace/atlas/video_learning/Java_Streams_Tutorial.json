@@ -1,0 +1,107 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=FWoYpM-E3EQ",
+  "source_title": "Java Streams Tutorial",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Java Streams",
+      "definition": "A set of functions introduced in Java 8 that allow for convenient bulk operations on data structures without modifying the underlying data source.",
+      "prerequisites": [
+        "Java 8 or higher",
+        "Basic knowledge of Data Structures (e.g., Lists)"
+      ],
+      "related_concepts": [
+        "Lambda Expressions",
+        "Collectors",
+        "Comparators"
+      ]
+    },
+    {
+      "name": "Stream Chaining",
+      "definition": "The process of linking multiple stream operations (like filtering and then sorting) together in a single sequence where the output of one operation becomes the input for the next.",
+      "prerequisites": [
+        "Java Streams"
+      ],
+      "related_concepts": [
+        "Pipeline processing"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Filtering a List using Streams",
+      "steps": [
+        {
+          "action": "Convert the list to a stream",
+          "explanation": "Opens the stream pipeline for the data structure.",
+          "code_snippet": "people.stream()",
+          "gotcha": null
+        },
+        {
+          "action": "Apply the filter method",
+          "explanation": "Uses a lambda expression to define the condition for keeping elements.",
+          "code_snippet": ".filter(person -> person.billions >= 100)",
+          "gotcha": null
+        },
+        {
+          "action": "Collect the results",
+          "explanation": "Transforms the stream back into a concrete data structure like a List.",
+          "code_snippet": ".collect(Collectors.toList())",
+          "gotcha": null
+        }
+      ]
+    },
+    {
+      "name": "Sorting a List of Objects using Streams",
+      "steps": [
+        {
+          "action": "Convert the list to a stream",
+          "explanation": "Initializes the stream.",
+          "code_snippet": "people.stream()",
+          "gotcha": null
+        },
+        {
+          "action": "Apply the sorted method with a Comparator",
+          "explanation": "Tells Java which specific object property to use for the sorting logic.",
+          "code_snippet": ".sorted(Comparator.comparing(person -> person.name))",
+          "gotcha": null
+        },
+        {
+          "action": "Collect the results",
+          "explanation": "Returns the sorted stream as a list.",
+          "code_snippet": ".collect(Collectors.toList())",
+          "gotcha": null
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Filter and Sort Chain",
+      "language": "Java",
+      "purpose": "Filter a list based on a condition and then sort the remaining elements alphabetically.",
+      "code": "List<Person> result = people.stream()\n    .filter(p -> p.billions >= 100)\n    .sorted(Comparator.comparing(p -> p.name))\n    .collect(Collectors.toList());",
+      "dependencies": [
+        "java.util.stream.*",
+        "java.util.Comparator",
+        "java.util.List",
+        "java.util.Collectors"
+      ]
+    }
+  ],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Streams are not data structures",
+      "context": "When thinking about how to store or modify data.",
+      "solution": "Understand that streams only operate on data; to store the result, you must use a terminal operation like .collect()."
+    },
+    {
+      "description": "Immutability of source",
+      "context": "When expecting the original list to change after a stream operation.",
+      "solution": "Remember that streams do not modify the underlying data structure they are operating on."
+    }
+  ],
+  "confidence": 0.65,
+  "extracted_at": "2026-04-18T16:03:04.238104+00:00"
+}

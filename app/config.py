@@ -287,6 +287,17 @@ class Settings(BaseSettings):
     workspace_capacity: int = 5
     belief_store_enabled: bool = True
 
+    # CrewAI per-crew verbose logging. Env: CREW_VERBOSE=1 to enable.
+    crew_verbose: bool = False
+
+    # Speed upgrade Stage 4.3 — cascade race for short prompts. When enabled,
+    # hybrid mode fires Ollama + API-tier concurrently on prompts <800 tokens
+    # and uses the first non-error response. Adds a small API cost — enable
+    # only after watching cost dashboard. Default OFF.
+    cascade_race_short: bool = False
+    cascade_race_token_threshold: int = 800   # ~3200 chars — short prompts only
+    cascade_race_timeout_s: float = 4.0
+
     model_config = ConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("sandbox_memory_limit")

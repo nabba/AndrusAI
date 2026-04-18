@@ -159,6 +159,61 @@ def store_memory(
         logger.warning(f"mem0: store failed: {_sanitize_exc(exc)}")
         return None
 
+# ── Stage 5.4: async writes — move Mem0 fact extraction off critical path ──
+# Mem0's `.add()` calls an LLM to extract facts; this can take 1-3 s per call.
+# Most callers don't consume the return value — they fire-and-forget — yet
+# previously blocked the user response. We now enqueue those writes onto a
+# small bounded thread pool and return immediately.
+
+import atexit as _atexit
+from concurrent.futures import ThreadPoolExecutor as _TPE
+
+_async_write_pool: _TPE | None = None
+_async_pool_lock = threading.Lock()
+
+
+def _get_async_pool() -> _TPE:
+    global _async_write_pool
+    if _async_write_pool is not None:
+        return _async_write_pool
+    with _async_pool_lock:
+        if _async_write_pool is None:
+            _async_write_pool = _TPE(max_workers=2, thread_name_prefix="mem0-writer")
+            _atexit.register(lambda: _async_write_pool and _async_write_pool.shutdown(wait=False))
+        return _async_write_pool
+
+
+def store_memory_async(text: str, agent_id: str | None = None, metadata: dict | None = None) -> None:
+    """Fire-and-forget wrapper around store_memory().
+
+    Use this on hot-path writes where the caller doesn't need the return value.
+    Never blocks, never raises — failures are logged inside store_memory itself.
+    """
+    try:
+        _get_async_pool().submit(store_memory, text, agent_id, metadata)
+    except Exception as exc:
+        logger.debug(f"mem0: async enqueue failed, falling through to sync: {exc}")
+        store_memory(text, agent_id, metadata)
+
+
+def store_conversation_async(
+    messages: list[dict],
+    agent_id: str | None = None,
+    run_id: str | None = None,
+) -> None:
+    """Fire-and-forget wrapper around store_conversation().
+
+    Biggest perceived-latency win in Stage 5.4 — Mem0's LLM-based fact
+    extraction on a conversation can take 1-3 s. This enqueues the write so
+    the user response returns immediately.
+    """
+    try:
+        _get_async_pool().submit(store_conversation, messages, agent_id, run_id)
+    except Exception as exc:
+        logger.debug(f"mem0: async enqueue failed, falling through to sync: {exc}")
+        store_conversation(messages, agent_id, run_id)
+
+
 def store_conversation(
     messages: list[dict],
     agent_id: str | None = None,

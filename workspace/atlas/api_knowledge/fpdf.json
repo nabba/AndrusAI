@@ -1,0 +1,69 @@
+{
+  "name": "FPDF",
+  "base_url": null,
+  "version": null,
+  "description": "The provided text is not API documentation for a service called FPDF; rather, it consists of HTML snippets from a Stack Overflow question and a tutorial blog post discussing how to generate static PDF files from Swagger/OpenAPI documentation.",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://stackoverflow.com/questions/54259816/how-to-generate-a-pdf-or-markup-from-openapi-3-0",
+      "title": "swagger - How to generate a PDF or markup from OpenAPI 3.0? - Stack Overflow",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://www.w3tutorials.net/blog/generate-pdf-from-swagger-api-documentation/",
+      "title": "How to Generate a Static PDF from Swagger API Documentation for Offline Access & Easy Sharing \u2014 w3tutorials.net",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://www.reddit.com/r/webdev/comments/16casjo/convert_openapi_json_or_yaml_spec_to_pdf/",
+      "title": "r/webdev on Reddit: Convert OpenAPI json or yaml spec to PDF",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://pypi.org/project/fpdf/",
+      "title": "fpdf \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://github.com/reingart/pyfpdf",
+      "title": "GitHub - reingart/pyfpdf: Simple PDF generation for Python (FPDF PHP port) \u00b7 GitHub",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/fpdf2/",
+      "title": "fpdf2 \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://py-pdf.github.io/fpdf2/fpdf/",
+      "title": "fpdf API documentation",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://py-pdf.github.io/fpdf2/fpdf/fpdf.html",
+      "title": "fpdf.fpdf API documentation",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://www.fpdf.org/en/doc/index.php",
+      "title": "Documentation",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-18T15:59:26.769848+00:00"
+}

@@ -5,6 +5,10 @@ FROM python:3.13-slim@sha256:d168b8d9eb761f4d3fe305ebd04aeb7e7f2de0297cec5fb2f8f
 
 WORKDIR /app
 
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 # Install system dependencies (gosu for privilege dropping)
 RUN apt-get update && apt-get install -y \
     curl \
