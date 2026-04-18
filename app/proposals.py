@@ -11,9 +11,11 @@ Proposal types:
   config  — .env or docker-compose changes (requires restart)
 """
 
+import ast
 import json
 import logging
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,6 +24,12 @@ logger = logging.getLogger(__name__)
 PROPOSALS_DIR = Path("/app/workspace/proposals")
 SKILLS_DIR = Path("/app/workspace/skills")
 APPLIED_CODE_DIR = Path("/app/workspace/applied_code")
+
+# Code root is auto-detected so the validator works both inside the Docker
+# container (where it's /app) and on developer hosts where the checkout
+# lives somewhere else.  proposals.py itself is at <root>/app/proposals.py,
+# so <root> is two levels up from __file__.
+LIVE_CODE_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _next_id() -> int:
@@ -77,6 +85,149 @@ def _is_duplicate_proposal(title: str, proposal_type: str) -> bool:
 _MAX_PENDING_PROPOSALS = 30
 
 
+# ── Content validation (Q10: reject hallucinated proposals) ──────────────────
+# Proposal #635 slipped through because it targeted a non-existent file
+# ("handle_task.py") with tutorial-style comments instead of real code, plus
+# imports referencing modules that don't exist in the codebase.  The LLM
+# proposer hallucinated the whole thing.  These validators reject such
+# proposals BEFORE they are written to disk and shown to the user.
+
+def _is_importable_top_level(module: str) -> bool:
+    """Best-effort check that the top-level of a module path is importable.
+
+    Handles three kinds of imports:
+      - stdlib (os, sys, json, ...): always True
+      - installed packages (crewai, pydantic, fastapi, ...): check sys.modules
+        first (fast path — most are already loaded), then try find_spec
+      - local app modules (app.*, app/*): check file existence under /app/app/
+
+    Returns True if the import probably works. Returns True (permissive) on
+    any internal error so we never block a legit proposal on validator bugs.
+    """
+    if not module:
+        return True
+    top = module.split(".", 1)[0]
+
+    # Stdlib modules (Python 3.10+)
+    stdlib = getattr(sys, "stdlib_module_names", None)
+    if stdlib and top in stdlib:
+        return True
+
+    # Local app modules — check on-disk path
+    if top == "app":
+        rest = module.split(".")[1:]
+        if not rest:
+            return True
+        # Try package (dir with __init__.py) then module (.py)
+        pkg = LIVE_CODE_ROOT / "app" / "/".join(rest) / "__init__.py"
+        mod = LIVE_CODE_ROOT / "app" / ("/".join(rest[:-1]) + f"/{rest[-1]}.py" if len(rest) > 1 else f"{rest[0]}.py")
+        return pkg.exists() or mod.exists()
+
+    # Already-loaded package — fast path for crewai/pydantic/etc.
+    if top in sys.modules:
+        return True
+
+    # Last resort: try to find a spec without importing
+    try:
+        import importlib.util as _iu
+        return _iu.find_spec(top) is not None
+    except Exception:
+        return True  # permissive on validator error
+
+
+def _ast_is_substantive(tree: ast.AST) -> bool:
+    """True if the module has at least one function/class definition or
+    a non-trivial assignment (more than just __version__ or constants).
+
+    A file that is ONLY imports + comments + docstrings fails this check —
+    which is exactly what proposal #635 looked like.
+    """
+    has_def_or_class = False
+    has_real_assign = False
+    for node in getattr(tree, "body", []):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            has_def_or_class = True
+            break
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            has_real_assign = True
+    return has_def_or_class or has_real_assign
+
+
+def _validate_code_proposal_content(files: dict[str, str]) -> list[str]:
+    """Validate a code proposal's file contents before creation.
+
+    Checks:
+      1. Each .py file parses as Python (syntax error → reject).
+      2. Target file either already exists under /app/ OR lives in a plausible
+         app/* subdirectory. Bare filenames like "handle_task.py" are rejected
+         for code proposals because the deployer only accepts app/* paths
+         anyway.
+      3. File content is substantive — has at least one function/class/
+         assignment, not just comments and imports.
+      4. All imports resolve to something real (stdlib, installed package,
+         or an existing /app/app/* module).
+
+    Returns a list of violation strings.  Empty list = passes.
+    """
+    violations: list[str] = []
+    for fpath, content in files.items():
+        if not fpath.endswith(".py"):
+            continue  # non-Python files in code proposals are rare; skip
+        if not content or not content.strip():
+            violations.append(f"{fpath}: empty file")
+            continue
+
+        # 1. Syntax check
+        try:
+            tree = ast.parse(content)
+        except SyntaxError as exc:
+            violations.append(f"{fpath}: syntax error at line {exc.lineno}: {exc.msg}")
+            continue
+
+        # 2. Target path sanity.  auto_deployer only deploys app/* so bare
+        #    filenames create dead weight in workspace/applied_code/.
+        norm = fpath.replace("\\", "/").lstrip("/")
+        if "/" not in norm:
+            violations.append(
+                f"{fpath}: code proposals must target app/* paths "
+                f"(bare filenames cannot be auto-deployed)"
+            )
+            continue
+        if not norm.startswith("app/"):
+            violations.append(f"{fpath}: code proposals must live under app/")
+            continue
+
+        # 3. Substantive-content check
+        if not _ast_is_substantive(tree):
+            violations.append(
+                f"{fpath}: no function/class/assignment found — "
+                f"file appears to be only comments, imports, or docstrings"
+            )
+            continue
+
+        # 4. Import validity — collect all top-level imports, reject if any
+        #    reference a module that doesn't exist.
+        bad_imports: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if not _is_importable_top_level(alias.name):
+                        bad_imports.append(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                # Ignore relative imports (node.level > 0) — they resolve
+                # against the destination package, not absolutely.
+                if node.level == 0 and node.module:
+                    if not _is_importable_top_level(node.module):
+                        bad_imports.append(node.module)
+        if bad_imports:
+            violations.append(
+                f"{fpath}: imports non-existent module(s): "
+                f"{', '.join(sorted(set(bad_imports))[:5])}"
+            )
+
+    return violations
+
+
 def create_proposal(
     title: str,
     description: str,
@@ -127,6 +278,17 @@ def create_proposal(
         if path_violations:
             logger.warning(f"Proposal rejected — path violations: {path_violations}")
             return -1  # Signal rejection to caller
+
+    # Q10: Validate content of code proposals — reject LLM hallucinations
+    # where the "fix" is just comments targeting non-existent files or imports.
+    if files and proposal_type == "code":
+        content_violations = _validate_code_proposal_content(files)
+        if content_violations:
+            logger.warning(
+                f"Proposal '{title[:60]}' rejected — content violations: "
+                f"{content_violations}"
+            )
+            return -1
 
     pid = _next_id()
     safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)[:40].strip()
