@@ -194,19 +194,29 @@ class SignalClient:
                 self._send_sync, recipient, text[:MAX_SIGNAL_LENGTH], attachments
             )
 
-    def _send_sync(self, recipient: str, text: str, attachments: list[str] | None = None):
-        """Try HTTP first (works from inside Docker), fall back to Unix socket."""
+    def _send_sync(self, recipient: str, text: str,
+                   attachments: list[str] | None = None) -> int | None:
+        """Try HTTP first (works from inside Docker), fall back to Unix socket.
+
+        Returns the Signal message timestamp of the sent message so callers
+        can correlate later reactions back to this specific message.  Returns
+        None if delivery failed.
+        """
         http_url = getattr(settings, "signal_http_url", "")
         if http_url:
-            if self._send_http(http_url, recipient, text, attachments):
-                return
+            ts = self._send_http(http_url, recipient, text, attachments)
+            if ts is not None:
+                return ts
             logger.warning("signal-cli HTTP failed, trying Unix socket fallback")
 
-        self._send_socket(recipient, text, attachments)
+        return self._send_socket(recipient, text, attachments)
 
     def _send_http(self, base_url: str, recipient: str, text: str,
-                   attachments: list[str] | None = None) -> bool:
-        """Send via signal-cli's HTTP JSON-RPC endpoint."""
+                   attachments: list[str] | None = None) -> int | None:
+        """Send via signal-cli's HTTP JSON-RPC endpoint.
+
+        Returns the Signal message timestamp on success, or None on failure.
+        """
         try:
             params = {
                 "recipient": [recipient],
@@ -228,17 +238,24 @@ class SignalClient:
             data = resp.json()
             if "error" in data:
                 logger.error(f"signal-cli HTTP RPC error: {data['error'].get('message','')}")
-                return False
+                return None
             att_info = f" (+{len(attachments)} attachment(s))" if attachments else ""
             logger.info(f"Message sent via signal-cli HTTP{att_info}")
-            return True
+            # signal-cli returns {"result": {"timestamp": N, ...}} — capture
+            # the timestamp so callers can correlate future reactions.
+            result = data.get("result") or {}
+            ts = result.get("timestamp")
+            return int(ts) if isinstance(ts, (int, float)) else 0
         except Exception:
             logger.error("signal-cli HTTP request failed", exc_info=True)
-            return False
+            return None
 
     def _send_socket(self, recipient: str, text: str,
-                     attachments: list[str] | None = None):
-        """Send via signal-cli Unix socket (works only on same host, not from Docker VM)."""
+                     attachments: list[str] | None = None) -> int | None:
+        """Send via signal-cli Unix socket (works only on same host, not from Docker VM).
+
+        Returns the Signal message timestamp on success, or None on failure.
+        """
         sock = None
         try:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -269,23 +286,29 @@ class SignalClient:
                 data += chunk
                 if len(data) > _MAX_RESPONSE_BYTES:
                     logger.error("signal-cli response exceeded buffer limit")
-                    return
+                    return None
 
             if data:
                 try:
                     resp = json.loads(data.split(b"\n")[0])
                     if "error" in resp:
                         logger.error("signal-cli RPC error")
-                    else:
-                        att_info = f" (+{len(attachments)} attachment(s))" if attachments else ""
-                        logger.info(f"Message sent via signal-cli socket{att_info}")
+                        return None
+                    att_info = f" (+{len(attachments)} attachment(s))" if attachments else ""
+                    logger.info(f"Message sent via signal-cli socket{att_info}")
+                    result = resp.get("result") or {}
+                    ts = result.get("timestamp")
+                    return int(ts) if isinstance(ts, (int, float)) else 0
                 except json.JSONDecodeError:
                     logger.error("signal-cli returned invalid JSON")
+                    return None
             else:
                 logger.error("No response from signal-cli socket")
+                return None
 
         except Exception:
             logger.error("signal-cli socket communication failed")
+            return None
         finally:
             if sock:
                 try:
@@ -318,3 +341,25 @@ def send_message(recipient: str, text: str, attachments: list | None = None) -> 
             asyncio.run(client.send(recipient, text, attachments))
     except Exception as e:
         logger.warning(f"send_message failed (non-fatal): {e}")
+
+
+def send_message_blocking(
+    recipient: str, text: str, attachments: list | None = None,
+) -> int | None:
+    """Send a Signal message synchronously and return the Signal timestamp.
+
+    Unlike send_message() (fire-and-forget), this blocks until signal-cli
+    responds and returns the message's timestamp so callers can correlate
+    future reactions back to this message.
+
+    Returns the timestamp (int) on success, or None on failure.  Used by
+    proposal notifications so 👍 / 👎 reactions can be mapped back to the
+    originating proposal.
+    """
+    try:
+        client = SignalClient()
+        # Call _send_sync directly — it already returns the timestamp
+        return client._send_sync(recipient, text, attachments)
+    except Exception as e:
+        logger.warning(f"send_message_blocking failed (non-fatal): {e}")
+        return None

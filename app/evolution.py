@@ -683,22 +683,27 @@ def _propose_mutation_legacy(context: str, tried_hashes: set[str]) -> MutationSp
         )
         # Notify user about pending proposal via Signal — attach the full
         # proposal.md so the user can read the rationale / changes / risks
-        # breakdown on their phone before approving.
+        # breakdown on their phone before approving.  Use the blocking
+        # variant so we capture the Signal timestamp for reaction-based
+        # approval (👍 = approve, 👎 = reject).
         try:
-            from app.signal_client import send_message
+            from app.signal_client import send_message_blocking
             from app.config import get_settings
-            from app.proposals import get_proposal_md_path
+            from app.proposals import get_proposal_md_path, set_proposal_signal_timestamp
             s = get_settings()
             md_path = get_proposal_md_path(pid) if pid > 0 else None
             attachments = [str(md_path)] if md_path else None
-            send_message(
+            signal_ts = send_message_blocking(
                 s.signal_owner_number,
                 f"🔬 EVOLUTION PROPOSAL #{pid}: {hypothesis[:100]}\n"
                 f"Files: {', '.join(code_files.keys())}\n"
                 f"Full writeup attached (rationale, changes, risks).\n"
-                f"Reply 'approve {pid}' to deploy or 'reject {pid}' to discard.",
+                f"React 👍 to approve or 👎 to reject, or reply "
+                f"'approve {pid}' / 'reject {pid}'.",
                 attachments=attachments,
             )
+            if signal_ts and pid > 0:
+                set_proposal_signal_timestamp(pid, signal_ts)
         except Exception:
             pass
         logger.info(f"Evolution: created code proposal #{pid} — {hypothesis}")

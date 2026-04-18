@@ -312,21 +312,28 @@ def _diagnose_background(entry: dict) -> None:
                     _update_task_healing(entry, "proposal_created", f"Proposal #{pid}: {title}", pid)
                     # Notify user via Signal about the proposal — attach the
                     # proposal.md so the user sees rationale/changes/risks.
+                    # Capture the Signal timestamp so 👍/👎 reactions to this
+                    # notification can be mapped back to the proposal.
                     try:
-                        from app.signal_client import send_message
+                        from app.signal_client import send_message_blocking
                         from app.config import get_settings
-                        from app.proposals import get_proposal_md_path
+                        from app.proposals import (
+                            get_proposal_md_path, set_proposal_signal_timestamp,
+                        )
                         s = get_settings()
                         md_path = get_proposal_md_path(pid)
                         attachments = [str(md_path)] if md_path else None
-                        send_message(
+                        signal_ts = send_message_blocking(
                             s.signal_owner_number,
                             f"🔧 SELF-HEAL PROPOSAL #{pid}: {title}\n"
                             f"Error: {entry['error_type']}\n"
                             f"Full writeup attached (rationale, changes, risks).\n"
-                            f"Reply 'approve {pid}' to deploy or 'diff {pid}' to review.",
+                            f"React 👍 to approve or 👎 to reject, or reply "
+                            f"'approve {pid}' / 'diff {pid}'.",
                             attachments=attachments,
                         )
+                        if signal_ts and pid > 0:
+                            set_proposal_signal_timestamp(pid, signal_ts)
                     except Exception:
                         pass
 

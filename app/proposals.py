@@ -410,7 +410,8 @@ def _render_proposal_md(
         f"## Files touched\n\n{file_list}\n\n"
         f"## Original description\n\n{description}\n\n"
         f"---\n\n"
-        f"Reply {approve_line} via Signal to deploy, or {reject_line} to discard.\n"
+        f"**To decide:** react 👍 to the Signal notification to approve, or 👎 to reject.  \n"
+        f"Or reply {approve_line} / {reject_line} via Signal.\n"
     )
 
 
@@ -421,6 +422,48 @@ def get_proposal_md_path(pid: int) -> Path | None:
         return None
     md = pdir / "proposal.md"
     return md if md.exists() else None
+
+
+def set_proposal_signal_timestamp(pid: int, signal_ts: int) -> None:
+    """Record the Signal message timestamp for a proposal's notification.
+
+    Enables later reaction-based approval: when the user reacts 👍/👎 to the
+    notification, we look up the proposal by this timestamp.
+    """
+    pdir = _get_proposal_dir(pid)
+    if not pdir:
+        return
+    sf = pdir / "status.json"
+    try:
+        status = json.loads(sf.read_text())
+        status["signal_msg_timestamp"] = int(signal_ts)
+        from app.safe_io import safe_write_json as _swj
+        _swj(sf, status)
+    except Exception:
+        logger.debug(f"Could not record signal timestamp for #{pid}", exc_info=True)
+
+
+def find_proposal_by_signal_timestamp(signal_ts: int) -> int | None:
+    """Find a proposal whose notification had the given Signal timestamp.
+
+    Returns the proposal ID, or None if no match.  Used by the reaction
+    handler to map 👍 / 👎 on a notification back to the proposal.
+    """
+    if not signal_ts:
+        return None
+    target = int(signal_ts)
+    PROPOSALS_DIR.mkdir(parents=True, exist_ok=True)
+    for d in PROPOSALS_DIR.iterdir():
+        sf = d / "status.json"
+        if not sf.exists():
+            continue
+        try:
+            s = json.loads(sf.read_text())
+            if int(s.get("signal_msg_timestamp") or 0) == target:
+                return int(s.get("id"))
+        except Exception:
+            continue
+    return None
 
 
 def create_proposal(

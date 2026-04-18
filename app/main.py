@@ -7,6 +7,15 @@ import re
 import threading
 from datetime import datetime, timezone, timedelta
 
+# Install uvloop as the asyncio event loop policy BEFORE FastAPI/uvicorn pick it up.
+# 3-4x faster than the default asyncio loop on I/O-heavy workloads (retrieval,
+# Mem0 search, webhook concurrency). Safe no-op if uvloop isn't installed.
+try:
+    import uvloop
+    uvloop.install()
+except ImportError:
+    pass
+
 # Ensure all loggers output to stdout so docker logs captures tracebacks
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
@@ -142,7 +151,8 @@ async def lifespan(app: FastAPI):
 
     # Native Ollama — verify availability (Metal GPU acceleration)
     from app.ollama_native import _is_running as ollama_is_running
-    if await asyncio.to_thread(ollama_is_running):
+    _ollama_up = await asyncio.to_thread(ollama_is_running)
+    if _ollama_up:
         logger.info("Native Ollama detected — Metal GPU acceleration enabled")
     else:
         logger.warning(
@@ -151,6 +161,74 @@ async def lifespan(app: FastAPI):
             "Start Ollama with: ollama serve",
             settings.ollama_base_url,
         )
+
+    # ── Stage 3.3: Ollama model preload ───────────────────────────────────
+    # Fires off warm-up requests for the role models + the embedding model so
+    # the first user request doesn't pay the 2-5 s Metal GPU cold-start cost.
+    # Fire-and-forget — doesn't block gateway startup.
+    # Gate: PRELOAD_OLLAMA=0 disables (default ON when Ollama is up).
+    if _ollama_up and os.environ.get("PRELOAD_OLLAMA", "1") == "1":
+        async def _preload_ollama_models():
+            import httpx as _httpx
+            models_to_warm = set()
+            # Role models + default
+            for attr in ("local_model_default", "local_model_coding",
+                         "local_model_architecture", "local_model_research",
+                         "local_model_writing"):
+                m = getattr(settings, attr, None)
+                if m:
+                    models_to_warm.add(m)
+            # Embedding model (for nomic-embed-text etc. used by ChromaDB)
+            embed_model = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+            models_to_warm.add(embed_model)
+
+            base_url = settings.local_llm_base_url.rstrip("/")
+            async with _httpx.AsyncClient(timeout=60.0) as client:
+                for model in models_to_warm:
+                    try:
+                        # Warm-up: tiny request with long keep_alive
+                        await client.post(
+                            f"{base_url}/api/generate",
+                            json={"model": model, "prompt": "",
+                                  "keep_alive": "30m", "stream": False},
+                        )
+                        logger.info(f"Ollama preload: {model} warmed (keep_alive 30m)")
+                    except Exception as exc:
+                        logger.debug(f"Ollama preload skipped for {model}: {exc}")
+        asyncio.create_task(_preload_ollama_models())
+
+    # ── Stage 2: pgvector HNSW + Neo4j indexes (idempotent) ──────────────
+    async def _apply_startup_migrations():
+        try:
+            from app.memory.startup_migrations import apply_all
+            await asyncio.to_thread(apply_all)
+        except Exception as exc:
+            logger.debug(f"startup_migrations dispatch failed (non-fatal): {exc}")
+    asyncio.create_task(_apply_startup_migrations())
+
+    # ── Stage 3.4: Pre-open ChromaDB collections ──────────────────────────
+    # First access to a collection pays a peek(1) dimension-check penalty.
+    # Pay it once at startup, offline, so every user request sees a cached
+    # collection handle. Gate: PRELOAD_CHROMA=0 disables.
+    if os.environ.get("PRELOAD_CHROMA", "1") == "1":
+        async def _preopen_chroma():
+            try:
+                from app.memory.chromadb_manager import _get_col
+            except Exception as exc:
+                logger.debug(f"ChromaDB preopen skipped (import failed): {exc}")
+                return
+            # Core collections used on the hot path.
+            collections = [
+                "team_shared", "commander",
+                "episteme", "experiential", "aesthetics", "tensions",
+            ]
+            for name in collections:
+                try:
+                    await asyncio.to_thread(_get_col, name)
+                    logger.info(f"ChromaDB preopen: {name}")
+                except Exception as exc:
+                    logger.debug(f"ChromaDB preopen skipped for {name}: {exc}")
+        asyncio.create_task(_preopen_chroma())
 
     # Auditor — continuous code quality + error resolution
     from app.auditor import run_code_audit, run_error_resolution
@@ -647,6 +725,47 @@ async def receive_signal(request: Request):
         sender = payload.get("sender", "")
         if not is_authorized_sender(sender):
             raise HTTPException(status_code=403, detail="Forbidden")
+
+        emoji = payload.get("emoji", "")
+        target_ts = payload.get("target_timestamp", 0)
+        is_remove = payload.get("is_remove", False)
+
+        # ── Proposal approval via reaction ─────────────────────────────
+        # 👍 on a proposal notification approves it; 👎 rejects it.
+        # Check this BEFORE feedback pipeline so approval side-effects fire.
+        # Removals (is_remove=True) are no-ops — we never want accidental
+        # reversals from just un-reacting.
+        if target_ts and not is_remove and emoji in ("👍", "👎", "+1", "-1"):
+            try:
+                from app.proposals import (
+                    find_proposal_by_signal_timestamp,
+                    approve_proposal, reject_proposal,
+                )
+                pid = find_proposal_by_signal_timestamp(target_ts)
+                if pid is not None:
+                    is_approve = emoji in ("👍", "+1")
+                    action_fn = approve_proposal if is_approve else reject_proposal
+                    action_name = "approved" if is_approve else "rejected"
+                    # Run the action in a thread — approve_proposal is sync
+                    # and may do I/O (file copy, auto-deploy trigger).
+                    result = await asyncio.get_running_loop().run_in_executor(
+                        None, action_fn, pid,
+                    )
+                    logger.info(f"Reaction {emoji} on proposal #{pid} → {action_name}: {result}")
+                    # Acknowledge to the user so they see the action landed.
+                    try:
+                        client = SignalClient()
+                        await client.send(
+                            sender,
+                            f"✅ Proposal #{pid} {action_name} via reaction.\n{result}",
+                        )
+                    except Exception:
+                        logger.debug("Failed to send reaction-approval ack", exc_info=True)
+                    return {"status": "accepted", "proposal_action": action_name, "pid": pid}
+            except Exception:
+                logger.debug("Reaction-based proposal handling failed", exc_info=True)
+                # Fall through to normal feedback pipeline below
+
         try:
             from app.feedback_pipeline import FeedbackPipeline
             from app.config import get_settings
@@ -660,13 +779,12 @@ async def receive_signal(request: Request):
                         None,
                         pipeline.process_reaction,
                         sender_id,
-                        payload.get("emoji", ""),
-                        payload.get("target_timestamp", 0),
-                        payload.get("is_remove", False),
+                        emoji,
+                        target_ts,
+                        is_remove,
                     )
             # Acknowledge with 👀 on the message the user reacted to
-            target_ts = payload.get("target_timestamp", 0)
-            if target_ts and not payload.get("is_remove", False):
+            if target_ts and not is_remove:
                 try:
                     client = SignalClient()
                     await client.react(
