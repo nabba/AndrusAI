@@ -672,6 +672,19 @@ def _propose_mutation_legacy(context: str, tried_hashes: set[str]) -> MutationSp
             proposal_type="code",
             files=code_files,
         )
+        # create_proposal returns -1 when the proposal was REJECTED
+        # (duplicate, path violation, or content-invalid via Q10 validator).
+        # Don't send a Signal notification or record an experiment in that
+        # case — the LLM hallucinated something unusable and we silently
+        # drop it.  The rejection reason is already logged at warning level
+        # inside create_proposal for debugging.
+        if pid <= 0:
+            logger.info(
+                f"Evolution: proposal rejected at creation "
+                f"(pid={pid}) for hypothesis: {hypothesis[:80]}"
+            )
+            return None
+
         record_experiment(
             experiment_id=exp_id,
             hypothesis=hypothesis,
@@ -691,7 +704,7 @@ def _propose_mutation_legacy(context: str, tried_hashes: set[str]) -> MutationSp
             from app.config import get_settings
             from app.proposals import get_proposal_md_path, set_proposal_signal_timestamp
             s = get_settings()
-            md_path = get_proposal_md_path(pid) if pid > 0 else None
+            md_path = get_proposal_md_path(pid)
             attachments = [str(md_path)] if md_path else None
             signal_ts = send_message_blocking(
                 s.signal_owner_number,
@@ -702,7 +715,7 @@ def _propose_mutation_legacy(context: str, tried_hashes: set[str]) -> MutationSp
                 f"'approve {pid}' / 'reject {pid}'.",
                 attachments=attachments,
             )
-            if signal_ts and pid > 0:
+            if signal_ts:
                 set_proposal_signal_timestamp(pid, signal_ts)
         except Exception:
             pass

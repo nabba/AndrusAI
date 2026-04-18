@@ -379,16 +379,26 @@ Given the user request (and any conversation history), decide HOW to handle it.
 FOLLOW-UP HANDLING (CRITICAL):
 If <recent_history> is present and the user's message is short, ambiguous, or
 references something from the conversation (e.g. "What would collapse do?",
-"Tell me more", "Why?", "How about the other one?"), you MUST:
-1. Use <recent_history> to determine the ACTUAL topic the user is asking about.
-2. REWRITE the "task" field to be a COMPLETE, SELF-CONTAINED instruction that
-   includes the necessary context. The crew receiving this task has NO access
-   to conversation history in the task description itself.
-Example: if the user previously asked about AMOC (Atlantic current system) and
-now says "What would collapse do?", the task MUST be:
-   "What would an AMOC (Atlantic Meridional Overturning Circulation) collapse do?
-    Explain the consequences and global impacts."
-NOT just "What would collapse do?" — that loses all context.
+"Tell me more", "Why?", "How about the other one?"):
+
+CASE A — you are routing to a NON-direct crew (research, coding, writing, …):
+  REWRITE the "task" field to be a COMPLETE, SELF-CONTAINED instruction for
+  the crew, including the necessary context from <recent_history>.  The crew
+  will not see the conversation history in the task string itself.
+  Example: prior AMOC question + "What would collapse do?" →
+    task="What would an AMOC (Atlantic Meridional Overturning Circulation)
+          collapse do? Explain the consequences and global impacts."
+
+CASE B — you are routing to "direct" (you answer yourself):
+  The "task" field is the ANSWER shown verbatim to the user.  DO NOT put
+  meta-reasoning, role instructions, or phrases like
+  "Kasutaja küsib..., Vasta eesti keeles..." or "The user is asking... Answer:"
+  in the task field.  Put the actual answer — written in the same language
+  as the user's question — directly.  If you need to reference prior context
+  from <recent_history>, weave it into the natural answer text.
+  Example: prior God question + "Mida sinu kogemus ütleb?" →
+    task="Mul pole tegelikku kogemust selle sõna tähenduses. Aga filosoofia-
+          teadmistebaasile tuginedes ..."  (direct answer, no meta)
 
 Reply with ONLY a JSON object — no prose, no markdown fences:
 

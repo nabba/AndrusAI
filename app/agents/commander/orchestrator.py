@@ -1688,6 +1688,20 @@ class Commander:
                 _direct_result = d.get("task", "")
                 if _is_introspective(user_input):
                     _direct_result = self._generate_self_description(user_input)
+                # Strip any internal-reasoning leakage BEFORE delivery.  The
+                # routing LLM sometimes produces the `task` field as a meta-
+                # instruction ("Kasutaja küsib..., Vasta X...") instead of the
+                # actual answer — postprocess catches those prefixes.  If
+                # nothing substantive remains after stripping, fall back to a
+                # polite message instead of sending a stripped-empty reply.
+                _direct_result = _clean_response(_direct_result)
+                if not _direct_result or len(_direct_result.strip()) < 5:
+                    _direct_result = (
+                        "Vabandust, mu vastus ei õnnestunud. "
+                        "Palun sõnasta küsimus uuesti."
+                        if any(w in user_input.lower() for w in ("ütleb", "mida", "kas"))
+                        else "Sorry, I couldn't produce a response. Please rephrase."
+                    )
                 # Complete ticket for direct responses (no crew execution)
                 if _ticket_id:
                     try:
