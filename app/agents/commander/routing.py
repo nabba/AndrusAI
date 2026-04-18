@@ -165,6 +165,95 @@ def _is_introspective(text: str) -> bool:
     return False
 
 
+# ── Q8: Follow-up detection ──────────────────────────────────────────────────
+# Short messages that implicitly reference prior conversation context need the
+# full LLM router (which has access to <recent_history>), not the keyword-based
+# fast-route.  Without this, "What would collapse do?" after an AMOC discussion
+# gets routed as a generic "What..." question and returns irrelevant results.
+
+# Strong anaphoric references — demonstratives/pronouns that clearly point to
+# prior context.  "that"/"it"/"its" excluded here because they appear as
+# relative pronouns / possessives in self-contained sentences ("function that
+# sorts", "France and its population").  They are caught separately below only
+# when combined with short length + question patterns.
+_FOLLOW_UP_ANAPHORA = re.compile(
+    r"\b(?:this|these|those|they|them|their|theirs"
+    r"|the above|the same|the previous|the last|the earlier"
+    r"|said|mentioned|discussed|talked about)\b",
+    re.IGNORECASE,
+)
+
+# Weak anaphora — "that"/"it"/"its" used as demonstratives (not relative
+# pronouns).  Only matched in SHORT messages (< 40 chars) where they're
+# almost certainly references to prior context, not relative clauses.
+_FOLLOW_UP_WEAK_ANAPHORA = re.compile(
+    r"\b(?:that|it|its)\b", re.IGNORECASE,
+)
+
+# Continuity markers — words that imply "more of what we were discussing"
+_FOLLOW_UP_CONTINUITY = re.compile(
+    r"\b(?:more|else|instead|also|too|another|further|furthermore"
+    r"|what about|how about|and if|but what|but how|but why"
+    r"|tell me more|go on|continue|expand|elaborate)\b",
+    re.IGNORECASE,
+)
+
+# Conditional/hypothetical phrasing — often references a prior scenario
+_FOLLOW_UP_CONDITIONAL = re.compile(
+    r"\b(?:would|could|should|might|if (?:it|that|this|they|we|the))\b",
+    re.IGNORECASE,
+)
+
+# Self-referential corrections — user reminding the system what they asked
+_FOLLOW_UP_CORRECTION = re.compile(
+    r"\bI (?:asked|said|mentioned|meant|was asking|was talking)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_likely_follow_up(text: str) -> bool:
+    """Detect messages that are likely follow-ups to a prior conversation.
+
+    Returns True if the message appears to reference prior context and should
+    use the full LLM router (with conversation history) instead of fast-routing.
+
+    Trade-off: false positives (self-contained questions routed via LLM instead
+    of fast-route) cost ~1-2s extra latency.  False negatives (follow-ups that
+    lose context) produce wrong-topic responses.  We err on the side of catching
+    follow-ups.
+    """
+    length = len(text)
+
+    # Very short messages (< 30 chars) starting with a question word are almost
+    # always follow-ups — "What about X?", "Why not?", "How so?"
+    if length < 30 and re.match(r"^(?:what|why|how|where|when|who)\b", text, re.IGNORECASE):
+        return True
+
+    # Strong anaphoric references in medium messages — "What would those do?"
+    if length < 80 and _FOLLOW_UP_ANAPHORA.search(text):
+        return True
+
+    # Weak anaphora only in short messages — "What did it cause?"
+    # Long messages with "it"/"that" are usually self-contained relative clauses.
+    if length < 40 and _FOLLOW_UP_WEAK_ANAPHORA.search(text):
+        return True
+
+    # Continuity markers in short messages — "Tell me more", "What else?"
+    if length < 60 and _FOLLOW_UP_CONTINUITY.search(text):
+        return True
+
+    # Conditional phrasing in short messages — "What would collapse do?"
+    # These are hypotheticals that almost always reference a prior topic.
+    if length < 60 and _FOLLOW_UP_CONDITIONAL.search(text):
+        return True
+
+    # Self-referential corrections — "I asked about amoc collapse"
+    if length < 80 and _FOLLOW_UP_CORRECTION.search(text):
+        return True
+
+    return False
+
+
 def _try_fast_route(user_input: str, has_attachments: bool) -> list[dict] | None:
     """Attempt to route without an LLM call using keyword patterns.
 
@@ -196,6 +285,16 @@ def _try_fast_route(user_input: str, has_attachments: bool) -> list[dict] | None
     # Skip self-referential questions — these are handled by the introspective
     # gate in handle(), but guard here too in case fast-route runs first.
     if _is_introspective(text):
+        return None
+
+    # Q8: Follow-up detection — short messages that likely reference prior
+    # conversation context MUST go through the LLM router, which has access
+    # to <recent_history> and can rewrite the task to be self-contained.
+    # Without this, "What would collapse do?" (a follow-up to an AMOC
+    # discussion) gets fast-routed as a generic "What..." question and loses
+    # all conversational context.
+    if _is_likely_follow_up(text):
+        logger.info(f"fast_route: skipping — likely follow-up: {text[:80]}")
         return None
 
     # Q5: Skip for analytically complex questions that happen to start with
@@ -276,6 +375,20 @@ When asked about your memory, identity, or capabilities, answer ACCURATELY from
 the facts above. You learn, evolve, and remember across sessions.
 
 Given the user request (and any conversation history), decide HOW to handle it.
+
+FOLLOW-UP HANDLING (CRITICAL):
+If <recent_history> is present and the user's message is short, ambiguous, or
+references something from the conversation (e.g. "What would collapse do?",
+"Tell me more", "Why?", "How about the other one?"), you MUST:
+1. Use <recent_history> to determine the ACTUAL topic the user is asking about.
+2. REWRITE the "task" field to be a COMPLETE, SELF-CONTAINED instruction that
+   includes the necessary context. The crew receiving this task has NO access
+   to conversation history in the task description itself.
+Example: if the user previously asked about AMOC (Atlantic current system) and
+now says "What would collapse do?", the task MUST be:
+   "What would an AMOC (Atlantic Meridional Overturning Circulation) collapse do?
+    Explain the consequences and global impacts."
+NOT just "What would collapse do?" — that loses all context.
 
 Reply with ONLY a JSON object — no prose, no markdown fences:
 
