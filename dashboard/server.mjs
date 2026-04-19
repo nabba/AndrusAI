@@ -1,6 +1,6 @@
 /**
  * Lightweight dashboard server: static files + API proxy.
- * Serves the React build from serve-root/ and proxies /api/* to the gateway.
+ * Serves the React build from serve-root/ and proxies backend routes to the gateway.
  * This eliminates CORS issues (same-origin requests).
  */
 import http from 'node:http';
@@ -10,8 +10,22 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const STATIC_ROOT = path.join(__dirname, 'serve-root');
-const GATEWAY = 'http://127.0.0.1:8765';
+const GATEWAY_HOST = '127.0.0.1';
+const GATEWAY_PORT = 8765;
 const PORT = parseInt(process.env.PORT || '3100');
+const GATEWAY_SECRET = process.env.GATEWAY_SECRET || '';
+
+const BACKEND_PATH_PREFIXES = [
+  '/api/',
+  '/config/',
+  '/kb/',
+  '/fiction/',
+  '/philosophy/',
+  '/episteme/',
+  '/experiential/',
+  '/aesthetics/',
+  '/tensions/',
+];
 
 const MIME_TYPES = {
   '.html': 'text/html',
@@ -28,7 +42,6 @@ const MIME_TYPES = {
 function serveStatic(req, res) {
   let filePath = path.join(STATIC_ROOT, req.url === '/cp/' ? '/cp/index.html' : req.url);
 
-  // SPA fallback: if file doesn't exist and path starts with /cp/, serve index.html
   if (!fs.existsSync(filePath) && req.url.startsWith('/cp/')) {
     filePath = path.join(STATIC_ROOT, 'cp', 'index.html');
   }
@@ -42,18 +55,44 @@ function serveStatic(req, res) {
   const ext = path.extname(filePath);
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
+  // Cache policy:
+  //   - index.html MUST always be fresh so browsers pick up new hashed
+  //     bundle references on every reload (vite content-hashes the JS
+  //     assets into their filenames, so the bundle path changes any time
+  //     the content changes — but only if the HTML pointing at it is
+  //     re-fetched).
+  //   - Content-hashed assets (vite emits e.g. index-B6lzD5Bt.js) are
+  //     safe to cache long-term: they're immutable by construction, and
+  //     a new build produces a different filename.
+  //   - Everything else gets a modest 1-hour cache as a middle ground.
+  const isHashed = /\/assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{6,}\.(?:js|css|woff2?|svg|png|ico)$/.test(req.url);
+  const isHtml = ext === '.html';
+  let cacheControl;
+  if (isHtml) {
+    cacheControl = 'no-cache, must-revalidate';
+  } else if (isHashed) {
+    cacheControl = 'public, max-age=31536000, immutable';  // 1 year
+  } else {
+    cacheControl = 'public, max-age=3600';
+  }
+
   const content = fs.readFileSync(filePath);
-  res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=3600' });
+  res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': cacheControl });
   res.end(content);
 }
 
 function proxyToGateway(req, res) {
+  const headers = { ...req.headers, host: `${GATEWAY_HOST}:${GATEWAY_PORT}` };
+  if (GATEWAY_SECRET && !headers.authorization) {
+    headers.authorization = `Bearer ${GATEWAY_SECRET}`;
+  }
+
   const options = {
-    hostname: '127.0.0.1',
-    port: 8765,
+    hostname: GATEWAY_HOST,
+    port: GATEWAY_PORT,
     path: req.url,
     method: req.method,
-    headers: { ...req.headers, host: '127.0.0.1:8765' },
+    headers,
   };
 
   const proxyReq = http.request(options, (proxyRes) => {
@@ -77,21 +116,23 @@ function proxyToGateway(req, res) {
   req.pipe(proxyReq, { end: true });
 }
 
+function isBackendPath(url) {
+  for (const prefix of BACKEND_PATH_PREFIXES) {
+    if (url.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
 const server = http.createServer((req, res) => {
-  // API requests → proxy to gateway
-  if (req.url.startsWith('/api/') ||
-      req.url.startsWith('/fiction/') ||
-      req.url.startsWith('/philosophy/') ||
-      req.url.startsWith('/kb/')) {
+  if (isBackendPath(req.url)) {
     proxyToGateway(req, res);
     return;
   }
-
-  // Everything else → static files
   serveStatic(req, res);
 });
 
 server.listen(PORT, () => {
   console.log(`Dashboard server on http://localhost:${PORT}/cp/`);
-  console.log(`API proxy → ${GATEWAY}/api/*`);
+  console.log(`API proxy → http://${GATEWAY_HOST}:${GATEWAY_PORT} for: ${BACKEND_PATH_PREFIXES.join(', ')}`);
+  if (GATEWAY_SECRET) console.log('Gateway secret: injected on outbound proxy requests');
 });
