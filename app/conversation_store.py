@@ -96,6 +96,28 @@ _MIGRATIONS: list[tuple[str, str]] = [
         CREATE INDEX IF NOT EXISTS idx_inbound_status
             ON inbound_queue(status, received_at);
     """),
+    # Durable outbound-reply queue.  Counterpart to inbound_queue on the
+    # reply side: every Signal send-with-attachment is persisted BEFORE the
+    # actual signal-cli call, so a container restart mid-send doesn't lose
+    # the attachment.  Sent rows record the signal-cli timestamp so a
+    # subsequent replay can tell "already delivered" from "never sent".
+    ("v5_outbound_queue", """
+        CREATE TABLE IF NOT EXISTS outbound_queue (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            recipient         TEXT    NOT NULL,
+            message           TEXT    NOT NULL DEFAULT '',
+            attachments_json  TEXT    NOT NULL DEFAULT '[]',
+            reply_to_id       INTEGER,
+            status            TEXT    NOT NULL DEFAULT 'queued',
+            attempts          INTEGER NOT NULL DEFAULT 0,
+            last_error        TEXT    DEFAULT '',
+            signal_timestamp  INTEGER,
+            queued_at         TEXT    NOT NULL,
+            sent_at           TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_outbound_status
+            ON outbound_queue(status, queued_at);
+    """),
 ]
 
 
@@ -516,6 +538,134 @@ def prune_old_inbound(days: int = 7) -> int:
         return cur.rowcount
     except Exception:
         logger.exception("conversation_store: prune_old_inbound failed")
+        return 0
+
+
+# ── Durable outbound send queue (crash-safe Signal delivery) ─────────────────
+# Counterpart to inbound_queue, for outbound Signal sends.  A row is written
+# BEFORE the signal-cli call; on success the row is marked 'sent' with the
+# returned Signal timestamp; on crash or failure it stays 'queued' and the
+# startup replay re-sends it.  Especially important for attachment sends
+# which happen in a background executor and can be interrupted mid-flight.
+
+def enqueue_outbound(
+    recipient: str, message: str = "",
+    attachments: list | None = None,
+    reply_to_id: int | None = None,
+) -> int | None:
+    """Persist an outbound Signal send BEFORE actually sending.  Returns
+    the queue row id.  Call mark_outbound_sent() or mark_outbound_failed()
+    based on the signal-cli response."""
+    try:
+        conn = _get_conn()
+        cur = conn.execute(
+            """
+            INSERT INTO outbound_queue
+                (recipient, message, attachments_json, reply_to_id,
+                 status, queued_at)
+            VALUES (?, ?, ?, ?, 'queued', ?)
+            """,
+            (
+                recipient, message or "",
+                _json.dumps(attachments or []),
+                reply_to_id,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid
+    except Exception:
+        logger.exception("conversation_store: enqueue_outbound failed")
+        return None
+
+
+def mark_outbound_sent(queue_id: int, signal_timestamp: int | None = None) -> None:
+    try:
+        conn = _get_conn()
+        conn.execute(
+            "UPDATE outbound_queue SET status='sent', sent_at=?, "
+            "signal_timestamp=?, attempts=attempts+1 WHERE id=?",
+            (datetime.now(timezone.utc).isoformat(),
+             int(signal_timestamp) if signal_timestamp else None, queue_id),
+        )
+        conn.commit()
+    except Exception:
+        logger.exception("conversation_store: mark_outbound_sent failed")
+
+
+def mark_outbound_failed(queue_id: int, error: str) -> None:
+    try:
+        conn = _get_conn()
+        conn.execute(
+            "UPDATE outbound_queue SET status='failed', attempts=attempts+1, "
+            "last_error=? WHERE id=?",
+            (str(error)[:500], queue_id),
+        )
+        conn.commit()
+    except Exception:
+        logger.exception("conversation_store: mark_outbound_failed failed")
+
+
+def mark_outbound_requeued(queue_id: int) -> None:
+    """Reset a failed row back to 'queued' so the next replay cycle retries it."""
+    try:
+        conn = _get_conn()
+        conn.execute(
+            "UPDATE outbound_queue SET status='queued' WHERE id=?",
+            (queue_id,),
+        )
+        conn.commit()
+    except Exception:
+        logger.exception("conversation_store: mark_outbound_requeued failed")
+
+
+def get_pending_outbound(max_attempts: int = 3) -> list[dict]:
+    """Return queued rows in oldest-first order.  Rows whose attempts have
+    hit the cap are excluded so a poisoned payload can't replay forever —
+    they stay in the DB with last_error populated for inspection."""
+    try:
+        conn = _get_conn()
+        rows = conn.execute(
+            """
+            SELECT id, recipient, message, attachments_json, reply_to_id,
+                   status, attempts, queued_at
+              FROM outbound_queue
+             WHERE status = 'queued' AND attempts < ?
+             ORDER BY queued_at ASC
+            """,
+            (max_attempts,),
+        ).fetchall()
+    except Exception:
+        logger.exception("conversation_store: get_pending_outbound failed")
+        return []
+    out = []
+    for r in rows or []:
+        try:
+            attachments = _json.loads(r[3] or "[]")
+        except Exception:
+            attachments = []
+        out.append({
+            "id": r[0], "recipient": r[1], "message": r[2],
+            "attachments": attachments, "reply_to_id": r[4],
+            "status": r[5], "attempts": r[6], "queued_at": r[7],
+        })
+    return out
+
+
+def prune_old_outbound(days: int = 7) -> int:
+    """Delete sent/failed outbound rows older than N days.  Returns count."""
+    try:
+        conn = _get_conn()
+        cur = conn.execute(
+            "DELETE FROM outbound_queue "
+            "WHERE status IN ('sent', 'failed') "
+            "  AND queued_at < datetime('now', '-' || ? || ' days')",
+            (str(days),),
+        )
+        conn.commit()
+        return cur.rowcount
+    except Exception:
+        logger.exception("conversation_store: prune_old_outbound failed")
         return 0
 
 

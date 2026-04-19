@@ -363,3 +363,100 @@ def send_message_blocking(
     except Exception as e:
         logger.warning(f"send_message_blocking failed (non-fatal): {e}")
         return None
+
+
+async def send_durable(
+    recipient: str, text: str, attachments: list | None = None,
+    reply_to_id: int | None = None,
+) -> int | None:
+    """Persist the send to outbound_queue FIRST, then actually send.
+
+    If the container dies between enqueue and the signal-cli call (or
+    during the call itself), the row stays 'queued' and the next startup
+    replays it.  On success the row is marked 'sent' with the returned
+    Signal timestamp; on failure it's marked 'failed' so a poison payload
+    can't loop forever (cap is 3 attempts in get_pending_outbound).
+
+    Use this instead of SignalClient().send() for any reply that MUST be
+    delivered (user-facing handle_task responses, especially those with
+    .md attachments that a mid-rebuild would otherwise lose).
+
+    Returns the Signal timestamp on success, None if the send failed but
+    the row is now queued for replay.
+    """
+    from app.conversation_store import (
+        enqueue_outbound, mark_outbound_sent, mark_outbound_failed,
+    )
+    import asyncio as _asyncio
+
+    qid = enqueue_outbound(recipient, text, attachments, reply_to_id)
+    try:
+        client = SignalClient()
+        # Route through the async send() method so the caller stays off
+        # the main thread; _send_sync returns the timestamp.
+        if recipient.strip() != settings.signal_owner_number.strip():
+            logger.error("Blocked attempt to send to non-owner recipient")
+            if qid:
+                mark_outbound_failed(qid, "non-owner recipient blocked")
+            return None
+
+        if not attachments:
+            # Chunked text-only send — grab the last chunk's timestamp.
+            chunks = _chunk_at_sentences(text, MAX_SIGNAL_LENGTH)
+            last_ts: int | None = None
+            for chunk in chunks:
+                ts = await _asyncio.to_thread(client._send_sync, recipient, chunk)
+                if ts:
+                    last_ts = ts
+            if last_ts is None and qid:
+                mark_outbound_failed(qid, "send returned no timestamp")
+                return None
+            if qid:
+                mark_outbound_sent(qid, last_ts)
+            return last_ts
+        else:
+            ts = await _asyncio.to_thread(
+                client._send_sync, recipient,
+                text[:MAX_SIGNAL_LENGTH], attachments,
+            )
+            if ts is None and qid:
+                mark_outbound_failed(qid, "send returned no timestamp")
+                return None
+            if qid:
+                mark_outbound_sent(qid, ts)
+            return ts
+    except Exception as exc:
+        if qid:
+            mark_outbound_failed(qid, f"{type(exc).__name__}: {exc}")
+        logger.warning(f"send_durable failed: {exc}")
+        return None
+
+
+def replay_pending_outbound_sync() -> int:
+    """Re-send any queued outbound messages from a previous container
+    instance.  Call once at startup, after inbound queue replay.  Returns
+    the count of rows re-dispatched (not the count sent successfully —
+    some may fail again and stay in 'failed' state)."""
+    from app.conversation_store import (
+        get_pending_outbound, mark_outbound_sent, mark_outbound_failed,
+    )
+    pending = get_pending_outbound(max_attempts=3)
+    if not pending:
+        return 0
+    client = SignalClient()
+    logger.warning(f"Replaying {len(pending)} unfinished outbound sends")
+    for row in pending:
+        try:
+            attachments = row.get("attachments") or None
+            ts = client._send_sync(
+                row["recipient"], row["message"] or "",
+                attachments if attachments else None,
+            )
+            if ts:
+                mark_outbound_sent(row["id"], ts)
+                logger.info(f"outbound replay id={row['id']} sent ts={ts}")
+            else:
+                mark_outbound_failed(row["id"], "replay got no timestamp")
+        except Exception as exc:
+            mark_outbound_failed(row["id"], f"replay: {type(exc).__name__}: {exc}")
+    return len(pending)

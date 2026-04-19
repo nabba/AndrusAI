@@ -603,8 +603,58 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Inbound queue replay failed at startup")
 
+    # ── Outbound queue replay ─────────────────────────────────────────
+    # Counterpart to the inbound replay: if a reply (especially an .md
+    # attachment) was interrupted mid-send by a restart, redeliver it.
+    # Rows that fail 3 replays stay in 'failed' with last_error for
+    # inspection so a poison payload can't loop forever.
+    try:
+        from app.signal_client import replay_pending_outbound_sync
+        from app.conversation_store import prune_old_outbound
+        replayed = await asyncio.to_thread(replay_pending_outbound_sync)
+        if replayed:
+            logger.warning(f"Replayed {replayed} unfinished outbound sends from previous instance")
+        try:
+            pruned = prune_old_outbound(days=7)
+            if pruned:
+                logger.info(f"Pruned {pruned} old outbound_queue rows (>7d)")
+        except Exception:
+            pass
+    except Exception:
+        logger.exception("Outbound queue replay failed at startup")
+
     logger.info("CrewAI Agent Team started")
     yield
+    # ── Graceful shutdown: drain in-flight tasks before letting the
+    # container die.  Without this, SIGTERM → immediate exit strands any
+    # handle_task() threads that were in the middle of processing a
+    # user message or sending a reply.  The durable inbound+outbound
+    # queues protect against abrupt loss now, but giving active threads
+    # up to 30s to finish cleanly is still better UX (user doesn't see
+    # "duplicate reply from replay" for something that was about to
+    # succeed anyway).  Configurable via GRACEFUL_SHUTDOWN_S.
+    shutdown_budget = float(os.environ.get("GRACEFUL_SHUTDOWN_S", "30"))
+    if shutdown_budget > 0:
+        import time as _time
+        deadline = _time.monotonic() + shutdown_budget
+        drained_cleanly = False
+        while True:
+            with _inflight_lock:
+                n = _inflight_tasks
+            if n <= 0:
+                drained_cleanly = True
+                break
+            remaining = deadline - _time.monotonic()
+            if remaining <= 0:
+                logger.warning(
+                    f"Graceful shutdown: {n} task(s) still in-flight after "
+                    f"{shutdown_budget:.0f}s — exiting anyway (queues will replay)"
+                )
+                break
+            logger.info(f"Graceful shutdown: waiting for {n} task(s) to drain ({remaining:.0f}s left)")
+            await asyncio.sleep(2)
+        if drained_cleanly:
+            logger.info("Graceful shutdown: all tasks drained cleanly")
     # Final sync on clean shutdown
     idle_scheduler.stop()
     idle_scheduler.stop_listener()
@@ -1036,6 +1086,14 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                 detected = _pm.detect_project(text)
                 if detected:
                     _pm.activate(detected)
+                    # Also update the control-plane active project so telemetry
+                    # recorders (token_usage, request_costs, crew_tracking) tag
+                    # rows with the correct project_id via resolve_current_project_id().
+                    try:
+                        from app.control_plane.projects import get_projects as _gp
+                        _gp().switch(detected)
+                    except Exception:
+                        logger.debug("control-plane project switch failed", exc_info=True)
                     logger.debug(f"Project detected: {detected}")
         except Exception:
             logger.debug("Project detection failed", exc_info=True)
@@ -1180,24 +1238,34 @@ async def handle_task(sender: str, text: str, attachments: list = None,
             pass
 
         # ── Prepare for Signal delivery ─────────────────────────────────
+        # Both replies (truncated text + .md attachment) go through the
+        # durable outbound queue so a gateway restart mid-send can't drop
+        # them — the next startup replays any unsent rows.
         from app.agents.commander import _MAX_RESPONSE_LENGTH, truncate_for_signal
+        from app.signal_client import send_durable
 
         if len(result) > _MAX_RESPONSE_LENGTH:
             signal_text = truncate_for_signal(result)
-            # Write .md file in background — don't block Signal delivery
-            md_future = asyncio.get_running_loop().run_in_executor(
+            # Write .md file synchronously now — the write is ~ms, and a
+            # durable path is needed BEFORE we enqueue the attachment send.
+            md_path = await asyncio.get_running_loop().run_in_executor(
                 None, _write_response_md, result, text
             )
-            await signal_client.send(sender, signal_text)
-            # Attach file in a follow-up if write succeeded
-            try:
-                md_path = await asyncio.wait_for(md_future, timeout=5)
-                if md_path:
-                    await signal_client.send(sender, "", attachments=[md_path])
-            except Exception:
-                pass
+            # Reply #1 — truncated summary
+            await send_durable(sender, signal_text, reply_to_id=queue_id)
+            # Reply #2 — full .md attachment (if write succeeded)
+            if md_path:
+                try:
+                    await send_durable(
+                        sender, "", attachments=[md_path],
+                        reply_to_id=queue_id,
+                    )
+                except Exception:
+                    # send_durable already recorded the failure in the
+                    # outbound_queue; startup replay will retry it.
+                    logger.debug("Durable attachment send raised", exc_info=True)
         else:
-            await signal_client.send(sender, result)
+            await send_durable(sender, result, reply_to_id=queue_id)
     except Exception as exc:
         logger.exception("Error handling task")
         log_security_event("task_error", "unhandled exception in handle_task")
@@ -1260,6 +1328,14 @@ app.include_router(config_router, prefix="/config")
 # ── Knowledge Base router (extracted to app/api/kb.py) ────────────────────────
 from app.api.kb import router as kb_router
 app.include_router(kb_router, prefix="/kb")
+
+
+# ── Notes viewer (Obsidian-style browser for markdown files) ─────────────────
+try:
+    from app.api.notes_api import router as notes_router
+    app.include_router(notes_router)
+except Exception:
+    logger.debug("Notes API not available", exc_info=True)
 
 
 # ── Health + Dashboard router (extracted to app/api/health.py) ─────────────────
