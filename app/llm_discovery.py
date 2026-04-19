@@ -616,6 +616,40 @@ def rebenchmark_incumbent(
     }
     alerted = False
     worst = min(drift.values()) if drift else 0.0
+
+    # Guard against benchmark-failure-misclassified-as-drift.  When the
+    # benchmark can't reach a model (auth error, rate limit, timeout) it
+    # often returns 0.0 for every role.  The drift detector would then see
+    # a -100% drop and flood the governance queue with false positives —
+    # as happened in April 2026 when 9 Anthropic models simultaneously got
+    # "Quality drift" alerts because the bench runner couldn't reach the
+    # API.  If the fresh benchmark score is effectively zero across every
+    # role, treat it as a benchmark failure instead of a drift signal.
+    bench_average = (
+        sum(new_scores.values()) / len(new_scores) if new_scores else 0.0
+    )
+    benchmark_failed = (
+        bench_average < 0.05 and all(
+            old_scores.get(r, 0.0) > 0.1 for r in new_scores
+        )
+    )
+    if benchmark_failed:
+        logger.warning(
+            f"llm_discovery: skipping drift alert for {model_name} — "
+            f"all new scores ≈0 (benchmark likely failed to reach the model). "
+            f"Previous scores {old_scores} preserved in catalog."
+        )
+        # Don't update strengths either — a failed benchmark should not
+        # overwrite the historical estimate with zeros.
+        return {
+            "model": model_name,
+            "old_scores": old_scores,
+            "new_scores": new_scores,
+            "drift": drift,
+            "alerted": False,
+            "benchmark_failed": True,
+        }
+
     if worst <= -INCUMBENT_DRIFT_ALERT_THRESHOLD:
         alerted = _raise_drift_alert(model_name, old_scores, new_scores, drift)
 
