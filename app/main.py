@@ -44,7 +44,12 @@ from app.self_heal import diagnose_and_fix
 from app.audit import (
     log_request_received, log_response_sent, log_security_event
 )
-from app.conversation_store import add_message, start_task, complete_task
+from app.conversation_store import (
+    add_message, start_task, complete_task,
+    enqueue_inbound, mark_inbound_processing,
+    mark_inbound_done, mark_inbound_failed,
+    get_pending_inbound, prune_old_inbound,
+)
 from app.workspace_sync import setup_workspace_repo, sync_workspace
 from app.firebase_reporter import (
     report_system_online, report_system_offline, heartbeat, report_schedule,
@@ -561,6 +566,43 @@ async def lifespan(app: FastAPI):
 
     await asyncio.gather(_report_phil(), _gen_chronicle(), _report_monitor())
 
+    # ── Inbound queue replay ─────────────────────────────────────────
+    # If a previous container instance died or was restarted while
+    # processing user messages, those messages are still in the
+    # inbound_queue table with status 'queued' or 'processing'.  Pick
+    # them up and dispatch them now.  Dedup guard in handle_task uses
+    # (sender, signal_ts) so if the previous instance actually finished
+    # (and just failed to mark the queue as 'done' before dying), the
+    # message won't be sent twice because the assistant's reply is also
+    # stored in conversations.db with the same sender+timestamp.
+    try:
+        pending = get_pending_inbound(max_attempts=3)
+        if pending:
+            logger.warning(
+                f"Replaying {len(pending)} unfinished inbound messages from "
+                f"previous container instance"
+            )
+            for row in pending:
+                try:
+                    asyncio.create_task(handle_task(
+                        sender=row["sender"],
+                        text=row["message"],
+                        attachments=row["attachments"] or [],
+                        msg_timestamp=row["signal_ts"],
+                        queue_id=row["id"],
+                    ))
+                except Exception:
+                    logger.exception("inbound queue replay failed for row %s", row.get("id"))
+        # Prune entries older than 7 days regardless of status
+        try:
+            pruned = prune_old_inbound(days=7)
+            if pruned:
+                logger.info(f"Pruned {pruned} old inbound_queue rows (>7d)")
+        except Exception:
+            pass
+    except Exception:
+        logger.exception("Inbound queue replay failed at startup")
+
     logger.info("CrewAI Agent Team started")
     yield
     # Final sync on clean shutdown
@@ -840,8 +882,14 @@ async def receive_signal(request: Request):
         message_count=_signal_msg_count,
     )
 
-    asyncio.create_task(handle_task(sender, text, attachments, timestamp))
-    return {"status": "accepted"}
+    # Persist the message to the durable inbound queue BEFORE returning
+    # 200 OK.  If the container crashes or is restarted mid-processing,
+    # replay_pending_inbound() on the next startup will re-dispatch any
+    # unfinished queue entries so the user's message isn't silently lost.
+    queue_id = enqueue_inbound(sender, text, timestamp, attachments)
+
+    asyncio.create_task(handle_task(sender, text, attachments, timestamp, queue_id))
+    return {"status": "accepted", "queue_id": queue_id}
 
 
 # Lazy-initialized feedback pipeline singleton
@@ -891,9 +939,17 @@ _msg_dedup = _MessageDedup()
 
 
 async def handle_task(sender: str, text: str, attachments: list = None,
-                      msg_timestamp: int = 0):
+                      msg_timestamp: int = 0, queue_id: int | None = None):
+    """Process a Signal message.  queue_id references the inbound_queue
+    row created in receive_signal (or by replay_pending_inbound at
+    startup); it's used to mark the durable queue as 'processing',
+    'done', or 'failed' as we progress, so a restart mid-processing can
+    find and replay the work.
+    """
     global _inflight_tasks
     import time as _time
+    if queue_id:
+        mark_inbound_processing(queue_id)
 
     # Message idempotency: skip exact duplicate (same sender + Signal timestamp)
     if msg_timestamp:
@@ -1184,6 +1240,12 @@ async def handle_task(sender: str, text: str, attachments: list = None,
             "The self-healing system is analyzing the error and will attempt a fix. "
             "Please try again shortly."
         )
+        if queue_id:
+            mark_inbound_failed(queue_id, f"{type(exc).__name__}: {exc}")
+    else:
+        # Only reached on fully successful completion of the try-block
+        if queue_id:
+            mark_inbound_done(queue_id)
     finally:
         with _inflight_lock:
             _inflight_tasks -= 1

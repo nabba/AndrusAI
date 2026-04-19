@@ -71,6 +71,31 @@ _MIGRATIONS: list[tuple[str, str]] = [
             VALUES ('delete', old.id, old.content, old.sender_id, old.role, old.ts);
         END;
     """),
+    # Durable inbound-message queue.  Every accepted webhook is persisted
+    # BEFORE the 200 OK returns, so a mid-processing container restart can
+    # replay unfinished work on the next startup instead of silently losing
+    # the user's message.  UNIQUE(sender, signal_ts) makes enqueue
+    # idempotent (the forwarder may retry on transient errors without
+    # creating duplicate rows).
+    ("v4_inbound_queue", """
+        CREATE TABLE IF NOT EXISTS inbound_queue (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender                TEXT    NOT NULL,
+            message               TEXT    NOT NULL,
+            signal_ts             INTEGER NOT NULL,
+            attachments_json      TEXT    NOT NULL DEFAULT '[]',
+            status                TEXT    NOT NULL DEFAULT 'queued',
+            attempts              INTEGER NOT NULL DEFAULT 0,
+            last_error            TEXT    DEFAULT '',
+            received_at           TEXT    NOT NULL,
+            processing_started_at TEXT,
+            processed_at          TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_inbound_dedup
+            ON inbound_queue(sender, signal_ts);
+        CREATE INDEX IF NOT EXISTS idx_inbound_status
+            ON inbound_queue(status, received_at);
+    """),
 ]
 
 
@@ -355,6 +380,143 @@ def get_crew_avg_duration(crew: str) -> float:
 def estimate_eta(crew: str) -> int:
     """Return estimated seconds for a task on this crew, based on history."""
     return int(get_crew_avg_duration(crew))
+
+
+# ── Durable inbound message queue (crash-safe replay) ────────────────────────
+# Before every /signal/inbound response returns 200, the message is written
+# to the inbound_queue table.  If the container dies mid-processing, the
+# next startup calls replay_pending_inbound() which re-dispatches any rows
+# that are still 'queued' or 'processing'.  UNIQUE(sender, signal_ts) keeps
+# enqueue idempotent under forwarder retries.
+
+import json as _json
+
+
+def enqueue_inbound(
+    sender: str, message: str, signal_ts: int, attachments: list | None = None,
+) -> int | None:
+    """Persist an incoming Signal message.  Returns the queue row id, or
+    None if the (sender, signal_ts) pair was already queued (idempotent).
+
+    Called from /signal/inbound BEFORE returning 200 OK, so that every
+    accepted message has a durable record even if handle_task() crashes
+    or the container is restarted mid-processing.
+    """
+    try:
+        conn = _get_conn()
+        cur = conn.execute(
+            """
+            INSERT INTO inbound_queue
+                (sender, message, signal_ts, attachments_json, status, received_at)
+            VALUES (?, ?, ?, ?, 'queued', ?)
+            ON CONFLICT(sender, signal_ts) DO NOTHING
+            """,
+            (
+                sender, message, int(signal_ts),
+                _json.dumps(attachments or []),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            return None  # already enqueued
+        return cur.lastrowid
+    except Exception:
+        logger.exception("conversation_store: enqueue_inbound failed")
+        return None
+
+
+def mark_inbound_processing(queue_id: int) -> None:
+    try:
+        conn = _get_conn()
+        conn.execute(
+            "UPDATE inbound_queue SET status='processing', "
+            "processing_started_at=?, attempts=attempts+1 WHERE id=?",
+            (datetime.now(timezone.utc).isoformat(), queue_id),
+        )
+        conn.commit()
+    except Exception:
+        logger.exception("conversation_store: mark_inbound_processing failed")
+
+
+def mark_inbound_done(queue_id: int) -> None:
+    try:
+        conn = _get_conn()
+        conn.execute(
+            "UPDATE inbound_queue SET status='done', processed_at=? WHERE id=?",
+            (datetime.now(timezone.utc).isoformat(), queue_id),
+        )
+        conn.commit()
+    except Exception:
+        logger.exception("conversation_store: mark_inbound_done failed")
+
+
+def mark_inbound_failed(queue_id: int, error: str) -> None:
+    try:
+        conn = _get_conn()
+        conn.execute(
+            "UPDATE inbound_queue SET status='failed', processed_at=?, "
+            "last_error=? WHERE id=?",
+            (datetime.now(timezone.utc).isoformat(), str(error)[:500], queue_id),
+        )
+        conn.commit()
+    except Exception:
+        logger.exception("conversation_store: mark_inbound_failed failed")
+
+
+def get_pending_inbound(max_attempts: int = 3) -> list[dict]:
+    """Return queued/processing rows from the inbound_queue.
+
+    Called at startup to find work abandoned by a previous container
+    instance.  Rows with attempts >= max_attempts are excluded so a
+    poison-pill message can't get replayed forever — those stay at
+    'processing' in the DB with last_error populated for inspection.
+    """
+    try:
+        conn = _get_conn()
+        rows = conn.execute(
+            """
+            SELECT id, sender, message, signal_ts, attachments_json,
+                   status, attempts, received_at
+              FROM inbound_queue
+             WHERE status IN ('queued', 'processing')
+               AND attempts < ?
+             ORDER BY received_at ASC
+            """,
+            (max_attempts,),
+        ).fetchall()
+    except Exception:
+        logger.exception("conversation_store: get_pending_inbound failed")
+        return []
+    out = []
+    for r in rows or []:
+        try:
+            attachments = _json.loads(r[4] or "[]")
+        except Exception:
+            attachments = []
+        out.append({
+            "id": r[0], "sender": r[1], "message": r[2],
+            "signal_ts": r[3], "attachments": attachments,
+            "status": r[5], "attempts": r[6], "received_at": r[7],
+        })
+    return out
+
+
+def prune_old_inbound(days: int = 7) -> int:
+    """Delete done/failed inbound rows older than N days.  Returns count."""
+    try:
+        conn = _get_conn()
+        cur = conn.execute(
+            "DELETE FROM inbound_queue "
+            "WHERE status IN ('done', 'failed') "
+            "  AND received_at < datetime('now', '-' || ? || ' days')",
+            (str(days),),
+        )
+        conn.commit()
+        return cur.rowcount
+    except Exception:
+        logger.exception("conversation_store: prune_old_inbound failed")
+        return 0
 
 
 # ── FTS5 full-text search (T3-10) ────────────────────────────────────────────
