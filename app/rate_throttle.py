@@ -573,14 +573,40 @@ class RequestCostTracker:
 
 
 def start_request_tracking(request_id: str = "") -> RequestCostTracker:
-    """Begin accumulating costs for a user request. Returns the tracker."""
+    """Begin accumulating costs for a user request. Returns the tracker.
+
+    Nesting-aware: if a tracker is already active in this context (a parent
+    caller is already tracking), return the EXISTING tracker instead of
+    creating a new one.  This prevents nested crews (media, critic,
+    retrospective, etc.) from clobbering the outer Commander-level tracker
+    and making the ticket report $0 cost.  The tracker keeps accumulating
+    across the nested call so the Commander sees the full cost at the end.
+    """
+    existing = _request_cost.get(None)
+    if existing is not None:
+        return existing
     tracker = RequestCostTracker(request_id)
     _request_cost.set(tracker)
     return tracker
 
 
 def stop_request_tracking() -> RequestCostTracker | None:
-    """Stop tracking and return the accumulated tracker."""
+    """Return the accumulated tracker.  Does NOT clear the context-var
+    unless called by the top of the request stack (via finalize_request_tracking()).
+
+    Nested crews read this to get their contribution totals but should not
+    strand the outer Commander's tracker.
+    """
+    return _request_cost.get(None)
+
+
+def finalize_request_tracking() -> RequestCostTracker | None:
+    """Clear the context-var and return the tracker.
+
+    Use at the TOP of the request stack (Commander.handle) where the
+    request lifecycle actually ends.  Nested callers use
+    stop_request_tracking() instead.
+    """
     tracker = _request_cost.get(None)
     _request_cost.set(None)
     return tracker

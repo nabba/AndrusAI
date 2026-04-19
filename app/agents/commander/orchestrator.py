@@ -1871,7 +1871,7 @@ class Commander:
             return cmd_result
 
         # ── Request cost tracking ──────────────────────────────────────────
-        from app.rate_throttle import start_request_tracking, stop_request_tracking
+        from app.rate_throttle import start_request_tracking, stop_request_tracking, finalize_request_tracking
 
         # ── Step 1: Route ─────────────────────────────────────────────────
         from app.conversation_store import estimate_eta
@@ -1969,17 +1969,23 @@ class Commander:
                         if any(w in user_input.lower() for w in ("ütleb", "mida", "kas"))
                         else "Sorry, I couldn't produce a response. Please rephrase."
                     )
-                # Complete ticket for direct responses (no crew execution)
+                # Complete ticket for direct responses.  No crew ran, but the
+                # routing LLM call DID cost something — finalize the request
+                # tracker first so we can attribute that real cost to the
+                # ticket instead of a misleading $0.
+                _direct_tracker = finalize_request_tracking()
                 if _ticket_id:
                     try:
                         from app.control_plane.tickets import get_tickets
+                        _d_cost = _direct_tracker.total_cost_usd if _direct_tracker else 0
+                        _d_tokens = _direct_tracker.total_tokens if _direct_tracker else 0
                         get_tickets().complete(
                             _ticket_id, _direct_result[:500],
-                            cost_usd=0, tokens=0,
+                            cost_usd=_d_cost, tokens=_d_tokens,
                         )
+                        self._last_ticket_finalized = True
                     except Exception:
                         pass
-                stop_request_tracking()
                 return _direct_result
             crew_name = d["crew"]
             difficulty = d.get("difficulty", 5)
@@ -2092,9 +2098,10 @@ class Commander:
                     try:
                         from app.control_plane.tickets import get_tickets
                         get_tickets().complete(_ticket_id, _fallback[:500], cost_usd=0, tokens=0)
+                        self._last_ticket_finalized = True
                     except Exception:
                         pass
-                stop_request_tracking()
+                finalize_request_tracking()
                 return _fallback
 
             tracker.crew_name = "+".join(n for n, _ in parallel_tasks)
@@ -2187,7 +2194,8 @@ class Commander:
                     logger.debug("Critic review failed (non-blocking)", exc_info=True)
 
         # ── Step 3: Log request cost ───────────────────────────────────────
-        cost_tracker = stop_request_tracking()
+        # This is the top of the request stack — actually clear the tracker.
+        cost_tracker = finalize_request_tracking()
         if cost_tracker and cost_tracker.call_count > 0:
             logger.info(f"Request cost: {cost_tracker.summary()}")
             try:
