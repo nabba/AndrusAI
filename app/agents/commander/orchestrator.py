@@ -1914,11 +1914,22 @@ class Commander:
                 _ticket_id = str(_ticket.get("id", "")) if _ticket else None
                 if _ticket_id and decisions:
                     _primary_crew = decisions[0].get("crew", "direct")
-                    if _primary_crew != "direct":
-                        get_tickets().assign_to_crew(
-                            _ticket_id, _primary_crew,
-                            decisions[0].get("crew", "commander"),
-                        )
+                    # For "direct" responses (Commander answers without
+                    # dispatching), attribute the ticket to "commander" so
+                    # the Control Plane board doesn't show a confusing
+                    # "Unassigned" state.  Cost analytics still roll up
+                    # correctly because cost_usd is 0 for direct replies.
+                    _assign_crew = _primary_crew if _primary_crew != "direct" else "commander"
+                    get_tickets().assign_to_crew(
+                        _ticket_id, _assign_crew, _assign_crew,
+                    )
+                # Stash the ticket id + finalization flag on self so the
+                # outer exception handler in handle_task() can fail the
+                # ticket if an uncaught exception escapes handle().
+                # Without this, tickets get stuck in_progress forever
+                # when a code bug (e.g. NameError) short-circuits handle.
+                self._last_ticket_id = _ticket_id
+                self._last_ticket_finalized = False
         except Exception:
             logger.debug("Control plane ticket creation failed", exc_info=True)
 
@@ -2229,4 +2240,8 @@ class Commander:
             except Exception:
                 logger.debug("Control plane ticket update failed", exc_info=True)
 
+        # Mark that we reached the end of handle() cleanly.  The wrapper
+        # in handle_task() (or any exception safety net) can use this to
+        # decide whether to mark the ticket as failed.
+        self._last_ticket_finalized = True
         return cleaned

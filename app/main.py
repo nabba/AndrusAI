@@ -1005,6 +1005,22 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                 f"for {_redact_number(sender)}: {text[:80]}",
                 exc_info=True,
             )
+            # Safety net: if handle() raised before it finalized its ticket,
+            # mark the ticket as failed so it doesn't hang in_progress
+            # forever.  Commander stashes the ticket id on self before any
+            # code that might raise.
+            try:
+                _stuck_tid = getattr(commander, "_last_ticket_id", None)
+                _was_final = getattr(commander, "_last_ticket_finalized", True)
+                if _stuck_tid and not _was_final:
+                    from app.control_plane.tickets import get_tickets
+                    get_tickets().fail(
+                        _stuck_tid,
+                        f"Uncaught {type(_handle_exc).__name__}: {str(_handle_exc)[:200]}",
+                    )
+                    logger.info(f"Safety-net: marked ticket {_stuck_tid} as failed")
+            except Exception:
+                logger.debug("Safety-net ticket fail failed", exc_info=True)
 
         # ── Phase 15 grounding: egress fact-checking ──────────────────
         # Inspects factual claims in the draft response against the
