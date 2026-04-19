@@ -70,12 +70,16 @@ class GovernanceGate:
         return row or {}
 
     def approve(self, request_id: str, reviewer: str = "user") -> bool:
-        """Approve a pending request."""
+        """Approve a pending request.  For request types that imply a
+        concrete configuration change (currently ``model_id_remap`` and
+        ``model_retired``), the corresponding persistent override is
+        written so the change survives container restarts.
+        """
         result = execute_one(
             """UPDATE control_plane.governance_requests
                SET status = 'approved', reviewed_by = %s, reviewed_at = NOW()
                WHERE id = %s AND status = 'pending'
-               RETURNING id, request_type, title""",
+               RETURNING id, request_type, title, detail_json""",
             (reviewer, request_id),
         )
         if result:
@@ -84,6 +88,39 @@ class GovernanceGate:
                 resource_type="governance", resource_id=str(request_id),
                 detail={"type": result.get("request_type"), "title": result.get("title", "")[:100]},
             )
+            # ── Side-effects for request types that need persistent state ──
+            # llm_discovery's retired-ID detector emits these requests with a
+            # detail_json payload describing the remap/retirement.  Apply it
+            # to the persistent overrides file so a restart doesn't re-detect
+            # the same dead ID and create a duplicate request.
+            try:
+                req_type = (result.get("request_type") or "").strip()
+                import json as _json
+                raw_detail = result.get("detail_json") or "{}"
+                detail = _json.loads(raw_detail) if isinstance(raw_detail, str) else (raw_detail or {})
+                if req_type == "model_id_remap":
+                    from app.llm_catalog import persist_model_id_remap
+                    ck = detail.get("catalog_key") or ""
+                    nm = detail.get("new_model_id") or ""
+                    if ck and nm:
+                        ok = persist_model_id_remap(ck, nm)
+                        logger.info(
+                            f"governance.approve: persisted model_id_remap "
+                            f"{ck!r} -> {nm!r} (ok={ok})"
+                        )
+                elif req_type == "model_retired":
+                    from app.llm_catalog import persist_model_retired
+                    ck = detail.get("catalog_key") or ""
+                    if ck:
+                        ok = persist_model_retired(ck)
+                        logger.info(
+                            f"governance.approve: persisted model_retired {ck!r} (ok={ok})"
+                        )
+            except Exception:
+                logger.debug(
+                    "governance.approve: side-effect persistence failed "
+                    "(approval itself stands)", exc_info=True,
+                )
             return True
         return False
 

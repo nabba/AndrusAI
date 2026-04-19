@@ -193,6 +193,117 @@ _BOOTSTRAP_CATALOG: dict[str, dict] = {
 CATALOG: dict[str, dict] = {name: dict(entry) for name, entry in _BOOTSTRAP_CATALOG.items()}
 
 
+# ── Persistent overrides (governance-approved) ──────────────────────────
+# When a ``model_id_remap`` or ``model_retired`` governance request is
+# approved, the change is recorded in workspace/llm_catalog_overrides.json
+# so it survives container restarts.  Without this, the llm_discovery
+# detector would re-find the same dead ID on every restart and create a
+# duplicate governance request.
+#
+# File schema (all fields optional):
+#   {
+#     "model_id_remaps": {"<catalog_key>": "<new_model_id>", ...},
+#     "retired":          ["<catalog_key>", ...]
+#   }
+
+import json as _json
+import os as _os
+import threading as _threading
+from pathlib import Path as _Path
+
+_OVERRIDES_PATH = _Path(_os.environ.get(
+    "LLM_CATALOG_OVERRIDES",
+    "/app/workspace/llm_catalog_overrides.json",
+))
+_OVERRIDES_LOCK = _threading.Lock()
+
+
+def _load_overrides() -> dict:
+    """Read the overrides file. Returns {} on any error or missing file."""
+    try:
+        if _OVERRIDES_PATH.exists():
+            return _json.loads(_OVERRIDES_PATH.read_text())
+    except Exception:
+        pass
+    return {}
+
+
+def _apply_overrides_to_catalog(catalog: dict[str, dict]) -> None:
+    """Mutate *catalog* in place with any governance-approved changes.
+
+    Called once at module import, and again from llm_catalog_builder.refresh()
+    after it rebuilds the catalog so builder-driven updates don't stomp on
+    approved remaps/retirements.
+    """
+    data = _load_overrides()
+    remaps = (data.get("model_id_remaps") or {}) if isinstance(data, dict) else {}
+    retired = set((data.get("retired") or [])) if isinstance(data, dict) else set()
+
+    for catalog_key, new_model_id in remaps.items():
+        entry = catalog.get(catalog_key)
+        if entry and isinstance(new_model_id, str) and new_model_id:
+            entry["model_id"] = new_model_id
+    for catalog_key in retired:
+        entry = catalog.get(catalog_key)
+        if entry:
+            entry["_retired"] = True
+
+
+def persist_model_id_remap(catalog_key: str, new_model_id: str) -> bool:
+    """Record an approved model_id_remap to the overrides file AND apply it
+    to the live CATALOG in place.  Thread-safe.
+
+    Returns True if the file was written successfully.
+    """
+    if not catalog_key or not new_model_id:
+        return False
+    with _OVERRIDES_LOCK:
+        try:
+            data = _load_overrides() or {}
+            remaps = data.setdefault("model_id_remaps", {})
+            remaps[catalog_key] = new_model_id
+            _OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _OVERRIDES_PATH.write_text(_json.dumps(data, indent=2, sort_keys=True))
+            # Apply immediately so running processes don't need a restart
+            entry = CATALOG.get(catalog_key)
+            if entry:
+                entry["model_id"] = new_model_id
+                # Clear any _retired flag since we just proved this key works
+                entry.pop("_retired", None)
+            return True
+        except Exception:
+            return False
+
+
+def persist_model_retired(catalog_key: str) -> bool:
+    """Record an approved model_retired to the overrides file AND mark the
+    live CATALOG entry retired.  Thread-safe.
+    """
+    if not catalog_key:
+        return False
+    with _OVERRIDES_LOCK:
+        try:
+            data = _load_overrides() or {}
+            retired = data.setdefault("retired", [])
+            if catalog_key not in retired:
+                retired.append(catalog_key)
+            _OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _OVERRIDES_PATH.write_text(_json.dumps(data, indent=2, sort_keys=True))
+            entry = CATALOG.get(catalog_key)
+            if entry:
+                entry["_retired"] = True
+            return True
+        except Exception:
+            return False
+
+
+# Apply overrides at import time so the catalog starts with any
+# governance-approved changes already baked in.  llm_catalog_builder.refresh()
+# calls _apply_overrides_to_catalog() again after rebuilding to ensure
+# freshly-fetched entries don't overwrite approved overrides.
+_apply_overrides_to_catalog(CATALOG)
+
+
 # ── Policy (tiny, rarely changed) ────────────────────────────────────────
 
 # Cost-mode soft penalty weights: higher = more aggressively prefer cheaper

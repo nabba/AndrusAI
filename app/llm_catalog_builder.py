@@ -555,7 +555,16 @@ def refresh(
 
     added = merge_into_catalog(snap)
 
-    from app.llm_catalog import CATALOG
+    # Re-apply governance-approved overrides (model_id_remap, retired) so
+    # freshly merged entries from the live sources don't overwrite approved
+    # remaps.  Without this, every 24h refresh would undo an approved remap
+    # until the next benchmark cycle re-detected the dead ID.
+    from app.llm_catalog import CATALOG, _apply_overrides_to_catalog
+    try:
+        _apply_overrides_to_catalog(CATALOG)
+    except Exception:
+        pass
+
     return {
         "catalog_size": len([k for k in CATALOG if not k.startswith("_")]),
         "added_or_updated": added,
