@@ -438,6 +438,161 @@ def _select_judges(
     return ok
 
 
+# ── Model-ID error classification & naming-convention recovery ─────────────
+# Providers occasionally retire IDs or change naming conventions:
+#   Anthropic: claude-3.5-haiku → claude-3-5-haiku (dots→dashes); older
+#              claude-4-sonnet became claude-sonnet-4-6 (word order + version).
+#   OpenAI:    gpt-4-turbo  (legacy) → gpt-4o
+# When a benchmark hits such a dead ID, exceptions like "model_not_found",
+# "decommissioned", "invalid_model" or 404s surface.  The old code lumped
+# all these in with transient errors and returned 0.0 — which looks like
+# quality drift and spammed the governance queue.
+#
+# New behaviour:
+#   1. Classify the exception into a category (retired / transient / auth).
+#   2. On "retired", generate a handful of plausible id variants (dot↔dash,
+#      Anthropic word-order flip) and try them one by one.
+#   3. If a variant works, return the score AND a canonical-id hint so
+#      rebenchmark_incumbent() can update the catalog in place.
+#   4. If no variant works, return the BENCH_RETIRED sentinel so callers
+#      can mark the entry as retired instead of treating it as drift.
+
+BENCH_RETIRED = -2.0   # model ID is dead — don't retry, mark as retired
+BENCH_FAILED = -1.0    # generic failure (auth, no key, no judges, etc.)
+
+# Module-level remap table populated when _probe_model_id discovers that a
+# retired model_id has a working naming-convention variant.  Keyed by the
+# dead ID, value is the working replacement.  rebenchmark_incumbent() reads
+# this after benchmarking to persist the remap into the catalog.
+_RETIRED_REMAPS: dict[str, str] = {}
+
+# Phrases that indicate the model ID itself is the problem (not transient).
+_RETIRED_MARKERS = (
+    "model_not_found", "model not found", "does not exist",
+    "decommissioned", "retired", "deprecated",
+    "invalid_model", "invalid model", "unknown model",
+    "not available", "no longer available", "404", "not_found",
+)
+
+
+def _classify_llm_error(exc: Exception) -> str:
+    """Return one of: 'retired', 'auth', 'transient', 'other'."""
+    msg = (str(exc) + " " + str(getattr(exc, "response", ""))).lower()
+    if any(m in msg for m in _RETIRED_MARKERS):
+        return "retired"
+    if any(m in msg for m in (
+        "authentication", "invalid_api_key", "unauthorized", "403",
+        "insufficient_quota", "credit", "billing",
+    )):
+        return "auth"
+    if any(m in msg for m in (
+        "overloaded", "529", "timeout", "connection", "503",
+        "502", "rate limit", "429",
+    )):
+        return "transient"
+    return "other"
+
+
+def _generate_id_variants(model_id: str) -> list[str]:
+    """Return plausible variants of a model_id for retired-ID recovery.
+
+    Strategies (in order of likelihood, most useful first):
+      1. Dot ↔ dash swap in the version portion (claude-3.5-haiku → -3-5-haiku)
+      2. Reverse the swap (claude-3-5-haiku → -3.5-haiku)
+      3. Anthropic word-order flip: version-in-the-middle vs version-at-end
+         (claude-3.7-sonnet → claude-sonnet-3-7; claude-4-opus → claude-opus-4-6)
+      4. Strip provider prefix variants (openrouter/anthropic/x ↔ anthropic/x)
+
+    Deduplicated; excludes the original.  Caller should try these in order.
+    """
+    import re as _re
+    variants: list[str] = []
+    seen = {model_id}
+
+    def _add(v: str) -> None:
+        if v and v not in seen:
+            seen.add(v)
+            variants.append(v)
+
+    # Split provider prefix if present
+    if "/" in model_id:
+        prefix, _, bare = model_id.rpartition("/")
+    else:
+        prefix, bare = "", model_id
+
+    def _with_prefix(v: str) -> str:
+        return f"{prefix}/{v}" if prefix else v
+
+    # Strategy 1: swap dots ↔ dashes in version-like segments
+    # Match digit.digit or digit.digit.digit sequences
+    dot_to_dash = _re.sub(r"(\d+)\.(\d+)", r"\1-\2", bare)
+    _add(_with_prefix(dot_to_dash))
+
+    dash_to_dot = _re.sub(r"-(\d)-(\d)", r"-\1.\2", bare)
+    _add(_with_prefix(dash_to_dot))
+
+    # Strategy 2: Anthropic-style word reordering.  Matches patterns like
+    # claude-<version>-<variant> and claude-<variant>-<version>.
+    m = _re.match(r"^(claude)-(\d[\d\.-]*)-(opus|sonnet|haiku)$", bare, _re.IGNORECASE)
+    if m:
+        # e.g. claude-3.5-haiku → claude-haiku-3-5 AND claude-haiku-3.5
+        fam, ver, variant = m.group(1), m.group(2), m.group(3)
+        ver_dashes = ver.replace(".", "-")
+        ver_dots = ver.replace("-", ".")
+        _add(_with_prefix(f"{fam}-{variant}-{ver_dashes}"))
+        _add(_with_prefix(f"{fam}-{variant}-{ver_dots}"))
+
+    m2 = _re.match(r"^(claude)-(opus|sonnet|haiku)-(\d[\d\.-]*)$", bare, _re.IGNORECASE)
+    if m2:
+        # e.g. claude-opus-4-6 → claude-4-6-opus AND claude-4.6-opus
+        fam, variant, ver = m2.group(1), m2.group(2), m2.group(3)
+        ver_dashes = ver.replace(".", "-")
+        ver_dots = ver.replace("-", ".")
+        _add(_with_prefix(f"{fam}-{ver_dashes}-{variant}"))
+        _add(_with_prefix(f"{fam}-{ver_dots}-{variant}"))
+
+    # Strategy 3: provider prefix variant (openrouter/anthropic/X ↔ anthropic/X)
+    if model_id.startswith("openrouter/anthropic/"):
+        _add(model_id.replace("openrouter/anthropic/", "anthropic/", 1))
+    elif model_id.startswith("anthropic/"):
+        _add(model_id.replace("anthropic/", "openrouter/anthropic/", 1))
+
+    # Cap at 4 variants — more than that burns judge calls on long-shots
+    return variants[:4]
+
+
+def _probe_model_id(model_id: str) -> tuple[bool, str]:
+    """Cheap reachability probe: send a 1-token ping and classify the result.
+
+    Returns (reachable, classification).  `classification` is one of
+    'ok', 'retired', 'auth', 'transient', 'other'.  Used to decide whether
+    a naming-convention variant should be tried before giving up.
+    """
+    try:
+        from app.llm_factory import _cached_llm
+        from app.config import get_settings, get_anthropic_api_key
+        s = get_settings()
+        if model_id.startswith("anthropic/"):
+            key = get_anthropic_api_key()
+            llm = _cached_llm(model_id, max_tokens=8, api_key=key) if key else None
+        elif model_id.startswith("openrouter/"):
+            key = s.openrouter_api_key.get_secret_value()
+            llm = _cached_llm(
+                model_id, max_tokens=8,
+                base_url="https://openrouter.ai/api/v1", api_key=key,
+            ) if key else None
+        elif model_id.startswith("ollama_chat/"):
+            llm = _cached_llm(model_id, max_tokens=8)
+        else:
+            return False, "other"
+        if llm is None:
+            return False, "auth"
+        _ = str(llm.call("hi")).strip()
+        return True, "ok"
+    except Exception as exc:
+        return False, _classify_llm_error(exc)
+
+
 def benchmark_model(
     model_id: str,
     role: str = "research",
@@ -452,8 +607,11 @@ def benchmark_model(
         isn't scored by DeepSeek V3.2).
       - Each judge scores every task independently; the task score is
         the mean of the eligible judges' scores.
-      - Final score is the mean of task scores. Returns -1.0 on setup
-        failure (no key, candidate unreachable, zero eligible judges).
+      - Final score is the mean of task scores.
+      - Returns BENCH_FAILED (-1.0) on setup failure (no key, no judges).
+      - Returns BENCH_RETIRED (-2.0) if the model ID appears dead AND
+        naming-convention variants also failed — caller should mark the
+        catalog entry as retired.
     """
     try:
         from app.llm_factory import _cached_llm
@@ -465,7 +623,7 @@ def benchmark_model(
         # Candidate LLM
         if model_id.startswith("openrouter/"):
             if not or_key:
-                return -1.0
+                return BENCH_FAILED
             candidate_llm = _cached_llm(
                 model_id, max_tokens=1024,
                 base_url="https://openrouter.ai/api/v1", api_key=or_key,
@@ -476,16 +634,46 @@ def benchmark_model(
             from app.config import get_anthropic_api_key
             key = get_anthropic_api_key()
             if not key:
-                return -1.0
+                return BENCH_FAILED
             candidate_llm = _cached_llm(model_id, max_tokens=1024, api_key=key)
         else:
-            return -1.0
+            return BENCH_FAILED
+
+        # Cheap reachability probe BEFORE running full benchmark.  If the
+        # ID is dead, we'll save ~20 LLM calls (sample_size × judges × tasks)
+        # and can try naming-convention variants instead.
+        reachable, kind = _probe_model_id(model_id)
+        if not reachable and kind == "retired":
+            logger.warning(
+                f"llm_discovery: {model_id} probe says retired, trying variants"
+            )
+            for alt_id in _generate_id_variants(model_id):
+                ok, alt_kind = _probe_model_id(alt_id)
+                if ok:
+                    logger.warning(
+                        f"llm_discovery: {model_id} appears dead but "
+                        f"{alt_id} works — recording as canonical remap"
+                    )
+                    # Store the remap on the module so rebenchmark_incumbent()
+                    # can surface it to the catalog.  A sidecar dict keyed by
+                    # the dead ID.
+                    _RETIRED_REMAPS[model_id] = alt_id
+                    # Recurse once with the alt ID
+                    return benchmark_model(alt_id, role=role, sample_size=sample_size, judges=judges)
+            logger.warning(
+                f"llm_discovery: {model_id} appears retired and no working "
+                f"variant found — returning BENCH_RETIRED"
+            )
+            return BENCH_RETIRED
+        if not reachable and kind == "auth":
+            return BENCH_FAILED
+        # "transient" / "other" / "ok" → proceed; benchmark handles per-task retry
 
         # Judges — distinct provider families from the candidate.
         eligible = _select_judges(model_id, judges=judges)
         if not eligible:
             logger.warning(f"llm_discovery: no eligible judges for {model_id}")
-            return -1.0
+            return BENCH_FAILED
 
         # Test tasks per role
         test_tasks = {
@@ -590,10 +778,78 @@ def rebenchmark_incumbent(
     old_scores = {r: float(entry.get("strengths", {}).get(r, 0.5)) for r in roles}
 
     new_scores: dict[str, float] = {}
+    retired_detected = False
     for role in roles:
         score = benchmark_model(entry["model_id"], role=role, sample_size=sample_size)
+        if score == BENCH_RETIRED:
+            retired_detected = True
+            break  # no point trying other roles — the ID is dead
         if score >= 0:
             new_scores[role] = score
+
+    # If the ID is retired, check if benchmark_model found a working variant
+    # via naming-convention recovery.  If yes, update the catalog's model_id
+    # in place (preserves the catalog KEY so existing references still work).
+    original_id = entry.get("model_id", "")
+    if original_id in _RETIRED_REMAPS:
+        new_id = _RETIRED_REMAPS.pop(original_id)
+        entry["model_id"] = new_id
+        logger.warning(
+            f"llm_discovery: catalog remap '{model_name}': "
+            f"{original_id} → {new_id} (naming convention changed upstream)"
+        )
+        try:
+            from app.control_plane.governance import get_governance
+            from app.control_plane.projects import get_projects
+            get_governance().request_approval(
+                project_id=get_projects().get_active_project_id(),
+                request_type="model_id_remap",
+                requested_by="llm_discovery",
+                title=f"Model ID remapped: {model_name}",
+                detail={
+                    "catalog_key": model_name,
+                    "old_model_id": original_id,
+                    "new_model_id": new_id,
+                    "reason": "original ID returned retired/not-found; "
+                              "variant probe succeeded",
+                },
+            )
+        except Exception:
+            pass
+        # Fall through: new_scores may already be populated from the recursive
+        # benchmark call with the working ID.
+
+    if retired_detected and not new_scores:
+        logger.warning(
+            f"llm_discovery: {model_name} ({original_id}) appears retired — "
+            f"no naming-convention variant worked.  Marking as retired."
+        )
+        # Flag the catalog entry so the selector stops picking it.
+        entry["_retired"] = True
+        entry["_retired_at"] = datetime.now(timezone.utc).isoformat()
+        try:
+            from app.control_plane.governance import get_governance
+            from app.control_plane.projects import get_projects
+            get_governance().request_approval(
+                project_id=get_projects().get_active_project_id(),
+                request_type="model_retired",
+                requested_by="llm_discovery",
+                title=f"Model retired: {model_name}",
+                detail={
+                    "catalog_key": model_name,
+                    "model_id": original_id,
+                    "reason": "benchmark probe returned not_found / "
+                              "decommissioned / deprecated",
+                },
+            )
+        except Exception:
+            pass
+        return {
+            "model": model_name,
+            "error": "retired",
+            "old_scores": old_scores,
+            "model_id": original_id,
+        }
 
     if not new_scores:
         return {
@@ -763,6 +1019,7 @@ def pick_incumbent_to_rebenchmark() -> str | None:
         name for name, info in CATALOG.items()
         if info.get("tier") in ("budget", "mid", "premium")
         and not info.get("_discovered")
+        and not info.get("_retired")  # skip entries marked retired by benchmark
     ]
     if not candidates:
         return None
