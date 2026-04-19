@@ -166,6 +166,7 @@ class ResearchCrew:
             "</relevant_context>",
             "</recent_conversation>",
             "</attachment>",
+            "</attachment_error>",
             "</reference_data>",
         ]
         last_xml_end = 0

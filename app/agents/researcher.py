@@ -59,7 +59,7 @@ def create_researcher(force_tier: str | None = None, light: bool = False, task_i
             from app.tools.firecrawl_tools import create_firecrawl_tools
             fc = create_firecrawl_tools()
             if fc:
-                tools.extend(fc[:2])  # scrape + search only (keep tool count low)
+                tools.extend(fc[:2])  # scrape + search (keep tool count low)
         except Exception:
             pass
         backstory = _COMPACT_RESEARCHER_BACKSTORY
@@ -79,7 +79,7 @@ def create_researcher(force_tier: str | None = None, light: bool = False, task_i
             from app.tools.firecrawl_tools import create_firecrawl_tools
             fc_tools = create_firecrawl_tools()
             if fc_tools:
-                tools.extend(fc_tools[:4])  # scrape, extract, search, map (not crawl)
+                tools.extend(fc_tools[:4])  # scrape, search, extract, map (not crawl)
         except Exception:
             pass
         # Composio SaaS tools (Gmail, GitHub, Slack, etc.) — gracefully empty if unavailable

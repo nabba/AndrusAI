@@ -423,7 +423,10 @@ def create_firecrawl_tools() -> list:
             """Discover all URLs on a website. Fast. Use before crawl to understand site structure."""
             return firecrawl_map(url)
 
-        return [scrape_tool, extract_tool, crawl_tool, search_tool, map_tool]
+        # Order matters: researcher.py slices this list by intent tier.
+        # [:2] = light mode (scrape + search). [:4] = full mode (+ extract + map).
+        # crawl last — resource-intensive, opt-in only via explicit index.
+        return [scrape_tool, search_tool, extract_tool, map_tool, crawl_tool]
     except Exception as e:
         logger.warning(f"Failed to create Firecrawl CrewAI tools: {e}")
         return []

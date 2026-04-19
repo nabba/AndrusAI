@@ -20,19 +20,87 @@ ATTACHMENTS_DIR = pathlib.Path("/app/attachments")
 # Maximum extracted text length to avoid token bombs
 _MAX_EXTRACT_CHARS = 30000
 
+# Content-type → extension, used when signal-cli gives an id without suffix
+_CTYPE_TO_EXT = {
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
 
-def _safe_path(filename: str) -> pathlib.Path | None:
-    """Resolve attachment path, block traversal."""
+
+def _safe_path(filename: str, content_type: str = "") -> pathlib.Path | None:
+    """Resolve attachment path with traversal guard and three fallback strategies.
+
+    1. Exact match on ``filename`` under ATTACHMENTS_DIR.
+    2. Append extension inferred from ``content_type`` — signal-cli occasionally
+       yields an id without suffix while the file on disk carries one.
+    3. Fuzzy basename match against directory contents — catches macOS→Linux
+       NFD/NFC unicode normalization drift and minor filename mangling.
+
+    On total miss, logs a warning with the recent directory contents so the
+    failure is diagnosable instead of silent.
+    """
+    def _within_dir(p: pathlib.Path) -> bool:
+        try:
+            p.relative_to(ATTACHMENTS_DIR.resolve())
+            return True
+        except ValueError:
+            return False
+
+    # Strategy 1: exact match
     target = (ATTACHMENTS_DIR / filename).resolve()
-    try:
-        target.relative_to(ATTACHMENTS_DIR.resolve())
-    except ValueError:
+    if not _within_dir(target):
         log_tool_blocked("attachment_reader", "unknown",
                          f"path traversal attempt: {filename[:100]!r}")
         return None
-    if not target.exists():
-        return None
-    return target
+    if target.exists():
+        return target
+
+    # Strategy 2: content-type-derived extension
+    ext = _CTYPE_TO_EXT.get(content_type, "")
+    if ext and not filename.lower().endswith(ext):
+        alt = (ATTACHMENTS_DIR / (filename + ext)).resolve()
+        if _within_dir(alt) and alt.exists():
+            logger.info(f"Attachment resolved via ctype fallback: {filename!r} → {alt.name!r}")
+            return alt
+
+    # Strategy 3: fuzzy basename match
+    if ATTACHMENTS_DIR.exists():
+        try:
+            import difflib
+            available = [f.name for f in ATTACHMENTS_DIR.iterdir() if f.is_file()]
+            matches = difflib.get_close_matches(
+                pathlib.Path(filename).name, available, n=1, cutoff=0.75,
+            )
+            if matches:
+                fuzzy = (ATTACHMENTS_DIR / matches[0]).resolve()
+                if _within_dir(fuzzy) and fuzzy.exists():
+                    logger.info(f"Attachment resolved via fuzzy match: {filename!r} → {matches[0]!r}")
+                    return fuzzy
+        except Exception as e:
+            logger.debug(f"Fuzzy match failed for {filename!r}: {e}")
+
+    # All strategies exhausted — emit diagnostic context
+    recent: list[str] = []
+    if ATTACHMENTS_DIR.exists():
+        try:
+            recent = sorted(
+                (f for f in ATTACHMENTS_DIR.iterdir() if f.is_file()),
+                key=lambda f: f.stat().st_mtime,
+                reverse=True,
+            )[:10]
+            recent = [f.name for f in recent]
+        except Exception:
+            pass
+    logger.warning(
+        f"Attachment not found: {filename!r} (ctype={content_type!r}). "
+        f"Dir exists={ATTACHMENTS_DIR.exists()}, recent files={recent}"
+    )
+    return None
 
 
 def extract_pdf(path: pathlib.Path) -> str:
@@ -169,7 +237,7 @@ def extract_attachment(filename: str, content_type: str = "") -> str:
     Returns:
         Extracted text content or error message.
     """
-    path = _safe_path(filename)
+    path = _safe_path(filename, content_type)
     if path is None:
         return f"Attachment not found: {filename}"
 
