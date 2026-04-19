@@ -6,10 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "postbuild": "rm -rf ../dashboard/serve-root/cp && mkdir -p ../dashboard/serve-root/cp && cp -R ../dashboard/build/. ../dashboard/serve-root/cp/",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "typecheck": "tsc -b --noEmit",
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.62.11",
     "chart.js": "^4.5.1",
     "react": "^19.2.4",
     "react-chartjs-2": "^5.3.1",
@@ -18,7 +23,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.49.1",
     "@tailwindcss/vite": "^4.2.2",
+    "@tanstack/react-query-devtools": "^5.62.11",
     "@types/node": "^24.12.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
