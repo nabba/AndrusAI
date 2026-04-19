@@ -298,6 +298,35 @@ class Settings(BaseSettings):
     cascade_race_token_threshold: int = 800   # ~3200 chars — short prompts only
     cascade_race_timeout_s: float = 4.0
 
+    # ── Trajectory-informed memory (arXiv:2603.10600) ─────────────────
+    # Five independently toggleable flags that stage in the trajectory
+    # attribution → tip synthesis → task-conditional retrieval loop.
+    # All now ENABLED — the full paper-derived loop is live in production.
+    #
+    #   trajectory_enabled:
+    #       Capture per-crew execution trajectories (types.TrajectoryStep)
+    #       alongside existing telemetry. No LLM calls. Pure data capture.
+    #   attribution_enabled (requires trajectory_enabled):
+    #       After failed/retried/slow/recovered runs, an infrastructure
+    #       AttributionAnalyzer runs a short LLM call to identify the
+    #       causal decision + failure mode, emitting a LearningGap.
+    #   tip_synthesis_enabled (requires attribution_enabled):
+    #       Self-Improver idle job picks up trajectory-attribution gaps
+    #       and synthesises strategy/recovery/optimization tips via the
+    #       existing Integrator → KB pipeline.
+    #   task_conditional_retrieval_enabled:
+    #       Commander retrieves tips using a metadata where_filter
+    #       keyed on (agent_role, tip_type, predicted_failure_mode).
+    #   observer_calibration_enabled (requires attribution_enabled):
+    #       Close the loop — compare Observer pre-predictions against
+    #       Attribution post-labels and emit OBSERVER_MIS_PREDICTION
+    #       gaps when a failure mode is chronically mis-called.
+    trajectory_enabled: bool = True
+    attribution_enabled: bool = True
+    tip_synthesis_enabled: bool = True
+    task_conditional_retrieval_enabled: bool = True
+    observer_calibration_enabled: bool = True
+
     model_config = ConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("sandbox_memory_limit")

@@ -1,18 +1,33 @@
-// Same-origin API calls — dashboard server proxies /api/* to the gateway.
-// No CORS needed. Works in both dev (Vite proxy) and production (server.mjs proxy).
-const BASE = '/api/cp';
+// Same-origin API calls — dashboard server proxies backend paths to the gateway.
+// Callers pass the full absolute path (e.g. "/api/cp/tickets", "/kb/status",
+// "/config/creative_mode"). The proxy handles forwarding to the FastAPI gateway.
+
+export class ApiError extends Error {
+  status: number;
+  body: string;
+  constructor(status: number, body: string) {
+    super(`API ${status}: ${body.slice(0, 200)}`);
+    this.status = status;
+    this.body = body;
+  }
+}
 
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const init: RequestInit = {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(options?.body && !(options.body instanceof FormData)
+        ? { 'Content-Type': 'application/json' }
+        : {}),
       ...(options?.headers || {}),
     },
-  });
+  };
+  const res = await fetch(path, init);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`API ${res.status}: ${text.slice(0, 200)}`);
+    throw new ApiError(res.status, text);
   }
+  if (res.status === 204) return undefined as unknown as T;
   return res.json();
 }

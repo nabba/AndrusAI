@@ -1,13 +1,18 @@
 import { useState } from 'react';
-import { useApi } from '../hooks/useApi';
-import { api } from '../api/client';
-import type { WorkspaceList, WorkspaceItems, MetaWorkspace } from '../types/index.ts';
+import type { WorkspaceItem } from '../types';
+import { Skeleton } from './ui/Skeleton';
+import { ErrorPanel } from './ui/ErrorPanel';
+import {
+  useWorkspacesQuery,
+  useWorkspaceItemsQuery,
+  useWorkspacesMetaQuery,
+  useCreateWorkspace,
+} from '../api/queries';
 
 /* ── Consciousness Workspaces ─────────────────────────────────────────────
-   Visualizes the hierarchical workspace architecture:
-   - Per-project workspaces (competitive gating)
-   - Global meta-workspace (cross-project insights)
-   Read-only: the AI controls what enters the workspace, not the user.
+   Per-project workspaces (competitive gating) + global meta-workspace
+   (cross-project insights). Read-only: the AI controls what enters the
+   workspace, not the user.
    ──────────────────────────────────────────────────────────────────────── */
 
 function SalienceBar({ value }: { value: number }) {
@@ -24,7 +29,7 @@ function SalienceBar({ value }: { value: number }) {
   );
 }
 
-function ItemCard({ item }: { item: { item_id: string; content: string; salience: number; source_agent?: string; source_channel?: string; cycles?: number; consumed?: boolean } }) {
+function ItemCard({ item }: { item: WorkspaceItem }) {
   return (
     <div className={`bg-[#0a0e14] border rounded-lg p-3 ${item.consumed ? 'border-[#7a8599]/30 opacity-60' : 'border-[#1e2738]'}`}>
       <p className="text-sm text-[#e2e8f0] leading-snug mb-2">{item.content.slice(0, 120)}</p>
@@ -37,26 +42,18 @@ function ItemCard({ item }: { item: { item_id: string; content: string; salience
   );
 }
 
-function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateWorkspaceModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [capacity, setCapacity] = useState(3);
-  const [loading, setLoading] = useState(false);
+  const create = useCreateWorkspace();
 
   const handleCreate = async () => {
     if (!name.trim()) return;
-    setLoading(true);
     try {
-      await api('/workspaces', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: name.trim().toLowerCase(), capacity }),
-      });
-      onCreated();
+      await create.mutateAsync({ project_id: name.trim().toLowerCase(), capacity });
       onClose();
     } catch {
-      // silent
-    } finally {
-      setLoading(false);
+      // surfaced via create.error
     }
   };
 
@@ -76,18 +73,21 @@ function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onC
           type="number"
           min={2}
           max={9}
-          className="w-full bg-[#0a0e14] border border-[#1e2738] rounded-lg px-3 py-2 text-[#e2e8f0] text-sm mb-6 focus:outline-none focus:border-[#60a5fa]"
+          className="w-full bg-[#0a0e14] border border-[#1e2738] rounded-lg px-3 py-2 text-[#e2e8f0] text-sm mb-4 focus:outline-none focus:border-[#60a5fa]"
           value={capacity}
           onChange={(e) => setCapacity(Number(e.target.value))}
         />
+        {create.error && (
+          <p className="text-sm text-[#f87171] mb-3">{(create.error as Error).message}</p>
+        )}
         <div className="flex gap-3 justify-end">
           <button onClick={onClose} className="px-4 py-2 text-sm text-[#7a8599] hover:text-[#e2e8f0]">Cancel</button>
           <button
             onClick={handleCreate}
-            disabled={loading || !name.trim()}
+            disabled={create.isPending || !name.trim()}
             className="px-4 py-2 text-sm bg-[#60a5fa] text-[#0a0e14] rounded-lg font-medium hover:bg-[#60a5fa]/80 disabled:opacity-50"
           >
-            {loading ? 'Creating...' : 'Create'}
+            {create.isPending ? 'Creating...' : 'Create'}
           </button>
         </div>
       </div>
@@ -96,27 +96,27 @@ function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onC
 }
 
 function WorkspaceBoard({ projectId }: { projectId: string }) {
-  const { data, loading } = useApi<WorkspaceItems>(`/workspaces/${projectId}/items`, 10000);
+  const { data, isLoading, error, refetch } = useWorkspaceItemsQuery(projectId);
 
-  if (loading && !data) {
+  if (isLoading) {
     return (
       <div className="grid grid-cols-2 gap-4 mt-4">
         {[0, 1].map((i) => (
           <div key={i} className="space-y-3">
-            <div className="h-4 w-24 bg-[#1e2738] rounded animate-pulse" />
-            <div className="h-20 bg-[#1e2738] rounded animate-pulse" />
-            <div className="h-20 bg-[#1e2738] rounded animate-pulse" />
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-20" />
+            <Skeleton className="h-20" />
           </div>
         ))}
       </div>
     );
   }
 
+  if (error) return <div className="mt-4"><ErrorPanel error={error} onRetry={refetch} /></div>;
   if (!data) return null;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-      {/* Active Items Column */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <span className="text-sm font-medium text-[#34d399]">Active</span>
@@ -133,7 +133,6 @@ function WorkspaceBoard({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {/* Peripheral Items Column */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <span className="text-sm font-medium text-[#7a8599]">Peripheral</span>
@@ -154,7 +153,7 @@ function WorkspaceBoard({ projectId }: { projectId: string }) {
 }
 
 function MetaView() {
-  const { data } = useApi<MetaWorkspace>('/workspaces/meta', 15000);
+  const { data } = useWorkspacesMetaQuery();
   if (!data || !data.by_project || Object.keys(data.by_project).length === 0) {
     return (
       <div className="mt-6 p-4 bg-[#111820] border border-[#1e2738] rounded-xl">
@@ -167,7 +166,7 @@ function MetaView() {
   return (
     <div className="mt-6 p-4 bg-[#111820] border border-[#1e2738] rounded-xl">
       <h3 className="text-sm font-medium text-[#a78bfa] mb-3">
-        Meta-Workspace (Cross-Project) &mdash; {data.project_count} workspaces
+        Meta-Workspace (Cross-Project) — {data.project_count} workspaces
       </h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {Object.entries(data.by_project).map(([project, items]) => (
@@ -187,7 +186,7 @@ function MetaView() {
 }
 
 export function WorkspacesPage() {
-  const { data, refetch } = useApi<WorkspaceList>('/workspaces', 10000);
+  const { data, isLoading, error, refetch } = useWorkspacesQuery();
   const [selected, setSelected] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -206,51 +205,52 @@ export function WorkspacesPage() {
         </button>
       </div>
 
-      {/* Workspace selector tabs */}
-      <div className="flex flex-wrap gap-2">
-        {workspaces.map((ws) => {
-          const isActive = ws.project_id === activeWs;
-          const isMeta = ws.project_id === '__meta__';
-          if (isMeta) return null; // Meta shown separately below
-          return (
-            <button
-              key={ws.project_id}
-              onClick={() => setSelected(ws.project_id)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-[#60a5fa] text-[#0a0e14]'
-                  : 'bg-[#111820] text-[#7a8599] border border-[#1e2738] hover:border-[#60a5fa]/40 hover:text-[#e2e8f0]'
-              }`}
-            >
-              <span className="capitalize">{ws.project_id}</span>
-              <span className="ml-2 text-xs opacity-70">
-                {ws.active_count}/{ws.capacity}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Selected workspace board */}
-      {activeWs && (
-        <div className="bg-[#111820] border border-[#1e2738] rounded-xl p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-base font-semibold text-[#e2e8f0] capitalize">{activeWs}</h2>
-            <span className="text-xs text-[#7a8599]">
-              cycle {workspaces.find((w) => w.project_id === activeWs)?.cycle ?? 0}
-            </span>
+      {isLoading ? (
+        <Skeleton className="h-10 w-full" />
+      ) : error ? (
+        <ErrorPanel error={error} onRetry={refetch} />
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {workspaces.map((ws) => {
+              const isActive = ws.project_id === activeWs;
+              if (ws.project_id === '__meta__') return null;
+              return (
+                <button
+                  key={ws.project_id}
+                  onClick={() => setSelected(ws.project_id)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? 'bg-[#60a5fa] text-[#0a0e14]'
+                      : 'bg-[#111820] text-[#7a8599] border border-[#1e2738] hover:border-[#60a5fa]/40 hover:text-[#e2e8f0]'
+                  }`}
+                >
+                  <span className="capitalize">{ws.project_id}</span>
+                  <span className="ml-2 text-xs opacity-70">
+                    {ws.active_count}/{ws.capacity}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-          <WorkspaceBoard projectId={activeWs} />
-        </div>
+
+          {activeWs && (
+            <div className="bg-[#111820] border border-[#1e2738] rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-base font-semibold text-[#e2e8f0] capitalize">{activeWs}</h2>
+                <span className="text-xs text-[#7a8599]">
+                  cycle {workspaces.find((w) => w.project_id === activeWs)?.cycle ?? 0}
+                </span>
+              </div>
+              <WorkspaceBoard projectId={activeWs} />
+            </div>
+          )}
+
+          <MetaView />
+        </>
       )}
 
-      {/* Meta-workspace cross-project view */}
-      <MetaView />
-
-      {/* Create modal */}
-      {showCreate && (
-        <CreateWorkspaceModal onClose={() => setShowCreate(false)} onCreated={refetch} />
-      )}
+      {showCreate && <CreateWorkspaceModal onClose={() => setShowCreate(false)} />}
     </div>
   );
 }

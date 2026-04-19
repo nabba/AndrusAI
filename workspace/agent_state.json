@@ -1,12 +1,12 @@
 {
   "research": {
-    "tasks_completed": 107,
+    "tasks_completed": 108,
     "tasks_failed": 3,
-    "success_rate": 0.9727,
-    "avg_confidence": 0.7834,
+    "success_rate": 0.973,
+    "avg_confidence": 0.7951,
     "by_difficulty": {
       "2": {
-        "completed": 44,
+        "completed": 45,
         "failed": 2
       },
       "3": {
@@ -30,14 +30,14 @@
         "failed": 0
       }
     },
-    "streak": 24,
-    "last_task_at": "2026-04-18T17:01:35.487446+00:00"
+    "streak": 25,
+    "last_task_at": "2026-04-19T07:39:02.059481+00:00"
   },
   "writing": {
-    "tasks_completed": 19,
-    "tasks_failed": 0,
-    "success_rate": 1.0,
-    "avg_confidence": 0.7647,
+    "tasks_completed": 21,
+    "tasks_failed": 2,
+    "success_rate": 0.913,
+    "avg_confidence": 0.7035,
     "by_difficulty": {
       "2": {
         "completed": 12,
@@ -46,10 +46,22 @@
       "3": {
         "completed": 7,
         "failed": 0
+      },
+      "6": {
+        "completed": 0,
+        "failed": 2
+      },
+      "8": {
+        "completed": 1,
+        "failed": 0
+      },
+      "5": {
+        "completed": 1,
+        "failed": 0
       }
     },
-    "streak": 19,
-    "last_task_at": "2026-04-18T17:01:58.263209+00:00"
+    "streak": 2,
+    "last_task_at": "2026-04-19T19:19:20.327868+00:00"
   },
   "coding": {
     "tasks_completed": 9,
@@ -176,21 +188,35 @@
     "last_task_at": "2026-04-08T23:49:28.620094+00:00"
   },
   "pim": {
-    "tasks_completed": 12,
+    "tasks_completed": 14,
     "tasks_failed": 0,
     "success_rate": 1.0,
-    "avg_confidence": 0.6838,
+    "avg_confidence": 0.7249,
     "by_difficulty": {
       "3": {
         "completed": 6,
         "failed": 0
       },
       "2": {
-        "completed": 6,
+        "completed": 8,
         "failed": 0
       }
     },
-    "streak": 12,
-    "last_task_at": "2026-04-18T22:09:22.534393+00:00"
+    "streak": 14,
+    "last_task_at": "2026-04-19T20:24:37.802703+00:00"
+  },
+  "media": {
+    "tasks_completed": 1,
+    "tasks_failed": 1,
+    "success_rate": 0.5,
+    "avg_confidence": 0.483,
+    "by_difficulty": {
+      "6": {
+        "completed": 1,
+        "failed": 1
+      }
+    },
+    "streak": 1,
+    "last_task_at": "2026-04-18T22:47:26.818369+00:00"
   }
 }

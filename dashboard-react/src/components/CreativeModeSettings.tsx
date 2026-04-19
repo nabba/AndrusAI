@@ -1,68 +1,64 @@
-import { useEffect, useState } from 'react';
-import { api } from '../api/client';
+import { useState } from 'react';
+import { ErrorPanel } from './ui/ErrorPanel';
+import { useCreativeModeQuery, useUpdateCreativeMode, type CreativeSettings } from '../api/queries';
 
-type CreativeSettings = {
-  creative_run_budget_usd: number;
-  originality_wiki_weight: number;
-  mem0_weight: number;
-};
+// Note: POST to /config/creative_mode requires a gateway bearer secret. The
+// dashboard server (server.mjs) injects `Authorization: Bearer $GATEWAY_SECRET`
+// on outbound requests when the env var is set; the Vite dev server does the
+// same. Without that, the save button will return 401.
 
 export default function CreativeModeSettings() {
-  const [settings, setSettings] = useState<CreativeSettings | null>(null);
-  const [budgetInput, setBudgetInput] = useState('');
-  const [weightInput, setWeightInput] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const settingsQ = useCreativeModeQuery();
 
-  const load = async () => {
-    try {
-      const s = await api<CreativeSettings>('/creative_mode');
-      setSettings(s);
-      setBudgetInput(s.creative_run_budget_usd.toFixed(2));
-      setWeightInput(s.originality_wiki_weight.toFixed(2));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load');
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const save = async () => {
-    setSaving(true);
-    setError('');
-    setSuccess('');
-    try {
-      const budget = parseFloat(budgetInput);
-      const weight = parseFloat(weightInput);
-      if (isNaN(budget) || budget < 0) throw new Error('Budget must be ≥ 0');
-      if (isNaN(weight) || weight < 0 || weight > 1) throw new Error('Weight must be in [0, 1]');
-      const updated = await api<CreativeSettings & { status: string }>('/creative_mode', {
-        method: 'POST',
-        body: JSON.stringify({
-          creative_run_budget_usd: budget,
-          originality_wiki_weight: weight,
-        }),
-      });
-      setSettings(updated);
-      setSuccess('Saved.');
-      setTimeout(() => setSuccess(''), 2500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (!settings) {
+  if (settingsQ.isLoading) {
     return (
       <div className="bg-[#111820] border border-[#1e2738] rounded-xl p-4">
         <div className="text-[#7a8599] text-sm">Loading creative-mode settings…</div>
       </div>
     );
   }
+  if (settingsQ.error) return <ErrorPanel error={settingsQ.error} onRetry={settingsQ.refetch} />;
+  if (!settingsQ.data) return null;
+
+  // Remount the form when server data changes (key on object identity).
+  return <CreativeModeForm key={settingsQ.data.mem0_weight + '|' + settingsQ.data.creative_run_budget_usd} initial={settingsQ.data} />;
+}
+
+function CreativeModeForm({ initial }: { initial: CreativeSettings }) {
+  const update = useUpdateCreativeMode();
+  const [budgetInput, setBudgetInput] = useState(() => initial.creative_run_budget_usd.toFixed(2));
+  const [weightInput, setWeightInput] = useState(() => initial.originality_wiki_weight.toFixed(2));
+  const [localError, setLocalError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const save = async () => {
+    setLocalError('');
+    setSuccess('');
+    const budget = parseFloat(budgetInput);
+    const weight = parseFloat(weightInput);
+    if (isNaN(budget) || budget < 0) {
+      setLocalError('Budget must be ≥ 0');
+      return;
+    }
+    if (isNaN(weight) || weight < 0 || weight > 1) {
+      setLocalError('Weight must be in [0, 1]');
+      return;
+    }
+    try {
+      await update.mutateAsync({
+        creative_run_budget_usd: budget,
+        originality_wiki_weight: weight,
+      });
+      setSuccess('Saved.');
+      setTimeout(() => setSuccess(''), 2500);
+    } catch {
+      // surfaced via update.error
+    }
+  };
+
+  const error = localError || (update.error instanceof Error ? update.error.message : '');
+  const wiki = parseFloat(weightInput || '0');
+  const mem0 = 1 - wiki;
 
   return (
     <div className="bg-[#111820] border border-[#1e2738] rounded-xl p-4 space-y-4">
@@ -90,8 +86,7 @@ export default function CreativeModeSettings() {
 
       <label className="block">
         <span className="text-sm text-[#e2e8f0]">
-          Originality: wiki weight ({(parseFloat(weightInput || '0') * 100).toFixed(0)}% wiki /{' '}
-          {((1 - parseFloat(weightInput || '0')) * 100).toFixed(0)}% Mem0)
+          Originality: wiki weight ({(wiki * 100).toFixed(0)}% wiki / {(mem0 * 100).toFixed(0)}% Mem0)
         </span>
         <input
           type="range"
@@ -107,13 +102,13 @@ export default function CreativeModeSettings() {
       <div className="flex items-center gap-3">
         <button
           onClick={save}
-          disabled={saving}
+          disabled={update.isPending}
           className="px-4 py-2 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-50 rounded text-white text-sm"
         >
-          {saving ? 'Saving…' : 'Save'}
+          {update.isPending ? 'Saving…' : 'Save'}
         </button>
-        {error && <span className="text-red-400 text-sm">{error}</span>}
-        {success && <span className="text-green-400 text-sm">{success}</span>}
+        {error && <span className="text-[#f87171] text-sm">{error}</span>}
+        {success && <span className="text-[#34d399] text-sm">{success}</span>}
       </div>
     </div>
   );

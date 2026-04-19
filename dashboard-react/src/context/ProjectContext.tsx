@@ -1,61 +1,54 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import type { Project } from '../types/index.ts';
-import { api } from '../api/client';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useProjectsQuery } from '../api/queries';
+import { ProjectContext } from './project-context';
 
-interface ProjectContextType {
-  projects: Project[];
-  activeProject: Project | null;
-  setActiveProject: (project: Project | null) => void;
-  loading: boolean;
-  refetchProjects: () => void;
-}
-
-const ProjectContext = createContext<ProjectContextType>({
-  projects: [],
-  activeProject: null,
-  setActiveProject: () => {},
-  loading: true,
-  refetchProjects: () => {},
-});
+const STORAGE_KEY = 'botarmy:activeProjectId';
+const ALL_SENTINEL = '__all__';
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [activeProject, setActiveProject] = useState<Project | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: projects = [], isLoading, error, refetch } = useProjectsQuery();
 
-  const fetchProjects = async () => {
-    try {
-      const data = await api<Project[]>('/projects');
-      setProjects(data);
-      if (!activeProject && data.length > 0) {
-        setActiveProject(data[0]);
-      }
-    } catch {
-      // silently fail on project load
-    } finally {
-      setLoading(false);
+  // Stored selection: null = never chose (auto-pick first project),
+  //                   ALL_SENTINEL = explicit "All projects" choice,
+  //                   project id    = specific project.
+  const [stored, setStored] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem(STORAGE_KEY);
+  });
+
+  const isAllProjects = stored === ALL_SENTINEL;
+
+  // Derive the active project during render — no setState-in-effect.
+  const activeProject = useMemo(() => {
+    if (isAllProjects) return null;
+    if (stored) {
+      const found = projects.find((p) => p.id === stored);
+      if (found) return found;
     }
-  };
+    // No stored choice → auto-select first project so the dashboard isn't empty.
+    return projects[0] ?? null;
+  }, [stored, projects, isAllProjects]);
 
+  // Persist selection to localStorage.
   useEffect(() => {
-    fetchProjects();
-  }, []);
+    if (typeof window === 'undefined') return;
+    if (stored) window.localStorage.setItem(STORAGE_KEY, stored);
+    else window.localStorage.removeItem(STORAGE_KEY);
+  }, [stored]);
 
   return (
     <ProjectContext.Provider
       value={{
         projects,
         activeProject,
-        setActiveProject,
-        loading,
-        refetchProjects: fetchProjects,
+        isAllProjects,
+        setActiveProject: (p) => setStored(p ? p.id : ALL_SENTINEL),
+        loading: isLoading,
+        error,
+        refetch,
       }}
     >
       {children}
     </ProjectContext.Provider>
   );
-}
-
-export function useProject() {
-  return useContext(ProjectContext);
 }

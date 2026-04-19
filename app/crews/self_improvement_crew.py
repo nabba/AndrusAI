@@ -328,6 +328,156 @@ class SelfImprovementCrew:
             logger.error(f"YouTube learning failed: {exc}")
             return f"Failed to learn from video: {str(exc)[:200]}"
 
+    # ── Mode 4: Trajectory-sourced tips (arXiv:2603.10600) ───────────────
+    #
+    # Reads LearningGap records where source==TRAJECTORY_ATTRIBUTION, loads
+    # the captured trajectory + AttributionRecord, and asks the Learner
+    # to distill a strategy/recovery/optimization tip. The resulting
+    # SkillDraft flows through the unchanged Integrator pipeline.
+    #
+    # The entire mode is a no-op when either trajectory_enabled or
+    # tip_synthesis_enabled is False — the function exits immediately.
+
+    def run_trajectory_tips(self, max_tips: int = 3) -> int:
+        """Synthesize tips from recent trajectory-attribution gaps.
+
+        Returns the number of tips successfully integrated.
+        Fails closed: any error is logged at debug and the method exits
+        without disturbing other idle jobs.
+        """
+        try:
+            if not (settings.trajectory_enabled and settings.tip_synthesis_enabled):
+                return 0
+        except Exception:
+            return 0
+
+        try:
+            from app.self_improvement.store import list_open_gaps, update_gap_status
+            from app.self_improvement.types import (
+                GapSource, GapStatus,
+            )
+            # Self-Improver reads trajectory + attribution records only via
+            # the store (never via attribution.py). This keeps the evaluation
+            # logic infrastructure-scoped per CLAUDE.md safety invariant.
+            from app.trajectory.store import load_trajectory, load_attribution
+            from app.trajectory.tip_builder import build_tip_task, build_draft
+        except Exception:
+            logger.debug("run_trajectory_tips: imports unavailable", exc_info=True)
+            return 0
+
+        gaps = list_open_gaps(limit=max_tips * 3, source=GapSource.TRAJECTORY_ATTRIBUTION)
+        if not gaps:
+            logger.debug("run_trajectory_tips: no open trajectory-attribution gaps")
+            return 0
+
+        llm = self._make_llm()
+        memory_tools = create_memory_tools(collection="skills")
+        learner = Agent(
+            role="Trajectory Tip Learner",
+            goal="Distill reusable tips from captured execution trajectories.",
+            backstory=(
+                "You analyse captured execution trajectories from the team's "
+                "real runs and distill reusable strategy, recovery, and "
+                "optimization tips. You work from observational data — you do "
+                "not perform external research for this task."
+            ),
+            llm=llm,
+            tools=memory_tools,  # no web_search — source is the trajectory
+            verbose=False,
+        )
+
+        integrated = 0
+        for gap in gaps[:max_tips]:
+            # Cooperative yielding — idle scheduler may need to hand back
+            # to a user task. Matches the discipline in run() above.
+            try:
+                from app.idle_scheduler import should_yield
+                if should_yield():
+                    logger.info("run_trajectory_tips: yielding to user task")
+                    break
+            except ImportError:
+                pass
+
+            trajectory_id = gap.evidence.get("trajectory_id", "")
+            if not trajectory_id:
+                update_gap_status(gap.id, GapStatus.REJECTED,
+                                  notes="no trajectory_id in evidence")
+                continue
+
+            trajectory = load_trajectory(trajectory_id)
+            attribution = load_attribution(trajectory_id)
+            if trajectory is None or attribution is None:
+                update_gap_status(
+                    gap.id, GapStatus.REJECTED,
+                    notes=f"trajectory or attribution missing for {trajectory_id}",
+                )
+                continue
+
+            task_id = crew_started(
+                "self_improvement",
+                f"TipSynth: {attribution.suggested_tip_type or 'tip'}/{attribution.verdict}",
+                eta_seconds=estimate_eta("self_improvement"),
+            )
+            start_request_tracking(task_id)
+            try:
+                update_gap_status(gap.id, GapStatus.SCHEDULED,
+                                  notes="picked up by run_trajectory_tips")
+                task = build_tip_task(trajectory, attribution, learner)
+                crew = Crew(agents=[learner], tasks=[task],
+                            process=Process.sequential, verbose=settings.crew_verbose)
+                content = str(crew.kickoff()).strip()
+                tracker = stop_request_tracking()
+                _tokens = tracker.total_tokens if tracker else 0
+                _model = ", ".join(sorted(tracker.models_used)) if tracker and tracker.models_used else ""
+                _cost = tracker.total_cost_usd if tracker else 0.0
+
+                if not content or len(content) < 80:
+                    crew_failed("self_improvement", task_id,
+                                f"empty/tiny learner output ({len(content)} chars)")
+                    update_gap_status(gap.id, GapStatus.REJECTED,
+                                      notes="tip draft content too short")
+                    continue
+
+                draft = build_draft(
+                    trajectory=trajectory,
+                    attribution=attribution,
+                    content_markdown=content,
+                    created_from_gap=gap.id,
+                )
+                if draft is None:
+                    crew_failed("self_improvement", task_id, "build_draft failed")
+                    update_gap_status(gap.id, GapStatus.REJECTED,
+                                      notes="tip draft construction failed")
+                    continue
+
+                from app.self_improvement.integrator import integrate
+                record = integrate(draft)
+                if record is None:
+                    crew_failed("self_improvement", task_id,
+                                "integrator rejected tip (covered/dup)")
+                    # integrate() itself marks gap RESOLVED_EXISTING via
+                    # update_gap_status when appropriate; keep OPEN otherwise
+                    update_gap_status(gap.id, GapStatus.REJECTED,
+                                      notes="integrator rejected tip")
+                    continue
+
+                integrated += 1
+                crew_completed(
+                    "self_improvement", task_id,
+                    f"Tip: {record.topic[:100]} → {record.kb}:{record.id}",
+                    tokens_used=_tokens, model=_model, cost_usd=_cost,
+                )
+                logger.info(
+                    f"run_trajectory_tips: tip from trajectory={trajectory_id} "
+                    f"→ kb={record.kb} id={record.id}"
+                )
+            except Exception as exc:
+                stop_request_tracking()
+                crew_failed("self_improvement", task_id, str(exc)[:200])
+                logger.debug(f"run_trajectory_tips: failed gap={gap.id}", exc_info=True)
+
+        return integrated
+
     # ── Mode 3: Improvement scan ──────────────────────────────────────────
 
     def run_improvement_scan(self):

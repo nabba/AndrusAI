@@ -198,6 +198,89 @@ def scan_for_decay() -> int:
     return emitted
 
 
+# ── Tip-effectiveness decay (arXiv:2603.10600 Phase 6) ───────────────────────
+
+# Effectiveness threshold below which a trajectory-sourced tip is
+# considered "not helping". Tips below this ratio with enough samples
+# (MIN_USES_FOR_ACTION from effectiveness module) get USAGE_DECAY gaps
+# emitted so the Consolidator can propose archival.
+_LOW_EFFECTIVENESS_THRESHOLD = 0.35
+
+
+def scan_for_low_effectiveness_tips() -> int:
+    """Emit USAGE_DECAY gaps for trajectory tips that have underperformed.
+
+    Unlike `scan_for_decay` (time-based, applies to all skills), this sweep
+    considers only skills with `tip_type` set (= trajectory-sourced) and
+    only those with enough samples for the effectiveness signal to be
+    trustworthy. Runs from idle_scheduler alongside scan_for_decay.
+
+    Returns the number of gaps emitted. Never raises.
+    """
+    try:
+        from app.trajectory.effectiveness import (
+            worst_tips, MIN_USES_FOR_ACTION,
+        )
+        from app.self_improvement.integrator import load_record
+        from app.self_improvement.store import emit_gap
+    except Exception:
+        return 0
+
+    emitted = 0
+    try:
+        bottom = worst_tips(k=20, min_uses=MIN_USES_FOR_ACTION)
+    except Exception:
+        return 0
+
+    for row in bottom:
+        if row.get("effectiveness", 1.0) >= _LOW_EFFECTIVENESS_THRESHOLD:
+            continue  # above threshold — healthy enough
+        sid = row.get("skill_id", "")
+        if not sid:
+            continue
+        try:
+            rec = load_record(sid)
+            if rec is None or rec.status != "active":
+                continue
+            # Only apply to trajectory-sourced tips. External-topic skills
+            # are handled by scan_for_decay's time-based logic.
+            if not rec.provenance.get("tip_type"):
+                continue
+
+            strength = 0.45  # higher than time-based decay — evidence-backed
+            gap = LearningGap(
+                id="",
+                source=GapSource.USAGE_DECAY,
+                description=(
+                    f"Tip '{rec.topic[:80]}' underperforming: "
+                    f"effectiveness={row['effectiveness']:.2f} over "
+                    f"{row['uses']} uses"
+                ),
+                evidence={
+                    "skill_record_id": rec.id,
+                    "kb": rec.kb,
+                    "tip_type": rec.provenance.get("tip_type", ""),
+                    "source_trajectory_id": rec.provenance.get("source_trajectory_id", ""),
+                    "uses": row["uses"],
+                    "successes": row["successes"],
+                    "effectiveness": row["effectiveness"],
+                    "reason": "low_effectiveness",
+                },
+                signal_strength=strength,
+            )
+            if emit_gap(gap):
+                emitted += 1
+        except Exception:
+            logger.debug(f"scan_for_low_effectiveness_tips[{sid}] errored",
+                         exc_info=True)
+
+    if emitted:
+        logger.info(
+            f"Evaluator: emitted {emitted} low-effectiveness tip gap(s)"
+        )
+    return emitted
+
+
 # ── Distribution stats (feeds Phase 6 observability) ─────────────────────────
 
 def usage_distribution() -> dict:

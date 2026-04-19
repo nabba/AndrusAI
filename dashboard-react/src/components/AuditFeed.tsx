@@ -1,19 +1,15 @@
 import { useState, useMemo } from 'react';
-import { useApi } from '../hooks/useApi';
-import type { AuditEntry } from '../types/index.ts';
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-[#1e2738] rounded ${className}`} />;
-}
+import { Skeleton } from './ui/Skeleton';
+import { ErrorPanel } from './ui/ErrorPanel';
+import { useAuditQuery } from '../api/queries';
+import { useProject } from '../context/useProject';
 
 export function AuditFeed() {
   const [actorFilter, setActorFilter] = useState('');
   const [actionFilter, setActionFilter] = useState('');
+  const { activeProject, isAllProjects } = useProject();
 
-  const { data: entries, loading, error } = useApi<AuditEntry[]>(
-    '/audit?limit=100',
-    10000
-  );
+  const { data: entries, isLoading, error, refetch } = useAuditQuery(100, activeProject?.id);
 
   const filtered = useMemo(() => {
     if (!entries) return [];
@@ -24,7 +20,6 @@ export function AuditFeed() {
     });
   }, [entries, actorFilter, actionFilter]);
 
-  // Unique actors for suggestions
   const actors = useMemo(() => {
     if (!entries) return [];
     return Array.from(new Set(entries.map((e) => e.actor))).sort();
@@ -40,10 +35,16 @@ export function AuditFeed() {
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold text-[#e2e8f0]">Audit Feed</h1>
-        <p className="text-sm text-[#7a8599] mt-1">Auto-refreshes every 10 seconds</p>
+        <p className="text-sm text-[#7a8599] mt-1">
+          {isAllProjects
+            ? 'All projects'
+            : activeProject
+            ? `Project: ${activeProject.name}`
+            : 'All projects'}
+          <span className="opacity-60"> · auto-refreshes every 10 seconds</span>
+        </p>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <div className="relative">
           <input
@@ -94,14 +95,14 @@ export function AuditFeed() {
       </div>
 
       <div className="bg-[#111820] border border-[#1e2738] rounded-lg overflow-hidden">
-        {loading ? (
+        {isLoading ? (
           <div className="p-4 space-y-2">
             {Array.from({ length: 8 }).map((_, i) => (
               <Skeleton key={i} className="h-10" />
             ))}
           </div>
         ) : error ? (
-          <div className="p-8 text-center text-[#f87171] text-sm">{error}</div>
+          <div className="p-4"><ErrorPanel error={error} onRetry={refetch} /></div>
         ) : filtered.length === 0 ? (
           <div className="p-8 text-center text-[#7a8599] text-sm">
             {entries && entries.length > 0 ? 'No entries match filters.' : 'No audit entries yet.'}
@@ -111,21 +112,11 @@ export function AuditFeed() {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-[#111820]">
                 <tr className="border-b border-[#1e2738]">
-                  <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider whitespace-nowrap">
-                    Timestamp
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">
-                    Actor
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">
-                    Action
-                  </th>
-                  <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">
-                    Resource
-                  </th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">
-                    Cost
-                  </th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider whitespace-nowrap">Timestamp</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">Actor</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">Action</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">Resource</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">Cost</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1e2738]">

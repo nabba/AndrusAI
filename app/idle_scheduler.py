@@ -405,6 +405,18 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         SelfImprovementCrew().run()
     jobs.append(("learn-queue", _learn_queue, JobWeight.HEAVY))
 
+    # ── Trajectory tips (arXiv:2603.10600): synthesize learnings from
+    # captured execution trajectories. No-op when either trajectory_enabled
+    # or tip_synthesis_enabled is False — zero cost until explicitly
+    # rolled out. MEDIUM weight matches improvement-scan's cost profile.
+    def _trajectory_tips():
+        try:
+            from app.crews.self_improvement_crew import SelfImprovementCrew
+            SelfImprovementCrew().run_trajectory_tips(max_tips=3)
+        except Exception:
+            logger.debug("idle_scheduler: trajectory tips failed", exc_info=True)
+    jobs.append(("trajectory-tips", _trajectory_tips, JobWeight.MEDIUM))
+
     # ── Evolution: run experiments (2 iterations per idle slot) ─────────
     # Reduced from 5 to 2: each iteration takes ~4min, so 5 = 20min which
     # starves all subsequent jobs. 2 iterations keeps total under 10min.
@@ -450,11 +462,18 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
     # ── Evaluator: flush usage hits + scan for zombie skills ───────────
     # Pending usage-hit buffer flushes to the SkillRecord index; decay
     # sweep emits USAGE_DECAY gaps for skills idle > 30 days.
+    # Phase 6 (arXiv:2603.10600): additional sweep for trajectory tips
+    # whose measured effectiveness has dropped below threshold.
     def _evaluator_sweep():
         try:
-            from app.self_improvement.evaluator import flush_hits, scan_for_decay
+            from app.self_improvement.evaluator import (
+                flush_hits, scan_for_decay, scan_for_low_effectiveness_tips,
+            )
             flush_hits()
             scan_for_decay()
+            # No-op in practice unless trajectory tips exist AND have
+            # enough samples for the effectiveness signal to be acted on.
+            scan_for_low_effectiveness_tips()
         except Exception:
             logger.debug("evaluator sweep failed", exc_info=True)
     jobs.append(("evaluator-sweep", _evaluator_sweep, JobWeight.LIGHT))
@@ -1358,6 +1377,83 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         except Exception:
             logger.debug("idle_scheduler: wiki hot cache update failed", exc_info=True)
     jobs.append(("wiki-hot-cache", _wiki_hot_cache, JobWeight.LIGHT))
+
+    # ── Wiki synthesis: promote ready skill files into the wiki ───────
+    def _wiki_synthesis():
+        """Promote synthesised skill files from workspace/skills/ into the
+        wiki as meta/ pages. Each cycle promotes up to 3 unsynced files."""
+        import os
+        import re
+        from pathlib import Path
+
+        from app.tools.wiki_tools import WikiWriteTool, WIKI_ROOT
+
+        skills_dir = Path("/app/workspace/skills")
+        if not skills_dir.is_dir():
+            return
+
+        meta_dir = Path(WIKI_ROOT) / "meta"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+
+        def _normalise_slug(stem: str) -> str:
+            slug = re.sub(r"[^a-z0-9-]+", "-", stem.lower()).strip("-")
+            slug = re.sub(r"-{2,}", "-", slug)
+            return slug[:80] or "skill"
+
+        def _extract_title(text: str, fallback: str) -> str:
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("# "):
+                    return stripped.lstrip("#").strip()[:200] or fallback
+            return fallback
+
+        writer = WikiWriteTool()
+        promoted = 0
+        max_per_cycle = 3
+
+        for skill_file in sorted(skills_dir.glob("*.md")):
+            if promoted >= max_per_cycle:
+                break
+            if should_yield():
+                break
+
+            slug = _normalise_slug(skill_file.stem)
+            target = meta_dir / f"{slug}.md"
+            if target.exists():
+                continue
+
+            try:
+                content = skill_file.read_text(encoding="utf-8").strip()
+            except Exception:
+                continue
+            if len(content) < 50:
+                continue
+
+            title = _extract_title(content, skill_file.stem.replace("_", " ").title())
+
+            result = writer._run(
+                action="create",
+                section="meta",
+                slug=slug,
+                title=title,
+                content=content,
+                author="idle_scheduler.wiki_synthesis",
+                confidence="medium",
+                tags="self-improvement,skills,auto-synthesised",
+                source=f"workspace/skills/{skill_file.name}",
+            )
+            if result.startswith("Created"):
+                promoted += 1
+                logger.info(
+                    f"idle_scheduler: wiki-synthesis promoted "
+                    f"{skill_file.name} → meta/{slug}"
+                )
+            else:
+                logger.debug(f"idle_scheduler: wiki-synthesis skipped {skill_file.name}: {result[:120]}")
+
+        if promoted == 0:
+            logger.debug("idle_scheduler: wiki-synthesis nothing to promote")
+    jobs.append(("wiki-synthesis", _wiki_synthesis, JobWeight.MEDIUM))
 
     # ── Phase 16a: SubIA idle jobs (TSAL + Phase 12) ──────────────────
     # Gated on subia_idle_jobs_enabled. Each wrapper lazy-imports the

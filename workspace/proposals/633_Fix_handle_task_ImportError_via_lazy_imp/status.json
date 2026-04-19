@@ -2,7 +2,7 @@
   "id": 633,
   "title": "Fix handle_task ImportError via lazy import",
   "type": "code",
-  "status": "pending",
+  "status": "rejected",
   "created_at": "2026-04-18T19:37:21.404403+00:00",
   "applied_at": null,
   "dirname": "633_Fix_handle_task_ImportError_via_lazy_imp",
@@ -15,5 +15,6 @@
       "SYNTAX OK: handle_task.py",
       "COMPILE OK: handle_task.py"
     ]
-  }
+  },
+  "rejected_at": "2026-04-19T13:14:08.428645+00:00"
 }

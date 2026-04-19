@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { ProjectSwitcher } from './ProjectSwitcher';
-import { useApi } from '../hooks/useApi';
-import type { HealthStatus } from '../types/index.ts';
+import { useHealthQuery } from '../api/queries';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '📊', exact: true },
   { to: '/tickets', label: 'Tickets', icon: '🎫', exact: false },
+  { to: '/tasks', label: 'Tasks', icon: '⚡', exact: false },
   { to: '/budgets', label: 'Budgets', icon: '💰', exact: false },
   { to: '/audit', label: 'Audit', icon: '📜', exact: false },
   { to: '/governance', label: 'Governance', icon: '⚖️', exact: false },
@@ -14,12 +14,16 @@ const NAV_ITEMS = [
   { to: '/costs', label: 'Costs', icon: '📈', exact: false },
   { to: '/workspaces', label: 'Workspaces', icon: '🧠', exact: false },
   { to: '/evolution', label: 'Evolution', icon: '🧬', exact: false },
+  { to: '/ops', label: 'Ops', icon: '🛠️', exact: false },
+  { to: '/llms', label: 'LLMs', icon: '🤖', exact: false },
   { to: '/knowledge', label: 'Knowledge', icon: '📚', exact: false },
+  { to: '/notes', label: 'Notes', icon: '📝', exact: false },
+  { to: '/wiki', label: 'Wiki', icon: '📖', exact: false },
 ];
 
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { data: health } = useApi<HealthStatus>('/health', 30000);
+  const { data: health } = useHealthQuery();
 
   const statusColor =
     health?.status === 'ok'

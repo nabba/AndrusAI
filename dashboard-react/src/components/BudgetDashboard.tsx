@@ -1,51 +1,42 @@
 import { useState } from 'react';
-import { useApi } from '../hooks/useApi';
-import { useProject } from '../context/ProjectContext';
-import type { Budget } from '../types/index.ts';
-import { api } from '../api/client';
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-[#1e2738] rounded ${className}`} />;
-}
+import { useProject } from '../context/useProject';
+import type { Budget } from '../types';
+import { Skeleton } from './ui/Skeleton';
+import { ErrorPanel } from './ui/ErrorPanel';
+import { useBudgetsQuery, useOverrideBudget } from '../api/queries';
 
 function OverrideModal({
   budget,
   onClose,
-  onDone,
 }: {
   budget: Budget;
   onClose: () => void;
-  onDone: () => void;
 }) {
   const [newLimit, setNewLimit] = useState(budget.limit_usd.toString());
   const [reason, setReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
+  const [localError, setLocalError] = useState('');
+  const override = useOverrideBudget();
 
   const handleSubmit = async () => {
     const limit = parseFloat(newLimit);
     if (isNaN(limit) || limit <= 0) {
-      setError('Please enter a valid limit greater than 0.');
+      setLocalError('Please enter a valid limit greater than 0.');
       return;
     }
-    setSubmitting(true);
-    setError('');
+    setLocalError('');
     try {
-      await api('/budgets/override', {
-        method: 'POST',
-        body: JSON.stringify({
-          budget_id: budget.agent_role,
-          new_limit: limit,
-          reason: reason || undefined,
-        }),
+      await override.mutateAsync({
+        budget_id: budget.agent_role,
+        new_limit: limit,
+        reason: reason || undefined,
       });
-      onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Override failed');
-    } finally {
-      setSubmitting(false);
+      onClose();
+    } catch {
+      // error surfaced via override.error
     }
   };
+
+  const error = localError || (override.error instanceof Error ? override.error.message : '');
 
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -55,7 +46,7 @@ function OverrideModal({
       >
         <div className="flex items-center justify-between p-4 border-b border-[#1e2738]">
           <h2 className="text-base font-semibold text-[#e2e8f0]">Override Budget</h2>
-          <button onClick={onClose} className="text-[#7a8599] hover:text-[#e2e8f0]">
+          <button onClick={onClose} aria-label="Close" className="text-[#7a8599] hover:text-[#e2e8f0]">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -97,10 +88,10 @@ function OverrideModal({
             </button>
             <button
               onClick={handleSubmit}
-              disabled={submitting}
+              disabled={override.isPending}
               className="flex-1 px-4 py-2 bg-[#60a5fa]/20 border border-[#60a5fa]/30 text-[#60a5fa] text-sm rounded-lg hover:bg-[#60a5fa]/30 disabled:opacity-50 transition-colors"
             >
-              {submitting ? 'Saving...' : 'Apply Override'}
+              {override.isPending ? 'Saving...' : 'Apply Override'}
             </button>
           </div>
         </div>
@@ -112,12 +103,7 @@ function OverrideModal({
 export function BudgetDashboard() {
   const { activeProject } = useProject();
   const [overrideBudget, setOverrideBudget] = useState<Budget | null>(null);
-
-  const projectParam = activeProject ? `?project_id=${activeProject.id}` : '';
-  const { data: budgets, loading, refetch } = useApi<Budget[]>(
-    `/budgets${projectParam}`,
-    15000
-  );
+  const { data: budgets, isLoading, error, refetch } = useBudgetsQuery(activeProject?.id);
 
   const totalSpent = budgets?.reduce((s, b) => s + b.spent_usd, 0) ?? 0;
   const totalLimit = budgets?.reduce((s, b) => s + b.limit_usd, 0) ?? 0;
@@ -131,7 +117,6 @@ export function BudgetDashboard() {
         </p>
       </div>
 
-      {/* Monthly total */}
       <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-medium text-[#7a8599]">Monthly Total</h2>
@@ -142,9 +127,9 @@ export function BudgetDashboard() {
         <div className="w-full bg-[#1e2738] rounded-full h-3">
           <div
             className={`h-3 rounded-full transition-all ${
-              totalLimit > 0 && (totalSpent / totalLimit) > 0.85
+              totalLimit > 0 && totalSpent / totalLimit > 0.85
                 ? 'bg-[#f87171]'
-                : totalLimit > 0 && (totalSpent / totalLimit) > 0.6
+                : totalLimit > 0 && totalSpent / totalLimit > 0.6
                 ? 'bg-[#fbbf24]'
                 : 'bg-[#34d399]'
             }`}
@@ -164,13 +149,14 @@ export function BudgetDashboard() {
         </div>
       </div>
 
-      {/* Per-agent budgets */}
-      {loading ? (
+      {isLoading ? (
         <div className="space-y-4">
           {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-24" />
           ))}
         </div>
+      ) : error ? (
+        <ErrorPanel error={error} onRetry={refetch} />
       ) : !budgets || budgets.length === 0 ? (
         <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-8 text-center">
           <p className="text-[#7a8599]">No budgets configured.</p>
@@ -242,10 +228,6 @@ export function BudgetDashboard() {
         <OverrideModal
           budget={overrideBudget}
           onClose={() => setOverrideBudget(null)}
-          onDone={() => {
-            setOverrideBudget(null);
-            refetch();
-          }}
         />
       )}
     </div>

@@ -89,12 +89,23 @@ def _get_conn() -> sqlite3.Connection:
                 completion_tokens INTEGER NOT NULL,
                 total_tokens      INTEGER NOT NULL,
                 cost_usd          REAL NOT NULL DEFAULT 0.0,
-                ts                TEXT NOT NULL
+                ts                TEXT NOT NULL,
+                project_id        TEXT
             )
         """)
+        # Backfill column for older schemas — NULL is the expected value for
+        # pre-migration rows, so no DEFAULT is set.
+        try:
+            conn.execute("ALTER TABLE token_usage ADD COLUMN project_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tu_model_ts "
             "ON token_usage(model, ts)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tu_project_ts "
+            "ON token_usage(project_id, ts)"
         )
         conn.execute("""
             CREATE TABLE IF NOT EXISTS request_costs (
@@ -106,7 +117,8 @@ def _get_conn() -> sqlite3.Connection:
                 total_cost_usd    REAL NOT NULL,
                 call_count        INTEGER NOT NULL,
                 models_used       TEXT NOT NULL,
-                ts                TEXT NOT NULL
+                ts                TEXT NOT NULL,
+                project_id        TEXT
             )
         """)
         # Add crew_name column if upgrading from older schema
@@ -114,9 +126,17 @@ def _get_conn() -> sqlite3.Connection:
             conn.execute("ALTER TABLE request_costs ADD COLUMN crew_name TEXT NOT NULL DEFAULT ''")
         except sqlite3.OperationalError:
             pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE request_costs ADD COLUMN project_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_rc_ts "
             "ON request_costs(ts)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rc_project_ts "
+            "ON request_costs(project_id, ts)"
         )
         conn.commit()
         _local.conn = conn
@@ -283,15 +303,27 @@ def record_tokens(
     prompt_tokens: int,
     completion_tokens: int,
     cost_usd: float = 0.0,
+    project_id: str | None = None,
 ) -> None:
-    """Record token usage from a single LLM call (batched write)."""
+    """Record token usage from a single LLM call (batched write).
+
+    ``project_id`` is resolved from the ContextVar / global active project if
+    the caller doesn't supply one, so no call-site change is required to get
+    per-project attribution.
+    """
     try:
         total = prompt_tokens + completion_tokens
+        if project_id is None:
+            try:
+                from app.project_context import resolve_current_project_id
+                project_id = resolve_current_project_id()
+            except Exception:
+                project_id = None
         _buffered_write(
-            "INSERT INTO token_usage (model, prompt_tokens, completion_tokens, total_tokens, cost_usd, ts) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO token_usage (model, prompt_tokens, completion_tokens, total_tokens, cost_usd, ts, project_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (model, prompt_tokens, completion_tokens, total,
-             cost_usd, datetime.now(timezone.utc).isoformat()),
+             cost_usd, datetime.now(timezone.utc).isoformat(), project_id),
         )
     except Exception:
         logger.debug("llm_benchmarks: failed to record tokens", exc_info=True)
@@ -342,10 +374,12 @@ def get_tokens_since(since_iso: str) -> dict:
         return {"total_tokens": 0, "cost_usd": 0.0, "models": ""}
 
 
-def get_token_stats(period: str = "day") -> list[dict]:
+def get_token_stats(period: str = "day", project_id: str | None = None) -> list[dict]:
     """
     Aggregate token usage by model for a time period.
     period: 'hour', 'day', 'week', 'month', 'quarter', 'year'
+    project_id: when provided, filter to rows tagged with that project; rows
+      recorded before per-project tagging landed have NULL and are excluded.
     Returns: [{"model": str, "prompt_tokens": int, "completion_tokens": int,
                "total": int, "cost_usd": float, "calls": int}]
     """
@@ -357,7 +391,7 @@ def get_token_stats(period: str = "day") -> list[dict]:
     hours = _PERIOD_HOURS.get(period, 24)
     try:
         conn = _get_conn()
-        rows = conn.execute(
+        sql = (
             "SELECT model, "
             "       SUM(prompt_tokens) as prompt, "
             "       SUM(completion_tokens) as completion, "
@@ -365,11 +399,14 @@ def get_token_stats(period: str = "day") -> list[dict]:
             "       SUM(cost_usd) as cost, "
             "       COUNT(*) as calls "
             "FROM token_usage "
-            "WHERE ts >= datetime('now', '-' || ? || ' hours') "
-            "GROUP BY model "
-            "ORDER BY total DESC",
-            (str(hours),),
-        ).fetchall()
+            "WHERE ts >= datetime('now', '-' || ? || ' hours')"
+        )
+        params: list = [str(hours)]
+        if project_id:
+            sql += " AND project_id = ?"
+            params.append(project_id)
+        sql += " GROUP BY model ORDER BY total DESC"
+        rows = conn.execute(sql, tuple(params)).fetchall()
     except Exception:
         return []
 
@@ -411,13 +448,20 @@ def record_request_cost(tracker) -> None:
     try:
         models = ",".join(sorted(tracker.models_used)) if tracker.models_used else "none"
         crew = getattr(tracker, "crew_name", "") or ""
+        project_id = getattr(tracker, "project_id", None)
+        if not project_id:
+            try:
+                from app.project_context import resolve_current_project_id
+                project_id = resolve_current_project_id()
+            except Exception:
+                project_id = None
         _buffered_write(
             "INSERT INTO request_costs "
-            "(request_id, crew_name, total_prompt, total_completion, total_cost_usd, call_count, models_used, ts) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "(request_id, crew_name, total_prompt, total_completion, total_cost_usd, call_count, models_used, ts, project_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (tracker.request_id, crew, tracker.total_prompt_tokens, tracker.total_completion_tokens,
              tracker.total_cost_usd, tracker.call_count, models,
-             datetime.now(timezone.utc).isoformat()),
+             datetime.now(timezone.utc).isoformat(), project_id),
         )
     except Exception:
         logger.debug("llm_benchmarks: failed to record request cost", exc_info=True)
@@ -473,7 +517,7 @@ def get_last_request_cost() -> dict | None:
         return None
 
 
-def get_request_cost_stats(period: str = "day") -> dict:
+def get_request_cost_stats(period: str = "day", project_id: str | None = None) -> dict:
     """Aggregate request-level cost stats for a time period.
 
     Returns: {"requests": int, "total_cost_usd": float, "avg_cost_usd": float,
@@ -486,16 +530,20 @@ def get_request_cost_stats(period: str = "day") -> dict:
     hours = _PERIOD_HOURS_RC.get(period, 24)
     try:
         conn = _get_conn()
-        row = conn.execute(
+        sql = (
             "SELECT COUNT(*) as requests, "
             "       COALESCE(SUM(total_cost_usd), 0) as total_cost, "
             "       COALESCE(AVG(total_cost_usd), 0) as avg_cost, "
             "       COALESCE(AVG(call_count), 0) as avg_calls, "
             "       COALESCE(AVG(total_prompt + total_completion), 0) as avg_tokens "
             "FROM request_costs "
-            "WHERE ts >= datetime('now', '-' || ? || ' hours')",
-            (str(hours),),
-        ).fetchone()
+            "WHERE ts >= datetime('now', '-' || ? || ' hours')"
+        )
+        params: list = [str(hours)]
+        if project_id:
+            sql += " AND project_id = ?"
+            params.append(project_id)
+        row = conn.execute(sql, tuple(params)).fetchone()
         if row:
             return {
                 "requests": row[0],
@@ -509,7 +557,7 @@ def get_request_cost_stats(period: str = "day") -> dict:
     return {"requests": 0, "total_cost_usd": 0, "avg_cost_usd": 0, "avg_calls": 0, "avg_tokens": 0}
 
 
-def get_crew_cost_stats(period: str = "day") -> list[dict]:
+def get_crew_cost_stats(period: str = "day", project_id: str | None = None) -> list[dict]:
     """Aggregate cost stats per crew for a time period.
 
     Returns: [{"crew": str, "requests": int, "total_cost_usd": float,
@@ -522,7 +570,7 @@ def get_crew_cost_stats(period: str = "day") -> list[dict]:
     hours = _PERIOD_HOURS_CC.get(period, 24)
     try:
         conn = _get_conn()
-        rows = conn.execute(
+        sql = (
             "SELECT crew_name, "
             "       COUNT(*) as requests, "
             "       COALESCE(SUM(total_cost_usd), 0) as total_cost, "
@@ -530,11 +578,14 @@ def get_crew_cost_stats(period: str = "day") -> list[dict]:
             "       COALESCE(AVG(total_prompt + total_completion), 0) as avg_tokens "
             "FROM request_costs "
             "WHERE ts >= datetime('now', '-' || ? || ' hours') "
-            "AND crew_name != '' "
-            "GROUP BY crew_name "
-            "ORDER BY total_cost DESC",
-            (str(hours),),
-        ).fetchall()
+            "AND crew_name != ''"
+        )
+        params: list = [str(hours)]
+        if project_id:
+            sql += " AND project_id = ?"
+            params.append(project_id)
+        sql += " GROUP BY crew_name ORDER BY total_cost DESC"
+        rows = conn.execute(sql, tuple(params)).fetchall()
         return [
             {"crew": r[0], "requests": r[1], "total_cost_usd": round(r[2], 4),
              "avg_cost_usd": round(r[3], 6), "avg_tokens": round(r[4], 0)}

@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ProjectProvider } from './context/ProjectContext';
 import { Layout } from './components/Layout';
 import { Dashboard } from './components/Dashboard';
@@ -8,9 +9,52 @@ import { AuditFeed } from './components/AuditFeed';
 import { GovernanceQueue } from './components/GovernanceQueue';
 import { OrgChart } from './components/OrgChart';
 import { CostCharts } from './components/CostCharts';
-import { WorkspacesPage } from './components/WorkspacesPage';
-import { EvolutionMonitor } from './components/EvolutionMonitor';
-import { KnowledgeBases } from './components/KnowledgeBases';
+import { NotFound } from './components/ui/NotFound';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { Skeleton } from './components/ui/Skeleton';
+
+// Heavy routes load on demand — avoids shipping Chart.js / massive components on first paint.
+const WorkspacesPage = lazy(() =>
+  import('./components/WorkspacesPage').then((m) => ({ default: m.WorkspacesPage })),
+);
+const EvolutionMonitor = lazy(() =>
+  import('./components/EvolutionMonitor').then((m) => ({ default: m.EvolutionMonitor })),
+);
+const KnowledgeBases = lazy(() =>
+  import('./components/KnowledgeBases').then((m) => ({ default: m.KnowledgeBases })),
+);
+const TasksPage = lazy(() =>
+  import('./components/TasksPage').then((m) => ({ default: m.TasksPage })),
+);
+const OpsPage = lazy(() =>
+  import('./components/OpsPage').then((m) => ({ default: m.OpsPage })),
+);
+const LlmsPage = lazy(() =>
+  import('./components/LlmsPage').then((m) => ({ default: m.LlmsPage })),
+);
+const NotesPage = lazy(() =>
+  import('./components/NotesPage').then((m) => ({ default: m.NotesPage })),
+);
+const WikiPage = lazy(() =>
+  import('./components/WikiPage').then((m) => ({ default: m.WikiPage })),
+);
+
+function RouteFallback() {
+  return (
+    <div className="space-y-4">
+      <Skeleton className="h-6 w-48" />
+      <Skeleton className="h-64" />
+    </div>
+  );
+}
+
+function LazyRoute({ children }: { children: React.ReactNode }) {
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<RouteFallback />}>{children}</Suspense>
+    </ErrorBoundary>
+  );
+}
 
 export default function App() {
   return (
@@ -18,17 +62,22 @@ export default function App() {
       <BrowserRouter basename="/cp">
         <Routes>
           <Route element={<Layout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/tickets" element={<KanbanBoard />} />
-            <Route path="/budgets" element={<BudgetDashboard />} />
-            <Route path="/audit" element={<AuditFeed />} />
-            <Route path="/governance" element={<GovernanceQueue />} />
-            <Route path="/org-chart" element={<OrgChart />} />
-            <Route path="/costs" element={<CostCharts />} />
-            <Route path="/workspaces" element={<WorkspacesPage />} />
-            <Route path="/evolution" element={<EvolutionMonitor />} />
-            <Route path="/knowledge" element={<KnowledgeBases />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="/" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+            <Route path="/tickets" element={<ErrorBoundary><KanbanBoard /></ErrorBoundary>} />
+            <Route path="/tasks" element={<LazyRoute><TasksPage /></LazyRoute>} />
+            <Route path="/ops" element={<LazyRoute><OpsPage /></LazyRoute>} />
+            <Route path="/llms" element={<LazyRoute><LlmsPage /></LazyRoute>} />
+            <Route path="/notes" element={<LazyRoute><NotesPage /></LazyRoute>} />
+            <Route path="/wiki" element={<LazyRoute><WikiPage /></LazyRoute>} />
+            <Route path="/budgets" element={<ErrorBoundary><BudgetDashboard /></ErrorBoundary>} />
+            <Route path="/audit" element={<ErrorBoundary><AuditFeed /></ErrorBoundary>} />
+            <Route path="/governance" element={<ErrorBoundary><GovernanceQueue /></ErrorBoundary>} />
+            <Route path="/org-chart" element={<ErrorBoundary><OrgChart /></ErrorBoundary>} />
+            <Route path="/costs" element={<ErrorBoundary><CostCharts /></ErrorBoundary>} />
+            <Route path="/workspaces" element={<LazyRoute><WorkspacesPage /></LazyRoute>} />
+            <Route path="/evolution" element={<LazyRoute><EvolutionMonitor /></LazyRoute>} />
+            <Route path="/knowledge" element={<LazyRoute><KnowledgeBases /></LazyRoute>} />
+            <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
       </BrowserRouter>

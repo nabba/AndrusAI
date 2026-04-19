@@ -22,11 +22,14 @@ _task_start_lock = threading.Lock()
 
 def crew_started(crew: str, task_summary: str, eta_seconds: int | None = None,
                  parent_task_id: str | None = None,
-                 model: str | None = None) -> str:
+                 model: str | None = None,
+                 project_id: str | None = None) -> str:
     """Mark a crew as active.  Returns a task_id for later updates.
 
     If parent_task_id is set, this task is a sub-agent spawned by a parent task.
     model: the LLM model name used for this task (e.g. "qwen3:30b-a3b").
+    project_id: attribution for the /api/cp/tasks filter. Resolves from the
+      project ContextVar / global active project when omitted.
     """
     task_id = uuid.uuid4().hex
     # Record start time for token attribution fallback in crew_completed
@@ -35,6 +38,13 @@ def crew_started(crew: str, task_summary: str, eta_seconds: int | None = None,
     eta_iso = None
     if eta_seconds:
         eta_iso = (datetime.now(timezone.utc) + timedelta(seconds=eta_seconds)).isoformat()
+
+    if project_id is None:
+        try:
+            from app.project_context import resolve_current_project_id
+            project_id = resolve_current_project_id()
+        except Exception:
+            project_id = None
 
     def _write():
         db = _get_db()
@@ -52,6 +62,7 @@ def crew_started(crew: str, task_summary: str, eta_seconds: int | None = None,
                     "started_at": now,
                     "eta": eta_iso,
                     "model": model or "",
+                    "project_id": project_id,
                     "last_updated": now,
                 })
             # Write a task record
@@ -67,6 +78,7 @@ def crew_started(crew: str, task_summary: str, eta_seconds: int | None = None,
                 "parent_task_id": parent_task_id,
                 "is_sub_agent": parent_task_id is not None,
                 "model": model or "",
+                "project_id": project_id,
                 "delegated_to": None,
                 "delegated_from": None,
             })

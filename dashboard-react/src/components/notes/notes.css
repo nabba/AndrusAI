@@ -1,0 +1,157 @@
+/* Prose + callouts + wikilinks styling for the Obsidian-style viewer. */
+
+.note-prose {
+  color: #e2e8f0;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.note-prose h1 {
+  font-size: 1.55rem;
+  font-weight: 700;
+  margin: 1.2rem 0 0.8rem;
+  color: #f1f5f9;
+  border-bottom: 1px solid #1e2738;
+  padding-bottom: 0.3rem;
+}
+.note-prose h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 1.1rem 0 0.5rem;
+  color: #e2e8f0;
+}
+.note-prose h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0.9rem 0 0.4rem;
+  color: #e2e8f0;
+}
+.note-prose h4 { font-size: 0.98rem; font-weight: 600; margin: 0.8rem 0 0.3rem; color: #cbd5e1; }
+.note-prose h5, .note-prose h6 { font-size: 0.9rem; font-weight: 600; margin: 0.7rem 0 0.2rem; color: #cbd5e1; }
+
+.note-prose p { margin: 0.6rem 0; }
+.note-prose strong { color: #f1f5f9; }
+.note-prose em { color: #a78bfa; font-style: italic; }
+
+.note-prose ul, .note-prose ol {
+  margin: 0.4rem 0 0.6rem 1.2rem;
+}
+.note-prose li { margin: 0.2rem 0; }
+.note-prose li > p { margin: 0.15rem 0; }
+
+.note-prose hr {
+  border: none;
+  border-top: 1px solid #1e2738;
+  margin: 1rem 0;
+}
+
+.note-prose blockquote:not(.callout) {
+  border-left: 3px solid #60a5fa;
+  background: rgba(96, 165, 250, 0.05);
+  margin: 0.6rem 0;
+  padding: 0.35rem 0.8rem;
+  color: #cbd5e1;
+  border-radius: 0 4px 4px 0;
+}
+
+.note-prose code:not(pre code) {
+  background: #1e2738;
+  padding: 0.1em 0.4em;
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: #f472b6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.note-prose pre {
+  background: #0a0e14 !important;
+  border: 1px solid #1e2738;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin: 0.6rem 0;
+  overflow-x: auto;
+  font-size: 0.82em;
+  line-height: 1.5;
+}
+.note-prose pre code {
+  background: transparent !important;
+  padding: 0;
+  color: #e2e8f0;
+}
+
+.note-prose .task-list-item {
+  list-style: none;
+}
+.note-prose .task-list-item input[type="checkbox"] {
+  margin-right: 0.45rem;
+  accent-color: #60a5fa;
+}
+
+/* ── Wikilinks ─────────────────────────────────────────────────────────── */
+.note-prose a.wikilink {
+  color: #a78bfa;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.note-prose a.wikilink:hover {
+  color: #c4b5fd;
+  text-decoration-style: solid;
+}
+
+/* ── Callouts (Obsidian-style) ─────────────────────────────────────────── */
+.note-prose .callout {
+  margin: 0.8rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  border-left: 3px solid;
+  background: rgba(96, 165, 250, 0.06);
+  border-left-color: #60a5fa;
+  color: #e2e8f0;
+}
+.note-prose .callout > p { margin: 0.25rem 0; }
+.note-prose .callout-title {
+  font-weight: 700;
+  margin: 0 0 0.35rem !important;
+  color: inherit;
+}
+
+/* Per-kind themes — match Obsidian's default palette roughly. */
+.note-prose .callout-note      { border-left-color: #60a5fa; background: rgba(96, 165, 250, 0.08); }
+.note-prose .callout-note      .callout-title { color: #60a5fa; }
+.note-prose .callout-info      { border-left-color: #22d3ee; background: rgba(34, 211, 238, 0.08); }
+.note-prose .callout-info      .callout-title { color: #22d3ee; }
+.note-prose .callout-tip,
+.note-prose .callout-hint      { border-left-color: #34d399; background: rgba(52, 211, 153, 0.08); }
+.note-prose .callout-tip       .callout-title,
+.note-prose .callout-hint      .callout-title { color: #34d399; }
+.note-prose .callout-success,
+.note-prose .callout-check,
+.note-prose .callout-done      { border-left-color: #34d399; background: rgba(52, 211, 153, 0.08); }
+.note-prose .callout-success   .callout-title,
+.note-prose .callout-check     .callout-title,
+.note-prose .callout-done      .callout-title { color: #34d399; }
+.note-prose .callout-warning,
+.note-prose .callout-caution   { border-left-color: #fbbf24; background: rgba(251, 191, 36, 0.08); }
+.note-prose .callout-warning   .callout-title,
+.note-prose .callout-caution   .callout-title { color: #fbbf24; }
+.note-prose .callout-danger,
+.note-prose .callout-error,
+.note-prose .callout-bug,
+.note-prose .callout-fail,
+.note-prose .callout-failure   { border-left-color: #f87171; background: rgba(248, 113, 113, 0.08); }
+.note-prose .callout-danger    .callout-title,
+.note-prose .callout-error     .callout-title,
+.note-prose .callout-bug       .callout-title,
+.note-prose .callout-fail      .callout-title,
+.note-prose .callout-failure   .callout-title { color: #f87171; }
+.note-prose .callout-question,
+.note-prose .callout-quote     { border-left-color: #a78bfa; background: rgba(167, 139, 250, 0.08); }
+.note-prose .callout-question  .callout-title,
+.note-prose .callout-quote     .callout-title { color: #a78bfa; }
+.note-prose .callout-abstract,
+.note-prose .callout-summary,
+.note-prose .callout-tldr      { border-left-color: #22d3ee; background: rgba(34, 211, 238, 0.08); }
+
+/* KaTeX compensation — dark background + muted color */
+.note-prose .katex { color: #e2e8f0; }
+.note-prose .katex-display { margin: 0.8rem 0; overflow-x: auto; overflow-y: hidden; }

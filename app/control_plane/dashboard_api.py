@@ -251,3 +251,452 @@ def costs_daily(project_id: str = Query(None), days: int = Query(30)):
         (project_id, project_id, days), fetch=True,
     )
     return rows or []
+
+# ── Operations: errors, anomalies, self-deploy pipeline ──────────────────────
+
+@router.get("/errors")
+def recent_errors(limit: int = Query(20, ge=1, le=200)):
+    """Recent errors + pattern counts from the self-heal journal."""
+    recent: list[dict] = []
+    patterns: dict[str, int] = {}
+    err: str | None = None
+    try:
+        from app.self_heal import get_recent_errors, get_error_patterns
+        recent = list(get_recent_errors(limit) or [])
+        patterns = dict(get_error_patterns() or {})
+    except Exception as exc:
+        err = str(exc)
+        logger.debug("errors endpoint: %s", exc)
+    return {
+        "recent": recent,
+        "patterns": patterns,
+        "total_recent": len(recent),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "error": err,
+    }
+
+@router.get("/anomalies")
+def recent_anomalies(limit: int = Query(20, ge=1, le=200)):
+    """Recent statistical anomaly alerts from the detector."""
+    alerts: list[dict] = []
+    err: str | None = None
+    try:
+        from app.anomaly_detector import get_recent_alerts
+        alerts = list(get_recent_alerts(limit) or [])
+    except Exception as exc:
+        err = str(exc)
+        logger.debug("anomalies endpoint: %s", exc)
+    return {
+        "recent_alerts": alerts,
+        "total": len(alerts),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "error": err,
+    }
+
+@router.get("/deploys")
+def recent_deploys(limit: int = Query(20, ge=1, le=200)):
+    """Recent entries from the self-deploy pipeline log."""
+    from pathlib import Path as _Path
+    import json as _json
+    entries: list[dict] = []
+    err: str | None = None
+    try:
+        path = _Path("/app/workspace/deploy_log.json")
+        if path.exists():
+            try:
+                raw = _json.loads(path.read_text() or "[]")
+                if isinstance(raw, list):
+                    entries = raw[-limit:][::-1]  # newest first
+            except Exception as exc:
+                err = f"deploy log parse: {exc}"
+    except Exception as exc:
+        err = str(exc)
+    auto_deploy = None
+    try:
+        from app.config import get_settings
+        auto_deploy = bool(getattr(get_settings(), "evolution_auto_deploy", False))
+    except Exception:
+        pass
+    return {
+        "recent": entries,
+        "auto_deploy_enabled": auto_deploy,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "error": err,
+    }
+
+# ── Tech radar (scoped operational memory) ───────────────────────────────────
+
+@router.get("/tech-radar")
+def tech_radar(limit: int = Query(20, ge=1, le=100)):
+    """Technology-discovery items collected during idle scans.
+
+    Mirrors the parsing the Firestore publisher performs: memory items stored
+    in ``scope_tech_radar`` follow ``[category] title: summary. Action: ...``.
+    """
+    import re as _re
+    discoveries: list[dict] = []
+    err: str | None = None
+    try:
+        from app.memory.scoped_memory import retrieve_operational
+        items = retrieve_operational("scope_tech_radar", "technology discovery", n=limit) or []
+        for item in items:
+            text = item if isinstance(item, str) else str(item)
+            m = _re.match(r'\[(\w+)\]\s*(.+?):\s*(.+?)(?:\.\s*Action:\s*(.+))?$', text, _re.DOTALL)
+            if m:
+                discoveries.append({
+                    "category": m.group(1),
+                    "title": m.group(2).strip(),
+                    "summary": m.group(3).strip(),
+                    "action": (m.group(4) or "").strip(),
+                })
+            else:
+                discoveries.append({
+                    "category": "unknown",
+                    "title": text[:80],
+                    "summary": text[:200],
+                    "action": "",
+                })
+    except Exception as exc:
+        err = str(exc)
+        logger.debug("tech-radar endpoint: %s", exc)
+    return {
+        "discoveries": discoveries,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "error": err,
+    }
+
+# ── LLM catalog, role assignments, discovery control ─────────────────────────
+
+@router.get("/llms/catalog")
+def llm_catalog():
+    """Current live LLM catalog + role assignments + configured cost mode.
+
+    Reads the runtime ``CATALOG`` dict (mutated by the catalog builder) so
+    newly-discovered models appear without a service restart.
+    """
+    models: list[dict] = []
+    err: str | None = None
+    cost_mode = "balanced"
+    try:
+        from app.llm_catalog import CATALOG
+        for name, entry in CATALOG.items():
+            data = dict(entry)
+            data["name"] = name
+            models.append(data)
+    except Exception as exc:
+        err = str(exc)
+        logger.debug("llms/catalog endpoint: %s", exc)
+    try:
+        from app.config import get_settings
+        cost_mode = getattr(get_settings(), "cost_mode", "balanced") or "balanced"
+    except Exception:
+        pass
+    role_assignments: dict[str, str] = {}
+    try:
+        from app.llm_catalog import resolve_role_default
+        # Discover which roles the system resolves; fall back to a broad set.
+        roles = [
+            "commander", "research", "coding", "writing", "media", "critic",
+            "vetting", "synthesis", "introspector", "self_improve",
+            "planner", "evo_critic", "default",
+        ]
+        for role in roles:
+            try:
+                resolved = resolve_role_default(role, cost_mode)
+                if resolved:
+                    role_assignments[role] = resolved
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return {
+        "models": models,
+        "role_assignments": role_assignments,
+        "cost_mode": cost_mode,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "error": err,
+    }
+
+@router.get("/llms/roles")
+def llm_role_assignments_endpoint():
+    """Explicit role → model assignments stored in PostgreSQL overrides table."""
+    rows: list[dict] = []
+    err: str | None = None
+    try:
+        from app.llm_role_assignments import list_assignments
+        rows = list(list_assignments(active_only=True) or [])
+    except Exception as exc:
+        err = str(exc)
+        logger.debug("llms/roles endpoint: %s", exc)
+    return {
+        "assignments": rows,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "error": err,
+    }
+
+@router.get("/llms/discovery")
+def llm_discovery_status(limit: int = Query(50, ge=1, le=500)):
+    """Recently-discovered models + their benchmarking/promotion status."""
+    from app.control_plane.db import execute
+    models: list[dict] = []
+    err: str | None = None
+    try:
+        rows = execute(
+            """SELECT model_id, provider, display_name, context_window,
+                      cost_input_per_m, cost_output_per_m, multimodal, tool_calling,
+                      benchmark_score, benchmark_role, per_role_scores,
+                      status, promoted_tier, promoted_roles,
+                      created_at, updated_at, promoted_at
+               FROM control_plane.discovered_models
+               ORDER BY COALESCE(updated_at, created_at) DESC
+               LIMIT %s""",
+            (limit,),
+            fetch=True,
+        ) or []
+        models = rows
+    except Exception as exc:
+        err = str(exc)
+        logger.debug("llms/discovery status: %s", exc)
+    return {
+        "discovered": models,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "error": err,
+    }
+
+class DiscoveryRun(BaseModel):
+    max_benchmarks: int = 3
+
+@router.post("/llms/discovery/run")
+def llm_discovery_run(body: DiscoveryRun):
+    """Trigger a discovery cycle synchronously. Returns summary counts."""
+    try:
+        from app.llm_discovery import run_discovery_cycle
+        result = run_discovery_cycle(max_benchmarks=max(1, min(body.max_benchmarks, 10)))
+        return {"status": "ok", "result": result}
+    except Exception as exc:
+        logger.warning("llms/discovery/run failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+# ── Crew tasks (live execution + roster) ─────────────────────────────────────
+
+# Canonical crew roster. "kind" distinguishes user-addressable crews (routed
+# via natural-language dispatch) from internal crews (orchestration, quality
+# review, reflection, self-learning). This list is the single source of truth
+# used to backfill the /tasks response so every crew is always visible in the
+# dashboard even when Firestore hasn't seen it yet.
+_KNOWN_CREWS: tuple[tuple[str, str], ...] = (
+    # User-addressable (11)
+    ("research",       "user"),
+    ("coding",         "user"),
+    ("writing",        "user"),
+    ("media",          "user"),
+    ("creative",       "user"),
+    ("pim",            "user"),
+    ("financial",      "user"),
+    ("desktop",        "user"),
+    ("repo_analysis",  "user"),
+    ("devops",         "user"),
+    ("tech_radar",     "user"),
+    # Internal (4)
+    ("commander",        "internal"),
+    ("critic",           "internal"),
+    ("retrospective",    "internal"),
+    ("self_improvement", "internal"),
+)
+
+@router.get("/tasks")
+def get_crew_tasks(limit: int = Query(20, ge=1, le=200), project_id: str | None = Query(None)):
+    """Return recent crew tasks + crew statuses + full agent roster.
+
+    - `tasks`  — last N Firestore task documents (state=running or completed)
+    - `crews`  — every known crew merged with Firestore status (never missing
+                 from the list even if Firebase is unavailable)
+    - `agents` — the complete PostgreSQL org-chart roster so every agent/
+                 subagent is represented even when idle
+    """
+    tasks: list[dict] = []
+    crews: list[dict] = []
+    firebase_error: str | None = None
+
+    try:
+        from app.firebase.infra import _get_db
+        db = _get_db()
+        if db:
+            try:
+                from google.cloud import firestore as _fs
+                # When filtering, over-fetch so post-filter page size approaches
+                # the requested limit even if older untagged docs are mixed in.
+                fetch_limit = limit * 4 if project_id else limit
+                for d in (
+                    db.collection("tasks")
+                      .order_by("started_at", direction=_fs.Query.DESCENDING)
+                      .limit(fetch_limit)
+                      .stream()
+                ):
+                    data = d.to_dict() or {}
+                    data["id"] = d.id
+                    if project_id and data.get("project_id") != project_id:
+                        continue
+                    tasks.append(data)
+                    if len(tasks) >= limit:
+                        break
+            except Exception as exc:
+                firebase_error = f"tasks read: {exc}"
+                logger.debug("tasks endpoint: %s", firebase_error)
+
+            try:
+                for d in db.collection("crews").stream():
+                    data = d.to_dict() or {}
+                    data["name"] = d.id
+                    crews.append(data)
+            except Exception as exc:
+                if not firebase_error:
+                    firebase_error = f"crews read: {exc}"
+                logger.debug("tasks endpoint crews: %s", exc)
+        else:
+            firebase_error = "Firestore unavailable"
+    except Exception as exc:
+        firebase_error = str(exc)
+        logger.debug("tasks endpoint: firebase infra import failed: %s", exc)
+
+    # Ensure every known crew appears in the list even if Firestore missed it.
+    # Each crew carries a "kind" tag so the dashboard can group user-addressable
+    # crews separately from internal orchestration crews.
+    known_kinds = {name: kind for name, kind in _KNOWN_CREWS}
+    seen_crews = {c.get("name") for c in crews}
+    for c in crews:
+        name = c.get("name")
+        if name in known_kinds and "kind" not in c:
+            c["kind"] = known_kinds[name]
+    for name, kind in _KNOWN_CREWS:
+        if name not in seen_crews:
+            crews.append({"name": name, "state": "unknown", "kind": kind})
+
+    agents: list[dict] = []
+    try:
+        from app.control_plane.org_chart import get_org_chart
+        agents = get_org_chart() or []
+    except Exception as exc:
+        logger.debug("tasks endpoint: org_chart read failed: %s", exc)
+
+    return {
+        "tasks": tasks,
+        "crews": crews,
+        "agents": agents,
+        "project_id": project_id,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "error": firebase_error,
+    }
+
+# ── Token usage & cost projection ────────────────────────────────────────────
+
+_TOKEN_PERIODS = ("hour", "day", "week", "month", "year")
+
+@router.get("/tokens")
+def token_usage(project_id: str | None = Query(None)):
+    """Aggregated token usage, request-level cost stats, and a simple monthly
+    projection. Mirrors the payload the legacy dashboard consumed from the
+    Firestore `status/tokens` + `status/request_costs` documents.
+
+    When ``project_id`` is supplied, only rows tagged with that project are
+    aggregated. Rows recorded before the per-project tagging migration landed
+    have a NULL ``project_id`` and are excluded from filtered responses.
+    """
+    try:
+        from app.llm_benchmarks import (
+            get_token_stats,
+            get_request_cost_stats,
+            get_crew_cost_stats,
+        )
+    except Exception as exc:
+        logger.debug("tokens endpoint: llm_benchmarks import failed: %s", exc)
+        return {
+            "stats": {p: [] for p in _TOKEN_PERIODS},
+            "request_costs": {p: {} for p in ("day", "week", "month")},
+            "by_crew": {"day": []},
+            "projection": {"day_cost_usd": 0.0, "mtd_cost_usd": 0.0, "projected_monthly_usd": 0.0},
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "error": str(exc),
+        }
+
+    stats = {p: get_token_stats(p, project_id=project_id) for p in _TOKEN_PERIODS}
+    request_costs = {
+        p: get_request_cost_stats(p, project_id=project_id) for p in ("day", "week", "month")
+    }
+
+    day_cost = sum(float(r.get("cost_usd") or 0) for r in stats.get("day", []))
+    month_cost = sum(float(r.get("cost_usd") or 0) for r in stats.get("month", []))
+
+    return {
+        "stats": stats,
+        "request_costs": request_costs,
+        "by_crew": {"day": get_crew_cost_stats("day", project_id=project_id)},
+        "projection": {
+            "day_cost_usd": round(day_cost, 6),
+            "mtd_cost_usd": round(month_cost, 6),
+            "projected_monthly_usd": round(day_cost * 30, 4),
+        },
+        "project_id": project_id,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+# ── Consciousness Indicators (Garland / Butlin-Chalmers) ─────────────────────
+
+@router.get("/consciousness")
+def consciousness_indicators(history_limit: int = Query(30, ge=1, le=200)):
+    """Latest consciousness-probe report + historical timeline.
+
+    Shape matches the legacy Firestore document the old HTML dashboard consumed
+    (status/consciousness_probes): { latest, history, updated_at }.
+    Reads from the `internal_states` table where the probe runner persists its
+    output (agent_id='consciousness_probe').
+    """
+    from app.control_plane.db import execute
+    try:
+        rows = execute(
+            """
+            SELECT full_state, created_at
+            FROM internal_states
+            WHERE agent_id = 'consciousness_probe'
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (history_limit,),
+            fetch=True,
+        ) or []
+    except Exception as exc:
+        logger.debug("consciousness endpoint: DB read failed: %s", exc)
+        return {"latest": {}, "history": [], "updated_at": None, "error": str(exc)}
+
+    history: list[dict] = []
+    latest: dict = {}
+    for row in rows:
+        fs = row.get("full_state") if isinstance(row, dict) else row[0]
+        ts = row.get("created_at") if isinstance(row, dict) else row[1]
+        if isinstance(fs, str):
+            try:
+                fs = json.loads(fs)
+            except Exception:
+                continue
+        if not isinstance(fs, dict) or "composite_score" not in fs:
+            continue
+        entry = {
+            "score": fs.get("composite_score"),
+            "timestamp": str(ts),
+            "probes": fs.get("probes", []),
+        }
+        history.append(entry)
+        if not latest:
+            latest = {
+                "report_id": fs.get("report_id", ""),
+                "timestamp": str(ts),
+                "probes": fs.get("probes", []),
+                "composite_score": fs.get("composite_score"),
+                "summary": fs.get("summary", ""),
+            }
+
+    return {
+        "latest": latest,
+        "history": history,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }

@@ -1,5 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
-import { useApi } from '../hooks/useApi';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '../api/client';
+import { endpoints } from '../api/endpoints';
+import { useKbBusinessesQuery, type BusinessKB, keys } from '../api/queries';
+import { ErrorPanel } from './ui/ErrorPanel';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,21 +26,104 @@ interface KBStats {
   persist_dir?: string;
 }
 
-// ── Colors ───────────────────────────────────────────────────────────────────
+// ── KB config ────────────────────────────────────────────────────────────────
+
+type UploadKind = 'file' | 'text' | 'form';
+
+interface KBConfig {
+  label: string;
+  icon: string;
+  color: string;
+  statsPath: string;
+  uploadPath: string;
+  uploadType: UploadKind;
+  desc: string;
+}
 
 const KB_CONFIGS = {
-  enterprise: { label: 'Knowledge Base', icon: '📄', color: '#60a5fa', prefix: '/kb', uploadType: 'file', desc: 'User documents — factual knowledge.' },
-  philosophy: { label: 'Philosophy', icon: '🏛️', color: '#c084fc', prefix: '/philosophy', uploadType: 'file', desc: 'Humanist texts — ethical grounding. Read-only for agents.' },
-  literature: { label: 'Literature', icon: '📚', color: '#fb923c', prefix: '/fiction', uploadType: 'file', desc: 'Fiction, poetry, mythology — creative inspiration. Never factual.' },
-  episteme:   { label: 'Research (Episteme)', icon: '🔬', color: '#22d3ee', prefix: '/episteme', uploadType: 'file', desc: 'Research papers, architecture decisions, design patterns.' },
-  experiential: { label: 'Journal', icon: '📓', color: '#34d399', prefix: '/experiential', uploadType: 'text', desc: 'Reflected experiences — subjective, phenomenological.' },
-  aesthetics: { label: 'Aesthetics', icon: '🎨', color: '#a78bfa', prefix: '/aesthetics', uploadType: 'text', desc: 'Elegant code, beautiful prose — quality patterns.' },
-  tensions:   { label: 'Tensions', icon: '⚡', color: '#fbbf24', prefix: '/tensions', uploadType: 'form', desc: 'Contradictions, competing values — growth edges.' },
-} as const;
+  enterprise: {
+    label: 'Knowledge Base',
+    icon: '📄',
+    color: '#60a5fa',
+    statsPath: endpoints.kbStatus(),
+    uploadPath: endpoints.kbUpload(),
+    uploadType: 'file',
+    desc: 'User documents — factual knowledge.',
+  },
+  philosophy: {
+    label: 'Philosophy',
+    icon: '🏛️',
+    color: '#c084fc',
+    statsPath: endpoints.philosophyStats(),
+    uploadPath: endpoints.philosophyUpload(),
+    uploadType: 'file',
+    desc: 'Humanist texts — ethical grounding. Read-only for agents.',
+  },
+  literature: {
+    label: 'Literature',
+    icon: '📚',
+    color: '#fb923c',
+    statsPath: endpoints.fictionStatus(),
+    uploadPath: endpoints.fictionUpload(),
+    uploadType: 'file',
+    desc: 'Fiction, poetry, mythology — creative inspiration. Never factual.',
+  },
+  episteme: {
+    label: 'Research (Episteme)',
+    icon: '🔬',
+    color: '#22d3ee',
+    statsPath: endpoints.epistemeStats(),
+    uploadPath: endpoints.epistemeUpload(),
+    uploadType: 'file',
+    desc: 'Research papers, architecture decisions, design patterns.',
+  },
+  experiential: {
+    label: 'Journal',
+    icon: '📓',
+    color: '#34d399',
+    statsPath: endpoints.experientialStats(),
+    uploadPath: endpoints.experientialUpload(),
+    uploadType: 'text',
+    desc: 'Reflected experiences — subjective, phenomenological.',
+  },
+  aesthetics: {
+    label: 'Aesthetics',
+    icon: '🎨',
+    color: '#a78bfa',
+    statsPath: endpoints.aestheticsStats(),
+    uploadPath: endpoints.aestheticsUpload(),
+    uploadType: 'text',
+    desc: 'Elegant code, beautiful prose — quality patterns.',
+  },
+  tensions: {
+    label: 'Tensions',
+    icon: '⚡',
+    color: '#fbbf24',
+    statsPath: endpoints.tensionsStats(),
+    uploadPath: endpoints.tensionsUpload(),
+    uploadType: 'form',
+    desc: 'Contradictions, competing values — growth edges.',
+  },
+} as const satisfies Record<string, KBConfig>;
 
 type KBType = keyof typeof KB_CONFIGS;
 
+function useKBStatsQuery(kbType: KBType) {
+  return useQuery({
+    queryKey: keys.kbStats(kbType),
+    queryFn: () => api<KBStats>(KB_CONFIGS[kbType].statsPath),
+    refetchInterval: 30_000,
+  });
+}
+
 // ── Upload form components ──────────────────────────────────────────────────
+
+function uploadFormData(path: string, body: FormData): Promise<unknown> {
+  return fetch(path, { method: 'POST', body }).then(async (res) => {
+    if (!res.ok) throw new Error(`Upload failed: ${res.status} ${await res.text().catch(() => '')}`);
+    return res.json();
+  });
+}
 
 function FileUploadZone({ kbType, color, onUploadDone }: { kbType: KBType; color: string; onUploadDone: () => void }) {
   const [status, setStatus] = useState('');
@@ -48,7 +135,7 @@ function FileUploadZone({ kbType, color, onUploadDone }: { kbType: KBType; color
     const fileArr = Array.from(files);
     if (fileArr.length === 0) return;
 
-    const oversized = fileArr.filter(f => f.size > 50 * 1024 * 1024);
+    const oversized = fileArr.filter((f) => f.size > 50 * 1024 * 1024);
     if (oversized.length) {
       setStatus(`${oversized.length} file(s) too large (max 50MB)`);
       return;
@@ -59,8 +146,12 @@ function FileUploadZone({ kbType, color, onUploadDone }: { kbType: KBType; color
     for (const f of fileArr) fd.append('file', f);
 
     try {
-      const res = await fetch(`${cfg.prefix}/upload`, { method: 'POST', body: fd });
-      const j = await res.json();
+      const j = await uploadFormData(cfg.uploadPath, fd) as {
+        chunks_created?: number;
+        total_chunks?: number;
+        files_processed?: number;
+        errors?: number;
+      };
       if (fileArr.length === 1) {
         setStatus(j.chunks_created ? `${j.chunks_created} chunks ingested` : 'Uploaded');
       } else {
@@ -70,23 +161,23 @@ function FileUploadZone({ kbType, color, onUploadDone }: { kbType: KBType; color
       }
       setTimeout(() => setStatus(''), 5000);
       onUploadDone();
-    } catch {
-      setStatus('Upload failed');
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Upload failed');
     }
-  }, [cfg.prefix, onUploadDone]);
+  }, [cfg.uploadPath, onUploadDone]);
 
   return (
     <div
       className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all ${dragOver ? 'border-opacity-100' : 'border-opacity-40'}`}
       style={{ borderColor: color }}
       onClick={() => inputRef.current?.click()}
-      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
-      onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) upload(e.dataTransfer.files); }}
+      onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) void upload(e.dataTransfer.files); }}
     >
-      <input ref={inputRef} type="file" accept=".md,.txt,.pdf,.docx" multiple className="hidden" onChange={e => { if (e.target.files?.length) upload(e.target.files); }} />
+      <input ref={inputRef} type="file" accept=".md,.txt,.pdf,.docx" multiple className="hidden" onChange={(e) => { if (e.target.files?.length) void upload(e.target.files); }} />
       <p className="text-xs text-[#7a8599]">Drop files here or <span style={{ color }} className="font-medium">click to upload</span></p>
-      {status && <p className="text-xs mt-2" style={{ color: status.includes('fail') ? '#f87171' : '#34d399' }}>{status}</p>}
+      {status && <p className="text-xs mt-2" style={{ color: status.toLowerCase().includes('fail') ? '#f87171' : '#34d399' }}>{status}</p>}
     </div>
   );
 }
@@ -112,19 +203,25 @@ function TextUploadForm({ kbType, color, onUploadDone }: { kbType: KBType; color
       fd.append('flagged_by', 'user');
     }
     try {
-      const res = await fetch(`${cfg.prefix}/upload`, { method: 'POST', body: fd });
-      const j = await res.json();
-      if (j.status === 'ok') { setText(''); setStatus('Saved'); onUploadDone(); }
-      else setStatus('Failed');
+      const j = await uploadFormData(cfg.uploadPath, fd) as { status?: string };
+      if (j.status === 'ok') {
+        setText('');
+        setStatus('Saved');
+        onUploadDone();
+      } else {
+        setStatus('Failed');
+      }
       setTimeout(() => setStatus(''), 3000);
-    } catch { setStatus('Failed'); }
-  }, [text, kbType, cfg.prefix, onUploadDone]);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Failed');
+    }
+  }, [text, kbType, cfg.uploadPath, onUploadDone]);
 
   return (
     <div>
       <textarea
         value={text}
-        onChange={e => setText(e.target.value)}
+        onChange={(e) => setText(e.target.value)}
         placeholder={kbType === 'experiential' ? 'Write a journal entry or reflection...' : 'Paste an example of elegant code, beautiful prose, or a well-structured argument...'}
         className="w-full min-h-[80px] bg-[#0a0e14] text-[#e2e8f0] border border-[#1e2738] rounded-lg p-3 text-xs resize-y font-mono"
       />
@@ -154,21 +251,29 @@ function TensionUploadForm({ color, onUploadDone }: { color: string; onUploadDon
     fd.append('context', context.trim());
     fd.append('detected_by', 'user');
     try {
-      const res = await fetch('/tensions/upload', { method: 'POST', body: fd });
-      const j = await res.json();
-      if (j.status === 'ok') { setPoleA(''); setPoleB(''); setContext(''); setStatus('Recorded'); onUploadDone(); }
-      else setStatus('Failed');
+      const j = await uploadFormData(endpoints.tensionsUpload(), fd) as { status?: string };
+      if (j.status === 'ok') {
+        setPoleA('');
+        setPoleB('');
+        setContext('');
+        setStatus('Recorded');
+        onUploadDone();
+      } else {
+        setStatus('Failed');
+      }
       setTimeout(() => setStatus(''), 3000);
-    } catch { setStatus('Failed'); }
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Failed');
+    }
   }, [poleA, poleB, context, onUploadDone]);
 
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-2">
-        <input value={poleA} onChange={e => setPoleA(e.target.value)} placeholder="Pole A (one side)" className="bg-[#0a0e14] text-[#e2e8f0] border border-[#1e2738] rounded px-2 py-1.5 text-xs" />
-        <input value={poleB} onChange={e => setPoleB(e.target.value)} placeholder="Pole B (other side)" className="bg-[#0a0e14] text-[#e2e8f0] border border-[#1e2738] rounded px-2 py-1.5 text-xs" />
+        <input value={poleA} onChange={(e) => setPoleA(e.target.value)} placeholder="Pole A (one side)" className="bg-[#0a0e14] text-[#e2e8f0] border border-[#1e2738] rounded px-2 py-1.5 text-xs" />
+        <input value={poleB} onChange={(e) => setPoleB(e.target.value)} placeholder="Pole B (other side)" className="bg-[#0a0e14] text-[#e2e8f0] border border-[#1e2738] rounded px-2 py-1.5 text-xs" />
       </div>
-      <input value={context} onChange={e => setContext(e.target.value)} placeholder="Context: what revealed this tension?" className="w-full bg-[#0a0e14] text-[#e2e8f0] border border-[#1e2738] rounded px-2 py-1.5 text-xs" />
+      <input value={context} onChange={(e) => setContext(e.target.value)} placeholder="Context: what revealed this tension?" className="w-full bg-[#0a0e14] text-[#e2e8f0] border border-[#1e2738] rounded px-2 py-1.5 text-xs" />
       <div className="flex items-center gap-2">
         <button onClick={submit} className="px-3 py-1.5 rounded text-xs font-medium transition-colors" style={{ backgroundColor: `${color}20`, borderColor: `${color}40`, color, border: '1px solid' }}>
           Record Tension
@@ -183,15 +288,15 @@ function TensionUploadForm({ color, onUploadDone }: { color: string; onUploadDon
 
 function KBCard({ kbType }: { kbType: KBType }) {
   const cfg = KB_CONFIGS[kbType];
-  const statsPath = kbType === 'enterprise' ? '/kb/status' : kbType === 'literature' ? '/fiction/status' : `${cfg.prefix}/stats`;
-  const { data: stats, refetch } = useApi<KBStats>(statsPath, 30000);
+  const qc = useQueryClient();
+  const { data: stats, error } = useKBStatsQuery(kbType);
+  const refetch = () => qc.invalidateQueries({ queryKey: keys.kbStats(kbType) });
 
   const total = stats?.total_chunks ?? stats?.total_documents ?? stats?.total_entries ?? stats?.total_patterns ?? stats?.total_tensions ?? 0;
   const textCount = stats?.total_texts ?? stats?.total_documents ?? 0;
 
   return (
     <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-4">
-      {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="text-lg">{cfg.icon}</span>
@@ -201,37 +306,35 @@ function KBCard({ kbType }: { kbType: KBType }) {
           <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${cfg.color}15`, color: cfg.color }}>
             {total} chunks
           </span>
-          {textCount > 0 && (
-            <span className="text-xs text-[#7a8599]">{textCount} docs</span>
-          )}
+          {textCount > 0 && <span className="text-xs text-[#7a8599]">{textCount} docs</span>}
         </div>
       </div>
 
-      {/* Description */}
       <p className="text-xs text-[#7a8599] mb-3 leading-relaxed">{cfg.desc}</p>
 
-      {/* Stats chips */}
+      {error && <div className="mb-3"><ErrorPanel error={error} onRetry={refetch} /></div>}
+
       {stats && (
         <div className="flex flex-wrap gap-1.5 mb-3">
-          {stats.traditions?.map(t => <Chip key={t} label={t} color={cfg.color} />)}
-          {stats.paper_types?.map(t => <Chip key={t} label={t} color={cfg.color} />)}
-          {stats.pattern_types?.map(t => <Chip key={t} label={t} color={cfg.color} />)}
-          {stats.tension_types?.map(t => <Chip key={t} label={t} color={cfg.color} />)}
-          {stats.entry_types?.map(t => <Chip key={t} label={t} color={cfg.color} />)}
-          {stats.authors?.slice(0, 8).map(a => <Chip key={a} label={a} color="#7a8599" />)}
+          {stats.traditions?.map((t) => <Chip key={t} label={t} color={cfg.color} />)}
+          {stats.paper_types?.map((t) => <Chip key={t} label={t} color={cfg.color} />)}
+          {stats.pattern_types?.map((t) => <Chip key={t} label={t} color={cfg.color} />)}
+          {stats.tension_types?.map((t) => <Chip key={t} label={t} color={cfg.color} />)}
+          {stats.entry_types?.map((t) => <Chip key={t} label={t} color={cfg.color} />)}
+          {stats.authors?.slice(0, 8).map((a) => <Chip key={a} label={a} color="#7a8599" />)}
         </div>
       )}
 
-      {/* Resolution status for tensions */}
       {stats?.resolution_statuses && (
         <div className="flex gap-2 mb-3">
           {Object.entries(stats.resolution_statuses).map(([s, n]) => (
-            <span key={s} className="text-xs text-[#7a8599]">{s}: <strong className="text-[#e2e8f0]">{n}</strong></span>
+            <span key={s} className="text-xs text-[#7a8599]">
+              {s}: <strong className="text-[#e2e8f0]">{n}</strong>
+            </span>
           ))}
         </div>
       )}
 
-      {/* Upload area */}
       <div className="mt-3 pt-3 border-t border-[#1e2738]">
         {cfg.uploadType === 'file' && (
           <FileUploadZone kbType={kbType} color={cfg.color} onUploadDone={refetch} />
@@ -257,24 +360,11 @@ function Chip({ label, color }: { label: string; color: string }) {
 
 // ── Business KB Section ─────────────────────────────────────────────────────
 
-interface BusinessKB {
-  business_name: string;
-  collection_name: string;
-  total_chunks: number;
-  total_documents?: number;
-  total_characters?: number;
-  categories?: Record<string, number>;
-}
-
-interface BusinessListResponse {
-  businesses: BusinessKB[];
-}
-
 function BusinessKBCard({ biz, onRefresh }: { biz: BusinessKB; onRefresh: () => void }) {
   const [status, setStatus] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const color = '#38bdf8'; // sky blue for business KBs
+  const color = '#38bdf8';
 
   const upload = useCallback(async (file: File) => {
     if (file.size > 50 * 1024 * 1024) { setStatus('File too large'); return; }
@@ -283,12 +373,13 @@ function BusinessKBCard({ biz, onRefresh }: { biz: BusinessKB; onRefresh: () => 
     fd.append('file', file);
     fd.append('category', 'general');
     try {
-      const res = await fetch(`/kb/business/${biz.business_name}/upload`, { method: 'POST', body: fd });
-      const j = await res.json();
+      const j = await uploadFormData(endpoints.kbBusinessUpload(biz.business_name), fd) as { chunks_created?: number };
       setStatus(j.chunks_created ? `${j.chunks_created} chunks` : 'Done');
       setTimeout(() => setStatus(''), 4000);
       onRefresh();
-    } catch { setStatus('Failed'); }
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'Failed');
+    }
   }, [biz.business_name, onRefresh]);
 
   return (
@@ -307,7 +398,6 @@ function BusinessKBCard({ biz, onRefresh }: { biz: BusinessKB; onRefresh: () => 
         {biz.total_documents ? ` · ${biz.total_documents} docs` : ''}
       </p>
 
-      {/* Categories chips */}
       {biz.categories && Object.keys(biz.categories).length > 0 && (
         <div className="flex flex-wrap gap-1 mb-2">
           {Object.entries(biz.categories).map(([cat, n]) => (
@@ -316,25 +406,26 @@ function BusinessKBCard({ biz, onRefresh }: { biz: BusinessKB; onRefresh: () => 
         </div>
       )}
 
-      {/* Upload zone */}
       <div
         className={`border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-all ${dragOver ? 'border-opacity-100' : 'border-opacity-40'}`}
         style={{ borderColor: color }}
         onClick={() => inputRef.current?.click()}
-        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={e => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); }}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files[0]) void upload(e.dataTransfer.files[0]); }}
       >
-        <input ref={inputRef} type="file" accept=".md,.txt,.pdf,.docx,.csv,.xlsx,.json,.html" className="hidden" onChange={e => { if (e.target.files?.[0]) upload(e.target.files[0]); }} />
+        <input ref={inputRef} type="file" accept=".md,.txt,.pdf,.docx,.csv,.xlsx,.json,.html" className="hidden" onChange={(e) => { if (e.target.files?.[0]) void upload(e.target.files[0]); }} />
         <p className="text-[10px] text-[#7a8599]">Drop files or <span style={{ color }} className="font-medium">click to upload</span></p>
-        {status && <p className="text-[10px] mt-1" style={{ color: status.includes('fail') || status.includes('large') ? '#f87171' : '#34d399' }}>{status}</p>}
+        {status && <p className="text-[10px] mt-1" style={{ color: status.toLowerCase().includes('fail') || status.includes('large') ? '#f87171' : '#34d399' }}>{status}</p>}
       </div>
     </div>
   );
 }
 
 function BusinessKBSection() {
-  const { data, refetch } = useApi<BusinessListResponse>('/kb/businesses', 30000);
+  const qc = useQueryClient();
+  const { data } = useKbBusinessesQuery();
+  const refetch = () => qc.invalidateQueries({ queryKey: keys.kbBusinesses });
   const businesses = data?.businesses ?? [];
 
   return (
@@ -353,7 +444,7 @@ function BusinessKBSection() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-          {businesses.map(biz => (
+          {businesses.map((biz) => (
             <BusinessKBCard key={biz.business_name} biz={biz} onRefresh={refetch} />
           ))}
         </div>
@@ -379,7 +470,6 @@ export function KnowledgeBases() {
 
   return (
     <div>
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-semibold text-[#e2e8f0]">Knowledge Bases</h1>
@@ -387,9 +477,8 @@ export function KnowledgeBases() {
         </div>
       </div>
 
-      {/* Filter tabs */}
       <div className="flex gap-2 mb-4">
-        {(['all', 'factual', 'creative', 'growth'] as const).map(f => (
+        {(['all', 'factual', 'creative', 'growth'] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -404,15 +493,12 @@ export function KnowledgeBases() {
         ))}
       </div>
 
-      {/* KB grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {visible.map(kb => <KBCard key={kb} kbType={kb} />)}
+        {visible.map((kb) => <KBCard key={kb} kbType={kb} />)}
       </div>
 
-      {/* ── Business Knowledge Bases ──────────────────────────────────── */}
       <BusinessKBSection />
 
-      {/* Legend */}
       <div className="mt-6 p-4 bg-[#111820] border border-[#1e2738] rounded-lg">
         <h3 className="text-xs font-semibold text-[#7a8599] mb-2">Epistemic Architecture</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[10px] text-[#7a8599]">

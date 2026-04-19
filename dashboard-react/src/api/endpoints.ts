@@ -1,0 +1,111 @@
+// Central registry of backend paths. All callers import from here so that
+// a path change only needs to happen in one place.
+
+const CP = '/api/cp';
+
+export const endpoints = {
+  // Control-plane (prefix /api/cp)
+  projects: () => `${CP}/projects`,
+  tickets: (projectId?: string) =>
+    projectId ? `${CP}/tickets?project_id=${encodeURIComponent(projectId)}` : `${CP}/tickets`,
+  ticketsBoard: (projectId?: string) =>
+    projectId ? `${CP}/tickets/board?project_id=${encodeURIComponent(projectId)}` : `${CP}/tickets/board`,
+  ticket: (id: string) => `${CP}/tickets/${id}`,
+  ticketComments: (id: string) => `${CP}/tickets/${id}/comments`,
+  budgets: (projectId?: string) =>
+    projectId ? `${CP}/budgets?project_id=${encodeURIComponent(projectId)}` : `${CP}/budgets`,
+  budgetsOverride: () => `${CP}/budgets/override`,
+  audit: (limit = 100, projectId?: string) =>
+    projectId
+      ? `${CP}/audit?limit=${limit}&project_id=${encodeURIComponent(projectId)}`
+      : `${CP}/audit?limit=${limit}`,
+  governancePending: (projectId?: string) =>
+    projectId
+      ? `${CP}/governance/pending?project_id=${encodeURIComponent(projectId)}`
+      : `${CP}/governance/pending`,
+  governanceApprove: (id: string) => `${CP}/governance/${id}/approve`,
+  governanceReject: (id: string) => `${CP}/governance/${id}/reject`,
+  orgChart: () => `${CP}/org-chart`,
+  costsDaily: (days = 30, projectId?: string) =>
+    projectId
+      ? `${CP}/costs/daily?days=${days}&project_id=${encodeURIComponent(projectId)}`
+      : `${CP}/costs/daily?days=${days}`,
+  costsByAgent: (projectId?: string) =>
+    projectId ? `${CP}/costs/by-agent?project_id=${encodeURIComponent(projectId)}` : `${CP}/costs/by-agent`,
+  health: () => `${CP}/health`,
+  consciousness: (historyLimit = 30) => `${CP}/consciousness?history_limit=${historyLimit}`,
+  tokens: (projectId?: string) =>
+    projectId ? `${CP}/tokens?project_id=${encodeURIComponent(projectId)}` : `${CP}/tokens`,
+  tasks: (limit = 20, projectId?: string) =>
+    projectId
+      ? `${CP}/tasks?limit=${limit}&project_id=${encodeURIComponent(projectId)}`
+      : `${CP}/tasks?limit=${limit}`,
+
+  // Ops (self-heal / anomaly / self-deploy)
+  errors: (limit = 20) => `${CP}/errors?limit=${limit}`,
+  anomalies: (limit = 20) => `${CP}/anomalies?limit=${limit}`,
+  deploys: (limit = 20) => `${CP}/deploys?limit=${limit}`,
+
+  // Tech radar
+  techRadar: (limit = 20) => `${CP}/tech-radar?limit=${limit}`,
+
+  // LLMs
+  llmCatalog: () => `${CP}/llms/catalog`,
+  llmRoles: () => `${CP}/llms/roles`,
+  llmDiscovery: (limit = 50) => `${CP}/llms/discovery?limit=${limit}`,
+  llmDiscoveryRun: () => `${CP}/llms/discovery/run`,
+
+  // Evolution genealogy (variants)
+  evolutionVariants: (n = 30) => `${CP}/evolution/variants?n=${n}`,
+  evolutionVariantLineage: (id: string) => `${CP}/evolution/variants/${encodeURIComponent(id)}/lineage`,
+
+  // Notes viewer (Obsidian-style)
+  notesRoots: () => `${CP}/notes/roots`,
+  notesTree: (root: string) => `${CP}/notes/tree?root=${encodeURIComponent(root)}`,
+  notesFile: (root: string, path: string) =>
+    `${CP}/notes/file?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`,
+  notesAttachment: (root: string, path: string) =>
+    `${CP}/notes/attachment?root=${encodeURIComponent(root)}&path=${encodeURIComponent(path)}`,
+  notesGraph: (root: string) => `${CP}/notes/graph?root=${encodeURIComponent(root)}`,
+  notesSearch: (root: string, q: string, limit = 50) =>
+    `${CP}/notes/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&limit=${limit}`,
+  notesTags: (root: string) => `${CP}/notes/tags?root=${encodeURIComponent(root)}`,
+
+  // Evolution (prefix /api/cp/evolution)
+  evolutionSummary: () => `${CP}/evolution/summary`,
+  evolutionResults: (params: { limit?: number; engine?: string; status?: string } = {}) => {
+    const p = new URLSearchParams();
+    p.set('limit', String(params.limit ?? 100));
+    if (params.engine) p.set('engine', params.engine);
+    if (params.status) p.set('status', params.status);
+    return `${CP}/evolution/results?${p.toString()}`;
+  },
+  evolutionEngine: () => `${CP}/evolution/engine`,
+
+  // Workspaces (prefix /api — NOT /api/cp)
+  workspaces: () => `/api/workspaces`,
+  workspaceItems: (projectId: string) => `/api/workspaces/${encodeURIComponent(projectId)}/items`,
+  workspacesMeta: () => `/api/workspaces/meta`,
+  workspaceCreate: () => `/api/workspaces`,
+
+  // Creative mode (prefix /config — requires gateway secret on POST)
+  creativeMode: () => `/config/creative_mode`,
+
+  // Knowledge bases (root-mounted prefixes)
+  kbStatus: () => `/kb/status`,
+  kbUpload: () => `/kb/upload`,
+  kbBusinesses: () => `/kb/businesses`,
+  kbBusinessUpload: (name: string) => `/kb/business/${encodeURIComponent(name)}/upload`,
+  fictionStatus: () => `/fiction/status`,
+  fictionUpload: () => `/fiction/upload`,
+  philosophyStats: () => `/philosophy/stats`,
+  philosophyUpload: () => `/philosophy/upload`,
+  epistemeStats: () => `/episteme/stats`,
+  epistemeUpload: () => `/episteme/upload`,
+  experientialStats: () => `/experiential/stats`,
+  experientialUpload: () => `/experiential/upload`,
+  aestheticsStats: () => `/aesthetics/stats`,
+  aestheticsUpload: () => `/aesthetics/upload`,
+  tensionsStats: () => `/tensions/stats`,
+  tensionsUpload: () => `/tensions/upload`,
+} as const;

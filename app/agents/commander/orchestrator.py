@@ -841,10 +841,33 @@ class Commander:
         except Exception:
             logger.debug("PRE_LLM_CALL hooks failed (non-fatal)", exc_info=True)
 
+        # ── Trajectory capture (arXiv:2603.10600) ──────────────────────────
+        # Begin a per-crew trajectory BEFORE the Observer fires so the
+        # observer step is captured in-sequence. begin_trajectory is a
+        # no-op when settings.trajectory_enabled is False — zero cost path.
+        try:
+            from app.trajectory.logger import begin_trajectory, capture_step
+            from app.trajectory.types import TrajectoryStep, STEP_PHASE_ROUTING
+            _task_id_for_traj = str(parent_task_id or "")
+            _trajectory = begin_trajectory(
+                task_id=_task_id_for_traj,
+                crew_name=crew_name,
+                task_description=enriched_task,
+            )
+            if _trajectory is not None:
+                capture_step(TrajectoryStep(
+                    step_idx=-1, agent_role=crew_name,
+                    phase=STEP_PHASE_ROUTING,
+                    planned_action=f"dispatch to {crew_name} (difficulty={difficulty})",
+                ))
+        except Exception:
+            logger.debug("Trajectory capture (routing) failed (non-fatal)", exc_info=True)
+
         # ── Metacognitive Observer (§4.3) ──────────────────────────────────
         # Activated when MCSV signals doubt (requires_observer=True).
         # The Observer predicts failure modes BEFORE the crew runs.
         # If high-confidence failure predicted, log it and optionally abort.
+        _observer_prediction: dict = {}  # captured for trajectory + attribution
         try:
             from app.subia.belief.internal_state import (
                 MetacognitiveStateVector, CertaintyVector, SomaticMarker,
@@ -871,6 +894,7 @@ class Commander:
                     recent_history=_history,
                     mcsv=_mcsv,
                 )
+                _observer_prediction = dict(prediction or {})
                 _predicted = prediction.get("predicted_failure_mode")
                 _conf = prediction.get("confidence", 0.0)
                 if _predicted and _conf > 0.7:
@@ -885,8 +909,38 @@ class Commander:
                     })
                 elif _predicted:
                     logger.info(f"Observer: low-confidence prediction of '{_predicted}' ({_conf:.0%}) for {crew_name}")
+                # Trajectory: record the Observer firing as a dedicated step.
+                # No-op when trajectory_enabled is False.
+                try:
+                    from app.trajectory.logger import capture_observer_prediction
+                    capture_observer_prediction(
+                        prediction, agent_role=crew_name,
+                        mcsv_snapshot=_mcsv.to_context_string()[:400],
+                    )
+                except Exception:
+                    logger.debug("Trajectory observer capture failed (non-fatal)", exc_info=True)
         except Exception:
             logger.debug("Observer check failed (non-fatal)", exc_info=True)
+
+        # ── Task-conditional retrieval (arXiv:2603.10600) ──────────────────
+        # After the Observer fires we may have a predicted failure mode —
+        # use it (and the crew role) to pull targeted trajectory tips and
+        # prepend them to enriched_task. Flag-gated; no-op when off.
+        try:
+            from app.config import get_settings as _gs
+            if _gs().task_conditional_retrieval_enabled:
+                from app.trajectory.context_builder import compose_trajectory_hint_block
+                _hint = compose_trajectory_hint_block(
+                    crew_name=crew_name,
+                    task_text=enriched_task,
+                    predicted_failure_mode=(_observer_prediction.get(
+                        "predicted_failure_mode", "") or ""),
+                )
+                if _hint:
+                    enriched_task = _hint + "\n\n" + enriched_task
+        except Exception:
+            logger.debug("Task-conditional retrieval injection failed (non-fatal)",
+                         exc_info=True)
 
         result = ""
         success = True
@@ -1121,7 +1175,7 @@ class Commander:
                     # Retries: reflexion trial counter (1-indexed) minus 1,
                     # stored on self by _run_with_reflexion. Direct calls keep 0.
                     _retries = max(0, getattr(self, "_current_trial", 1) - 1)
-                    record_crew_outcome(CrewOutcome(
+                    _outcome = CrewOutcome(
                         crew_name=crew_name,
                         task_description=crew_task,
                         result=str(result) if result else "",
@@ -1134,7 +1188,50 @@ class Commander:
                         has_result=has_result,
                         is_failure_pattern=is_failure_pattern,
                         retries=_retries,
-                    ))
+                    )
+                    record_crew_outcome(_outcome)
+
+                    # Trajectory (arXiv:2603.10600): finalise + dispatch
+                    # attribution. No-op when trajectory_enabled is False.
+                    # on_crew_complete gates on attribution_enabled internally.
+                    try:
+                        from app.trajectory.logger import (
+                            capture_step, end_trajectory, on_crew_complete,
+                        )
+                        from app.trajectory.types import (
+                            TrajectoryStep, STEP_PHASE_CREW, STEP_PHASE_QUALITY,
+                        )
+                        capture_step(TrajectoryStep(
+                            step_idx=-1, agent_role=crew_name,
+                            phase=STEP_PHASE_CREW,
+                            planned_action=f"executed {crew_name} (difficulty={difficulty})",
+                            output_sample=str(result)[:400] if result else "",
+                            elapsed_ms=int(duration_s * 1000),
+                        ))
+                        capture_step(TrajectoryStep(
+                            step_idx=-1, agent_role=crew_name,
+                            phase=STEP_PHASE_QUALITY,
+                            planned_action=(
+                                f"quality: confidence={confidence} "
+                                f"completeness={completeness} "
+                                f"passed={has_result and not is_failure_pattern}"
+                            ),
+                        ))
+                        _traj = end_trajectory(outcome_summary={
+                            "crew_name": crew_name,
+                            "duration_s": round(duration_s, 2),
+                            "difficulty": difficulty,
+                            "confidence": confidence,
+                            "completeness": completeness,
+                            "passed_quality_gate": has_result and not is_failure_pattern,
+                            "has_result": has_result,
+                            "is_failure_pattern": is_failure_pattern,
+                            "retries": _retries,
+                            "result_sample": str(result)[:400] if result else "",
+                        })
+                        on_crew_complete(_outcome, _traj)
+                    except Exception:
+                        logger.debug("Trajectory finalisation failed (non-fatal)", exc_info=True)
                 except Exception:
                     logger.debug("MAP-Elites post-crew record failed", exc_info=True)
 
@@ -1302,6 +1399,20 @@ class Commander:
                 f"Reflexion trial {trial}/{max_trials} for {crew_name}: "
                 f"{reflection[:100]}"
             )
+            # Trajectory (arXiv:2603.10600): capture the retry as a step.
+            # Runs inside the active trajectory scope since _run_with_reflexion
+            # calls are nested within _run_crew, which begins the trajectory.
+            try:
+                from app.trajectory.logger import capture_step
+                from app.trajectory.types import TrajectoryStep, STEP_PHASE_REFLEXION
+                capture_step(TrajectoryStep(
+                    step_idx=-1, agent_role=crew_name,
+                    phase=STEP_PHASE_REFLEXION,
+                    planned_action=f"reflexion trial {trial}/{max_trials}",
+                    output_sample=reflection[:400],
+                ))
+            except Exception:
+                logger.debug("Trajectory reflexion capture failed (non-fatal)", exc_info=True)
 
         # Exhausted retries
         _store_reflexion_failure(task, max_trials, reflections)

@@ -32,6 +32,8 @@ from app.self_improvement.novelty import novelty_report, NOVELTY_THRESHOLDS
 from app.self_improvement.gap_detector import (
     emit_retrieval_miss, emit_reflexion_failure,
     emit_mapelites_voids, get_recent_evidence_block,
+    # arXiv:2603.10600
+    emit_trajectory_attribution, emit_observer_mis_prediction,
 )
 from app.self_improvement.integrator import (
     integrate, classify_kb, regenerate_disk_mirror,
@@ -40,6 +42,8 @@ from app.self_improvement.integrator import (
 from app.self_improvement.evaluator import (
     record_hits, flush_hits, record_task_outcome,
     scan_for_decay, usage_distribution,
+    # Phase 6
+    scan_for_low_effectiveness_tips,
 )
 from app.self_improvement.consolidator import (
     run_consolidation_cycle, migrate_legacy_skills, recover_from_team_shared,
@@ -47,6 +51,7 @@ from app.self_improvement.consolidator import (
 )
 from app.self_improvement.metrics import (
     pipeline_funnel, topic_diversity, novelty_histogram, health_summary,
+    trajectory_health_summary,
 )
 
 __all__ = [
@@ -60,15 +65,18 @@ __all__ = [
     # gap detector
     "emit_retrieval_miss", "emit_reflexion_failure",
     "emit_mapelites_voids", "get_recent_evidence_block",
+    "emit_trajectory_attribution", "emit_observer_mis_prediction",
     # integrator
     "integrate", "classify_kb", "regenerate_disk_mirror",
     "load_record", "list_records", "update_record", "KB_CHOICES",
     # evaluator
     "record_hits", "flush_hits", "record_task_outcome",
     "scan_for_decay", "usage_distribution",
+    "scan_for_low_effectiveness_tips",
     # consolidator
     "run_consolidation_cycle", "migrate_legacy_skills", "recover_from_team_shared",
     "list_proposals", "ConsolidationProposal",
     # metrics (Phase 6)
     "pipeline_funnel", "topic_diversity", "novelty_histogram", "health_summary",
+    "trajectory_health_summary",
 ]

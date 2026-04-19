@@ -16,10 +16,19 @@
   "dependencies": {
     "@tanstack/react-query": "^5.62.11",
     "chart.js": "^4.5.1",
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.45",
+    "mermaid": "^11.14.0",
     "react": "^19.2.4",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.4",
-    "react-router-dom": "^7.14.0"
+    "react-force-graph-2d": "^1.29.1",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.14.0",
+    "rehype-highlight": "^7.0.2",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

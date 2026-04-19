@@ -130,6 +130,13 @@ def _write_to_kb(kb: str, record: SkillRecord) -> bool:
     }
     if record.superseded_by:
         meta["superseded_by"] = record.superseded_by
+    # Trajectory-sourced provenance (arXiv:2603.10600) — mirrored into meta
+    # so the retrieval orchestrator can filter on tip_type / agent_role via
+    # ChromaDB where-clauses without dereferencing SkillRecord.provenance.
+    for _key in ("tip_type", "source_trajectory_id", "agent_role"):
+        _val = record.provenance.get(_key)
+        if _val:
+            meta[_key] = _val
 
     try:
         if kb == "episteme":
@@ -379,19 +386,30 @@ def integrate(
     ).hexdigest()[:16]
     record_id = f"skill_{kb}_{digest}"
 
+    provenance: dict = {
+        "gap_id": draft.created_from_gap,
+        "draft_id": draft.id,
+        "rationale": draft.rationale[:500],
+        "novelty_at_creation": float(draft.novelty_at_creation),
+        "supersedes": list(draft.supersedes),
+    }
+    # Trajectory-sourced provenance (arXiv:2603.10600) — only attach when
+    # the draft came from a real execution trajectory. Empty strings keep
+    # the SkillRecord identical to the external-topic path.
+    if draft.tip_type:
+        provenance["tip_type"] = draft.tip_type
+    if draft.source_trajectory_id:
+        provenance["source_trajectory_id"] = draft.source_trajectory_id
+    if draft.agent_role:
+        provenance["agent_role"] = draft.agent_role
+
     record = SkillRecord(
         id=record_id,
         topic=draft.topic,
         content_markdown=draft.content_markdown,
         kb=kb,
         status="active",
-        provenance={
-            "gap_id": draft.created_from_gap,
-            "draft_id": draft.id,
-            "rationale": draft.rationale[:500],
-            "novelty_at_creation": float(draft.novelty_at_creation),
-            "supersedes": list(draft.supersedes),
-        },
+        provenance=provenance,
         created_at=now,
     )
 

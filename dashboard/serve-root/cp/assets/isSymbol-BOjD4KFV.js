@@ -1,0 +1,1 @@
+import{r as e,t}from"./isObjectLike-DeTIpDB_.js";var n=`[object Symbol]`;function r(r){return typeof r==`symbol`||t(r)&&e(r)==n}export{r as t};

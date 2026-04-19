@@ -45,13 +45,20 @@ logger = logging.getLogger(__name__)
 # retrieval miss. These map raw detection events to LearningGap signal_strength.
 
 SOURCE_WEIGHTS: dict[GapSource, float] = {
-    GapSource.RETRIEVAL_MISS:    0.6,
-    GapSource.REFLEXION_FAILURE: 0.8,
-    GapSource.LOW_CONFIDENCE:    0.4,
-    GapSource.USER_CORRECTION:   0.9,
-    GapSource.TENSION:           0.5,
-    GapSource.MAPELITES_VOID:    0.3,
-    GapSource.USAGE_DECAY:       0.2,
+    GapSource.RETRIEVAL_MISS:          0.6,
+    GapSource.REFLEXION_FAILURE:       0.8,
+    GapSource.LOW_CONFIDENCE:          0.4,
+    GapSource.USER_CORRECTION:         0.9,
+    GapSource.TENSION:                 0.5,
+    GapSource.MAPELITES_VOID:          0.3,
+    GapSource.USAGE_DECAY:             0.2,
+    # arXiv:2603.10600 — trajectory-informed memory generation.
+    # Attribution carries more weight than a generic void because the
+    # evidence is a real execution trace, not a speculative hole.
+    # Observer mis-prediction is lighter — one data point is noise;
+    # the idempotency window + upsert merges repeated observations.
+    GapSource.TRAJECTORY_ATTRIBUTION:  0.75,
+    GapSource.OBSERVER_MIS_PREDICTION: 0.35,
 }
 
 # Retrieval miss threshold: scores below this count as a miss.
@@ -206,6 +213,118 @@ def emit_mapelites_voids(
     if emitted:
         logger.info(f"gap_detector: emitted {emitted} MAP-Elites void gaps")
     return emitted
+
+
+# ── Trajectory-informed emitters (arXiv:2603.10600) ──────────────────────────
+
+def emit_trajectory_attribution(
+    trajectory_id: str,
+    crew_name: str,
+    verdict: str,
+    failure_mode: str,
+    attributed_step_idx: int,
+    confidence: float,
+    narrative: str,
+    suggested_tip_type: str,
+    task_description: str = "",
+    attribution_id: str = "",
+) -> bool:
+    """Emit a gap from a post-hoc AttributionRecord.
+
+    The gap's `signal_strength` scales with attribution confidence — a
+    low-confidence attribution contributes weakly to topic discovery
+    even if the underlying verdict is bad, which prevents noisy
+    attributions from dominating the learning queue.
+
+    Idempotency: the store dedups on (source, description). Re-analysing
+    the same trajectory upserts rather than duplicates.
+    """
+    try:
+        base = SOURCE_WEIGHTS[GapSource.TRAJECTORY_ATTRIBUTION]
+        # Clamp confidence to [0, 1] and blend with base weight.
+        c = max(0.0, min(1.0, float(confidence or 0.0)))
+        strength = round(base * (0.5 + 0.5 * c), 3)  # half floor, half confidence-scaled
+
+        # Description embeds the critical facets so similar attributions
+        # across trajectories collapse to one gap (dedup is on normalized
+        # description — same failure_mode + role + verdict ≈ same gap).
+        desc = (
+            f"{crew_name}/{verdict}: {failure_mode} — "
+            f"{narrative[:160] if narrative else 'no narrative'}"
+        )
+
+        gap = LearningGap(
+            id="",
+            source=GapSource.TRAJECTORY_ATTRIBUTION,
+            description=desc[:_DESC_MAX * 2],
+            evidence={
+                "trajectory_id": trajectory_id,
+                "attribution_id": attribution_id,
+                "crew_name": crew_name,
+                "verdict": verdict,
+                "failure_mode": failure_mode,
+                "attributed_step_idx": int(attributed_step_idx),
+                "confidence": round(c, 3),
+                "narrative": (narrative or "")[:400],
+                "suggested_tip_type": suggested_tip_type or "",
+                "task_description": (task_description or "")[:_DESC_MAX],
+            },
+            signal_strength=strength,
+        )
+        return emit_gap(gap)
+    except Exception:
+        logger.debug("emit_trajectory_attribution failed", exc_info=True)
+        return False
+
+
+def emit_observer_mis_prediction(
+    failure_mode: str,
+    miss_kind: str,
+    count: int,
+    window_n: int,
+    sample_trajectory_ids: Optional[list[str]] = None,
+) -> bool:
+    """Emit a gap when the Observer is chronically wrong on a failure mode.
+
+    Called from app.trajectory.calibration after the precision/recall
+    tracker crosses a miss threshold. `miss_kind` is one of:
+      * "false_positive" — Observer cried wolf too often
+      * "false_negative" — Observer missed a failure that actually occurred
+
+    The resulting gap is picked up by Self-Improver's improvement scan,
+    which may propose Observer-prompt edits. Proposed changes flow through
+    the normal create_proposal → human-review pipeline; the Observer's
+    prompt file itself is never auto-modified.
+    """
+    try:
+        fm = (failure_mode or "none").strip().lower()
+        mk = (miss_kind or "").strip().lower()
+        n = max(0, int(count or 0))
+        w = max(1, int(window_n or 1))
+        ratio = round(n / w, 3)
+
+        desc = (
+            f"Observer {mk} on '{fm}': {n}/{w} recent runs "
+            f"({ratio:.0%} miss rate)"
+        )
+        gap = LearningGap(
+            id="",
+            source=GapSource.OBSERVER_MIS_PREDICTION,
+            description=desc[:_DESC_MAX * 2],
+            evidence={
+                "failure_mode": fm,
+                "miss_kind": mk,
+                "count": n,
+                "window_n": w,
+                "miss_rate": ratio,
+                "sample_trajectory_ids": list(sample_trajectory_ids or [])[:5],
+            },
+            signal_strength=SOURCE_WEIGHTS[GapSource.OBSERVER_MIS_PREDICTION],
+        )
+        return emit_gap(gap)
+    except Exception:
+        logger.debug("emit_observer_mis_prediction failed", exc_info=True)
+        return False
 
 
 # ── Read-side: compose evidence block for topic discovery ────────────────────

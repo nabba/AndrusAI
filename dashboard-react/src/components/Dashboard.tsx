@@ -1,7 +1,16 @@
-import { useApi } from '../hooks/useApi';
-import { useProject } from '../context/ProjectContext';
-import type { Ticket, Budget, AuditEntry, GovernanceRequest, HealthStatus } from '../types/index.ts';
+import { useMemo } from 'react';
+import { useProject } from '../context/useProject';
+import { Skeleton } from './ui/Skeleton';
+import { ErrorPanel } from './ui/ErrorPanel';
 import CreativeModeSettings from './CreativeModeSettings';
+import { ConsciousnessIndicators } from './ConsciousnessIndicators';
+import {
+  useTicketsQuery,
+  useBudgetsQuery,
+  useAuditQuery,
+  useGovernancePendingQuery,
+  useHealthQuery,
+} from '../api/queries';
 
 function StatCard({
   label,
@@ -16,7 +25,7 @@ function StatCard({
 }) {
   return (
     <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-4 flex items-center gap-4">
-      <div className={`text-2xl w-10 h-10 flex items-center justify-center rounded-lg bg-[#1e2738]`}>
+      <div className="text-2xl w-10 h-10 flex items-center justify-center rounded-lg bg-[#1e2738]">
         {icon}
       </div>
       <div>
@@ -27,45 +36,38 @@ function StatCard({
   );
 }
 
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-[#1e2738] rounded ${className}`} />;
-}
-
 export function Dashboard() {
   const { activeProject } = useProject();
-  const projectParam = activeProject ? `?project_id=${activeProject.id}` : '';
 
-  const { data: tickets, loading: ticketsLoading } = useApi<Ticket[]>(
-    `/tickets${projectParam}`,
-    30000
-  );
-  const { data: budgets, loading: budgetsLoading } = useApi<Budget[]>(
-    `/budgets${projectParam}`,
-    30000
-  );
-  const { data: auditEntries, loading: auditLoading } = useApi<AuditEntry[]>(
-    '/audit?limit=10',
-    10000
-  );
-  const { data: governance, loading: govLoading } = useApi<GovernanceRequest[]>(
-    '/governance/pending',
-    15000
-  );
-  const { data: health } = useApi<HealthStatus>('/health', 30000);
+  const ticketsQ = useTicketsQuery(activeProject?.id);
+  const budgetsQ = useBudgetsQuery(activeProject?.id);
+  const auditQ = useAuditQuery(10, activeProject?.id);
+  const governanceQ = useGovernancePendingQuery(activeProject?.id);
+  const healthQ = useHealthQuery();
 
-  // Ticket counts
-  const ticketCounts = {
-    todo: tickets?.filter((t) => t.status === 'todo').length ?? 0,
-    in_progress: tickets?.filter((t) => t.status === 'in_progress').length ?? 0,
-    review: tickets?.filter((t) => t.status === 'review').length ?? 0,
-    done: tickets?.filter((t) => t.status === 'done').length ?? 0,
-    failed: tickets?.filter((t) => t.status === 'failed').length ?? 0,
-  };
+  const ticketCounts = useMemo(() => {
+    const tickets = ticketsQ.data ?? [];
+    return {
+      todo: tickets.filter((t) => t.status === 'todo').length,
+      in_progress: tickets.filter((t) => t.status === 'in_progress').length,
+      review: tickets.filter((t) => t.status === 'review').length,
+      done: tickets.filter((t) => t.status === 'done').length,
+      failed: tickets.filter((t) => t.status === 'failed').length,
+    };
+  }, [ticketsQ.data]);
 
-  // Budget totals
-  const totalSpent = budgets?.reduce((s, b) => s + (b.spent_usd || 0), 0) ?? 0;
-  const totalLimit = budgets?.reduce((s, b) => s + (b.limit_usd || 0), 0) ?? 0;
-  const budgetPct = totalLimit > 0 ? Math.round((totalSpent / totalLimit) * 100) : 0;
+  const { totalSpent, totalLimit, budgetPct } = useMemo(() => {
+    const budgets = budgetsQ.data ?? [];
+    const spent = budgets.reduce((s, b) => s + (b.spent_usd || 0), 0);
+    const limit = budgets.reduce((s, b) => s + (b.limit_usd || 0), 0);
+    const pct = limit > 0 ? Math.round((spent / limit) * 100) : 0;
+    return { totalSpent: spent, totalLimit: limit, budgetPct: pct };
+  }, [budgetsQ.data]);
+
+  const budgets = budgetsQ.data;
+  const governance = governanceQ.data;
+  const auditEntries = auditQ.data;
+  const health = healthQ.data;
 
   return (
     <div className="space-y-6">
@@ -76,7 +78,6 @@ export function Dashboard() {
         </p>
       </div>
 
-      {/* Health banner */}
       {health && health.status !== 'ok' && (
         <div
           className={`p-3 rounded-lg border text-sm ${
@@ -89,17 +90,18 @@ export function Dashboard() {
         </div>
       )}
 
-      {/* Ticket status cards */}
       <section>
         <h2 className="text-sm font-medium text-[#7a8599] uppercase tracking-wider mb-3">
           Ticket Status
         </h2>
-        {ticketsLoading ? (
+        {ticketsQ.isLoading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {Array.from({ length: 5 }).map((_, i) => (
               <Skeleton key={i} className="h-20" />
             ))}
           </div>
+        ) : ticketsQ.error ? (
+          <ErrorPanel error={ticketsQ.error} onRetry={ticketsQ.refetch} />
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <StatCard label="To Do" value={ticketCounts.todo} color="text-[#e2e8f0]" icon="📋" />
@@ -112,18 +114,19 @@ export function Dashboard() {
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Budget overview */}
         <section>
           <h2 className="text-sm font-medium text-[#7a8599] uppercase tracking-wider mb-3">
             Budget Overview
           </h2>
           <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-4 space-y-4">
-            {budgetsLoading ? (
+            {budgetsQ.isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <Skeleton key={i} className="h-8" />
                 ))}
               </div>
+            ) : budgetsQ.error ? (
+              <ErrorPanel error={budgetsQ.error} onRetry={budgetsQ.refetch} />
             ) : !budgets || budgets.length === 0 ? (
               <p className="text-sm text-[#7a8599]">No budgets configured.</p>
             ) : (
@@ -182,18 +185,19 @@ export function Dashboard() {
           </div>
         </section>
 
-        {/* Governance */}
         <section>
           <h2 className="text-sm font-medium text-[#7a8599] uppercase tracking-wider mb-3">
             Governance Queue
           </h2>
           <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-4">
-            {govLoading ? (
+            {governanceQ.isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <Skeleton key={i} className="h-12" />
                 ))}
               </div>
+            ) : governanceQ.error ? (
+              <ErrorPanel error={governanceQ.error} onRetry={governanceQ.refetch} />
             ) : !governance || governance.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-[#7a8599]">
                 <span className="text-3xl mb-2">✅</span>
@@ -226,18 +230,19 @@ export function Dashboard() {
         </section>
       </div>
 
-      {/* Recent audit */}
       <section>
         <h2 className="text-sm font-medium text-[#7a8599] uppercase tracking-wider mb-3">
           Recent Activity
         </h2>
         <div className="bg-[#111820] border border-[#1e2738] rounded-lg overflow-hidden">
-          {auditLoading ? (
+          {auditQ.isLoading ? (
             <div className="p-4 space-y-2">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-8" />
               ))}
             </div>
+          ) : auditQ.error ? (
+            <div className="p-4"><ErrorPanel error={auditQ.error} onRetry={auditQ.refetch} /></div>
           ) : !auditEntries || auditEntries.length === 0 ? (
             <div className="p-8 text-center text-[#7a8599] text-sm">No activity yet.</div>
           ) : (
@@ -245,21 +250,11 @@ export function Dashboard() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#1e2738]">
-                    <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">
-                      Time
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">
-                      Actor
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">
-                      Action
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">
-                      Resource
-                    </th>
-                    <th className="text-right px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">
-                      Cost
-                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">Time</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">Actor</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">Action</th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">Resource</th>
+                    <th className="text-right px-4 py-3 text-xs font-medium text-[#7a8599] uppercase tracking-wider">Cost</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#1e2738]">
@@ -285,7 +280,8 @@ export function Dashboard() {
         </div>
       </section>
 
-      {/* Creative Mode Settings */}
+      <ConsciousnessIndicators />
+
       <section>
         <h2 className="text-sm font-medium text-[#7a8599] uppercase tracking-wider mb-3">
           Creative Mode

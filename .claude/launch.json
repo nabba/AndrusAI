@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "dashboard-react",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "--host", "0.0.0.0"],
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "dashboard-react", "run", "dev", "--", "--host", "127.0.0.1"],
       "port": 5173
     }
   ]

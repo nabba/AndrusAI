@@ -28,13 +28,16 @@ class GapSource(str, Enum):
     Each source has a distinct evidence shape and signal strength weight
     (see app.self_improvement.gap_detector for weights).
     """
-    RETRIEVAL_MISS    = "retrieval_miss"     # KB query returned nothing or low-score
-    REFLEXION_FAILURE = "reflexion_failure"  # crew exhausted reflexion retries
-    LOW_CONFIDENCE    = "low_confidence"     # vetting/uncertainty flagged
-    USER_CORRECTION   = "user_correction"    # user reaction or "actually..."
-    TENSION           = "tension"            # unresolved Tensions KB entry
-    MAPELITES_VOID    = "mapelites_void"     # empty grid cell w/ strong neighbors
-    USAGE_DECAY       = "usage_decay"        # skill never retrieved in N days
+    RETRIEVAL_MISS          = "retrieval_miss"     # KB query returned nothing or low-score
+    REFLEXION_FAILURE       = "reflexion_failure"  # crew exhausted reflexion retries
+    LOW_CONFIDENCE          = "low_confidence"     # vetting/uncertainty flagged
+    USER_CORRECTION         = "user_correction"    # user reaction or "actually..."
+    TENSION                 = "tension"            # unresolved Tensions KB entry
+    MAPELITES_VOID          = "mapelites_void"     # empty grid cell w/ strong neighbors
+    USAGE_DECAY             = "usage_decay"        # skill never retrieved in N days
+    # arXiv:2603.10600 — trajectory-informed memory generation
+    TRAJECTORY_ATTRIBUTION  = "trajectory_attribution"   # post-hoc causal analysis of a run
+    OBSERVER_MIS_PREDICTION = "observer_mis_prediction"  # Observer systematically wrong on a mode
 
 
 class GapStatus(str, Enum):
@@ -126,6 +129,11 @@ class SkillDraft:
 
     Phase 3 of the overhaul consumes this. Defined here so the schema is
     fixed before consumers are written.
+
+    Trajectory-sourced fields (arXiv:2603.10600) are optional; when set,
+    they carry through to `SkillRecord.provenance` so retrieval can filter
+    on tip_type and the originating trajectory can be audited or bulk-
+    archived if it turns out to have produced unreliable tips.
     """
     id: str
     topic: str
@@ -136,6 +144,10 @@ class SkillDraft:
     created_from_gap: str = ""
     novelty_at_creation: float = 0.0
     created_at: str = field(default_factory=_now_iso)
+    # ── Trajectory-sourced provenance (optional; empty for external topics) ──
+    tip_type: str = ""              # "strategy" | "recovery" | "optimization" | ""
+    source_trajectory_id: str = ""  # UUID of the Trajectory this was distilled from
+    agent_role: str = ""            # crew_name of the trajectory (for retrieval filter)
 
 
 @dataclass

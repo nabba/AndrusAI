@@ -208,6 +208,92 @@ class RetrievalOrchestrator:
             min_score=min_score,
         )
 
+    # ── Task-conditional retrieval (arXiv:2603.10600) ──────────────────
+    #
+    # Additive helper — delegates to `retrieve()` with a composed
+    # `where_filter`. Purely opt-in: existing callers keep the prior
+    # behaviour byte-for-byte. The filter keys (`tip_type`, `agent_role`)
+    # are the same metadata fields the Integrator writes in its
+    # `_write_to_kb` adapter, so filtering is free (ChromaDB handles it
+    # natively without extra traversal).
+
+    def retrieve_task_conditional(
+        self,
+        query: str,
+        collections: list[str],
+        *,
+        agent_role: str = "",
+        predicted_failure_mode: str = "",
+        tip_types: list[str] | None = None,
+        top_k: int = cfg.RERANK_TOP_K_OUTPUT,
+        min_score: float = 0.25,
+        task_id: str | None = None,
+        extra_where: dict | None = None,
+    ) -> list[RetrievalResult]:
+        """Retrieve with a task-context metadata filter.
+
+        Parameters
+        ----------
+        query : str
+            Natural-language query (same as ``retrieve``).
+        collections : list[str]
+            Collections to search.
+        agent_role : str, optional
+            If set, restricts to SkillRecords tagged with this agent_role
+            (written by the Integrator from SkillDraft.agent_role).
+        predicted_failure_mode : str, optional
+            Observer's current prediction. When the mode is ``fix_spiral``
+            and no explicit ``tip_types`` is supplied, the filter is
+            narrowed to ``tip_type="recovery"`` — this is the paper's key
+            recovery-tip injection.
+        tip_types : list[str], optional
+            Restrict to a specific set of tip_type values. When None and
+            no predicted_failure_mode narrowing applies, all tip_types
+            pass (including records with no tip_type, i.e. external-topic
+            skills).
+        extra_where : dict, optional
+            Additional where-clause merged with the constructed filter.
+            Caller-provided keys override the defaults.
+
+        Notes
+        -----
+        The filter is only applied when at least one condition is active;
+        otherwise we call ``retrieve()`` without a ``where_filter`` so
+        existing callers with ``retrieve_task_conditional(...)`` still
+        get unfiltered results as their fallback.
+        """
+        # Narrow to recovery tips when the Observer predicted fix_spiral
+        # and the caller didn't pin tip_types explicitly.
+        if tip_types is None and predicted_failure_mode == "fix_spiral":
+            tip_types = ["recovery"]
+
+        where: dict = {}
+        conditions: list[dict] = []
+        if tip_types:
+            conditions.append({"tip_type": {"$in": list(tip_types)}})
+        if agent_role:
+            conditions.append({"agent_role": agent_role})
+
+        if len(conditions) == 1:
+            where = conditions[0]
+        elif len(conditions) > 1:
+            where = {"$and": conditions}
+
+        if extra_where:
+            if where:
+                where = {"$and": [where, dict(extra_where)]}
+            else:
+                where = dict(extra_where)
+
+        return self.retrieve(
+            query=query,
+            collections=collections,
+            top_k=top_k,
+            where_filter=(where or None),
+            min_score=min_score,
+            task_id=task_id,
+        )
+
     # ── Internals ───────────────────────────────────────────────────────
 
     def _parallel_retrieve(

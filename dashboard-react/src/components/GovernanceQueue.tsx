@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { useApi } from '../hooks/useApi';
-import type { GovernanceRequest } from '../types/index.ts';
-import { api } from '../api/client';
-
-function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse bg-[#1e2738] rounded ${className}`} />;
-}
+import { Skeleton } from './ui/Skeleton';
+import { ErrorPanel } from './ui/ErrorPanel';
+import {
+  useGovernancePendingQuery,
+  useApproveGovernance,
+  useRejectGovernance,
+} from '../api/queries';
+import { useProject } from '../context/useProject';
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -26,64 +27,53 @@ const TYPE_COLORS: Record<string, string> = {
   default: 'text-[#22d3ee] bg-[#22d3ee]/10 border-[#22d3ee]/20',
 };
 
-export function GovernanceQueue() {
-  const { data: pending, loading, error, refetch } = useApi<GovernanceRequest[]>(
-    '/governance/pending',
-    15000
+function DetailList({ detail }: { detail: Record<string, unknown> }) {
+  const entries = Object.entries(detail);
+  if (entries.length === 0) return null;
+  return (
+    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+      {entries.map(([k, v]) => (
+        <div key={k} className="contents">
+          <dt className="text-[#7a8599] font-medium">{k}</dt>
+          <dd className="text-[#e2e8f0] break-words">
+            {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
-  const [actionState, setActionState] = useState<Record<string, 'approving' | 'rejecting' | 'approved' | 'rejected'>>({});
+}
+
+export function GovernanceQueue() {
+  const { activeProject, isAllProjects } = useProject();
+  const { data: pending, isLoading, error, refetch } = useGovernancePendingQuery(activeProject?.id);
+  const approve = useApproveGovernance();
+  const reject = useRejectGovernance();
   const [rejectNote, setRejectNote] = useState<Record<string, string>>({});
 
-  const handleApprove = async (id: string) => {
-    setActionState((s) => ({ ...s, [id]: 'approving' }));
-    try {
-      await api(`/governance/${id}/approve`, { method: 'POST', body: JSON.stringify({}) });
-      setActionState((s) => ({ ...s, [id]: 'approved' }));
-      setTimeout(() => refetch(), 1000);
-    } catch {
-      setActionState((s) => {
-        const next = { ...s };
-        delete next[id];
-        return next;
-      });
-    }
-  };
+  const handleApprove = (id: string) => approve.mutate(id);
+  const handleReject = (id: string) => reject.mutate({ id, reason: rejectNote[id] });
 
-  const handleReject = async (id: string) => {
-    setActionState((s) => ({ ...s, [id]: 'rejecting' }));
-    try {
-      await api(`/governance/${id}/reject`, {
-        method: 'POST',
-        body: JSON.stringify({ reason: rejectNote[id] || undefined }),
-      });
-      setActionState((s) => ({ ...s, [id]: 'rejected' }));
-      setTimeout(() => refetch(), 1000);
-    } catch {
-      setActionState((s) => {
-        const next = { ...s };
-        delete next[id];
-        return next;
-      });
-    }
-  };
+  const busyId = approve.isPending ? approve.variables : reject.isPending ? reject.variables?.id : null;
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold text-[#e2e8f0]">Governance Queue</h1>
-        <p className="text-sm text-[#7a8599] mt-1">Review and approve or reject pending requests</p>
+        <p className="text-sm text-[#7a8599] mt-1">
+          {isAllProjects ? 'All projects' : activeProject ? `Project: ${activeProject.name}` : 'All projects'}
+          <span className="opacity-60"> · review and approve or reject pending requests</span>
+        </p>
       </div>
 
-      {loading ? (
+      {isLoading ? (
         <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-32" />
           ))}
         </div>
       ) : error ? (
-        <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-8 text-center text-[#f87171] text-sm">
-          {error}
-        </div>
+        <ErrorPanel error={error} onRetry={refetch} />
       ) : !pending || pending.length === 0 ? (
         <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-12 text-center">
           <div className="text-4xl mb-3">✅</div>
@@ -99,22 +89,13 @@ export function GovernanceQueue() {
           </div>
 
           {pending.map((req) => {
-            const state = actionState[req.id];
-            const typeColor =
-              TYPE_COLORS[req.request_type] ?? TYPE_COLORS.default;
-
-            const isResolved = state === 'approved' || state === 'rejected';
+            const typeColor = TYPE_COLORS[req.request_type] ?? TYPE_COLORS.default;
+            const busy = busyId === req.id;
 
             return (
               <div
                 key={req.id}
-                className={`bg-[#111820] border rounded-lg p-4 transition-all ${
-                  isResolved
-                    ? state === 'approved'
-                      ? 'border-[#34d399]/30 opacity-70'
-                      : 'border-[#f87171]/30 opacity-70'
-                    : 'border-[#1e2738]'
-                }`}
+                className="bg-[#111820] border border-[#1e2738] rounded-lg p-4 transition-all"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
@@ -125,61 +106,48 @@ export function GovernanceQueue() {
                       <span className="text-xs text-[#7a8599]">{timeAgo(req.created_at)}</span>
                     </div>
                     <h3 className="text-sm font-medium text-[#e2e8f0] mb-1">{req.title}</h3>
-                    {req.detail_json && (
-                      <p className="text-xs text-[#7a8599] mb-2">{JSON.stringify(req.detail_json)}</p>
-                    )}
-                    <p className="text-xs text-[#7a8599]">
-                      Requested by{' '}
-                      <span className="text-[#60a5fa]">{req.requested_by}</span>
+                    {req.detail_json && <DetailList detail={req.detail_json} />}
+                    <p className="text-xs text-[#7a8599] mt-2">
+                      Requested by <span className="text-[#60a5fa]">{req.requested_by}</span>
                     </p>
                   </div>
 
-                  {isResolved ? (
-                    <div
-                      className={`flex-shrink-0 text-sm font-medium px-3 py-1 rounded-lg ${
-                        state === 'approved'
-                          ? 'text-[#34d399] bg-[#34d399]/10'
-                          : 'text-[#f87171] bg-[#f87171]/10'
-                      }`}
+                  <div className="flex flex-col gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => handleApprove(req.id)}
+                      disabled={busy}
+                      className="px-4 py-1.5 bg-[#34d399]/20 border border-[#34d399]/30 text-[#34d399] text-sm rounded-lg hover:bg-[#34d399]/30 disabled:opacity-50 transition-colors"
                     >
-                      {state === 'approved' ? '✓ Approved' : '✗ Rejected'}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => handleApprove(req.id)}
-                        disabled={state === 'approving' || state === 'rejecting'}
-                        className="px-4 py-1.5 bg-[#34d399]/20 border border-[#34d399]/30 text-[#34d399] text-sm rounded-lg hover:bg-[#34d399]/30 disabled:opacity-50 transition-colors"
-                      >
-                        {state === 'approving' ? 'Approving...' : 'Approve'}
-                      </button>
-                      <button
-                        onClick={() => handleReject(req.id)}
-                        disabled={state === 'approving' || state === 'rejecting'}
-                        className="px-4 py-1.5 bg-[#f87171]/20 border border-[#f87171]/30 text-[#f87171] text-sm rounded-lg hover:bg-[#f87171]/30 disabled:opacity-50 transition-colors"
-                      >
-                        {state === 'rejecting' ? 'Rejecting...' : 'Reject'}
-                      </button>
-                    </div>
-                  )}
+                      {busy && approve.isPending ? 'Approving...' : 'Approve'}
+                    </button>
+                    <button
+                      onClick={() => handleReject(req.id)}
+                      disabled={busy}
+                      className="px-4 py-1.5 bg-[#f87171]/20 border border-[#f87171]/30 text-[#f87171] text-sm rounded-lg hover:bg-[#f87171]/30 disabled:opacity-50 transition-colors"
+                    >
+                      {busy && reject.isPending ? 'Rejecting...' : 'Reject'}
+                    </button>
+                  </div>
                 </div>
 
-                {!isResolved && (
-                  <div className="mt-3 pt-3 border-t border-[#1e2738]">
-                    <input
-                      type="text"
-                      placeholder="Rejection reason (optional)..."
-                      value={rejectNote[req.id] ?? ''}
-                      onChange={(e) =>
-                        setRejectNote((n) => ({ ...n, [req.id]: e.target.value }))
-                      }
-                      className="w-full bg-[#0a0e14] border border-[#1e2738] rounded-lg px-3 py-1.5 text-xs text-[#e2e8f0] placeholder-[#7a8599] focus:outline-none focus:border-[#60a5fa]"
-                    />
-                  </div>
-                )}
+                <div className="mt-3 pt-3 border-t border-[#1e2738]">
+                  <input
+                    type="text"
+                    placeholder="Rejection reason (optional)..."
+                    value={rejectNote[req.id] ?? ''}
+                    onChange={(e) =>
+                      setRejectNote((n) => ({ ...n, [req.id]: e.target.value }))
+                    }
+                    className="w-full bg-[#0a0e14] border border-[#1e2738] rounded-lg px-3 py-1.5 text-xs text-[#e2e8f0] placeholder-[#7a8599] focus:outline-none focus:border-[#60a5fa]"
+                  />
+                </div>
               </div>
             );
           })}
+
+          {(approve.error || reject.error) && (
+            <ErrorPanel error={approve.error || reject.error} />
+          )}
         </div>
       )}
     </div>
