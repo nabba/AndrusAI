@@ -1,3 +1,31 @@
+export type TicketStatus = 'todo' | 'in_progress' | 'review' | 'done' | 'failed' | 'blocked';
+
+export type PriorityLabel = 'critical' | 'high' | 'medium' | 'low';
+
+// Backend stores priority as integer 1-9 (default 5, lower = more urgent).
+export function priorityLabel(n: number | undefined): PriorityLabel {
+  if (n == null) return 'medium';
+  if (n <= 2) return 'critical';
+  if (n <= 4) return 'high';
+  if (n <= 6) return 'medium';
+  return 'low';
+}
+
+// Difficulty is the Commander-routed task complexity (1-10, higher = harder).
+// 1-2 trivial (instant lookup), 3-4 easy (standard research/code),
+// 5-6 moderate (multi-source research or debugging), 7-8 hard (architecture,
+// multi-step reasoning), 9-10 extreme (deep analysis / synthesis).
+export type DifficultyLabel = 'trivial' | 'easy' | 'moderate' | 'hard' | 'extreme';
+
+export function difficultyLabel(n: number | undefined): DifficultyLabel {
+  if (n == null) return 'moderate';
+  if (n <= 2) return 'trivial';
+  if (n <= 4) return 'easy';
+  if (n <= 6) return 'moderate';
+  if (n <= 8) return 'hard';
+  return 'extreme';
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -14,7 +42,7 @@ export interface Ticket {
   project_id: string;
   title: string;
   description?: string;
-  status: 'todo' | 'in_progress' | 'review' | 'done' | 'failed' | 'blocked';
+  status: TicketStatus;
   priority: number;
   assigned_agent?: string;
   assigned_crew?: string;
@@ -110,15 +138,10 @@ export interface AgentCost {
   total_tokens: number;
 }
 
+export type KanbanColumnKey = Exclude<TicketStatus, never>;
+
 export interface KanbanBoard {
-  board: {
-    todo: Ticket[];
-    in_progress: Ticket[];
-    review: Ticket[];
-    done: Ticket[];
-    failed: Ticket[];
-    blocked: Ticket[];
-  };
+  board: Record<KanbanColumnKey, Ticket[]>;
   counts: Record<string, number>;
   total: number;
 }
