@@ -191,10 +191,17 @@ def _normalize_model(raw: dict, provider: str = "openrouter") -> dict | None:
 # ── Database Operations ──────────────────────────────────────────────────────
 
 def _get_known_model_ids() -> set[str]:
-    """Get all model_ids already in discovered_models table."""
+    """Get model_ids that are fully cataloged (not stubs).
+
+    Rows with zero cost AND zero context are stubs (e.g. from tech_radar
+    hints) — they are excluded so the authoritative scanner
+    (OpenRouter/Ollama) can re-discover and enrich them on its next run
+    via _store_discovered's ON CONFLICT.
+    """
     from app.control_plane.db import execute
     rows = execute(
-        "SELECT model_id FROM control_plane.discovered_models",
+        "SELECT model_id FROM control_plane.discovered_models "
+        "WHERE cost_output_per_m > 0 OR context_window > 0",
         fetch=True,
     )
     return {r["model_id"] for r in (rows or [])}
@@ -208,8 +215,14 @@ def _get_catalog_model_ids() -> set[str]:
         ids.add(name)
     return ids
 
-def _store_discovered(model: dict) -> bool:
-    """Store a newly discovered model in PostgreSQL."""
+def _store_discovered(model: dict, source: str = "openrouter_api") -> bool:
+    """Store a newly discovered model in PostgreSQL.
+
+    ON CONFLICT enriches existing rows (e.g. stubs planted by tech_radar)
+    with the authoritative scanner's data — but preserves `source`
+    (attribution to the first discoverer) and `status` (don't reset
+    benchmarking progress).
+    """
     from app.control_plane.db import execute
     try:
         execute(
@@ -219,21 +232,62 @@ def _store_discovered(model: dict) -> bool:
                 source, raw_metadata, status)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'discovered')
                ON CONFLICT (model_id) DO UPDATE SET
+                provider = EXCLUDED.provider,
+                display_name = EXCLUDED.display_name,
+                context_window = EXCLUDED.context_window,
                 cost_input_per_m = EXCLUDED.cost_input_per_m,
                 cost_output_per_m = EXCLUDED.cost_output_per_m,
-                context_window = EXCLUDED.context_window,
+                multimodal = EXCLUDED.multimodal,
+                tool_calling = EXCLUDED.tool_calling,
+                raw_metadata = EXCLUDED.raw_metadata,
                 updated_at = NOW()""",
             (
                 model["model_id"], model["provider"], model["display_name"],
                 model["context_window"], model["cost_input_per_m"],
                 model["cost_output_per_m"], model["multimodal"],
-                model.get("tool_calling", True), "openrouter_api",
+                model.get("tool_calling", True), source,
                 json.dumps(model.get("raw_metadata", {})),
             ),
         )
         return True
     except Exception as e:
         logger.debug(f"llm_discovery: store failed: {e}")
+        return False
+
+
+def _store_stub(
+    model_id: str,
+    provider: str,
+    display_name: str,
+    source: str,
+    metadata: dict | None = None,
+) -> bool:
+    """Plant a minimal-info row for a model hinted by a non-authoritative source.
+
+    Used by tech_radar when it hears about a model in the news but doesn't
+    have pricing/context/capability data. The row stays invisible to
+    _get_known_model_ids() (zero cost, zero context) so the authoritative
+    scanner (OpenRouter/Ollama) can re-discover and enrich it on its next
+    cycle. ON CONFLICT DO NOTHING prevents overwriting real data if the
+    row already exists.
+    """
+    from app.control_plane.db import execute
+    try:
+        execute(
+            """INSERT INTO control_plane.discovered_models
+               (model_id, provider, display_name, context_window,
+                cost_input_per_m, cost_output_per_m, multimodal, tool_calling,
+                source, raw_metadata, status)
+               VALUES (%s, %s, %s, 0, 0, 0, FALSE, TRUE, %s, %s, 'discovered')
+               ON CONFLICT (model_id) DO NOTHING""",
+            (
+                model_id, provider, display_name,
+                source, json.dumps(metadata or {}),
+            ),
+        )
+        return True
+    except Exception as e:
+        logger.debug(f"llm_discovery: stub insert failed: {e}")
         return False
 
 def _update_benchmark(model_id: str, score: float, role: str) -> None:

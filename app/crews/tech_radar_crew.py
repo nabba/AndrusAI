@@ -14,6 +14,7 @@ Searches:
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 
 from app.llm_factory import create_specialist_llm
@@ -89,7 +90,8 @@ def run_tech_scan() -> str:
             f'[{{"title": "...", "category": "models|frameworks|research|tools", '
             f'"relevance": "high|medium|low", '
             f'"summary": "1-2 sentence description", '
-            f'"action": "what we should do about it"}}]\n\n'
+            f'"action": "what we should do about it", '
+            f'"openrouter_id": "provider/model-slug — ONLY for category=models AND only if you are confident the model is available on OpenRouter with that exact slug; omit this field otherwise"}}]\n\n'
             f"Only include genuinely NEW items not in the 'already known' list.\n"
             f"If nothing new, respond with: []"
         )
@@ -130,21 +132,8 @@ def run_tech_scan() -> str:
             if relevance == "high":
                 high_relevance.append(disc)
 
-            # If it's a new model, create a proposal to add it to the catalog
-            if category == "models" and relevance in ("high", "medium"):
-                try:
-                    from app.proposals import create_proposal
-                    create_proposal(
-                        title=f"New model: {title}"[:100],
-                        description=(
-                            f"Tech radar discovered: {title}\n\n"
-                            f"{summary}\n\n"
-                            f"Recommended action: {action}"
-                        ),
-                        proposal_type="skill",
-                    )
-                except Exception:
-                    pass
+            if category == "models":
+                _plant_model_stub(disc)
 
         # Notify user of high-relevance discoveries via Signal
         if high_relevance:
@@ -167,6 +156,47 @@ def run_tech_scan() -> str:
         crew_failed("self_improvement", task_id, str(exc)[:200])
         logger.error(f"Tech radar scan failed: {exc}")
         return f"Tech radar failed: {str(exc)[:200]}"
+
+
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:-]*$")
+
+
+def _plant_model_stub(disc: dict) -> None:
+    """If the discovery carries a plausible OpenRouter slug, plant a stub row
+    in discovered_models so the OpenRouter scanner picks it up next cycle.
+
+    Invalid or missing slugs are silently ignored — tech_radar remains a
+    human-facing channel even when it can't resolve a slug.
+    """
+    raw = str(disc.get("openrouter_id", "")).strip().lower()
+    if not raw:
+        return
+    # Accept both "provider/model" and "openrouter/provider/model"; normalize
+    # to the catalog convention (openrouter/<slug>) to match scan_openrouter.
+    if raw.startswith("openrouter/"):
+        slug = raw[len("openrouter/"):]
+    else:
+        slug = raw
+    if not _SLUG_RE.match(slug):
+        logger.debug("tech_radar: skipping implausible openrouter_id %r", raw)
+        return
+
+    try:
+        from app.llm_discovery import _store_stub
+        _store_stub(
+            model_id=f"openrouter/{slug}",
+            provider="openrouter",
+            display_name=str(disc.get("title", slug))[:200],
+            source="tech_radar",
+            metadata={"tech_radar_discovery": {
+                "title": disc.get("title"),
+                "summary": disc.get("summary"),
+                "action": disc.get("action"),
+                "relevance": disc.get("relevance"),
+            }},
+        )
+    except Exception:
+        logger.debug("tech_radar: stub insert failed", exc_info=True)
 
 
 def _notify_user_discoveries(discoveries: list[dict]) -> None:

@@ -160,6 +160,76 @@ class TestDatabase:
         ids = _get_known_model_ids()
         assert isinstance(ids, set)
 
+    def test_stub_is_not_known_until_enriched(self):
+        """Tech-radar stubs (zero cost/context) must be invisible to
+        _get_known_model_ids so the OpenRouter scan can re-discover and
+        enrich them. Once _store_discovered fills in real pricing via
+        ON CONFLICT, the id becomes known and the source stays 'tech_radar'.
+        """
+        from app.llm_discovery import (
+            _store_stub, _store_discovered, _get_known_model_ids,
+        )
+        from app.control_plane.db import execute
+
+        slug = "openrouter/test/stub-enrichment-model"
+        # Clean up from any prior test run
+        try:
+            execute(
+                "DELETE FROM control_plane.discovered_models WHERE model_id = %s",
+                (slug,),
+            )
+        except Exception:
+            return  # DB unavailable — skip
+
+        if not _store_stub(
+            model_id=slug,
+            provider="openrouter",
+            display_name="Stub Enrichment Test",
+            source="tech_radar",
+        ):
+            return  # DB write failed — skip
+
+        assert slug not in _get_known_model_ids(), (
+            "stub should be invisible to known_ids so OpenRouter scan "
+            "can re-discover it"
+        )
+
+        enriched = {
+            "model_id": slug,
+            "provider": "openrouter",
+            "display_name": "Stub Enrichment Test (enriched)",
+            "context_window": 32768,
+            "cost_input_per_m": 0.5,
+            "cost_output_per_m": 1.5,
+            "multimodal": False,
+            "tool_calling": True,
+            "raw_metadata": {},
+        }
+        assert _store_discovered(enriched, source="openrouter_api")
+
+        assert slug in _get_known_model_ids(), (
+            "after enrichment via ON CONFLICT the stub should be known"
+        )
+
+        rows = execute(
+            "SELECT source, cost_output_per_m, context_window "
+            "FROM control_plane.discovered_models WHERE model_id = %s",
+            (slug,), fetch=True,
+        )
+        assert rows, "row should persist after enrichment"
+        row = rows[0]
+        assert row["source"] == "tech_radar", (
+            "first discoverer's attribution must survive enrichment"
+        )
+        assert float(row["cost_output_per_m"]) == 1.5
+        assert int(row["context_window"]) == 32768
+
+        # Cleanup
+        execute(
+            "DELETE FROM control_plane.discovered_models WHERE model_id = %s",
+            (slug,),
+        )
+
     def test_get_catalog_model_ids(self):
         from app.llm_discovery import _get_catalog_model_ids
         ids = _get_catalog_model_ids()
