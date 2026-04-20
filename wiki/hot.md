@@ -1,11 +1,11 @@
 ---
 title: Hot Cache
-updated_at: "2026-04-20T06:39:01Z"
+updated_at: "2026-04-20T06:48:59Z"
 ---
 
 # Wiki Hot Cache
 
-*Auto-generated 2026-04-20T06:39:01Z. Read this for quick context.*
+*Auto-generated 2026-04-20T06:48:59Z. Read this for quick context.*
 
 ## Recent Wiki Changes
   | 2026-04-19T20:37:12Z | idle_scheduler.wiki_synthesis | CREATE | meta/circular-import-resolution-patterns | Created: Circular Import Resolution Patterns |
@@ -23,8 +23,8 @@ updated_at: "2026-04-20T06:39:01Z"
   None.
 
 ## Knowledge Gaps
-  - kaicart: no pages yet
-  - self: no pages yet
   - plg: no pages yet
   - archibal: no pages yet
   - philosophy: no pages yet
+  - kaicart: no pages yet
+  - self: no pages yet

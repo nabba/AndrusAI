@@ -233,3 +233,229 @@ def create_research_coordinator(force_tier: str | None = None) -> Agent:
         max_iter=10,
         verbose=False,
     )
+
+
+# ── Coding: Execution specialist ─────────────────────────────────────
+# Handles: actually running code, file I/O, sandbox, host bridge.
+
+_EXEC_BACKSTORY = (
+    "You are the Execution Specialist.  Given working (or draft) code, "
+    "your job is to EXECUTE it: run it in the sandbox, capture stdout/"
+    "stderr/return codes, write output files, and report the concrete "
+    "results.  You don't design algorithms — you run them.  Prefer "
+    "Docker sandbox execution over host shell unless the coordinator "
+    "explicitly asks for host access.  Always return both the code you "
+    "ran and its actual output."
+)
+
+
+def create_execution_specialist(force_tier: str | None = None) -> Agent:
+    llm = create_specialist_llm(max_tokens=4096, role="coding", force_tier=force_tier)
+    tools: list = []
+    from app.tools.file_manager import file_manager
+    from app.tools.attachment_reader import read_attachment
+    tools.extend([file_manager, read_attachment])
+
+    # Code execution tools
+    for mod, fn, args in [
+        ("app.tools.code_execution", "create_code_tools", ()),
+        ("app.tools.sandbox_tools", "create_sandbox_tools", ()),
+        ("app.tools.bridge_tools", "create_bridge_tools", ("coder",)),
+    ]:
+        tools.extend(_safe(
+            lambda m=mod, f=fn, a=args: __import__(m, fromlist=[f]).__dict__[f](*a),
+        ))
+
+    return Agent(
+        role="Execution Specialist",
+        goal="Run code and capture real output (stdout, stderr, artifacts).",
+        backstory=_EXEC_BACKSTORY,
+        llm=llm,
+        tools=tools,
+        allow_delegation=False,
+        max_iter=6,
+        verbose=False,
+    )
+
+
+# ── Coding: Debug specialist ─────────────────────────────────────────
+# Handles: reading past error patterns, tension records, failure
+# journals, and team decisions to inform debugging.
+
+_DEBUG_BACKSTORY = (
+    "You are the Debug Specialist.  When the Execution Specialist reports "
+    "a failure, you diagnose WHY.  You read the experiential journal for "
+    "similar past failures, consult the tensions store for documented "
+    "contradictions, check team memory for decisions made on adjacent "
+    "code, and propose targeted fixes.  You don't run code yourself — "
+    "you return a DIAGNOSIS + specific line-level suggestions."
+)
+
+
+def create_debug_specialist(force_tier: str | None = None) -> Agent:
+    llm = create_specialist_llm(max_tokens=4096, role="coding", force_tier=force_tier)
+    tools: list = []
+    from app.knowledge_base.tools import KnowledgeSearchTool
+    tools.append(KnowledgeSearchTool())
+
+    # Experiential, tensions, team decisions
+    for mod, fn, args in [
+        ("app.experiential.tools", "get_experiential_tools", ("coder",)),
+        ("app.tensions.tools", "get_tension_tools", ("coder",)),
+        ("app.episteme.tools", "get_episteme_tools", ("coder",)),
+    ]:
+        tools.extend(_safe(
+            lambda m=mod, f=fn, a=args: __import__(m, fromlist=[f]).__dict__[f](*a),
+        ))
+
+    # Web search — for known-error patterns ("stack trace ...")
+    from app.tools.web_search import web_search
+    tools.append(web_search)
+
+    return Agent(
+        role="Debug Specialist",
+        goal="Diagnose code failures by cross-referencing journal, tensions, and past decisions.",
+        backstory=_DEBUG_BACKSTORY,
+        llm=llm,
+        tools=tools,
+        allow_delegation=False,
+        max_iter=6,
+        verbose=False,
+    )
+
+
+# ── Coding coordinator ───────────────────────────────────────────────
+
+_CODE_COORD_BACKSTORY = compose_backstory("coder") + (
+    "\n\n"
+    "DELEGATION MODE — You coordinate a coding team of two specialists:\n"
+    "  • Execution Specialist — runs code in the sandbox and returns actual output\n"
+    "  • Debug Specialist — diagnoses failures using journal, tensions, past decisions\n"
+    "Your job: write the code yourself, then delegate EXECUTION to verify it works.  "
+    "If execution fails, delegate to Debug for a diagnosis, apply the suggested fix, "
+    "and re-delegate execution.  Return the final working code with its real output.  "
+    "Do NOT narrate your delegations — just deliver the working solution."
+)
+
+
+def create_coding_coordinator(force_tier: str | None = None) -> Agent:
+    llm = create_specialist_llm(max_tokens=4096, role="coding", force_tier=force_tier)
+    tools: list = []
+
+    from app.tools.memory_tool import create_memory_tools
+    from app.tools.scoped_memory_tool import create_scoped_memory_tools
+    from app.tools.mem0_tools import create_mem0_tools
+    from app.tools.file_manager import file_manager
+    from app.tools.attachment_reader import read_attachment
+    tools.extend(create_memory_tools(collection="coding"))
+    tools.extend(create_scoped_memory_tools("coder"))
+    tools.extend(create_mem0_tools("coder"))
+    tools.extend([file_manager, read_attachment])
+
+    return Agent(
+        role="Coding Coordinator",
+        goal=(
+            "Design the code, delegate its execution to the Execution Specialist, "
+            "consult the Debug Specialist on failures, and return working code "
+            "with actual output."
+        ),
+        backstory=_CODE_COORD_BACKSTORY,
+        llm=llm,
+        tools=tools,
+        allow_delegation=True,
+        max_iter=12,
+        verbose=False,
+    )
+
+
+# ── Writing: Research specialist (lighter than research-crew's Web+Doc split) ─
+
+_WRITE_RESEARCH_BACKSTORY = (
+    "You are the Writing Research Specialist.  Given a writing task, you "
+    "gather the necessary factual material: quick web searches for current "
+    "facts, knowledge-base lookups for company/product data, and philosophy "
+    "KB for thematic depth.  You return a structured research brief — NOT "
+    "the final prose.  The Synthesis Specialist turns your brief into the "
+    "finished piece."
+)
+
+
+def create_writing_research_specialist(force_tier: str | None = None) -> Agent:
+    llm = create_specialist_llm(max_tokens=4096, role="writing", force_tier=force_tier)
+    tools: list = []
+    from app.tools.web_search import web_search
+    from app.tools.web_fetch import web_fetch
+    from app.tools.attachment_reader import read_attachment
+    from app.knowledge_base.tools import KnowledgeSearchTool
+    tools.extend([web_search, web_fetch, read_attachment, KnowledgeSearchTool()])
+
+    # Philosophy + episteme
+    for mod, fn, args in [
+        ("app.philosophy.rag_tool", "PhilosophyRAGTool", ()),
+        ("app.episteme.tools", "get_episteme_tools", ("writer",)),
+        ("app.experiential.tools", "get_experiential_tools", ("writer",)),
+    ]:
+        try:
+            cls_or_fn = __import__(mod, fromlist=[fn]).__dict__[fn]
+            if isinstance(cls_or_fn, type):
+                tools.append(cls_or_fn())
+            else:
+                tools.extend(_safe(lambda c=cls_or_fn, a=args: c(*a)))
+        except Exception:
+            pass
+
+    return Agent(
+        role="Writing Research Specialist",
+        goal="Gather factual material and return a structured brief.",
+        backstory=_WRITE_RESEARCH_BACKSTORY,
+        llm=llm,
+        tools=tools,
+        allow_delegation=False,
+        max_iter=6,
+        verbose=False,
+    )
+
+
+# ── Writing coordinator ──────────────────────────────────────────────
+# For writing we reuse the Synthesis Specialist defined above (it's
+# already tuned for integrating material into final prose).
+
+_WRITE_COORD_BACKSTORY = compose_backstory("writer") + (
+    "\n\n"
+    "DELEGATION MODE — You coordinate a writing team of two specialists:\n"
+    "  • Writing Research Specialist — gathers facts and builds a brief\n"
+    "  • Synthesis Specialist — integrates material into finished prose\n"
+    "Simple writing tasks (short emails, concise notes) you handle yourself.  "
+    "For longer/substantive pieces: delegate the Research Specialist to gather "
+    "sources and build a brief, then delegate the Synthesis Specialist to "
+    "produce the final draft.  Revise as needed.  Return the finished piece "
+    "only — no delegation commentary."
+)
+
+
+def create_writing_coordinator(force_tier: str | None = None) -> Agent:
+    llm = create_specialist_llm(max_tokens=4096, role="writing", force_tier=force_tier)
+    tools: list = []
+
+    from app.tools.memory_tool import create_memory_tools
+    from app.tools.scoped_memory_tool import create_scoped_memory_tools
+    from app.tools.mem0_tools import create_mem0_tools
+    from app.tools.file_manager import file_manager
+    tools.extend(create_memory_tools(collection="writing"))
+    tools.extend(create_scoped_memory_tools("writer"))
+    tools.extend(create_mem0_tools("writer"))
+    tools.append(file_manager)
+
+    return Agent(
+        role="Writing Coordinator",
+        goal=(
+            "Produce finished writing by delegating research and synthesis "
+            "to specialists, then polishing the result."
+        ),
+        backstory=_WRITE_COORD_BACKSTORY,
+        llm=llm,
+        tools=tools,
+        allow_delegation=True,
+        max_iter=10,
+        verbose=False,
+    )

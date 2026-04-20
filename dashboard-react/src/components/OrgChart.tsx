@@ -97,9 +97,9 @@ const DELEGATION_DESCRIPTIONS: Record<string, string> = {
   research:
     'Research crew → Coordinator + Web + Document + Synthesis specialists. Each sub-agent keeps ≤ 18 tools so Anthropic strict-mode works. ~2× LLM calls, full tool palette preserved.',
   coding:
-    'Coding crew → Coordinator + Execution + Debug specialists. Not yet wired (placeholder for Phase 2).',
+    'Coding crew → Coordinator + Execution + Debug specialists. Coordinator writes the code, Execution runs it in the sandbox, Debug diagnoses failures from journal/tensions. Great for multi-step debugging.',
   writing:
-    'Writing crew → Coordinator + Research + Synthesis specialists. Not yet wired (placeholder for Phase 2).',
+    'Writing crew → Coordinator + Research + Synthesis specialists. Research gathers facts into a brief, Synthesis produces the finished prose with dialectics/philosophy. Best for longer substantive pieces.',
 };
 
 function DelegationPanel() {
@@ -124,7 +124,6 @@ function DelegationPanel() {
           {Object.entries(settings).map(([crew, enabled]) => {
             const desc = DELEGATION_DESCRIPTIONS[crew] ?? '';
             const pending = setMut.isPending && setMut.variables?.crew === crew;
-            const disabled = crew !== 'research'; // Phase 1 only
             return (
               <div
                 key={crew}
@@ -132,14 +131,14 @@ function DelegationPanel() {
                   enabled
                     ? 'bg-[#34d399]/5 border-[#34d399]/30'
                     : 'bg-[#0a0e14] border-[#1e2738]'
-                } ${disabled ? 'opacity-60' : ''}`}
+                }`}
               >
                 <button
-                  disabled={disabled || pending}
+                  disabled={pending}
                   onClick={() => setMut.mutate({ crew, enabled: !enabled })}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${
                     enabled ? 'bg-[#34d399]' : 'bg-[#1e2738]'
-                  } ${disabled || pending ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                  } ${pending ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
                   aria-label={`Toggle delegation for ${crew}`}
                 >
                   <span
@@ -162,9 +161,6 @@ function DelegationPanel() {
                     >
                       {enabled ? 'DELEGATION ON' : 'SINGLE AGENT'}
                     </span>
-                    {disabled && (
-                      <span className="text-[10px] text-[#7a8599] italic">(coming soon)</span>
-                    )}
                   </div>
                   {desc && <p className="text-xs text-[#7a8599] mt-1">{desc}</p>}
                 </div>
