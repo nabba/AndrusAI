@@ -97,15 +97,23 @@ _TOOL_PRIORITY_ORDER = (
     ("wiki_search", 55),
     ("wiki_write", 40),
     ("wiki_slides", 30),
-    # Priority 30 — philosophy / aesthetics / introspection (peripheral)
-    ("philosophy_knowledge_base", 30),
-    ("conceptual_blend", 30),
-    ("find_counter_argument", 30),
-    ("search_tensions", 25),
+    # Priority 58 — writer-essential dialectics.  These are peripheral for
+    # coder/researcher but core for writer — writer tasks that benefit from
+    # counter-arguments or conceptual reframing need these.  Ranked ABOVE
+    # bridge tools (55) so the writer's 29-tool list preserves them while
+    # dropping 2 bridge tools (which writers rarely use anyway).
+    ("philosophy_knowledge_base", 58),
+    ("find_counter_argument", 58),
+    ("conceptual_blend", 58),
+    # Priority 35 — introspective surface the agent can *call* during a task
+    # (post-task telemetry writes experiential/tension entries automatically
+    # via lifecycle hooks regardless, so the search tools matter more than
+    # the record ones).
+    ("search_tensions", 35),
+    ("search_experiential", 35),
+    ("search_aesthetic", 30),
     ("record_tension", 25),
-    ("search_experiential", 25),
     ("record_experience", 25),
-    ("search_aesthetic", 25),
     ("record_aesthetic", 25),
     ("self_report", 20),
     # Priority 10 — plugin tools / anything unrecognized (default)
