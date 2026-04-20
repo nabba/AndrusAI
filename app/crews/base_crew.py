@@ -138,6 +138,74 @@ def _tool_priority(tool) -> int:
     return _TOOL_PRIORITY_MAP.get(name, 10)
 
 
+# Provider-specific tool caps.  Anthropic has the tightest limits (20 strict
+# tools, then separately a schema-complexity budget ≈ 25-40 non-strict).
+# OpenAI-compatible providers (Grok, DeepSeek, Kimi, MiniMax, Step, Gemini)
+# allow ~128 tools per request with much looser schema complexity.  Local
+# Ollama is limited by the model itself but typically unbounded.
+#
+# These caps are SAFETY margins below each provider's hard limit.  Going
+# higher than the cap burns tokens on every system prompt and degrades LLM
+# decision quality without meaningful capability gains.
+_PROVIDER_TOOL_CAPS = {
+    "anthropic": 25,
+    "openai": 50,
+    "openrouter": 50,   # OpenRouter fronts many providers — all OpenAI-compatible
+    "xai": 50,
+    "google": 50,       # Gemini
+    "gemini": 50,
+    "deepseek": 50,
+    "minimax": 50,
+    "moonshot": 50,
+    "stepfun": 50,
+    "mistral": 50,
+    "meta-llama": 50,
+    "ollama": 50,       # Local (nominally unbounded, but keep focused)
+    "ollama_chat": 50,
+}
+
+
+def _detect_llm_provider(llm) -> str:
+    """Return the provider key (anthropic, openrouter, xai, ollama, …) for
+    an agent's LLM instance.  Inspects .model or .model_id first, falls
+    back to .provider, ultimately returns 'anthropic' (the most restrictive
+    cap) on unknown so we never accidentally exceed a provider's limit."""
+    if llm is None:
+        return "anthropic"
+    for attr in ("model", "model_id"):
+        raw = getattr(llm, attr, "") or ""
+        if raw:
+            raw_lower = str(raw).lower()
+            # Split on '/' — first segment is typically the provider
+            head = raw_lower.split("/", 1)[0]
+            if head in _PROVIDER_TOOL_CAPS:
+                return head
+            # Some model_ids don't have a provider prefix (e.g. "gpt-4o")
+            if "gpt" in head or "o1-" in head:
+                return "openai"
+            if "claude" in head:
+                return "anthropic"
+            if "gemini" in head:
+                return "google"
+            if "grok" in head:
+                return "xai"
+    prov = getattr(llm, "provider", "") or ""
+    if prov and str(prov).lower() in _PROVIDER_TOOL_CAPS:
+        return str(prov).lower()
+    return "anthropic"  # safest fallback
+
+
+def _cap_for_llm(llm) -> int:
+    """Tool-count cap appropriate to the agent's LLM provider."""
+    import os as _os
+    # Explicit env override wins over per-provider defaults
+    override = _os.environ.get("MAX_TOOLS_PER_AGENT")
+    if override and override.isdigit():
+        return int(override)
+    provider = _detect_llm_provider(llm)
+    return _PROVIDER_TOOL_CAPS.get(provider, 25)
+
+
 def _cap_tools_by_priority(tools: list, cap: int) -> list:
     """Return at most *cap* tools, keeping highest-priority ones.
 
@@ -390,17 +458,16 @@ def run_single_agent_crew(
         existing = list(agent.tools) if agent.tools else []
         agent.tools = existing + extra_tools
 
-    # Re-cap after late additions.  With strict=False the 20-tool Anthropic
-    # limit doesn't apply, but we still cap for token-efficiency and to keep
-    # LLM decisions focused.
-    import os as _os
-    _cap = int(_os.environ.get("MAX_TOOLS_PER_AGENT", "25"))
+    # Re-cap after late additions.  Provider-aware — agents on Anthropic
+    # get 25, on Grok/OpenAI/etc. get 50.
+    _cap = _cap_for_llm(getattr(agent, "llm", None))
     if agent.tools and len(agent.tools) > _cap:
         before = len(agent.tools)
         agent.tools = _cap_tools_by_priority(agent.tools, _cap)
+        provider = _detect_llm_provider(getattr(agent, "llm", None))
         logger.warning(
-            f"{crew_name}: capped tools {before} → {len(agent.tools)} "
-            f"(MAX_TOOLS_PER_AGENT={_cap})"
+            f"{crew_name} [{provider}]: capped tools {before} → {len(agent.tools)} "
+            f"(provider cap={_cap})"
         )
 
     # Extract model name from the agent's LLM for the task record
@@ -627,30 +694,31 @@ def _patch_agent_for_plugins() -> None:
         except Exception:
             logger.debug("Agent plugin pre-init failed (non-fatal)", exc_info=True)
 
-        # Tool-count safety cap.  With strict=False (patched below) Anthropic's
-        # 20-tool limit no longer applies, but a very large tool list still:
-        #   - Burns tokens on every system prompt (each tool schema is ~200
-        #     tokens, so 60 tools = ~12k tokens of system-prompt overhead).
-        #   - Overwhelms LLM decision-making (more choices = more chance of
-        #     picking a marginally-wrong tool).
-        # So we still cap, just much more generously than before.  The
-        # priority pruning is defensive — if anyone reverts the strict-false
-        # patch, this keeps the 20-strict cap from biting immediately.
+        # Provider-aware tool-count cap.  Different LLM providers have
+        # different hard limits:
+        #   Anthropic: 20 strict tools, ≈25-40 non-strict (schema complexity)
+        #   OpenAI/Grok/Gemini/DeepSeek/Kimi/MiniMax: ~128 tools per request
+        #   Ollama: unbounded but still capped for token efficiency
+        # _cap_for_llm() picks the right cap by inspecting the agent's LLM.
+        # Result: Anthropic-bound agents get 25 tools; Grok/OpenAI-bound
+        # agents get 50, which fits every peripheral tool (philosophy,
+        # tensions, experiential, aesthetic, self_report, etc.) comfortably
+        # even with all MCP plugin tools attached.
         try:
             tools = list(kwargs.get("tools") or [])
-            MAX_TOOLS_PER_AGENT = int(
-                __import__("os").environ.get("MAX_TOOLS_PER_AGENT", "25")
-            )
-            if len(tools) > MAX_TOOLS_PER_AGENT:
-                tools_after = _cap_tools_by_priority(tools, MAX_TOOLS_PER_AGENT)
+            llm = kwargs.get("llm")
+            max_tools = _cap_for_llm(llm)
+            if len(tools) > max_tools:
+                tools_after = _cap_tools_by_priority(tools, max_tools)
                 dropped = len(tools) - len(tools_after)
                 dropped_names = [
                     getattr(t, "name", "?") for t in tools
                     if t not in tools_after
                 ][:8]
+                provider = _detect_llm_provider(llm)
                 logger.warning(
-                    f"Agent('{kwargs.get('role', '?')}'): capped tools "
-                    f"{len(tools)} → {len(tools_after)} "
+                    f"Agent('{kwargs.get('role', '?')}' [{provider}]): "
+                    f"capped tools {len(tools)} → {len(tools_after)} "
                     f"(dropped {dropped}: {dropped_names})"
                 )
                 kwargs["tools"] = tools_after

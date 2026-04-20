@@ -566,6 +566,31 @@ async def lifespan(app: FastAPI):
 
     await asyncio.gather(_report_phil(), _gen_chronicle(), _report_monitor())
 
+    # ── LLM catalog early refresh ─────────────────────────────────────
+    # The bootstrap CATALOG only holds 3 survival entries.  Without a
+    # refresh, resolve_role_default() can only choose from those 3 — so
+    # the selector's smart pick of Grok-4.20 / other frontier models
+    # never reaches the runtime even though the snapshot on disk has
+    # 347 entries.  Do a non-forced refresh here (respects the 24h TTL
+    # so it just loads the cached snapshot if still fresh, or does one
+    # network scan if not).  This runs BEFORE the first agent is built
+    # so all role resolutions see the full catalog.
+    try:
+        from app.llm_catalog_builder import refresh as _refresh_catalog
+        _cat_before = 3  # bootstrap size
+        summary = await asyncio.to_thread(_refresh_catalog)
+        _cat_after = summary.get("catalog_size", _cat_before)
+        logger.info(
+            f"LLM catalog loaded at startup: {_cat_before} → {_cat_after} entries "
+            f"(sources: {summary.get('source_counts', {})})"
+        )
+    except Exception:
+        logger.warning(
+            "LLM catalog startup refresh failed — role defaults will fall "
+            "back to bootstrap (sonnet/deepseek/qwen3)",
+            exc_info=True,
+        )
+
     # ── Inbound queue replay ─────────────────────────────────────────
     # If a previous container instance died or was restarted while
     # processing user messages, those messages are still in the
