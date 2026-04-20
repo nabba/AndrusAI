@@ -384,7 +384,7 @@ def run_single_agent_crew(
     # limit doesn't apply, but we still cap for token-efficiency and to keep
     # LLM decisions focused.
     import os as _os
-    _cap = int(_os.environ.get("MAX_TOOLS_PER_AGENT", "40"))
+    _cap = int(_os.environ.get("MAX_TOOLS_PER_AGENT", "25"))
     if agent.tools and len(agent.tools) > _cap:
         before = len(agent.tools)
         agent.tools = _cap_tools_by_priority(agent.tools, _cap)
@@ -629,7 +629,7 @@ def _patch_agent_for_plugins() -> None:
         try:
             tools = list(kwargs.get("tools") or [])
             MAX_TOOLS_PER_AGENT = int(
-                __import__("os").environ.get("MAX_TOOLS_PER_AGENT", "40")
+                __import__("os").environ.get("MAX_TOOLS_PER_AGENT", "25")
             )
             if len(tools) > MAX_TOOLS_PER_AGENT:
                 tools_after = _cap_tools_by_priority(tools, MAX_TOOLS_PER_AGENT)
