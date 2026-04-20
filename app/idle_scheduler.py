@@ -990,7 +990,9 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
 
     # ── LLM Catalog Refresh: auto-populate from OpenRouter/AA/Ollama ──
     # LIGHT: the builder's 24h TTL means most invocations are a no-op;
-    # when it does fire, the three network fetches total ~3-5s.
+    # when it does fire, the three network fetches total ~3-5s. After
+    # each refresh the overlay is self-healed so stale targets don't
+    # linger (see llm_role_assignments.purge_stale_assignments).
     def _llm_refresh_catalog():
         try:
             from app.llm_catalog_builder import refresh, format_refresh_summary
@@ -1000,6 +1002,15 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
                     "idle_scheduler: %s",
                     format_refresh_summary(summary).replace("\n", " | "),
                 )
+            # Always self-heal the overlay after a refresh — a previously
+            # promoted model may have been renamed or dropped upstream.
+            try:
+                from app.llm_role_assignments import purge_stale_assignments
+                purged = purge_stale_assignments()
+                if purged:
+                    logger.info(f"idle_scheduler: purged {purged} stale overlay rows")
+            except Exception:
+                logger.debug("idle_scheduler: overlay purge failed", exc_info=True)
         except Exception:
             logger.debug("idle_scheduler: catalog refresh failed", exc_info=True)
     jobs.append(("llm-refresh-catalog", _llm_refresh_catalog, JobWeight.LIGHT))
