@@ -82,6 +82,16 @@ _TOOL_PRIORITY_ORDER = (
     ("create_calendar_event", 70),
     ("list_tasks", 70),
     ("create_task", 70),
+    # Priority 68 — knowledge stores with NO surviving equivalent.
+    # search_research_knowledge hits the Episteme ChromaDB collection and
+    # search_journal hits the Journal collection — neither is reachable via
+    # search_knowledge_base (enterprise collection) or any other retained
+    # tool.  Dropping these would remove the agent's proactive access to
+    # the system's research memory and its experiential history during a
+    # task.  (Automatic post-task hooks still WRITE to both collections
+    # regardless — this priority just preserves READ access.)
+    ("search_research_knowledge", 68),
+    ("search_journal", 68),
     # Priority 65 — MCP manager (needed for dynamic tool discovery)
     ("mcp_search_servers", 65),
     ("mcp_list_servers", 65),
