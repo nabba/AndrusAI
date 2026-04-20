@@ -14,10 +14,14 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  TouchSensor,
+  pointerWithin,
+  rectIntersection,
   useSensor,
   useSensors,
   useDraggable,
   useDroppable,
+  type CollisionDetection,
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
@@ -115,7 +119,11 @@ function DroppableColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`min-w-[200px] rounded-lg transition-colors ${isOver ? 'bg-[#60a5fa]/5 ring-1 ring-[#60a5fa]/30 ring-inset' : ''}`}
+      data-column={col.key}
+      // Tall hit area so empty / sparse columns are easy to drop into.
+      className={`min-w-[200px] min-h-[50vh] p-1 rounded-lg transition-colors ${
+        isOver ? 'bg-[#60a5fa]/10 ring-1 ring-[#60a5fa]/40 ring-inset' : ''
+      }`}
     >
       {children}
     </div>
@@ -296,49 +304,73 @@ export function KanbanBoard() {
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<KanbanColumnKey | null>(null);
+  const [dropError, setDropError] = useState<string | null>(null);
   const { data: board, isLoading, error, refetch } = useTicketBoardQuery(activeProject?.id);
   const updateStatus = useUpdateTicketStatus();
   const queryClient = useQueryClient();
 
-  // Pointer sensor with an activation distance so click-to-open still works
-  // and tap-scroll on mobile isn't hijacked by the drag handler.
+  // Pointer + touch sensors with a 6 px activation distance so click-to-open
+  // modal still works on quick taps (under the threshold the click fires
+  // instead of a drag).
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 6 } }),
   );
 
-  // Build a quick lookup of id → ticket so DragOverlay can render the card
-  // that's currently under the cursor.
-  const ticketsById = useMemo(() => {
-    const map = new Map<string, Ticket>();
+  // Lookups used to translate "over" into a target column even when the
+  // cursor lands on another card.
+  const { ticketsById, columnForTicket } = useMemo(() => {
+    const ticketsById = new Map<string, Ticket>();
+    const columnForTicket = new Map<string, KanbanColumnKey>();
     if (board) {
-      for (const col of COLUMNS) for (const t of board.board[col.key] ?? []) map.set(t.id, t);
+      for (const col of COLUMNS) {
+        for (const t of board.board[col.key] ?? []) {
+          ticketsById.set(t.id, t);
+          columnForTicket.set(t.id, col.key);
+        }
+      }
     }
-    return map;
+    return { ticketsById, columnForTicket };
   }, [board]);
 
   const activeTicket = activeDragId ? ticketsById.get(activeDragId) : null;
 
+  // Collision strategy: prefer `pointerWithin` (matches whatever the cursor
+  // is literally inside — forgiving on tall columns) and fall back to
+  // rectangle intersection when the cursor is between nodes.
+  const collisionDetection: CollisionDetection = (args) => {
+    const pointerCollisions = pointerWithin(args);
+    if (pointerCollisions.length > 0) return pointerCollisions;
+    return rectIntersection(args);
+  };
+
+  const resolveTargetColumn = (overId: string | null): KanbanColumnKey | null => {
+    if (!overId) return null;
+    if (COLUMNS.some((c) => c.key === overId)) return overId as KanbanColumnKey;
+    return columnForTicket.get(overId) ?? null;
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     setActiveDragId(String(event.active.id));
+    setDropError(null);
   };
 
   const handleDragOver = (event: { over: { id: string | number } | null }) => {
     const id = event.over?.id ? String(event.over.id) : null;
-    if (id && COLUMNS.some((c) => c.key === id)) setOverColumn(id as KanbanColumnKey);
-    else setOverColumn(null);
+    setOverColumn(resolveTargetColumn(id));
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
     setActiveDragId(null);
     setOverColumn(null);
-    const { active, over } = event;
     if (!over || !board) return;
 
     const ticket = ticketsById.get(String(active.id));
     if (!ticket) return;
-    const target = String(over.id) as TicketStatus;
+    const target = resolveTargetColumn(String(over.id));
+    if (!target) return;
     if (ticket.status === target) return;
-    if (!COLUMNS.some((c) => c.key === target)) return;
 
     // Optimistic update: move the ticket in the cached board, then mutate.
     const queryKey = keys.ticketsBoard(activeProject?.id);
@@ -358,10 +390,12 @@ export function KanbanBoard() {
 
     try {
       await updateStatus.mutateAsync({ id: ticket.id, status: target });
-    } catch {
-      // Roll back on failure. Mutation's onSuccess already invalidates on
-      // success, which will re-fetch the authoritative state.
+    } catch (err) {
+      // Roll back on failure and surface the error so the user sees something
+      // instead of a silent revert.
       if (previous) queryClient.setQueryData(queryKey, previous);
+      setDropError(err instanceof Error ? err.message : 'Failed to update status');
+      setTimeout(() => setDropError(null), 4000);
     }
   };
 
@@ -395,6 +429,7 @@ export function KanbanBoard() {
       ) : (
         <DndContext
           sensors={sensors}
+          collisionDetection={collisionDetection}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
@@ -439,6 +474,15 @@ export function KanbanBoard() {
             ) : null}
           </DragOverlay>
         </DndContext>
+      )}
+
+      {dropError && (
+        <div
+          className="fixed bottom-6 right-6 z-50 bg-[#111820] border border-[#f87171]/40 text-[#f87171] text-sm rounded-lg px-4 py-3 shadow-lg"
+          role="alert"
+        >
+          Status update failed: {dropError}
+        </div>
       )}
 
       {selectedTicket && (
