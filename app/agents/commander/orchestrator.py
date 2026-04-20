@@ -381,6 +381,14 @@ class Commander:
             logger.warning(f"Homeostasis evaluation failed (routing unaffected): {e}")
 
         # L10: Theory of Mind — prefer crews with proven track records at this difficulty
+        # Guarded twice: (1) get_best_crew_for_difficulty itself only returns
+        # known dispatchable crews; (2) we re-validate here as defense in depth
+        # so a future regression can't silently route to a phantom crew.
+        # Dispatchable crews match the ROUTING_PROMPT's crew list.
+        _DISPATCHABLE = {
+            "research", "coding", "writing", "media", "creative", "pim",
+            "financial", "desktop", "repo_analysis", "devops",
+        }
         try:
             from app.self_awareness.agent_state import get_best_crew_for_difficulty
             for d in decisions:
@@ -389,9 +397,14 @@ class Commander:
                 # Only suggest alternatives for non-specific routing (research/coding/writing)
                 if crew in ("research", "coding", "writing") and difficulty >= 6:
                     best = get_best_crew_for_difficulty(difficulty)
-                    if best and best != crew:
+                    if best and best != crew and best in _DISPATCHABLE:
                         logger.info(f"Theory of Mind: {crew} → {best} for d={difficulty} (proven track record)")
                         d["crew"] = best
+                    elif best and best not in _DISPATCHABLE:
+                        logger.warning(
+                            f"Theory of Mind suggested '{best}' for d={difficulty} "
+                            f"but it's not a dispatchable crew — ignoring"
+                        )
         except Exception:
             pass
 
@@ -2157,16 +2170,71 @@ class Commander:
             # S10: Run vetting + proactive scan in parallel (independent operations)
             # Skip proactive scan for easy tasks — saves 5-10s of LLM latency
             _vet_t0 = time.monotonic()
+            # Use the _detailed variant so we get a pass/fail verdict alongside
+            # the (possibly corrected) response text.  For high-difficulty
+            # tasks a FAIL verdict triggers one more crew retry instead of
+            # silently delivering a flagged answer.
+            from app.vetting import vet_response_detailed
             _vet_future = _ctx_pool.submit(
-                vet_response, user_input, final_result, crew_name,
+                vet_response_detailed, user_input, final_result, crew_name,
                 difficulty, get_last_tier() or "unknown",
             )
             if difficulty >= 4:
                 _proactive_notes = _run_proactive_scan(final_result, crew_name, user_input)
             else:
                 _proactive_notes = ""
-            final_result = _vet_future.result(timeout=30)
-            _phase_log("vetting", _vet_t0, crew=crew_name, difficulty=difficulty)
+            final_result, _vet_passed = _vet_future.result(timeout=30)
+            _phase_log(
+                "vetting", _vet_t0, crew=crew_name,
+                difficulty=difficulty, passed=_vet_passed,
+            )
+
+            # Retry on vetting failure at difficulty >= 7.  The original
+            # crew produced something the vetting LLM flagged as
+            # insufficient (e.g. task description echoed back, missing
+            # sources, hallucinated data).  Run once more with the failure
+            # context as a reflexion hint — the retry MAY still fail but
+            # at least we give it a chance before delivering garbage.
+            if (
+                not _vet_passed
+                and difficulty >= 7
+                and not getattr(self, "_vetting_retry_attempted", False)
+            ):
+                logger.warning(
+                    f"Vetting FAILED for {crew_name} at d={difficulty} — "
+                    f"retrying crew once before delivering"
+                )
+                self._vetting_retry_attempted = True
+                retry_task = (
+                    f"{d.get('task', user_input)}\n\n"
+                    f"PREVIOUS ATTEMPT WAS REJECTED BY QUALITY REVIEW.\n"
+                    f"The previous answer failed because the response did not "
+                    f"contain real data/analysis — it echoed the task back or "
+                    f"provided placeholder text.  Produce a substantive, "
+                    f"sourced, data-rich answer this time.  Do not just "
+                    f"rephrase the question."
+                )
+                try:
+                    retry_result = self._run_crew(
+                        crew_name, retry_task, difficulty=difficulty,
+                        conversation_history=_crew_history,
+                    )
+                    # Re-vet the retry
+                    retry_vet, retry_passed = vet_response_detailed(
+                        user_input, retry_result, crew_name,
+                        difficulty, get_last_tier() or "unknown",
+                    )
+                    if retry_passed or len(retry_vet) > len(final_result) * 1.5:
+                        # Take the retry if it passed OR is substantially
+                        # more content than the original.
+                        final_result = retry_vet
+                        _vet_passed = retry_passed
+                        logger.info(
+                            f"Vetting retry {'passed' if retry_passed else 'longer'} — "
+                            f"using retry result"
+                        )
+                finally:
+                    self._vetting_retry_attempted = False
 
             # Critic review for high-difficulty tasks (≥7) — adversarial quality gate
             if difficulty >= 7:

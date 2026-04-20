@@ -112,14 +112,37 @@ def get_all_stats() -> dict:
     return _load()
 
 
+# Crew names that are allowed to win the Theory-of-Mind vote.  Anything
+# else — test fixtures like 'tom_test_research', stale evaluation-harness
+# entries, typos introduced by self-improvement, etc. — is rejected.
+# Must match the set of crews that Commander.handle can actually dispatch
+# to (see `crew_name MUST be one of:` in ROUTING_PROMPT).
+_VALID_CREWS: frozenset[str] = frozenset({
+    "research", "coding", "writing", "media", "creative",
+    "pim", "financial", "desktop", "repo_analysis", "devops",
+    "critic",
+    # commander isn't a dispatchable crew but sometimes appears in stats
+    # for direct responses; excluded so ToM can't recommend it.
+})
+
+
 def get_best_crew_for_difficulty(difficulty: int) -> str | None:
-    """Theory of Mind: which crew has the best success rate at this difficulty?"""
+    """Theory of Mind: which crew has the best success rate at this difficulty?
+
+    Guarded so only KNOWN dispatchable crews can win.  Without this guard,
+    stale test fixtures in agent_state.json (e.g. 'tom_test_research' with
+    a planted 5/0 record) hijack real user requests — Commander dispatches
+    to a crew that doesn't exist, execution falls through, and the task
+    description gets echoed back to the user as the 'answer'.
+    """
     state = _load()
     best_crew = None
     best_rate = 0.0
     d_key = str(difficulty)
 
     for crew_name, agent in state.items():
+        if crew_name not in _VALID_CREWS:
+            continue  # reject phantom crews (test fixtures / harness leftovers)
         by_d = agent.get("by_difficulty", {})
         d_stats = by_d.get(d_key, {})
         total = d_stats.get("completed", 0) + d_stats.get("failed", 0)
@@ -130,3 +153,21 @@ def get_best_crew_for_difficulty(difficulty: int) -> str | None:
                 best_crew = crew_name
 
     return best_crew
+
+
+def prune_phantom_crews() -> int:
+    """Remove crews from agent_state.json that aren't in _VALID_CREWS.
+
+    Called at startup to scrub stale test fixtures and harness leftovers
+    so they don't resurface after a restart.  Returns the number of
+    entries removed.
+    """
+    state = _load()
+    before = len(state)
+    to_remove = [k for k in state if k not in _VALID_CREWS]
+    if not to_remove:
+        return 0
+    for k in to_remove:
+        del state[k]
+    _save(state)
+    return before - len(state)

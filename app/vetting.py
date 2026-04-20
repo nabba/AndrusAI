@@ -381,8 +381,12 @@ def _verify_full(
                 # Use corrected version if provided and substantive
                 if corrected and len(corrected) > len(response) * 0.5:
                     result = corrected
+                    # Treat a reliable correction as a conditional pass
+                    # (the reviewer replaced factual errors in place).
+                    passed = True
                 else:
                     result = response  # corrections too aggressive, keep original
+                    # Genuine failure — no usable correction.  passed stays False.
             else:
                 logger.warning(f"vetting[full]: unexpected verdict '{verdict}', keeping original")
                 result = response
@@ -395,6 +399,9 @@ def _verify_full(
             else:
                 logger.warning(f"vetting[full]: unparseable response, keeping original")
                 result = response
+        # Surface the verdict on the thread-local so vet_response_detailed()
+        # can propagate it to the orchestrator's retry logic.
+        _set_last_verdict(passed)
 
         # L4: Conscience check — flag irreversible actions
         conscience_ok, conscience_reason = _conscience_check(result)
@@ -451,6 +458,44 @@ def _conscience_check(response: str) -> tuple[bool, str]:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+# Module-level thread-local verdict capture.  vet_response() returns a
+# plain string (back-compat with many callers) but also stores the
+# pass/fail verdict on a per-thread variable so new callers can read it
+# via vet_response_detailed() without changing the primary API.
+_LAST_VETTING_PASSED = threading.local()
+
+
+def _set_last_verdict(passed: bool) -> None:
+    _LAST_VETTING_PASSED.value = bool(passed)
+
+
+def _get_last_verdict() -> bool:
+    return getattr(_LAST_VETTING_PASSED, "value", True)
+
+
+def vet_response_detailed(
+    user_request: str,
+    local_response: str,
+    crew_name: str,
+    difficulty: int = 5,
+    model_tier: str = "unknown",
+    generating_model: str | None = None,
+) -> tuple[str, bool]:
+    """Like vet_response but also returns whether the response passed the
+    quality bar.  Callers use this when they want to retry on failure
+    rather than deliver a flagged response.
+
+    Returns (vetted_text, passed).  passed=True means the response was
+    PASS'd unchanged or mechanically corrected; False means a FAIL
+    verdict fired and the caller should consider a retry.
+    """
+    text = vet_response(
+        user_request, local_response, crew_name,
+        difficulty, model_tier, generating_model,
+    )
+    return text, _get_last_verdict()
+
+
 def vet_response(
     user_request: str,
     local_response: str,
@@ -492,28 +537,52 @@ def vet_response(
     )
 
     if risk == "none":
+        _set_last_verdict(True)
         return local_response
 
     if risk == "schema":
         passed, result = _verify_schema(local_response, crew_name, generating_model)
         if passed:
+            _set_last_verdict(True)
             return result
         # Schema failed → escalate to cheap
         logger.info("vetting: schema failed, escalating to cheap verification")
         passed, result = _verify_cheap(user_request, local_response, crew_name, generating_model)
         if passed:
+            _set_last_verdict(True)
             return result
         # Cheap also failed → full verification
         logger.info("vetting: cheap failed, escalating to full verification")
-        return _verify_full(user_request, local_response, crew_name, generating_model)
+        return _run_full_and_record(user_request, local_response, crew_name, generating_model)
 
     if risk == "cheap":
         passed, result = _verify_cheap(user_request, local_response, crew_name, generating_model)
         if passed:
+            _set_last_verdict(True)
             return result
         # Cheap failed → escalate to full
         logger.info("vetting: cheap failed, escalating to full verification")
-        return _verify_full(user_request, local_response, crew_name, generating_model)
+        return _run_full_and_record(user_request, local_response, crew_name, generating_model)
 
     # risk == "full"
-    return _verify_full(user_request, local_response, crew_name, generating_model)
+    return _run_full_and_record(user_request, local_response, crew_name, generating_model)
+
+
+def _run_full_and_record(
+    user_request: str, local_response: str, crew_name: str,
+    generating_model: str | None,
+) -> str:
+    """Wrapper around _verify_full that also stores the verdict in the
+    thread-local so vet_response_detailed() can surface it.  We infer
+    pass/fail from whether _verify_full returned the original text or a
+    corrected version — which is imprecise, so _verify_full sets the
+    verdict directly on the same thread-local via _set_last_verdict().
+    Falls back to True on any setup error so callers don't retry
+    unnecessarily."""
+    # Reset before call so a previous request's verdict doesn't leak.
+    _set_last_verdict(True)
+    try:
+        return _verify_full(user_request, local_response, crew_name, generating_model)
+    except Exception:
+        _set_last_verdict(True)  # on unexpected exception, don't trigger retry
+        return local_response

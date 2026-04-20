@@ -623,6 +623,24 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Outbound queue replay failed at startup")
 
+    # ── Theory-of-Mind state hygiene ─────────────────────────────────
+    # Purge phantom crews (test fixtures, typos, retired names) from
+    # agent_state.json so get_best_crew_for_difficulty can't recommend
+    # a crew that doesn't actually exist.  The real bug behind the
+    # 2026-04-20 'Estonian deforestation research echoed the task
+    # description' failure: agent_state.json had 'tom_test_research'
+    # with a planted 5/0 record, ToM picked it, Commander dispatched
+    # to that phantom crew, execution silently fell through.
+    try:
+        from app.self_awareness.agent_state import prune_phantom_crews
+        phantom = await asyncio.to_thread(prune_phantom_crews)
+        if phantom:
+            logger.warning(
+                f"agent_state: pruned {phantom} phantom crew(s) from ToM state"
+            )
+    except Exception:
+        logger.debug("Phantom crew prune failed at startup", exc_info=True)
+
     logger.info("CrewAI Agent Team started")
     yield
     # ── Graceful shutdown: drain in-flight tasks before letting the
