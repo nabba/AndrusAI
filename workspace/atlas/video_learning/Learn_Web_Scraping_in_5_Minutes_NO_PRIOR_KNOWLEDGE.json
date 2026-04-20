@@ -1,0 +1,102 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=hHQlcnubuFI",
+  "source_title": "Learn Web Scraping in 5 Minutes (NO PRIOR KNOWLEDGE)",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Web Scraping",
+      "definition": "The automated process of extracting data from websites.",
+      "prerequisites": [
+        "Basic Programming Logic"
+      ],
+      "related_concepts": [
+        "HTTP Requests",
+        "HTML Parsing",
+        "DOM Tree"
+      ]
+    },
+    {
+      "name": "HTML Tags",
+      "definition": "The building blocks of web pages (e.g., <div>, <a>, <h1>) used to structure content.",
+      "prerequisites": [
+        "Web Fundamentals"
+      ],
+      "related_concepts": [
+        "CSS Selectors",
+        "XPath"
+      ]
+    },
+    {
+      "name": "HTTP Requests",
+      "definition": "The protocol used to fetch data from a server; scraping typically uses the GET method.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Status Codes",
+        "User-Agent"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Basic Web Scraping Workflow",
+      "steps": [
+        {
+          "action": "Inspect the target website",
+          "explanation": "Use browser developer tools to identify the HTML tags and classes containing the desired data.",
+          "code_snippet": "Right-click > Inspect",
+          "gotcha": "Websites may have different mobile and desktop layouts."
+        },
+        {
+          "action": "Send a GET request",
+          "explanation": "Download the raw HTML content of the page.",
+          "code_snippet": "response = requests.get(url)",
+          "gotcha": "The server might block requests that don't include a User-Agent header."
+        },
+        {
+          "action": "Parse the HTML",
+          "explanation": "Convert the raw string into a searchable object structure.",
+          "code_snippet": "soup = BeautifulSoup(response.text, 'html.parser')",
+          "gotcha": "Ensure you use the correct parser library (e.g., lxml vs html.parser)."
+        },
+        {
+          "action": "Extract specific elements",
+          "explanation": "Find items based on tags, IDs, or class names.",
+          "code_snippet": "items = soup.find_all('div', class_='product')",
+          "gotcha": "Classes with spaces represent multiple classes and must be handled carefully."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Minimalist Python Scraper",
+      "language": "python",
+      "purpose": "Fetch and print titles from a target webpage.",
+      "code": "import requests\nfrom bs4 import BeautifulSoup\n\nurl = 'http://example.com'\nresponse = requests.get(url)\nsoup = BeautifulSoup(response.text, 'html.parser')\n\nfor title in soup.find_all('h1'):\n    print(title.get_text())",
+      "dependencies": [
+        "requests",
+        "beautifulsoup4"
+      ]
+    }
+  ],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Dynamic Content Loading",
+      "context": "When a website uses JavaScript (React/Vue) to load data after the initial page load.",
+      "solution": "Use tools like Selenium or Playwright, or inspect the Network tab for hidden API endpoints."
+    },
+    {
+      "description": "IP Blocking / Rate Limiting",
+      "context": "Sending too many requests in a short period.",
+      "solution": "Implement delays (time.sleep) or use a proxy rotation service."
+    },
+    {
+      "description": "Legal and Ethical Constraints",
+      "context": "Scraping private or copyrighted data.",
+      "solution": "Check the website's robots.txt file and Terms of Service before scraping."
+    }
+  ],
+  "confidence": 0.65,
+  "extracted_at": "2026-04-20T05:05:02.235466+00:00"
+}

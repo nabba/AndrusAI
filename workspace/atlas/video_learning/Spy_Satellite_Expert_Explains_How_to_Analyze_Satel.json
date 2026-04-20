@@ -1,0 +1,120 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=X02g3AWIWPw",
+  "source_title": "Spy Satellite Expert Explains How to Analyze Satellite Imagery | WIRED",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Remote Sensing",
+      "definition": "The process of detecting and monitoring the physical characteristics of an area by measuring its reflected and emitted radiation at a distance (typically from satellite or aircraft).",
+      "prerequisites": [],
+      "related_concepts": [
+        "Satellite Imagery",
+        "Imagery Analysis"
+      ]
+    },
+    {
+      "name": "Temporal Analysis",
+      "definition": "The study of a specific location over a progression of time to identify changes, patterns, and trends.",
+      "prerequisites": [
+        "Remote Sensing"
+      ],
+      "related_concepts": [
+        "Pattern Recognition",
+        "Change Detection"
+      ]
+    },
+    {
+      "name": "Anthropogenic Signatures",
+      "definition": "Distinctive patterns in imagery created by human activity, often characterized by straight lines and geometric shapes that do not occur naturally.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Deforestation",
+        "Urban Planning",
+        "Military Doctrine"
+      ]
+    },
+    {
+      "name": "Military Doctrine Recognition",
+      "definition": "Identifying the specific, rigid patterns in which military forces assemble, park equipment, or move based on their training and tactical manuals.",
+      "prerequisites": [
+        "Imagery Analysis"
+      ],
+      "related_concepts": [
+        "Signal Intelligence",
+        "Order of Battle"
+      ]
+    },
+    {
+      "name": "Albedo Effect (Glacial Context)",
+      "definition": "The mechanism where dark sediment exposed by melting ice absorbs more heat than white ice, accelerating the melting process.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Climate Monitoring",
+        "Glacial Retreat"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Initial Imagery Screening",
+      "steps": [
+        {
+          "action": "Seek straight lines and geometric patterns",
+          "explanation": "Mother Nature rarely creates perfectly straight lines; these features immediately indicate man-made activity.",
+          "code_snippet": null,
+          "gotcha": "Some natural geological formations can mimic straight lines, but they are rare."
+        },
+        {
+          "action": "Establish a Baseline (Temporal Context)",
+          "explanation": "Never look at just one image. Comparing current images to historical data allows you to see progression and verify if an activity is new or routine.",
+          "code_snippet": null,
+          "gotcha": "Seasonal changes (snow, foliage) can obscure or create false positives for change detection."
+        },
+        {
+          "action": "Identify Signature Equipment/Formations",
+          "explanation": "Specific entities (like military units) often have 'signatures'\u2014unique ways they park vehicles or align tents\u2014that allow for identification regardless of official claims.",
+          "code_snippet": null,
+          "gotcha": "Adversaries may use decoys or camouflage to break these patterns."
+        }
+      ]
+    },
+    {
+      "name": "Ground Truth Verification",
+      "steps": [
+        {
+          "action": "Interview defectors or witnesses",
+          "explanation": "Match satellite imagery layouts with first-hand accounts to identify the purpose of specific buildings or zones within a facility.",
+          "code_snippet": null,
+          "gotcha": "Witness memories can be fallible regarding exact distances or layout scales."
+        },
+        {
+          "action": "Extrapolate patterns to other regions",
+          "explanation": "Once a specific facility pattern (e.g., a re-education camp) is confirmed via a witness, use that blueprint to scout for similar unconfirmed sites.",
+          "code_snippet": null,
+          "gotcha": "Facility designs may evolve, rendering old 'blueprints' less effective for newer sites."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "The 'Single Image' Fallacy",
+      "context": "Analyzing an isolated satellite frame without historical comparison.",
+      "solution": "Always acquire a multi-temporal stack of images to verify if the observed state is an anomaly or a trend."
+    },
+    {
+      "description": "Resolution vs. Privacy Reality",
+      "context": "Attempting to track individual people from standard satellite imagery.",
+      "solution": "Recognize that satellite imagery is better suited for observing the collective impact of groups (e.g., footpaths, burn marks, vehicle clusters) rather than identifying individuals."
+    },
+    {
+      "description": "Official Misinformation",
+      "context": "When entities (governments/companies) deny activity occurring on the ground.",
+      "solution": "Utilize remote sensing to 'bear witness' as it provides objective physical evidence that bypasses media blackouts or restricted access zones."
+    }
+  ],
+  "confidence": 0.75,
+  "extracted_at": "2026-04-20T04:56:27.323346+00:00"
+}

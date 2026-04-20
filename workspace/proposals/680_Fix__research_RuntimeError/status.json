@@ -1,0 +1,10 @@
+{
+  "id": 680,
+  "title": "Fix: research:RuntimeError",
+  "type": "code",
+  "status": "pending",
+  "created_at": "2026-04-20T06:00:28.963401+00:00",
+  "applied_at": null,
+  "dirname": "680_Fix__research_RuntimeError",
+  "resolution_target": "research:RuntimeError"
+}

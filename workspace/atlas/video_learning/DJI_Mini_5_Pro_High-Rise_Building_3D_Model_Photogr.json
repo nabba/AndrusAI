@@ -1,0 +1,97 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=ETwK0ozn5Fc",
+  "source_title": "DJI Mini 5 Pro High-Rise Building 3D Model Photogrammetry Tutorial For Beginners Step by Step Guide.",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Digital Twin/3D Model Photogrammetry",
+      "definition": "The process of using a series of 2D aerial images to reconstruct an accurate, highly detailed 3D structure for inspections or visualizations.",
+      "prerequisites": [
+        "Drone flight basics",
+        "Understanding of exposure and camera settings"
+      ],
+      "related_concepts": [
+        "Image Overlap",
+        "Point of Interest (POI) Tracking",
+        "3D Reconstruction"
+      ]
+    },
+    {
+      "name": "Metered Manual (MM)",
+      "definition": "A value indicating the exposure balance of a shot; a value of zero suggests a perfectly balanced exposure based on current settings.",
+      "prerequisites": [],
+      "related_concepts": [
+        "ISO",
+        "Shutter Speed",
+        "Pro Mode"
+      ]
+    },
+    {
+      "name": "Flight Path Strategy",
+      "definition": "An organized flight pattern consisting of a wide outer orbit for a foundation and several tight orbits for texture and geometry detail.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Wide Orbit",
+        "Close-range Orbit"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Aerial Image Capture Workflow",
+      "steps": [
+        {
+          "action": "Plan for overcast weather",
+          "explanation": "Prevents harsh shadows and blown-out highlights, ensuring consistent exposure across the 3D model.",
+          "code_snippet": "",
+          "gotcha": "Direct sunlight causes strong contrasts that negatively affect reconstruction quality."
+        },
+        {
+          "action": "Perform a Wide Foundation Orbit",
+          "explanation": "Captures the entire building within the frame to provide a strong base for stitching and image overlap.",
+          "code_snippet": "",
+          "gotcha": "Ensure the whole structure is visible throughout the orbit."
+        },
+        {
+          "action": "Configure Camera Settings in Pro Mode",
+          "explanation": "Locks settings to prevent color shifts or exposure flickering during the flight.",
+          "code_snippet": "",
+          "gotcha": "Remember to switch from Auto to Pro after identifying the correct settings to 'lock' them."
+        },
+        {
+          "action": "Activate Point of Interest (POI) and Time Shot",
+          "explanation": "Uses Active Track to maintain a steady orbit and captures images at a set interval (5 seconds).",
+          "code_snippet": "",
+          "gotcha": "POI tracking can drift; manual corrections are often required to keep the building centered."
+        },
+        {
+          "action": "Perform Tighter Close-range Orbits",
+          "explanation": "Captures finer details and sharper textures at high (top), medium (middle), and low (base) levels.",
+          "code_snippet": "",
+          "gotcha": "Minimize the amount of sky in the frame during close orbits to avoid interfering with reconstruction software."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Drifting during Active Track / Point of Interest mode.",
+      "context": "Occurs during the automated orbit as the drone may lose perfect centering of the subject.",
+      "solution": "Manually correct the drone's path and gimbal pitch while the orbit is in progress to keep the building centered."
+    },
+    {
+      "description": "White Balance shifts during capture.",
+      "context": "If left on Auto, the drone may change color temperature as it moves around different sides of a building.",
+      "solution": "Set White Balance to Auto initially to find the temperature, then toggle it to Manual/Lock to keep it consistent for all photos."
+    },
+    {
+      "description": "Losing track of orbit completion.",
+      "context": "In a 360-degree environment, it is easy to under-shoot or over-shoot the orbit.",
+      "solution": "Pick a specific ground landmark (like a pool or a tree) as a starting and ending reference point for every pass."
+    }
+  ],
+  "confidence": 0.6000000000000001,
+  "extracted_at": "2026-04-20T04:57:29.497640+00:00"
+}

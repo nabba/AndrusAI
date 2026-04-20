@@ -1,0 +1,105 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=GE3JOFwTWVM",
+  "source_title": "What is Time Series Analysis?",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Time Series Data",
+      "definition": "A sequence of data points collected or recorded at specific time intervals, where the order of data points is governed by time.",
+      "prerequisites": [
+        "Basic Statistics",
+        "Data Types"
+      ],
+      "related_concepts": [
+        "Stationarity",
+        "Seasonality",
+        "Trend Analysis"
+      ]
+    },
+    {
+      "name": "Trend",
+      "definition": "The long-term increase or decrease in the data over time.",
+      "prerequisites": [
+        "Linear Regression"
+      ],
+      "related_concepts": [
+        "Seasonality",
+        "Cyclicity"
+      ]
+    },
+    {
+      "name": "Seasonality",
+      "definition": "Repeating patterns or cycles that occur at regular intervals (e.g., daily, weekly, or monthly) due to seasonal factors.",
+      "prerequisites": [
+        "Calendar cycles"
+      ],
+      "related_concepts": [
+        "Trend",
+        "Noise"
+      ]
+    },
+    {
+      "name": "Autocorrelation",
+      "definition": "A mathematical representation of the degree of similarity between a given time series and a lagged version of itself over successive time intervals.",
+      "prerequisites": [
+        "Correlation"
+      ],
+      "related_concepts": [
+        "Lags",
+        "Partial Autocorrelation (PACF)"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Decomposition of Time Series",
+      "steps": [
+        {
+          "action": "Visualize the data",
+          "explanation": "Plotting the raw data helps identify obvious trends, outliers, and seasonal patterns visually.",
+          "code_snippet": null,
+          "gotcha": "Ignoring missing dates can lead to misleading line plots."
+        },
+        {
+          "action": "Check for Stationarity",
+          "explanation": "Many models (like ARIMA) assume the mean and variance are constant over time.",
+          "code_snippet": null,
+          "gotcha": "Non-stationary data can lead to spurious regressions."
+        },
+        {
+          "action": "Separate components",
+          "explanation": "Breaking the series into Trend, Seasonality, and Residual components to understand the underlying drivers.",
+          "code_snippet": null,
+          "gotcha": "Choosing between Additive and Multiplicative models depending on if the magnitude of seasonality changes with the trend."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Initial Time Series Visualization",
+      "language": "python",
+      "purpose": "Load a dataset with a datetime index and plot it to observe patterns.",
+      "code": "import pandas as pd\nimport matplotlib.pyplot as plt\n\ndf = pd.read_csv('data.csv', parse_dates=['Date'], index_col='Date')\ndf['Value'].plot(figsize=(10, 6))\nplt.title('Time Series Data Over Time')\nplt.show()",
+      "dependencies": [
+        "pandas",
+        "matplotlib"
+      ]
+    }
+  ],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Treating Time Series data as standard Cross-Sectional data.",
+      "context": "Feature engineering and train-test splitting (shuffling).",
+      "solution": "Never use random shuffling for training/testing; always use chronological splits to avoid 'data leakage' from the future."
+    },
+    {
+      "description": "Ignoring the frequency of observations.",
+      "context": "When the sampling rate is inconsistent (e.g., missing weekends in financial data).",
+      "solution": "Use resampling techniques or explicitly fill missing time steps before analysis."
+    }
+  ],
+  "confidence": 0.7000000000000001,
+  "extracted_at": "2026-04-20T05:05:31.049092+00:00"
+}

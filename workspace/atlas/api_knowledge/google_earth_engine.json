@@ -1,0 +1,126 @@
+{
+  "name": "Google Earth Engine",
+  "base_url": "https://earthengine.googleapis.com",
+  "version": "v1",
+  "description": "Platform for geospatial data storage, analysis, and visualization via REST API",
+  "auth_type": "oauth2_client_credentials",
+  "auth_details": {
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/earthengine",
+      "profile",
+      "email"
+    ],
+    "header_name": "Authorization"
+  },
+  "endpoints": [
+    {
+      "path": "/$discovery/rest?version=v1",
+      "method": "GET",
+      "description": "Discovery document for v1 API",
+      "parameters": [],
+      "request_body": {
+        "format": "none"
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {},
+        "example": {}
+      },
+      "rate_limit": "",
+      "requires_auth": true
+    },
+    {
+      "path": "/$discovery/rest?version=v1beta",
+      "method": "GET",
+      "description": "Discovery document for v1beta API",
+      "parameters": [],
+      "request_body": {
+        "format": "none"
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {},
+        "example": {}
+      },
+      "rate_limit": "",
+      "requires_auth": true
+    },
+    {
+      "path": "/$discovery/rest?version=v1alpha",
+      "method": "GET",
+      "description": "Discovery document for v1alpha API",
+      "parameters": [],
+      "request_body": {
+        "format": "none"
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {},
+        "example": {}
+      },
+      "rate_limit": "",
+      "requires_auth": true
+    }
+  ],
+  "rate_limits": {
+    "requests_per_minute": "",
+    "requests_per_second": ""
+  },
+  "error_codes": {
+    "401": "Unauthorized",
+    "429": "Rate limited"
+  },
+  "doc_sources": [
+    {
+      "url": "https://docs.cloud.google.com/application-integration/docs/view-openapi-spec",
+      "title": "View OpenAPI Specification for your integration | Application Integration | Google Cloud Documentation",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://developers.google.com/earth-engine/reference/rest",
+      "title": "Google Earth Engine API | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/earth-engine/api_docs",
+      "title": "Single-Page API Reference | Google Earth Engine | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/earth-engine/apidocs",
+      "title": "API Reference | Google Earth Engine | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/earth-engine",
+      "title": "Google Earth Engine | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/earthengine-api/",
+      "title": "earthengine-api \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/earth-engine/guides/python_install",
+      "title": "Python Installation | Google Earth Engine | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://github.com/google/earthengine-api",
+      "title": "GitHub - google/earthengine-api: Python and JavaScript bindings for calling the Earth Engine API. \u00b7 GitHub",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T04:53:38.346494+00:00"
+}

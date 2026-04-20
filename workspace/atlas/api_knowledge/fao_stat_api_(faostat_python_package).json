@@ -1,0 +1,54 @@
+{
+  "name": "FAO STAT API (faostat Python Package)",
+  "base_url": "https://pypi.org/project/faostat/",
+  "version": "latest",
+  "description": "A Python package designed to interface with FAOSTAT (Food and Agriculture Organization of the United Nations) statistical data.",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {
+    "requests_per_minute": null,
+    "requests_per_second": null
+  },
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://github.com/fastapi/fastapi/discussions/7673",
+      "title": "Optionally provide openapi spec as YAML \u00b7 fastapi/fastapi \u00b7 Discussion #7673",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://pypi.org/project/faostat/",
+      "title": "faostat \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/faodata/",
+      "title": "faodata \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://openknowledge.fao.org/server/api/core/bitstreams/bcf75647-8a01-42ee-b148-6007aaf1a386/content",
+      "title": "Application Programming Interface (API) \u2013 Everything you need to know 2022",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://github.com/FAOSTAT/faostat-api",
+      "title": "GitHub - FAOSTAT/faostat-api: FAOSTAT public API. \u00b7 GitHub",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://www.fao.org/statistics/highlights-archive/highlights-detail/faostat-launches-a-new-api-developer-portal-to-make-data-access-easier/en",
+      "title": "FAOSTAT launches a new API Developer Portal to make ...",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T05:01:14.031606+00:00"
+}

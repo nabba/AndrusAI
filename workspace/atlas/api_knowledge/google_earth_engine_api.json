@@ -1,0 +1,292 @@
+{
+  "name": "Google Earth Engine API",
+  "base_url": "https://earthengine.googleapis.com",
+  "version": "v1",
+  "description": "A cloud-based platform for planetary-scale geospatial analysis that enables scientists, researchers, and developers to analyze satellite imagery and geospatial datasets.",
+  "auth_type": "oauth2_client_credentials",
+  "auth_details": {
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/earthengine",
+      "https://www.googleapis.com/auth/cloud-platform"
+    ],
+    "header_name": "Authorization"
+  },
+  "endpoints": [
+    {
+      "path": "/projects/{project}/assets",
+      "method": "GET",
+      "description": "Lists assets in a project.",
+      "parameters": [
+        {
+          "name": "project",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        },
+        {
+          "name": "pageSize",
+          "type": "integer",
+          "required": false,
+          "in": "query"
+        },
+        {
+          "name": "pageToken",
+          "type": "string",
+          "required": false,
+          "in": "query"
+        }
+      ],
+      "request_body": {
+        "format": "json",
+        "fields": {},
+        "example": {}
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "assets": "Array of asset objects",
+          "nextPageToken": "string"
+        },
+        "example": {
+          "assets": [],
+          "nextPageToken": ""
+        }
+      },
+      "rate_limit": "1000 requests per day",
+      "requires_auth": true
+    },
+    {
+      "path": "/projects/{project}/assets",
+      "method": "POST",
+      "description": "Creates a new asset.",
+      "parameters": [
+        {
+          "name": "project",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        }
+      ],
+      "request_body": {
+        "format": "json",
+        "fields": {
+          "name": "string",
+          "type": "string",
+          "properties": "object"
+        },
+        "example": {
+          "name": "users/username/asset_name",
+          "type": "IMAGE",
+          "properties": {}
+        }
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "name": "string",
+          "type": "string"
+        },
+        "example": {
+          "name": "projects/project_id/assets/asset_id",
+          "type": "IMAGE"
+        }
+      },
+      "rate_limit": "1000 requests per day",
+      "requires_auth": true
+    },
+    {
+      "path": "/projects/{project}/assets/{asset_id}",
+      "method": "GET",
+      "description": "Gets an asset by ID.",
+      "parameters": [
+        {
+          "name": "project",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        },
+        {
+          "name": "asset_id",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        }
+      ],
+      "request_body": {
+        "format": "json",
+        "fields": {},
+        "example": {}
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "name": "string",
+          "type": "string",
+          "properties": "object"
+        },
+        "example": {
+          "name": "projects/project_id/assets/asset_id",
+          "type": "IMAGE",
+          "properties": {}
+        }
+      },
+      "rate_limit": "1000 requests per day",
+      "requires_auth": true
+    },
+    {
+      "path": "/projects/{project}/assets/{asset_id}",
+      "method": "DELETE",
+      "description": "Deletes an asset.",
+      "parameters": [
+        {
+          "name": "project",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        },
+        {
+          "name": "asset_id",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        }
+      ],
+      "request_body": {
+        "format": "json",
+        "fields": {},
+        "example": {}
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {},
+        "example": {}
+      },
+      "rate_limit": "1000 requests per day",
+      "requires_auth": true
+    },
+    {
+      "path": "/value",
+      "method": "POST",
+      "description": "Evaluates an expression and returns the result.",
+      "parameters": [],
+      "request_body": {
+        "format": "json",
+        "fields": {
+          "expression": "string",
+          "fileFormat": "string",
+          "date": "string"
+        },
+        "example": {
+          "expression": "ee.Image(\"LANDSAT/LC08/C01/T1\").select(\"B4\")",
+          "fileFormat": "JSON"
+        }
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "type": "string",
+          "data": "any"
+        },
+        "example": {
+          "type": "Image",
+          "data": {}
+        }
+      },
+      "rate_limit": "100 requests per minute",
+      "requires_auth": true
+    },
+    {
+      "path": "/projects/{project}/table",
+      "method": "POST",
+      "description": "Starts a table export task.",
+      "parameters": [
+        {
+          "name": "project",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        }
+      ],
+      "request_body": {
+        "format": "json",
+        "fields": {
+          "table": "string",
+          "description": "string",
+          "driveFolder": "string",
+          "driveFileNamePrefix": "string"
+        },
+        "example": {
+          "table": "users/username/table_name",
+          "description": "Export task",
+          "driveFolder": "earthengine"
+        }
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "name": "string"
+        },
+        "example": {
+          "name": "projects/project_id/operations/operation_id"
+        }
+      },
+      "rate_limit": "60 requests per minute",
+      "requires_auth": true
+    }
+  ],
+  "rate_limits": {
+    "requests_per_minute": 100,
+    "requests_per_second": 3
+  },
+  "error_codes": {
+    "400": "Bad request",
+    "401": "Unauthorized",
+    "403": "Forbidden",
+    "404": "Not found",
+    "409": "Conflict",
+    "429": "Rate limited",
+    "500": "Internal server error",
+    "503": "Service unavailable"
+  },
+  "doc_sources": [
+    {
+      "url": "https://docs.cloud.google.com/application-integration/docs/view-openapi-spec",
+      "title": "View OpenAPI Specification for your integration | Application Integration | Google Cloud Documentation",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://developers.google.com/earth-engine/apidocs",
+      "title": "API Reference | Google Earth Engine | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/earth-engine/reference/rest",
+      "title": "Google Earth Engine API | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://github.com/google/earthengine-api",
+      "title": "GitHub - google/earthengine-api: Python and JavaScript bindings for calling the Earth Engine API. \u00b7 GitHub",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/earthengine-api/",
+      "title": "earthengine-api \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/earth-engine/guides/python_install",
+      "title": "Python Installation | Google Earth Engine | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T06:35:15.042598+00:00"
+}

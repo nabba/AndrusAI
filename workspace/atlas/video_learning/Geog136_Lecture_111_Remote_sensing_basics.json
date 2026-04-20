@@ -1,0 +1,134 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=Hgf3k981Cvw",
+  "source_title": "Geog136 Lecture 11.1 Remote sensing basics",
+  "video_type": "conference_talk",
+  "concepts": [
+    {
+      "name": "Remote Sensing",
+      "definition": "The process of getting images of Earth's surface and measuring radiation using sensors on platforms like satellites or airplanes without physical contact.",
+      "prerequisites": [
+        "Electromagnetic Spectrum"
+      ],
+      "related_concepts": [
+        "GIS",
+        "Image Classification",
+        "Multispectral Analysis"
+      ]
+    },
+    {
+      "name": "Electromagnetic Spectrum",
+      "definition": "The entire range of energy moving at the speed of light emitted by the Sun, ranging from long radio waves to short gamma rays.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Visible Spectrum",
+        "Infrared",
+        "Wavelength"
+      ]
+    },
+    {
+      "name": "Reflectance",
+      "definition": "Energy that is returned in the same predominant direction it came from but at a slightly different angle after hitting an object.",
+      "prerequisites": [
+        "Electromagnetic Spectrum"
+      ],
+      "related_concepts": [
+        "Transmission",
+        "Absorption",
+        "Scattering"
+      ]
+    },
+    {
+      "name": "Transmission",
+      "definition": "The process where electromagnetic energy passes through a substance, such as light moving through the atmosphere or a window.",
+      "prerequisites": [],
+      "related_concepts": []
+    },
+    {
+      "name": "Emission (Re-radiation)",
+      "definition": "The process where an object absorbs high-energy radiation (e.g., from the Sun) and releases it back out, usually at a lower energy/longer wavelength (e.g., heat).",
+      "prerequisites": [
+        "Absorption"
+      ],
+      "related_concepts": [
+        "Thermal Remote Sensing"
+      ]
+    },
+    {
+      "name": "Sensor",
+      "definition": "Instrument analogous to a camera that measures radiation at a specific range of the electromagnetic spectrum and converts it into a digital number.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Bands",
+        "Digital Number"
+      ]
+    },
+    {
+      "name": "Band",
+      "definition": "An individual range of wavelengths (e.g., Red, Green, Blue, or Infrared) detected by a sensor.",
+      "prerequisites": [
+        "Sensor"
+      ],
+      "related_concepts": [
+        "Multispectral Remote Sensing"
+      ]
+    },
+    {
+      "name": "Image Classification",
+      "definition": "The process of clumping pixels or areas on the ground into specific groups based on characteristics like land cover.",
+      "prerequisites": [
+        "Remote Sensing"
+      ],
+      "related_concepts": [
+        "Land Cover",
+        "Object-based Classification"
+      ]
+    },
+    {
+      "name": "Object-based Classification",
+      "definition": "A classification method that identifies specific objects like trees, cars, or houses rather than just general land cover types.",
+      "prerequisites": [
+        "Image Classification"
+      ],
+      "related_concepts": []
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Remote Sensing Data Acquisition",
+      "steps": [
+        {
+          "action": "Radiation Emission",
+          "explanation": "Solar energy is emitted from the Sun and travels to Earth."
+        },
+        {
+          "action": "Interaction with Matter",
+          "explanation": "Energy reacts with gases, liquids, or solids via transmission, absorption, reflection, or scattering."
+        },
+        {
+          "action": "Sensor Detection",
+          "explanation": "Sensors on satellites or aircraft detect reflected or emitted energy (wavelengths) coming back from the surface."
+        },
+        {
+          "action": "Digitization",
+          "explanation": "The sensor converts the incoming reflectance into a digital number for use in GIS software."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Confusion between reflection and emission.",
+      "context": "When measuring energy from Earth's surface.",
+      "solution": "Remember that reflectance is 'bouncing' solar energy back, while emission is Earth releasing its own energy (heat) after absorption."
+    },
+    {
+      "description": "Limiting classification to general land cover types.",
+      "context": "Conducting analysis in GIS.",
+      "solution": "Use object-based classification to identify specific features like individual cars or houses."
+    }
+  ],
+  "confidence": 0.8,
+  "extracted_at": "2026-04-20T04:57:11.241895+00:00"
+}

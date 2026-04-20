@@ -1,0 +1,161 @@
+{
+  "name": "World Bank Data API",
+  "base_url": "https://api.worldbank.org/v2",
+  "version": "v2",
+  "description": "The World Bank Data API provides access to global development data, including indicators, country information, and historical time series.",
+  "auth_type": "none",
+  "auth_details": {
+    "token_url": null,
+    "scopes": [],
+    "header_name": null
+  },
+  "endpoints": [
+    {
+      "path": "/country",
+      "method": "GET",
+      "description": "Returns a list of all countries or a specific country based on the code provided.",
+      "parameters": [
+        {
+          "name": "format",
+          "type": "string",
+          "required": false,
+          "in": "query",
+          "description": "Response format: json (default is xml)"
+        }
+      ],
+      "request_body": null,
+      "response_schema": {
+        "format": "json/xml",
+        "fields": {
+          "id": "Country ISO code",
+          "name": "Official country name",
+          "region": "Geographic region"
+        }
+      },
+      "rate_limit": null,
+      "requires_auth": true
+    },
+    {
+      "path": "/indicator",
+      "method": "GET",
+      "description": "Returns a list of all available indicators.",
+      "parameters": [
+        {
+          "name": "format",
+          "type": "string",
+          "required": false,
+          "in": "query"
+        }
+      ],
+      "request_body": null,
+      "response_schema": {
+        "format": "json/xml",
+        "fields": {
+          "id": "Indicator ID",
+          "name": "Indicator name",
+          "sourceNote": "Description of data"
+        }
+      },
+      "rate_limit": null,
+      "requires_auth": true
+    },
+    {
+      "path": "/country/{country_code}/indicator/{indicator_id}",
+      "method": "GET",
+      "description": "Returns a specific indicator for a specific country.",
+      "parameters": [
+        {
+          "name": "country_code",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        },
+        {
+          "name": "indicator_id",
+          "type": "string",
+          "required": true,
+          "in": "path"
+        },
+        {
+          "name": "date",
+          "type": "string",
+          "required": false,
+          "in": "query",
+          "description": "Year or year range (e.g., 2010:2020)"
+        }
+      ],
+      "request_body": null,
+      "response_schema": {
+        "format": "json/xml",
+        "fields": {
+          "country": "Country object",
+          "value": "Data value",
+          "date": "Year"
+        }
+      },
+      "rate_limit": null,
+      "requires_auth": true
+    }
+  ],
+  "rate_limits": {
+    "requests_per_minute": null,
+    "requests_per_second": null
+  },
+  "error_codes": {
+    "120": "Invalid value",
+    "150": "Indicator not found",
+    "400": "Bad Request"
+  },
+  "doc_sources": [
+    {
+      "url": "https://pypi.org/project/world-bank-data/",
+      "title": "The World Bank Data in Python",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://datahelpdesk.worldbank.org/knowledgebase/articles/898581-api-basic-call-structures",
+      "title": "API Basic Call Structures \u2013 World Bank Data Help Desk",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://datahelpdesk.worldbank.org/knowledgebase/articles/889392-about-the-indicators-api-documentation",
+      "title": "About the Indicators API Documentation \u2013 World Bank Data Help Desk",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://documents.worldbank.org/en/publication/documents-reports/api",
+      "title": "API Document",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://datahelpdesk.worldbank.org/knowledgebase/topics/125589-developer-information",
+      "title": "Developer Information \u2013 World Bank Data Help Desk",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://datahelpdesk.worldbank.org/knowledgebase/articles/889386-developer-information-overview",
+      "title": "Developer Information: Overview \u2013 World Bank Data Help Desk",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/wbgapi/",
+      "title": "wbgapi \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://www.econdevs.org/resources/using-the-world-bank-database-public-api-in-python",
+      "title": "Using the World Bank's Public Database API in Python",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T05:01:22.489355+00:00"
+}

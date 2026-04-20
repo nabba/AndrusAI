@@ -1,8 +1,8 @@
 ---
-page_count: 6
+page_count: 9
 section: meta
 title: Meta — Section Index
-updated_at: '2026-04-19T20:37:12Z'
+updated_at: '2026-04-19T23:28:38Z'
 ---
 # Meta Knowledge Wiki
 ## Pages
@@ -10,8 +10,11 @@ updated_at: '2026-04-19T20:37:12Z'
 - [[meta/advanced-vector-database-optimization-retrieval-augmentation-ra-strategies-cd1d8]] — Advanced Vector Database Optimization & Retrieval Augmentation (RAG) Strategies
 - [[meta/circular-import-resolution-patterns]] — Circular Import Resolution Patterns
 - [[meta/creating-a-safe-command-execution-wrapper-in-python-da30cc0c]] — **** Creating a Safe Command-Execution Wrapper in Python
+- [[meta/learning-queue]] — Learning Queue
 - [[meta/llm-capability-detection]] — Models known to NOT support tool calling (as of 2026)
 - [[meta/skill-two-entity-operational-model-a5f712f8]] — **SKILL: Two-Entity Operational Model**
+- [[meta/time-based-email-counting-precision-e90ecab4]] — Time-based Email Counting Precision
+- [[meta/web-scraping-using-firecrawl-ad705cb6]] — Web scraping using Firecrawl
 
 ## Key Relationships
 (Updated as pages are added.)

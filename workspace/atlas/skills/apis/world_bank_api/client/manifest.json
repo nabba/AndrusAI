@@ -1,0 +1,39 @@
+{
+  "skill_id": "apis/world_bank_api/client",
+  "name": "World Bank Data API API Client",
+  "category": "apis",
+  "version": "1.0.0",
+  "language": "python",
+  "description": "The World Bank Data API provides access to global development data, including indicators, country information, and historical time series.",
+  "confidence": 0.0,
+  "source_type": "official_sdk",
+  "source_urls": [
+    "https://pypi.org/project/world-bank-data/",
+    "https://datahelpdesk.worldbank.org/knowledgebase/articles/898581-api-basic-call-structures",
+    "https://datahelpdesk.worldbank.org/knowledgebase/articles/889392-about-the-indicators-api-documentation",
+    "https://documents.worldbank.org/en/publication/documents-reports/api",
+    "https://datahelpdesk.worldbank.org/knowledgebase/topics/125589-developer-information",
+    "https://datahelpdesk.worldbank.org/knowledgebase/articles/889386-developer-information-overview",
+    "https://pypi.org/project/wbgapi/",
+    "https://www.econdevs.org/resources/using-the-world-bank-database-public-api-in-python"
+  ],
+  "dependencies": [],
+  "auth_pattern": "none",
+  "tests_total": 0,
+  "tests_passing": 0,
+  "tests_failing": 0,
+  "last_tested": "",
+  "usage_count": 0,
+  "usage_success_count": 0,
+  "last_used": "",
+  "created_at": "2026-04-20T05:04:49.360306+00:00",
+  "last_verified": "2026-04-20T05:04:49.360306+00:00",
+  "code_hash": "8637b6ce2d59e92a4eee8d0589148a4c",
+  "known_limitations": [],
+  "tags": [
+    "world bank api",
+    "api",
+    "client",
+    "none"
+  ]
+}

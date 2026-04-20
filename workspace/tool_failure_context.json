@@ -1,158 +1,5 @@
 [
   {
-    "task_hash": "ba8d54f8eaa9d41f",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776549773.5662315,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "ba8d54f8eaa9d41f",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
-    "ts": 1776549807.5582168,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "ba8d54f8eaa9d41f",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: agents/executor.py",
-    "ts": 1776549831.192758,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "ba8d54f8eaa9d41f",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 6,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: main.py",
-    "ts": 1776549855.7143724,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "ba8d54f8eaa9d41f",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 7,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776549860.022919,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "ec92d83dc4f16e18",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'hamid-vakilzadeh/mcpsemanticscholar'. Check command/URL and credentials.",
-    "ts": 1776552030.1304245,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "ec92d83dc4f16e18",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 2,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'blake365/macrostrat-mcp'. Check command/URL and credentials.",
-    "ts": 1776552030.1462705,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "ec92d83dc4f16e18",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 3,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'Supabase'. Check command/URL and credentials.",
-    "ts": 1776552030.3355987,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "4d8007f16809786e",
-    "task": "Complete the following writing task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibili",
-    "failure_count": 1,
-    "last_tool": "list_host_files",
-    "last_error": "Error: Path not in allowed paths for agent 'writer'",
-    "ts": 1776552932.9511461,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "d6fea1581ab5d443",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776555378.815421,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "e053631cdcec595d",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 4,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/commander/context.py",
-    "ts": 1776556867.7044463,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "e053631cdcec595d",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 5,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/main.py",
-    "ts": 1776556909.8121717,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "e053631cdcec595d",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 6,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/__init__.py",
-    "ts": 1776556913.8912725,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "e053631cdcec595d",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 7,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776556915.5649266,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "6647ad024586efb1",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776556940.216891,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "c3729d4de13cebfc",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776559492.4182003,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "277b43412a09c033",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed unable cannot tool missing'",
-    "ts": 1776561362.3328836,
-    "replan_suggested": false
-  },
-  {
     "task_hash": "ed6a1967b1a77c55",
     "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
     "failure_count": 1,
@@ -447,6 +294,159 @@
     "last_tool": "session_search",
     "last_error": "No past messages matched: 'failed error unable cannot'",
     "ts": 1776631253.8067582,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "249d2a46699592c3",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
+    "failure_count": 1,
+    "last_tool": "session_search",
+    "last_error": "No past messages matched: 'failed error could not tool missing capability'",
+    "ts": 1776637530.1838298,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "bb72fcb496580b32",
+    "task": "Analyze these execution traces from the AI agent team and generate improvement policies.\n\n## Executi",
+    "failure_count": 1,
+    "last_tool": "session_search",
+    "last_error": "No past messages matched: 'coder failed state error'",
+    "ts": 1776637848.1690178,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "68775b01a250c921",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
+    "failure_count": 1,
+    "last_tool": "session_search",
+    "last_error": "No past messages matched: 'failed error unable tool missing'",
+    "ts": 1776639491.770172,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "0f618f969eccf26f",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
+    "failure_count": 1,
+    "last_tool": "session_search",
+    "last_error": "No past messages matched: 'task failed error missing tool capability'",
+    "ts": 1776641690.6023662,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "15165c5a7c3b96a8",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
+    "failure_count": 1,
+    "last_tool": "session_search",
+    "last_error": "No past messages matched: 'failed error unable cannot tool missing'",
+    "ts": 1776643725.4115644,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "4df8534a8949ab80",
+    "task": "Research the topic: <topic>Estonian Environmental Policy Timeline Analysis</topic>. The text in <top",
+    "failure_count": 1,
+    "last_tool": "web_fetch",
+    "last_error": "",
+    "ts": 1776645819.2478738,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "22cdcd7582eda1f9",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
+    "failure_count": 1,
+    "last_tool": "session_search",
+    "last_error": "No past messages matched: 'failed error unable cannot tool missing'",
+    "ts": 1776646366.3911152,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "ac28c38bd87eb915",
+    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nWhat is Estonia\u2019s current forest cover p",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776660852.0734837,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "eff3c76e7a4159e3",
+    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nHow has Estonia\u2019s deforestation/forest l",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776660875.9207172,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "afbe22231e187420",
+    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nWhat are the key drivers of Estonia\u2019s de",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776660989.3126402,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "94a94cac3b7d0dff",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
+    "failure_count": 1,
+    "last_tool": "session_search",
+    "last_error": "No past messages matched: \"failed error unable couldn't\"",
+    "ts": 1776661412.1250675,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "19ad03350d8a04db",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 1,
+    "last_tool": "execute_on_host",
+    "last_error": "",
+    "ts": 1776664433.3161314,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "19ad03350d8a04db",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: skills/__init__.py",
+    "ts": 1776664497.7006044,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "19ad03350d8a04db",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 3,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776664508.1157207,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "19ad03350d8a04db",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 4,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run.",
+    "ts": 1776664539.663242,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "8a46b21d9019d172",
+    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nWhat are the year-by-year statistics on ",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776667522.4046445,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "c23196d6ae77e49a",
+    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nWhat is the total forest area in Estonia",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776667522.6946738,
     "replan_suggested": false
   }
 ]

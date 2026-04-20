@@ -1,0 +1,115 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=MiiANxRHSv4",
+  "source_title": "Data Visualization Tutorial For Beginners | Big Data Analytics Tutorial | Simplilearn",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Data Visualization",
+      "definition": "The technique of presenting data in a pictorial or graphical format to identify trends, patterns, and relationships in complex datasets.",
+      "prerequisites": [
+        "Basic Data Analysis"
+      ],
+      "related_concepts": [
+        "Big Data Analytics",
+        "Exploratory Data Analysis"
+      ]
+    },
+    {
+      "name": "Matplotlib",
+      "definition": "A multi-platform, 2D python plotting library built on NumPy and SciPy used for creating interactive, high-quality visualizations.",
+      "prerequisites": [
+        "Python Programming",
+        "NumPy"
+      ],
+      "related_concepts": [
+        "Seaborn",
+        "Plotly",
+        "Pandas"
+      ]
+    },
+    {
+      "name": "Plot Elements",
+      "definition": "Constituent parts of a graph including the Grid (background), Title (description), Legend (labeling of variables), and Axes (coordinates).",
+      "prerequisites": [
+        "Coordinate Systems"
+      ],
+      "related_concepts": [
+        "Annotation",
+        "Alpha transparency"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "General Plotting Workflow",
+      "steps": [
+        {
+          "action": "Import required libraries",
+          "explanation": "Load Matplotlib for plotting and NumPy for numerical data handling.",
+          "code_snippet": "import matplotlib.pyplot as plt\nfrom matplotlib import style",
+          "gotcha": "Forgetting '%matplotlib inline' in Jupyter will prevent plots from showing automatically."
+        },
+        {
+          "action": "Define/Import Dataset",
+          "explanation": "Prepare the numeric or categorical values to be visualized.",
+          "code_snippet": "data = [123, 645, 950]",
+          "gotcha": "Data arrays must be of equal length for X and Y axes."
+        },
+        {
+          "action": "Set Plot Parameters",
+          "explanation": "Configure styles, labels, titles, and line properties.",
+          "code_snippet": "plt.title('Sales'); plt.xlabel('Time')",
+          "gotcha": "Setting parameters after the show() command will not apply them to the current plot."
+        },
+        {
+          "action": "Display the Plot",
+          "explanation": "Render the graphic to the screen or notebook.",
+          "code_snippet": "plt.show()",
+          "gotcha": "In script mode, the code will hang until the plot window is closed."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Simple 2D Line Plot with Customization",
+      "language": "python",
+      "purpose": "To create a styled line graph with custom colors, line styles, and axis limits.",
+      "code": "import matplotlib.pyplot as plt\nfrom matplotlib import style\n%matplotlib inline\n\n# Data\nweb_customers = [123, 645, 950, 1290, 1630, 1450, 1034, 1295, 465]\ntime_hrs = [7, 8, 9, 10, 11, 12, 13, 14, 15]\n\n# Style and Plot\nstyle.use('ggplot')\nplt.plot(time_hrs, web_customers, color='b', linestyle='--', linewidth=2.5, alpha=0.4)\n\n# Axis and Labels\nplt.axis([6.5, 17.5, 50, 2000])\nplt.xlabel('Time (hrs)')\nplt.ylabel('Users')\nplt.title('Website Traffic')\n\n# Annotation\nplt.annotate('Max', ha='center', va='bottom', xytext=(11, 1630), xy=(11, 1630))\n\nplt.show()",
+      "dependencies": [
+        "matplotlib"
+      ]
+    }
+  ],
+  "api_knowledge": [
+    {
+      "api_name": "Matplotlib (Pyplot)",
+      "endpoints_used": [
+        "plt.plot()",
+        "plt.axis()",
+        "plt.annotate()",
+        "plt.legend()",
+        "plt.style.use()"
+      ],
+      "auth_method": "None (Open Source Library)",
+      "example_calls": [
+        "plt.plot(x, y, color='g', label='line1', linewidth=2)",
+        "plt.axis([xmin, xmax, ymin, ymax])"
+      ]
+    }
+  ],
+  "gotchas": [
+    {
+      "description": "Plot not appearing in Jupyter Notebook.",
+      "context": "Executing plot code in a Jupyter cell without specific backend configuration.",
+      "solution": "Include the magic command `%matplotlib inline` at the top of the notebook."
+    },
+    {
+      "description": "Data point misalignment.",
+      "context": "When using multiple lists of data.",
+      "solution": "Ensure that the input lists (X and Y variables) have identical lengths before calling plt.plot()."
+    }
+  ],
+  "confidence": 0.7000000000000001,
+  "extracted_at": "2026-04-20T05:05:20.916107+00:00"
+}

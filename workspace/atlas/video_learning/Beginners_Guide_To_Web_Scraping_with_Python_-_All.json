@@ -1,0 +1,117 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=QhD015WUMxE",
+  "source_title": "Beginners Guide To Web Scraping with Python - All You Need To Know",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Web Scraping",
+      "definition": "An automated method of collecting data from websites by parsing the underlying HTML code.",
+      "prerequisites": [
+        "Python basics",
+        "HTML/CSS structure"
+      ],
+      "related_concepts": [
+        "Web Crawling",
+        "HTML Parsing"
+      ]
+    },
+    {
+      "name": "Web Crawling",
+      "definition": "Automatically indexing the web and gathering metadata about web pages, often used by search engines.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Web Scraping"
+      ]
+    },
+    {
+      "name": "HTML Parsing",
+      "definition": "The process of analyzing a string of HTML code to extract specific data based on tags and attributes.",
+      "prerequisites": [
+        "HTML tags",
+        "CSS Classes"
+      ],
+      "related_concepts": [
+        "Beautiful Soup"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Scraping a Website",
+      "steps": [
+        {
+          "action": "Inspect the webpage",
+          "explanation": "Right-click the element in the browser and select 'Inspect' to identify the HTML tags and class attributes associated with the data.",
+          "code_snippet": null,
+          "gotcha": "Websites change their HTML structure frequently, which can break scrapers."
+        },
+        {
+          "action": "Request the webpage",
+          "explanation": "Use the requests library to fetch the HTML content of the target URL.",
+          "code_snippet": "page = requests.get('http://quotes.toscrape.com')",
+          "gotcha": null
+        },
+        {
+          "action": "Parse the HTML",
+          "explanation": "Load the fetched content into Beautiful Soup to make it searchable.",
+          "code_snippet": "soup = BeautifulSoup(page.text, 'html.parser')",
+          "gotcha": "Ensure you use the correct parser (e.g., 'html.parser')."
+        },
+        {
+          "action": "Locate specific data",
+          "explanation": "Use find_all() to locate tags with specific attributes found during inspection.",
+          "code_snippet": "quotes = soup.find_all('span', class_='text')",
+          "gotcha": "Class is a reserved keyword in Python; use 'class_' in Beautiful Soup parameters."
+        },
+        {
+          "action": "Export to CSV",
+          "explanation": "Loop through the collected lists and write them to a structured file for use in Excel.",
+          "code_snippet": "writer.writerow([quote.text, author.text])",
+          "gotcha": "Always remember to close the file after writing."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Basic Quote Scraper to CSV",
+      "language": "python",
+      "purpose": "Extracts quotes and authors from a website and saves them to a CSV file.",
+      "code": "import requests\nfrom bs4 import BeautifulSoup\nimport csv\n\npage = requests.get('http://quotes.toscrape.com')\nsoup = BeautifulSoup(page.text, 'html.parser')\n\nquotes = soup.find_all('span', class_='text')\nauthors = soup.find_all('small', class_='author')\n\nfile = open('scraped_quotes.csv', 'w')\nwriter = csv.writer(file)\nwriter.writerow(['Quote', 'Author'])\n\nfor quote, author in zip(quotes, authors):\n    writer.writerow([quote.text, author.text])\n\nfile.close()",
+      "dependencies": [
+        "beautifulsoup4",
+        "requests"
+      ]
+    }
+  ],
+  "api_knowledge": [
+    {
+      "api_name": "Beautiful Soup 4",
+      "endpoints_used": [],
+      "auth_method": "None (Web Scraping)",
+      "example_calls": [
+        "soup.find_all('tag', class_='class_name')",
+        "element.text"
+      ]
+    }
+  ],
+  "gotchas": [
+    {
+      "description": "Legal and ethical issues",
+      "context": "Before scraping any website.",
+      "solution": "Check the website's terms of service or robots.txt file. Use dedicated testing sites like quotes.toscrape.com for practice."
+    },
+    {
+      "description": "Output formatting (List Alignment)",
+      "context": "When printing two separate lists (e.g., authors and quotes) sequentially.",
+      "solution": "Use the zip() function in a for loop to iterate through both lists simultaneously for correctly paired data."
+    },
+    {
+      "description": "Dependency Errors",
+      "context": "Running code on environments with older library versions.",
+      "solution": "Update libraries via pip (pip install --upgrade bs4 requests)."
+    }
+  ],
+  "confidence": 0.7000000000000001,
+  "extracted_at": "2026-04-20T05:04:52.751109+00:00"
+}

@@ -87,6 +87,25 @@ RIGHT: ["economic outlook and business risks for 2027"]\
 
 class ResearchCrew:
     def run(self, topic: str, parent_task_id: str = None, difficulty: int = 5) -> str:
+        # Delegation-mode switch: when enabled via the dashboard Org Chart,
+        # route to the Coordinator + 3-specialist variant instead of a
+        # single monolithic researcher.  Preserves full tool palette on
+        # any provider without hitting tool-count limits.
+        try:
+            from app.crews.delegation_settings import is_enabled
+            if is_enabled("research"):
+                from app.crews.delegated_research import DelegatedResearchCrew
+                return DelegatedResearchCrew().run(
+                    topic, parent_task_id=parent_task_id, difficulty=difficulty,
+                )
+        except Exception:
+            logger.warning(
+                "Delegated research crew failed; falling back to single-agent",
+                exc_info=True,
+            )
+        return self._run_single_agent(topic, parent_task_id, difficulty)
+
+    def _run_single_agent(self, topic: str, parent_task_id: str = None, difficulty: int = 5) -> str:
         """Run research, spawning sub-agents in parallel for complex topics.
 
         Simple questions (difficulty 1-3) use a fast path: single agent,

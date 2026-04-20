@@ -1694,5 +1694,37 @@
     "metadata": {
       "crew": "pim"
     }
+  },
+  {
+    "ts": "2026-04-20T04:56:28.492058+00:00",
+    "metric": "task_completion_time",
+    "value": 172.97356403700542,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-20T05:56:31.229740+00:00",
+    "metric": "task_completion_time",
+    "value": 199.03112750699802,
+    "metadata": {
+      "crew": "coding"
+    }
+  },
+  {
+    "ts": "2026-04-20T06:45:53.774277+00:00",
+    "metric": "task_completion_time",
+    "value": 341.3297532830038,
+    "metadata": {
+      "crew": "research"
+    }
+  },
+  {
+    "ts": "2026-04-20T06:46:49.810348+00:00",
+    "metric": "task_completion_time",
+    "value": 355.54247224799474,
+    "metadata": {
+      "crew": "research"
+    }
   }
 ]

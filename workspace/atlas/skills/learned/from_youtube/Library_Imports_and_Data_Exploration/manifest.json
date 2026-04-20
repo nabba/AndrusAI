@@ -1,0 +1,33 @@
+{
+  "skill_id": "learned/from_youtube/Library_Imports_and_Data_Exploration",
+  "name": "Library Imports and Data Exploration",
+  "category": "learned",
+  "version": "1.0.0",
+  "language": "python",
+  "description": "Standard initialization for a geospatial project.",
+  "confidence": 0.0,
+  "source_type": "youtube_tutorial",
+  "source_urls": [
+    "https://www.youtube.com/watch?v=0mWgVVH_dos"
+  ],
+  "dependencies": [
+    "geopandas"
+  ],
+  "auth_pattern": "",
+  "tests_total": 0,
+  "tests_passing": 0,
+  "tests_failing": 0,
+  "last_tested": "",
+  "usage_count": 0,
+  "usage_success_count": 0,
+  "last_used": "",
+  "created_at": "2026-04-20T05:05:57.433638+00:00",
+  "last_verified": "2026-04-20T05:05:57.433638+00:00",
+  "code_hash": "35b986e65d265724e6c1ae99ec3c0f09",
+  "known_limitations": [],
+  "tags": [
+    "youtube",
+    "coding_tutorial",
+    "python"
+  ]
+}

@@ -263,6 +263,40 @@ def get_org_chart_api():
     from app.control_plane.org_chart import get_org_chart
     return get_org_chart()
 
+
+# ── Delegation-mode toggles (shown on Org Chart page) ────────────────────────
+# When ON for a crew, tasks go to Coordinator + specialists instead of a
+# single monolithic agent.  See app/crews/delegation_settings.py.
+
+class DelegationUpdate(BaseModel):
+    enabled: bool
+
+
+@router.get("/delegation")
+def get_delegation_settings():
+    """Return {crew: bool} for every crew that supports delegation mode."""
+    try:
+        from app.crews.delegation_settings import get_all
+        return {"settings": get_all()}
+    except Exception as exc:
+        raise HTTPException(500, f"delegation settings unavailable: {exc}")
+
+
+@router.post("/delegation/{crew}")
+def set_delegation_setting(crew: str, body: DelegationUpdate):
+    """Enable or disable delegation mode for a specific crew."""
+    try:
+        from app.crews.delegation_settings import set_enabled
+        updated = set_enabled(crew, body.enabled)
+        if crew not in updated:
+            raise HTTPException(404, f"unknown crew: {crew}")
+        return {"settings": updated, "crew": crew, "enabled": body.enabled}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, f"delegation toggle failed: {exc}")
+
+
 # ── System Health (aggregated from existing systems) ─────────────────────────
 
 @router.get("/health")

@@ -26,6 +26,8 @@ export const endpoints = {
   governanceApprove: (id: string) => `${CP}/governance/${id}/approve`,
   governanceReject: (id: string) => `${CP}/governance/${id}/reject`,
   orgChart: () => `${CP}/org-chart`,
+  delegationSettings: () => `${CP}/delegation`,
+  delegationCrew: (crew: string) => `${CP}/delegation/${encodeURIComponent(crew)}`,
   costsDaily: (days = 30, projectId?: string) =>
     projectId
       ? `${CP}/costs/daily?days=${days}&project_id=${encodeURIComponent(projectId)}`

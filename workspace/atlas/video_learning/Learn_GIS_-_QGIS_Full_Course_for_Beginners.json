@@ -1,0 +1,95 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=SovdBaus7pM",
+  "source_title": "Learn GIS - QGIS Full Course for Beginners",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "QGIS (Quantum GIS)",
+      "definition": "A free and open-source cross-platform desktop geographic information system (GIS) application that supports viewing, editing, and analysis of geospatial data.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Open Source",
+        "GIS (Geographic Information System)",
+        "Spatial Analysis",
+        "PostGIS"
+      ]
+    },
+    {
+      "name": "Open Source Software",
+      "definition": "Software with source code that anyone can inspect, modify, and enhance, often maintained by a community and free to use.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Licensing",
+        "Community Contribution"
+      ]
+    },
+    {
+      "name": "Plugins",
+      "definition": "Extensions that can be added to the core QGIS software to provide additional functionality or tools for specific analysis tasks.",
+      "prerequisites": [
+        "QGIS Installation"
+      ],
+      "related_concepts": [
+        "Python Scripting"
+      ]
+    },
+    {
+      "name": "Spatial Analysis",
+      "definition": "The process of examining the locations, attributes, and relationships of features in spatial data through overlay and other analytical techniques.",
+      "prerequisites": [
+        "GIS Basics"
+      ],
+      "related_concepts": [
+        "Elevation Data",
+        "Trajectory Data"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Installing QGIS on macOS",
+      "steps": [
+        {
+          "action": "Visit the QGIS website",
+          "explanation": "To access the official download files and documentation.",
+          "code_snippet": "",
+          "gotcha": "Ensure you check the version number to match your documentation."
+        },
+        {
+          "action": "Download the macOS installer",
+          "explanation": "This downloads a .dmg or zip file containing the application.",
+          "code_snippet": "",
+          "gotcha": ""
+        },
+        {
+          "action": "Drag QGIS into the Applications folder",
+          "explanation": "Standard installation method for macOS software.",
+          "code_snippet": "",
+          "gotcha": "If an older version exists, decide whether to overwrite it or keep both."
+        },
+        {
+          "action": "Grant Security Permissions",
+          "explanation": "Since QGIS is not from the Mac App Store, macOS may block it initially.",
+          "code_snippet": "",
+          "gotcha": "The 'unverified developer' warning."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "App cannot be opened because it is from an unidentified developer.",
+      "context": "Occurs on macOS during the first launch after installation.",
+      "solution": "Go to System Settings > Privacy & Security and select 'Open Anyway' for QGIS."
+    },
+    {
+      "description": "Documentation mismatch.",
+      "context": "When looking for help online.",
+      "solution": "Ensure you know your specific QGIS version number (e.g., 3.34 Prizren) to find the matching documentation, as terminology and features change across versions."
+    }
+  ],
+  "confidence": 0.65,
+  "extracted_at": "2026-04-20T04:56:58.114854+00:00"
+}

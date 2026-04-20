@@ -1,0 +1,77 @@
+{
+  "name": "Global Forest Watch API",
+  "base_url": "https://data-api.globalforestwatch.org",
+  "version": "latest",
+  "description": "The GFW Data API provides programmatic access to forest monitoring data, including tree cover loss, alerts, and land use datasets. It uses a ReDoc-powered OpenAPI interface for data exploration and retrieval.",
+  "auth_type": "api_key_header",
+  "auth_details": {
+    "header_name": "x-api-key",
+    "description": "Access to certain datasets and higher rate limits require an API key."
+  },
+  "endpoints": [
+    {
+      "path": "/openapi.json",
+      "method": "GET",
+      "description": "Retrieve the full OpenAPI specification for the GFW Data API.",
+      "parameters": [],
+      "request_body": null,
+      "response_schema": {
+        "format": "json",
+        "fields": {},
+        "example": {}
+      },
+      "rate_limit": null,
+      "requires_auth": true
+    }
+  ],
+  "rate_limits": {
+    "requests_per_minute": null,
+    "requests_per_second": null
+  },
+  "error_codes": {
+    "401": "Unauthorized - Missing or invalid API key",
+    "403": "Forbidden - Insufficient permissions for the dataset",
+    "404": "Not Found - The requested resource or dataset does not exist",
+    "429": "Too Many Requests - Rate limit exceeded"
+  },
+  "doc_sources": [
+    {
+      "url": "https://developer.openepi.io/data-catalog/resource/0809e814-6890-4ce6-a513-174d91ba158e",
+      "title": "Global Forest Watch Data API",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://data-api.globalforestwatch.org/",
+      "title": "GFW Data API - ReDoc",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://www.globalforestwatch.org/help/developers/guides/create-and-use-an-api-key/",
+      "title": "Create and use an API key | Help Center",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://github.com/andrewxhill/gfw-api",
+      "title": "GitHub - andrewxhill/gfw-api: Global Forest Watch API",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://github.com/gfw-api",
+      "title": "Global Forest Watch API \u00b7 GitHub",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://data.globalforestwatch.org/",
+      "title": "Global Forest Watch Open Data Portal",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.85,
+  "discovered_at": "2026-04-20T04:58:44.612562+00:00"
+}

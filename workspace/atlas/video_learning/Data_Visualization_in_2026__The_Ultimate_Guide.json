@@ -1,0 +1,127 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=loYuxWSsLNc",
+  "source_title": "Data Visualization in 2026 | The Ultimate Guide",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Data Visualization",
+      "definition": "The graphical representation of information and data, using visual elements like charts, graphs, and maps to make complex data easier to understand, scan, and remember.",
+      "prerequisites": [
+        "Data collection",
+        "Research"
+      ],
+      "related_concepts": [
+        "Infographics",
+        "Pattern Recognition",
+        "Data Storytelling"
+      ]
+    },
+    {
+      "name": "Infographic",
+      "definition": "A visual representation of information or data that relies on a combination of text, icons, and multiple visualizations to tell a comprehensive story.",
+      "prerequisites": [
+        "Data Visualization basics"
+      ],
+      "related_concepts": [
+        "Information Design",
+        "Visual Hierarchy"
+      ]
+    },
+    {
+      "name": "Predictive Ability/Frequency",
+      "definition": "The use of historical data patterns in visualizations to forecast future outcomes or the frequency of expected events.",
+      "prerequisites": [
+        "Historical Data",
+        "Trend Analysis"
+      ],
+      "related_concepts": [
+        "Line Charts",
+        "Scatter Plots"
+      ]
+    },
+    {
+      "name": "Visual Hierarchy",
+      "definition": "The arrangement of elements in a way that implies importance, often represented through pyramid charts or structured layouts.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Pyramid Charts",
+        "Information Layout"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Planning a Project Schedule via Visualization",
+      "steps": [
+        {
+          "action": "Select a Timeline format",
+          "explanation": "Visualizing a project plan helps in tracking deadlines and dependency tasks.",
+          "code_snippet": null,
+          "gotcha": "Don't just list dates; use a visual flow like a calendar or timeline."
+        },
+        {
+          "action": "Work backwards from the end date",
+          "explanation": "Starting at the deadline and moving to the present ensures all necessary steps are accounted for to reach the big day.",
+          "code_snippet": null,
+          "gotcha": "Underestimating the time required for intermediate steps."
+        }
+      ]
+    },
+    {
+      "name": "Selecting the Right Chart Type",
+      "steps": [
+        {
+          "action": "Use Pie Charts for small sets",
+          "explanation": "Ideal for 7 or fewer percentage points where differences in value are wide.",
+          "code_snippet": null,
+          "gotcha": "Avoid if values are too similar or exceed 7 categories."
+        },
+        {
+          "action": "Use Line Charts for trends",
+          "explanation": "Perfect for seeing how one variable changes against a fixed value over time.",
+          "code_snippet": null,
+          "gotcha": "Can become cluttered with too many variables."
+        },
+        {
+          "action": "Use Radar (Spider) Charts for performance",
+          "explanation": "Identifies if a subject is well-rounded or lacking in specific areas against competition.",
+          "code_snippet": null,
+          "gotcha": "Users unfamiliar with the format (like general communications teams) may struggle to read it."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [
+    {
+      "api_name": "Visme",
+      "endpoints_used": [
+        "Templates Library",
+        "Data Import"
+      ],
+      "auth_method": "User Account",
+      "example_calls": [
+        "Edit template at visme.com"
+      ]
+    }
+  ],
+  "gotchas": [
+    {
+      "description": "Overloading an informational infographic with too much data.",
+      "context": "When creating complex multi-chart graphics.",
+      "solution": "Keep it organized, use white space, and ensure icons/colors serve a purpose."
+    },
+    {
+      "description": "Ignoring audience expertise.",
+      "context": "Choosing a chart type like a Radar chart for an audience that doesn't use them.",
+      "solution": "Assess if the audience is composed of experienced professionals or general consumers before choosing the complexity of the visual."
+    },
+    {
+      "description": "Treating spreadsheets as presentations.",
+      "context": "Presenting raw data to stakeholders.",
+      "solution": "Convert data into simplified graphical representations to account for shortening attention spans."
+    }
+  ],
+  "confidence": 0.75,
+  "extracted_at": "2026-04-20T05:05:11.586222+00:00"
+}

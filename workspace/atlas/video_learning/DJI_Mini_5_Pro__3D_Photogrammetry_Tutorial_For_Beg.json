@@ -1,0 +1,114 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=sXusmdNdJhc",
+  "source_title": "DJI Mini 5 Pro | 3D Photogrammetry Tutorial For Beginners (Step-by-Step Guide)",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Photogrammetry",
+      "definition": "The science and technology of obtaining reliable information about physical objects and the environment through the process of recording, measuring, and interpreting photographic images.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Sparse Point Cloud",
+        "Overlap Strategy",
+        "Bounding Box"
+      ]
+    },
+    {
+      "name": "Sparse Point Cloud",
+      "definition": "A preliminary 3D representation formed by matching common points between overlapping photos, used as a preview before full reconstruction.",
+      "prerequisites": [
+        "Image Alignment"
+      ],
+      "related_concepts": [
+        "Alignment",
+        "3D Reconstruction"
+      ]
+    },
+    {
+      "name": "Overlap Strategy",
+      "definition": "The technique of ensuring each photo shares a high percentage of visual data with neighboring photos to allow software to stitch them into a 3D model.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Timed Shot",
+        "Cruise Control"
+      ]
+    },
+    {
+      "name": "Bounding Box",
+      "definition": "A 3D boundary that defines the specific spatial volume to be processed; anything outside this box is ignored during high-quality reconstruction.",
+      "prerequisites": [
+        "Sparse Point Cloud"
+      ],
+      "related_concepts": [
+        "Reconstruction"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Capturing Images with DJI Mini 5 Pro",
+      "steps": [
+        {
+          "action": "Set camera to 'Timed Shot' with a 5-second interval.",
+          "explanation": "The 50MP high-resolution files require time to process and write to the SD card.",
+          "gotcha": "The 5-second limit is a hardware constraint for 50MP shots; you must fly slowly to compensate."
+        },
+        {
+          "action": "Fly 2-3 orbits around the subject at approximately 2 mph.",
+          "explanation": "Slow, steady movement ensures strong image overlap for accurate reconstruction.",
+          "gotcha": "Maintain consistency; use cruise control or very smooth manual stick movements."
+        },
+        {
+          "action": "Set White Balance to 'Cloudy' or 'Sunny' and avoid ND filters.",
+          "explanation": "Consistent white balance prevents color flickering; avoiding ND filters prevents motion blur.",
+          "gotcha": "Do not use Auto White Balance as it may shift between frames."
+        },
+        {
+          "action": "Capture additional detail of the facade (frontage).",
+          "explanation": "Closer, focused shots of the facade increase the final model's texture quality and detail."
+        }
+      ]
+    },
+    {
+      "name": "Processing 3D Model in Reality Scan",
+      "steps": [
+        {
+          "action": "Import images using the 'Folder' option in the Workflow tab.",
+          "explanation": "Batch importing from a single directory is the most efficient way to load the dataset.",
+          "code_snippet": null
+        },
+        {
+          "action": "Click the 'Align' button.",
+          "explanation": "Analyzes images to create the sparse point cloud preview.",
+          "gotcha": "Processing time scales with the number of photos; be patient with large datasets."
+        },
+        {
+          "action": "Adjust the Bounding Box using mouse controls.",
+          "explanation": "Focuses processing power only on the intended subject, saving time.",
+          "gotcha": "Ensure no parts of the subject are clipped outside the box or they will be missing in the final model."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Motion blur in photogrammetry images.",
+      "context": "Using ND filters or flying too fast in low light.",
+      "solution": "Remove ND filters and fly at a very slow speed (approx. 2 mph)."
+    },
+    {
+      "description": "5-second interval limitation on DJI Mini 5 Pro.",
+      "context": "Using the 50MP high-resolution photo mode.",
+      "solution": "Fly the drone slower to ensure enough photos are taken for adequate overlap despite the long interval."
+    },
+    {
+      "description": "Inconsistent exposure/coloring in the 3D model.",
+      "context": "Using Auto White Balance or Auto Exposure during flight.",
+      "solution": "Lock white balance to a manual preset (Sunny/Cloudy) and use manual camera mode if possible."
+    }
+  ],
+  "confidence": 0.7000000000000001,
+  "extracted_at": "2026-04-20T04:57:39.732963+00:00"
+}

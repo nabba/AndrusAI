@@ -1,0 +1,84 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=N49PzLDUIFQ",
+  "source_title": "What is Remote Sensing? Understanding Remote Sensing",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Remote Sensing (Broad Definition)",
+      "definition": "The process of measurement or acquisition of information regarding properties of an object or phenomena by a recording device that is not in physical or intimate contact with the object under study.",
+      "prerequisites": [
+        "Data acquisition",
+        "Sensory measurement"
+      ],
+      "related_concepts": [
+        "Sonogram",
+        "Medical imaging",
+        "X-rays"
+      ]
+    },
+    {
+      "name": "Satellite Remote Sensing",
+      "definition": "A specific application of remote sensing technology where sensors, scanners, and cameras onboard orbiting satellites scan the Earth's surface and transmit data back to Earth.",
+      "prerequisites": [
+        "Orbiting satellites",
+        "Sensors",
+        "Data transmission"
+      ],
+      "related_concepts": [
+        "Earth observation",
+        "Scanning",
+        "Photography"
+      ]
+    },
+    {
+      "name": "Sensing",
+      "definition": "The act of gathering information, data, or inputs such as temperature, pressure, or visual images from a source.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Data collection",
+        "Input"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Information Acquisition via Remote Sensing",
+      "steps": [
+        {
+          "action": "Select a recording device",
+          "explanation": "To capture data (e.g., cameras, scanners, or sensors) without physical contact.",
+          "code_snippet": null,
+          "gotcha": "The device must not be in intimate contact with the object."
+        },
+        {
+          "action": "Identify properties",
+          "explanation": "Determine which data points are being measured, such as temperature, pressure, or visual appearance.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Data Transmission/Recording",
+          "explanation": "The recording device captures the data (e.g., 'beaming images down' from a satellite) for analysis.",
+          "code_snippet": null,
+          "gotcha": null
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Limiting the definition of remote sensing only to satellites.",
+      "context": "When defining the field of remote sensing.",
+      "solution": "Remember that remote sensing broadly includes medical imaging (X-rays, sonograms) and any data collection without physical contact."
+    },
+    {
+      "description": "Assuming remote sensing always involves long distances.",
+      "context": "Interpreting the word 'Remote'.",
+      "solution": "Understand that 'far away' is relative; it simply means the sensor is not in physical contact, which can apply to both short-range and long-range measurements."
+    }
+  ],
+  "confidence": 0.6000000000000001,
+  "extracted_at": "2026-04-20T04:57:20.810422+00:00"
+}

@@ -1,0 +1,146 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=QMmk49KTCxk",
+  "source_title": "What Is Spatial Data? A Beginner\u2019s Guide",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Spatial Data",
+      "definition": "Data that identifies the geographic location of features and boundaries on Earth, adding a 'where' component to traditional structured data.",
+      "prerequisites": [
+        "Structured data concepts",
+        "Latitude/Longitude coordinates"
+      ],
+      "related_concepts": [
+        "Vector Data",
+        "Raster Data",
+        "Spatial Join"
+      ]
+    },
+    {
+      "name": "Vector Data",
+      "definition": "Representation of discrete objects in the real world using points, lines, and polygons defined by precise coordinates.",
+      "prerequisites": [
+        "Coordinate systems"
+      ],
+      "related_concepts": [
+        "Points",
+        "Lines",
+        "Polygons"
+      ]
+    },
+    {
+      "name": "Raster Data",
+      "definition": "Data represented as a grid of pixels (cells), where each pixel contains a value representing information like temperature, elevation, or land cover.",
+      "prerequisites": [
+        "Grid structures"
+      ],
+      "related_concepts": [
+        "Satellite Imagery",
+        "Digital Elevation Models",
+        "Cloud Optimized Geotiff"
+      ]
+    },
+    {
+      "name": "LiDAR",
+      "definition": "Light Detection and Ranging; a 3D remote sensing method that uses light in the form of a pulsed laser to measure ranges (variable distances) to the Earth.",
+      "prerequisites": [
+        "Vector Data"
+      ],
+      "related_concepts": [
+        "3D modeling",
+        "Self-driving cars"
+      ]
+    },
+    {
+      "name": "Spatial Join",
+      "definition": "A operation that combines data from two different tables or layers based on their geographic relationship rather than a shared ID key.",
+      "prerequisites": [
+        "SQL Joins",
+        "Spatial Relationships"
+      ],
+      "related_concepts": [
+        "Containment",
+        "Intersection",
+        "Nearest Neighbor"
+      ]
+    },
+    {
+      "name": "Cloud Optimized Formats",
+      "definition": "Specialized file formats like COG (Cloud Optimized GeoTIFF) or GeoParquet designed for efficient access and processing of massive spatial datasets in cloud environments.",
+      "prerequisites": [
+        "Big Data basics",
+        "Raster/Vector data"
+      ],
+      "related_concepts": [
+        "GeoParquet",
+        "COG"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Spatial Risk Assessment (e.g., Flood Risk)",
+      "steps": [
+        {
+          "action": "Acquire Layers",
+          "explanation": "Identify and load the building footprints layer and the flood zone boundary layer into a GIS or spatial database."
+        },
+        {
+          "action": "Perform Spatial Join",
+          "explanation": "Use a spatial join operation to combine the sets based on intersection (within) to identify which building polygons fall inside flood polygons."
+        },
+        {
+          "action": "Generate Insights",
+          "explanation": "Filter and visualize the resulting dataset to show high-risk properties for planning or insurance purposes."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Spatial Analysis with GeoPandas",
+      "language": "python",
+      "purpose": "To read shapefiles, perform joins, and run geometry operations within a standard data frame structure.",
+      "code": "import geopandas as gdf\n# Load datasets\nbuildings = gdf.read_file('buildings.shp')\nflood_zones = gdf.read_file('flood_zones.shp')\n# Perform spatial join\nrisky_buildings = gdf.sjoin(buildings, flood_zones, how='inner', predicate='intersects')",
+      "dependencies": [
+        "geopandas"
+      ]
+    },
+    {
+      "name": "PostGIS Spatial Query",
+      "language": "sql",
+      "purpose": "To find locations within a specific proximity using a spatial database.",
+      "code": "SELECT buildings.name, zones.hazard_level \nFROM buildings, flood_zones as zones \nWHERE ST_Within(buildings.geom, zones.geom);",
+      "dependencies": [
+        "PostgreSQL",
+        "PostGIS Extension"
+      ]
+    }
+  ],
+  "api_knowledge": [
+    {
+      "api_name": "Google Earth Engine",
+      "endpoints_used": [
+        "Satellite imagery catalog"
+      ],
+      "auth_method": "OAuth2 / Google Cloud Credentials",
+      "example_calls": [
+        "Analyze massive satellite imagery datasets to track temporal changes at scale."
+      ]
+    }
+  ],
+  "gotchas": [
+    {
+      "description": "Raster vs. Vector misuse",
+      "context": "Choosing the wrong format for the data type.",
+      "solution": "Use Vector for discrete objects with hard edges (roads, buildings). Use Raster for continuous surfaces that change gradually (heat maps, elevation)."
+    },
+    {
+      "description": "Scaling limitations with traditional formats",
+      "context": "Handling massive geospatial data sets in the cloud.",
+      "solution": "Use Cloud Optimized GeoTIFF (COG) for rasters to avoid downloading full files, and GeoParquet for vector data to enable high-performance columnar queries."
+    }
+  ],
+  "confidence": 0.8,
+  "extracted_at": "2026-04-20T05:05:59.760720+00:00"
+}

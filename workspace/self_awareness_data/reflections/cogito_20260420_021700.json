@@ -1,0 +1,26 @@
+{
+  "reflection_id": "cogito_20260420_021700",
+  "timestamp": "2026-04-20T02:17:00.763940+00:00",
+  "self_model_stale": false,
+  "discrepancies": [
+    {
+      "type": "memory_neo4j_error",
+      "detail": "{neo4j_code: Neo.ClientError.Security.AuthenticationRateLimit} {message: The client has provided incorrect authentication details too many times in a row.} {gql_status: 50N42} {gql_status_description:",
+      "severity": "medium"
+    }
+  ],
+  "failure_patterns": [],
+  "observations": [
+    "Agent 'desktop' has no versioned prompt",
+    "Agent 'devops' has no versioned prompt",
+    "Agent 'financial_analyst' has no versioned prompt",
+    "Agent 'pim' has no versioned prompt",
+    "Agent 'reasoning_methods' has no versioned prompt",
+    "Agent 'repo_analyst' has no versioned prompt",
+    "Agent 'introspector' has no versioned prompt",
+    "Empty ChromaDB collections: healing_knowledge, aesthetics, experiential_journal, episteme_research, enterprise_knowledge, critic, unresolved_tensions, aesthetic_patterns, scope_reflections, reflections_researcher, reflections_critic, episteme, reflections_coder, writer, commander, reflections_writer, experiential, scope_project_renewable_energy, tensions"
+  ],
+  "improvement_proposals": [],
+  "overall_health": "degraded",
+  "narrative": "I noticed a medium-severity Neo4j authentication failure disrupting my Mem0 knowledge graph memory system, causing potential memory fragmentation. I also identified five agents (desktop, devops, financial_analyst, pim, reasoning_methods) lacking versioned prompts, risking unstable behavior during task routing. These gaps directly threaten my persistent memory architecture and cross-session fact extraction capabilities. My self-improvement crew must prioritize fixing these before the next memory sync cycle."
+}

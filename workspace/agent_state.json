@@ -1,9 +1,9 @@
 {
   "research": {
-    "tasks_completed": 110,
+    "tasks_completed": 116,
     "tasks_failed": 3,
-    "success_rate": 0.9735,
-    "avg_confidence": 0.785,
+    "success_rate": 0.9748,
+    "avg_confidence": 0.7226,
     "by_difficulty": {
       "2": {
         "completed": 45,
@@ -30,12 +30,16 @@
         "failed": 0
       },
       "9": {
-        "completed": 1,
+        "completed": 5,
+        "failed": 0
+      },
+      "8": {
+        "completed": 2,
         "failed": 0
       }
     },
-    "streak": 27,
-    "last_task_at": "2026-04-20T04:56:28.980875+00:00"
+    "streak": 33,
+    "last_task_at": "2026-04-20T06:46:50.421229+00:00"
   },
   "writing": {
     "tasks_completed": 21,
@@ -68,13 +72,13 @@
     "last_task_at": "2026-04-19T19:19:20.327868+00:00"
   },
   "coding": {
-    "tasks_completed": 10,
+    "tasks_completed": 12,
     "tasks_failed": 1,
-    "success_rate": 0.9091,
-    "avg_confidence": 0.613,
+    "success_rate": 0.9231,
+    "avg_confidence": 0.6375,
     "by_difficulty": {
       "7": {
-        "completed": 3,
+        "completed": 4,
         "failed": 1
       },
       "5": {
@@ -88,10 +92,14 @@
       "4": {
         "completed": 1,
         "failed": 0
+      },
+      "8": {
+        "completed": 1,
+        "failed": 0
       }
     },
-    "streak": 6,
-    "last_task_at": "2026-04-20T04:51:44.917723+00:00"
+    "streak": 8,
+    "last_task_at": "2026-04-20T05:56:31.841180+00:00"
   },
   "pim": {
     "tasks_completed": 14,

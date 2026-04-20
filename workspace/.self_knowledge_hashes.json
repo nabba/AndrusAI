@@ -286,7 +286,7 @@
   "app/control_plane/org_chart.py": "51ada6ab27182ebe",
   "app/control_plane/__init__.py": "849864327f2c6156",
   "app/control_plane/audit.py": "557d0e398bbf7d31",
-  "app/control_plane/dashboard_api.py": "f1954056293f754e",
+  "app/control_plane/dashboard_api.py": "e2622026965c128f",
   "app/control_plane/tickets.py": "6a11781a50b6f5e7",
   "app/control_plane/governance.py": "44c61ffc2b1a1708",
   "app/control_plane/heartbeats.py": "22714be13f97d0e9",
@@ -514,5 +514,5 @@
   "app/subia/homeostasis/state.py": "21ff045724be6b2b",
   "app/subia/homeostasis/__init__.py": "09bd8383f16149b2",
   "app/subia/homeostasis/engine.py": "29c788c60ee88570",
-  "workspace/system_chronicle.md": "08674bc427c7c033"
+  "workspace/system_chronicle.md": "64290ca00cd5abf4"
 }

@@ -62,5 +62,13 @@
     "fixes_applied": [
       "Increase the max_execution_time parameter in the _execute_with_timeout method to allow more time for task completion. The current timeout of 300 seconds is insufficient. Modify the value from 300 to a"
     ]
+  },
+  "research:RuntimeError": {
+    "attempts": 2,
+    "resolved": false,
+    "last_attempt": "2026-04-20T06:32:01.193897+00:00",
+    "fixes_applied": [
+      "The error occurs due to a too complex schema being sent to the API. The solution is to reduce the number of tools or simplify the tool schemas being used in the task execution. In the code, you should"
+    ]
   }
 }

@@ -1,0 +1,142 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=Hau_ZCmN8eU",
+  "source_title": "What Is GIS? A Guide to Geographic Information Systems",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Geographic Information Systems (GIS)",
+      "definition": "A computer-based tool that stores, analyzes, and visualizes data for geographic positions on Earth's surface to examine spatial relationships, patterns, and trends.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Geoprocessing",
+        "Spatial Analysis",
+        "Cartography"
+      ]
+    },
+    {
+      "name": "Vector Data",
+      "definition": "A data model representing geographic features as points (lat/long), lines (roads), and polygons (administrative boundaries) defined by vertices.",
+      "prerequisites": [
+        "Geographic Information Systems (GIS)"
+      ],
+      "related_concepts": [
+        "Raster Data",
+        "Polygons",
+        "Vertices"
+      ]
+    },
+    {
+      "name": "Raster Data",
+      "definition": "Also known as grid data; it represents information in rows and columns of cells (pixels), typically used for satellite imagery, aerial photography, and digital elevation models.",
+      "prerequisites": [
+        "Geographic Information Systems (GIS)"
+      ],
+      "related_concepts": [
+        "Vector Data",
+        "Satellite Imagery"
+      ]
+    },
+    {
+      "name": "Geoprocessing",
+      "definition": "The use of GIS software tools to manipulate geographic data, perform spatial analysis, and extract meaningful information through operations like buffering and overlaying.",
+      "prerequisites": [
+        "Vector Data",
+        "Raster Data"
+      ],
+      "related_concepts": [
+        "Spatial Analysis",
+        "Data Editing"
+      ]
+    },
+    {
+      "name": "Choropleth Map",
+      "definition": "A thematic map that uses shading or colors within predefined regions (polygons) to represent data values like demographics or socioeconomics.",
+      "prerequisites": [
+        "Visualization",
+        "Vector Data"
+      ],
+      "related_concepts": [
+        "Heat Map",
+        "Isoline Map"
+      ]
+    },
+    {
+      "name": "Heat Map",
+      "definition": "A map visualization that uses shading to represent the intensity or density of data values in a specific area, common for crime or traffic analysis.",
+      "prerequisites": [
+        "Visualization"
+      ],
+      "related_concepts": [
+        "Choropleth Map"
+      ]
+    },
+    {
+      "name": "Isoline Map",
+      "definition": "A map that uses contour lines to connect points of equal value, such as elevation (topography), temperature, or rainfall.",
+      "prerequisites": [
+        "Visualization"
+      ],
+      "related_concepts": [
+        "Choropleth Map"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Data Management in GIS",
+      "steps": [
+        {
+          "action": "Organizing and Storing",
+          "explanation": "Structuring geographic and attribute data for efficient retrieval.",
+          "code_snippet": "",
+          "gotcha": ""
+        },
+        {
+          "action": "Retrieving and Maintaining",
+          "explanation": "Ensuring data is accessible and updated to reflect current geographic realities.",
+          "code_snippet": "",
+          "gotcha": "Outdated data can lead to inaccurate analysis in emergency or urban planning contexts."
+        }
+      ]
+    },
+    {
+      "name": "Geospatial Analysis Workflow",
+      "steps": [
+        {
+          "action": "Identify Spatial Relationships",
+          "explanation": "Determine how different geographic features interact or overlap.",
+          "code_snippet": "",
+          "gotcha": ""
+        },
+        {
+          "action": "Perform Operations (Geoprocessing)",
+          "explanation": "Apply tools like shortest route identification, buffering, or layer overlaying.",
+          "code_snippet": "",
+          "gotcha": ""
+        },
+        {
+          "action": "Statistical Analysis",
+          "explanation": "Measure and quantify patterns discovered during the geoprocessing phase.",
+          "code_snippet": "",
+          "gotcha": ""
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Difficulty interpreting raw coordinate data without mapping.",
+      "context": "Working with tables of latitude and longitude.",
+      "solution": "Convert tabular data into a map visualization to provide geographic context."
+    },
+    {
+      "description": "Inaccurate or ineffective applications due to poor data quality.",
+      "context": "GIS data editing and creation.",
+      "solution": "Perform regular data editing to update existing geographic data and ensure it is relevant to the problem at hand."
+    }
+  ],
+  "confidence": 0.8,
+  "extracted_at": "2026-04-20T04:56:48.773674+00:00"
+}

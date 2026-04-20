@@ -1,17 +1,17 @@
 {
   "version": "v0.1.10",
-  "timestamp": "2026-04-19T20:57:54.168809+00:00",
+  "timestamp": "2026-04-20T06:38:57.005396+00:00",
   "components": {
     "agent_code": {
-      "git_sha": "unknown",
-      "branch": "unknown",
+      "git_sha": "bb4d610c0b96b804ed23fa434fc27f4b48adbcbb",
+      "branch": "master",
       "dirty": true
     },
     "prompts": {
-      "commander": 15,
-      "researcher": 12,
-      "coder": 16,
-      "writer": 16,
+      "commander": 22,
+      "researcher": 18,
+      "coder": 23,
+      "writer": 20,
       "critic": 1,
       "self_improver": 1,
       "media_analyst": 1,
@@ -40,26 +40,26 @@
       "writer.md": "e50e1cddffebdf3b700956507bd17408534b74bb1bc09e076ceee6ea9fd1a6ec"
     },
     "mem0_state": {
-      "snapshot_id": "20260419T205754Z",
+      "snapshot_id": "20260420T063857Z",
       "method": "row_counts",
       "total_tables": 55,
-      "total_rows": 8512,
+      "total_rows": 10882,
       "tables": {
         "atlas.api_knowledge": 0,
-        "atlas.audit_log": 18,
+        "atlas.audit_log": 29,
         "atlas.learning_sessions": 0,
         "atlas.skill_usage": 0,
-        "control_plane.audit_log": 971,
+        "control_plane.audit_log": 1069,
         "control_plane.budgets": 32,
-        "control_plane.discovered_models": 334,
+        "control_plane.discovered_models": 341,
         "control_plane.external_ranks": 33,
         "control_plane.governance_requests": 14,
-        "control_plane.heartbeats": 1037,
+        "control_plane.heartbeats": 1254,
         "control_plane.org_chart": 8,
         "control_plane.projects": 4,
         "control_plane.role_assignments": 16,
-        "control_plane.ticket_comments": 0,
-        "control_plane.tickets": 184,
+        "control_plane.ticket_comments": 3,
+        "control_plane.tickets": 201,
         "evolution.artifacts": 0,
         "evolution.eval_sets": 3,
         "evolution.lineage": 0,
@@ -69,7 +69,7 @@
         "evolution.variants": 27,
         "feedback.events": 5,
         "feedback.patterns": 3,
-        "feedback.response_metadata": 230,
+        "feedback.response_metadata": 241,
         "modification.attempts": 0,
         "modification.log": 0,
         "modification.strategy_stats": 0,
@@ -77,27 +77,27 @@
         "personality.behavioral_log": 1,
         "personality.proto_sentience_markers": 0,
         "personality.trait_history": 0,
-        "public.action_selection_records": 32,
-        "public.agent_experiences": 4032,
+        "public.action_selection_records": 46,
+        "public.agent_experiences": 5841,
         "public.attention_predictions": 0,
         "public.attention_shifts": 0,
-        "public.attention_states": 111,
-        "public.behavioral_scorecards": 55,
+        "public.attention_states": 125,
+        "public.behavioral_scorecards": 79,
         "public.beliefs": 6,
-        "public.broadcast_events": 100,
-        "public.broadcast_reactions": 400,
+        "public.broadcast_events": 114,
+        "public.broadcast_reactions": 456,
         "public.crewai_memories": 0,
-        "public.internal_states": 294,
+        "public.internal_states": 327,
         "public.mem0migrations": 0,
         "public.metacognitive_updates": 82,
-        "public.prediction_errors": 113,
-        "public.predictions": 113,
+        "public.prediction_errors": 127,
+        "public.predictions": 127,
         "public.prosocial_game_outcomes": 0,
         "public.prosocial_profiles": 4,
         "public.reality_model_snapshots": 0,
         "public.tool_proposals": 2,
         "public.workspace_items": 0,
-        "public.workspace_transitions": 108,
+        "public.workspace_transitions": 122,
         "training.interactions": 4,
         "training.runs": 0
       }
@@ -107,6 +107,10 @@
         "healing_knowledge": {
           "count": 0,
           "hash": "a81f63469280ac0e"
+        },
+        "scope_research_bb--377ef040048b4943a289bcf5923c96d0": {
+          "count": 14,
+          "hash": "43917dc389d55481"
         },
         "evo_successes": {
           "count": 9,
@@ -121,24 +125,24 @@
           "hash": "228691ae1ccef645"
         },
         "result_cache": {
-          "count": 53,
-          "hash": "f8ca0d7d9ff15c49"
+          "count": 62,
+          "hash": "04a0a886c0bf3d79"
         },
         "scope_beliefs": {
-          "count": 380,
-          "hash": "38f205a684099786"
+          "count": 410,
+          "hash": "36d2dd98b84ae975"
         },
         "episteme_research": {
           "count": 0,
           "hash": "325996e05145ff68"
         },
         "team_shared": {
-          "count": 265,
-          "hash": "8e2651131a0b046e"
+          "count": 275,
+          "hash": "1238b262397701f6"
         },
         "scope_predictions": {
-          "count": 130,
-          "hash": "a1dde746aa3297fb"
+          "count": 148,
+          "hash": "7001e26ff6d12ca4"
         },
         "reflections_financial": {
           "count": 1,
@@ -149,8 +153,8 @@
           "hash": "b311fbf444820edc"
         },
         "reflections_coding": {
-          "count": 13,
-          "hash": "516beef3de9fdd40"
+          "count": 16,
+          "hash": "0869b4db3b60b162"
         },
         "scope_research_bb--0e9bb8b81ad74178a433f60b2f885e75": {
           "count": 2,
@@ -209,20 +213,20 @@
           "hash": "bc1911735fe989fa"
         },
         "andrusai_wiki_pages": {
-          "count": 11,
-          "hash": "62784c4929a38386"
+          "count": 14,
+          "hash": "590676d48b552b35"
         },
         "reflections_media": {
           "count": 2,
           "hash": "172e352be9c377b7"
         },
         "introspector": {
-          "count": 2,
-          "hash": "a5a9651b48dc72d1"
+          "count": 4,
+          "hash": "330a27bb0ac09d4b"
         },
         "scope_tech_radar": {
-          "count": 760,
-          "hash": "0337b7b71caef4a0"
+          "count": 812,
+          "hash": "cb2a7a687cef151c"
         },
         "reflections_writing": {
           "count": 36,
@@ -237,16 +241,16 @@
           "hash": "0f77331f37b14cf2"
         },
         "scope_policies": {
-          "count": 1014,
-          "hash": "a9e6c8fa075a0f9c"
+          "count": 1026,
+          "hash": "77094a6f306125b9"
         },
         "learning_gaps": {
-          "count": 34,
-          "hash": "0bc234d87c2761d2"
+          "count": 47,
+          "hash": "0f7f89cd1e47c02b"
         },
         "scope_world_model": {
-          "count": 11,
-          "hash": "d590651ea0975c90"
+          "count": 17,
+          "hash": "5f0f550006a1ab4b"
         },
         "reflections_critic": {
           "count": 0,
@@ -265,8 +269,8 @@
           "hash": "06b1351b7a651cd6"
         },
         "skills": {
-          "count": 58,
-          "hash": "5a2a155831382988"
+          "count": 59,
+          "hash": "c651e8f09c467e1a"
         },
         "scope_reflexion_lessons": {
           "count": 6,
@@ -285,12 +289,12 @@
           "hash": "791b4588a52c08fa"
         },
         "skill_records": {
-          "count": 5,
-          "hash": "7282bacde9b487f8"
+          "count": 6,
+          "hash": "33e21fa09f7531fd"
         },
         "atlas_video_knowledge": {
-          "count": 17,
-          "hash": "9e349a859012e336"
+          "count": 112,
+          "hash": "2e99f1e3a471cfc2"
         },
         "reflections_writer": {
           "count": 0,
@@ -305,30 +309,30 @@
           "hash": "8dd1105aff6b2537"
         },
         "scope_ecology": {
-          "count": 214,
-          "hash": "d8e7d85e1e4c037e"
+          "count": 223,
+          "hash": "24a42b7b069d0cdb"
         },
         "self_reports": {
-          "count": 214,
-          "hash": "9f5f9953d2681218"
+          "count": 223,
+          "hash": "b26ba9a79f0185cd"
         },
         "scope_project_renewable_energy": {
           "count": 0,
           "hash": "5d4df36f04bd4e6e"
         },
         "reflections_research": {
-          "count": 148,
-          "hash": "6c1258505e9dce86"
+          "count": 154,
+          "hash": "0000c65ffe220fbb"
         },
         "tensions": {
           "count": 0,
           "hash": "2d994e5ea3fe6f12"
         }
       },
-      "total_collections": 55
+      "total_collections": 56
     },
     "neo4j_graph": {
-      "snapshot_id": "20260419T205754Z",
+      "snapshot_id": "20260420T063857Z",
       "error": "{neo4j_code: Neo.ClientError.Security.Unauthorized} {message: The client is unauthorized due to authentication failure.} {gql_status: 50N42} {gql_status_description: error: general processing exceptio"
     },
     "config": {

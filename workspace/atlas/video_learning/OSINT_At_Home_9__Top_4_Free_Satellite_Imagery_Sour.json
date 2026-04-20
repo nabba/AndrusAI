@@ -1,0 +1,111 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=OONjbRAR-TM",
+  "source_title": "OSINT At Home #9 \u2013 Top 4 Free Satellite Imagery Sources",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Historical Imagery Slider",
+      "definition": "A feature in Google Earth Pro that allows users to view satellite mosaics from previous years and decades to observe geographical changes over time.",
+      "prerequisites": [
+        "Google Earth Pro Desktop Installation"
+      ],
+      "related_concepts": [
+        "Change Detection",
+        "Geospatial Analysis"
+      ]
+    },
+    {
+      "name": "False Color / Infrared Banding",
+      "definition": "Visualizing non-visible light spectrums (like near-infrared) to highlight specific features such as vegetation health, burn scars, or water bodies.",
+      "prerequisites": [
+        "Multispectral satellite data"
+      ],
+      "related_concepts": [
+        "Sentinel Hub",
+        "Remote Sensing"
+      ]
+    },
+    {
+      "name": "KML/KMZ Layers",
+      "definition": "Keyhole Markup Language files used to display geographic data in an Earth browser, allowing users to import custom map pins, polygon data, or third-party map tiles (like Bing Maps) into Google Earth.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Google Earth Pro",
+        "GIS"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Analyzing Temporal Changes with Google Earth Pro",
+      "steps": [
+        {
+          "action": "Download Google Earth Pro (Desktop version)",
+          "explanation": "The web-based version lacks advanced features like extensive historical archives and custom layer imports.",
+          "gotcha": "Ensure you are using the 'Pro' desktop application, not the standard browser version."
+        },
+        {
+          "action": "Select the 'Clock' icon in the top toolbar",
+          "explanation": "This activates the historical imagery slider.",
+          "code_snippet": null,
+          "gotcha": "Imagery dates are not contiguous; some areas may skip several years depending on satellite passes."
+        },
+        {
+          "action": "Map trends using pins/placemarks",
+          "explanation": "By placing pins on destroyed structures or features across different timeframes, you can visualize spatial trends over a specific period."
+        }
+      ]
+    },
+    {
+      "name": "High-Frequency Monitoring with Sentinel Hub",
+      "steps": [
+        {
+          "action": "Access Sentinel Hub Playground or EO Browser",
+          "explanation": "Provides access to Sentinel-1, Sentinel-2, and Landsat data sets."
+        },
+        {
+          "action": "Select a specific date from the calendar",
+          "explanation": "Sentinel satellites provide lower resolution but significantly higher temporal frequency (revisit times of ~3-5 days).",
+          "code_snippet": null,
+          "gotcha": "Images may be obscured by cloud cover; you must manually browse for cloud-free tiles."
+        },
+        {
+          "action": "Apply a Rendering Script (e.g., Color Infrared or False Color Urban)",
+          "explanation": "Uses specific spectral bands to make features like fire damage or vegetation more visible than in natural color."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [
+    {
+      "api_name": "Sentinel Hub EO Browser",
+      "endpoints_used": [
+        "Custom Scripts (Javascript-based visualization scripts)"
+      ],
+      "auth_method": "Free browser-based access (options for API keys for developers)",
+      "example_calls": [
+        "Select 'Custom' in the side panel to input custom wavelength visualization scripts."
+      ]
+    }
+  ],
+  "gotchas": [
+    {
+      "description": "Lower spatial resolution in Sentinel Hub compared to Google Earth.",
+      "context": "When trying to identify specific building roofs or small vehicles.",
+      "solution": "Use Sentinel Hub to identify *when* an event happened due to its high frequency, then use Google Earth Pro to get high-resolution details of *what* happened if corresponding imagery exists."
+    },
+    {
+      "description": "Temporal gaps in Google Earth imagery.",
+      "context": "When researching events in rural or conflict zones (e.g., Borno State, Nigeria).",
+      "solution": "Check multiple sources; use the Historical Imagery slider to see if archival missions (like 1940s aerial photos) are available for that specific region."
+    },
+    {
+      "description": "Cloud cover interference.",
+      "context": "Using Sentinel Hub or Zoom Earth to track recent events.",
+      "solution": "Iterate through the calendar views to find dates with 0% cloud cover for the specific coordinates."
+    }
+  ],
+  "confidence": 0.7000000000000001,
+  "extracted_at": "2026-04-20T04:56:37.692221+00:00"
+}

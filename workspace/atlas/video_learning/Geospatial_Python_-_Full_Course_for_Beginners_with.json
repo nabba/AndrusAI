@@ -1,0 +1,144 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=0mWgVVH_dos",
+  "source_title": "Geospatial Python - Full Course for Beginners with Geopandas",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "GeoPandas",
+      "definition": "An open-source library that extends Pandas by adding support for geospatial data, allowing spatial operations on geometric types.",
+      "prerequisites": [
+        "Pandas",
+        "Python"
+      ],
+      "related_concepts": [
+        "GeoSeries",
+        "GeoDataFrame",
+        "Shapely"
+      ]
+    },
+    {
+      "name": "GeoDataFrame",
+      "definition": "A tabular data structure that contains a 'geometry' column in addition to standard pandas data columns.",
+      "prerequisites": [
+        "Pandas DataFrame"
+      ],
+      "related_concepts": [
+        "GeoSeries",
+        "Coordinate Reference System (CRS)"
+      ]
+    },
+    {
+      "name": "GeoSeries",
+      "definition": "A vector where each element is a set of shapes corresponding to one observation (the geometry column of a GeoDataFrame).",
+      "prerequisites": [
+        "Pandas Series"
+      ],
+      "related_concepts": [
+        "Geometry Object"
+      ]
+    },
+    {
+      "name": "Coordinate Reference System (CRS)",
+      "definition": "A framework used to precisely measure locations on the surface of the Earth as coordinates.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Projections",
+        "Spatial Attributes"
+      ]
+    },
+    {
+      "name": "Geometry Attributes",
+      "definition": "Spatial properties associated with geographic data such as area, centroid, and boundary bounds.",
+      "prerequisites": [
+        "GeoSeries"
+      ],
+      "related_concepts": [
+        "Spatial Joins",
+        "Overlaps"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Setting up the Environment",
+      "steps": [
+        {
+          "action": "Install Python",
+          "explanation": "Required to execute Geopandas code. Can be done via direct download, Homebrew (Mac), or package managers (Linux).",
+          "code_snippet": "brew install python",
+          "gotcha": "Be aware of the difference between global and virtual environments."
+        },
+        {
+          "action": "Install Jupyter Notebook",
+          "explanation": "A notebook service is recommended for interactive geospatial data visualization.",
+          "code_snippet": "",
+          "gotcha": "Google Colab can be used as a hosted alternative."
+        },
+        {
+          "action": "Access Tutorial Materials",
+          "explanation": "Get notebooks and datasets from modern-gi.xyz for hands-on practice.",
+          "code_snippet": "",
+          "gotcha": "Ensure you sign up for a free account to access data."
+        }
+      ]
+    },
+    {
+      "name": "Learning through Documentation",
+      "steps": [
+        {
+          "action": "Navigate to API Reference",
+          "explanation": "To understand specific operations available for GeoSeries and GeoDataFrames.",
+          "code_snippet": "",
+          "gotcha": "The API reference is the most detailed source for finding methods like .area or .bounds."
+        },
+        {
+          "action": "Consult the Examples Gallery",
+          "explanation": "To find pre-built snippets for common tasks like mapping the NYC Burrows.",
+          "code_snippet": "",
+          "gotcha": ""
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Library Imports and Data Exploration",
+      "language": "python",
+      "purpose": "Standard initialization for a geospatial project.",
+      "code": "import geopandas as gpd\n# Example of reading a built-in dataset or external file\n# path_to_data = gpd.datasets.get_path('nybb')\n# gdf = gpd.read_file(path_to_data)\n# print(gdf.head())",
+      "dependencies": [
+        "geopandas"
+      ]
+    }
+  ],
+  "api_knowledge": [
+    {
+      "api_name": "GeoPandas IO",
+      "endpoints_used": [
+        "read_file()",
+        "to_file()",
+        "read_postgis()",
+        "read_parquet()"
+      ],
+      "auth_method": "N/A",
+      "example_calls": [
+        "gdf = gpd.read_file('data.geojson')",
+        "gdf.to_file('output.shp')"
+      ]
+    }
+  ],
+  "gotchas": [
+    {
+      "description": "Confusion between Pandas and GeoPandas data types.",
+      "context": "When performing standard pandas operations on a GeoDataFrame.",
+      "solution": "Remember that a GeoDataFrame is a DataFrame, but it requires a 'geometry' column to support spatial functions."
+    },
+    {
+      "description": "Environment management issues.",
+      "context": "Installing packages globally vs in a virtual environment.",
+      "solution": "Use virtual environments or notebook services like Google Colab to avoid library conflicts unique to geospatial dependencies (GDAL, GEOS, etc.)."
+    }
+  ],
+  "confidence": 0.8,
+  "extracted_at": "2026-04-20T05:05:51.022003+00:00"
+}

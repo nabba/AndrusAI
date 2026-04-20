@@ -187,6 +187,36 @@ export function useOrgChartQuery() {
   });
 }
 
+// ── Delegation-mode toggles (Org Chart page) ────────────────────────────────
+// When ON for a crew, the dispatch uses Coordinator + specialists instead of a
+// single monolithic agent.  Preserves full tool palette on providers with
+// tight tool limits (Anthropic).
+export interface DelegationSettings {
+  settings: Record<string, boolean>;
+}
+
+export function useDelegationSettingsQuery() {
+  return useQuery({
+    queryKey: ['delegation-settings'] as const,
+    queryFn: () => api<DelegationSettings>(endpoints.delegationSettings()),
+    refetchInterval: POLL.oneMin,
+  });
+}
+
+export function useSetDelegationSetting() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ crew, enabled }: { crew: string; enabled: boolean }) =>
+      api<DelegationSettings & { crew: string; enabled: boolean }>(
+        endpoints.delegationCrew(crew),
+        { method: 'POST', body: JSON.stringify({ enabled }) },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['delegation-settings'] });
+    },
+  });
+}
+
 // ── Costs ───────────────────────────────────────────────────────────────────
 export function useDailyCostsQuery(days = 30, projectId?: string) {
   return useQuery({

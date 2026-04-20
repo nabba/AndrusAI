@@ -1,0 +1,165 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=fxx_E0ojKrc",
+  "source_title": "Time Series Forecasting in Python \u2013 Tutorial for Beginners",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Time Series Data",
+      "definition": "A set of data points ordered and indexed in time, ideally equally spaced (e.g., hourly, monthly).",
+      "prerequisites": [
+        "Python",
+        "Basic Data Science"
+      ],
+      "related_concepts": [
+        "Trend",
+        "Seasonality",
+        "Residuals"
+      ]
+    },
+    {
+      "name": "Trend",
+      "definition": "The general long-term direction in which a time series is moving (e.g., increasing or decreasing over time).",
+      "prerequisites": [
+        "Time Series Data"
+      ],
+      "related_concepts": [
+        "Seasonality",
+        "Decomposition"
+      ]
+    },
+    {
+      "name": "Seasonality",
+      "definition": "A repeated pattern or cycle in the data that occurs at fixed time intervals.",
+      "prerequisites": [
+        "Time Series Data"
+      ],
+      "related_concepts": [
+        "Seasonal ARMA",
+        "Seasonal Naive Forecast"
+      ]
+    },
+    {
+      "name": "Residuals",
+      "definition": "The random noise or fluctuations in a time series left over after extracting the trend and seasonality; these represent unpredictable changes.",
+      "prerequisites": [
+        "Trend",
+        "Seasonality"
+      ],
+      "related_concepts": [
+        "White Noise"
+      ]
+    },
+    {
+      "name": "Baseline Model",
+      "definition": "A simple model based on heuristics or basic statistics used to establish a minimum performance benchmark.",
+      "prerequisites": [
+        "Time Series Data"
+      ],
+      "related_concepts": [
+        "Historical Mean",
+        "Naive Forecast",
+        "Seasonal Naive"
+      ]
+    },
+    {
+      "name": "ARMA / SARMA",
+      "definition": "Statistical models (AutoRegressive Moving Average) used for forecasting based on historical values and errors.",
+      "prerequisites": [
+        "Time Series Data",
+        "Baseline Model"
+      ],
+      "related_concepts": [
+        "Exogenous features",
+        "Stationarity"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Time Series Decomposition",
+      "steps": [
+        {
+          "action": "Identify the Trend",
+          "explanation": "To see the underlying growth or decline of the data over time.",
+          "code_snippet": null,
+          "gotcha": "Trends can be linear or non-linear."
+        },
+        {
+          "action": "Identify Seasonality",
+          "explanation": "To capture patterns that repeat at specific intervals (like peaks every December).",
+          "code_snippet": null,
+          "gotcha": "Must ensure the interval is fixed."
+        },
+        {
+          "action": "Analyze Residuals",
+          "explanation": "To verify if the remaining data is random; if patterns remain, the model can likely be improved.",
+          "code_snippet": null,
+          "gotcha": "If residuals are not random, your model is missing information."
+        }
+      ]
+    },
+    {
+      "name": "Building Baseline Models",
+      "steps": [
+        {
+          "action": "Historical Mean Forecast",
+          "explanation": "Take the average of all past data points and project it as a flat line into the future.",
+          "code_snippet": null,
+          "gotcha": "Ineffective if there is a strong trend."
+        },
+        {
+          "action": "Naive Forecast",
+          "explanation": "Predict the next value by simply using the last known value.",
+          "code_snippet": null,
+          "gotcha": "Does not account for seasonality."
+        },
+        {
+          "action": "Seasonal Naive Forecast",
+          "explanation": "Repeat the value from the same period in the previous season.",
+          "code_snippet": null,
+          "gotcha": "Requires a clearly defined seasonal cycle."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Conceptual Forecasting Workflow",
+      "language": "python",
+      "purpose": "General architecture for a forecasting project using statistical models.",
+      "code": "# 1. Load data\n# 2. Decompose (Trend, Seasonality, Residuals)\n# 3. Create Baseline (Mean or Naive)\n# 4. Train Statistical Model (ARMA/SARIMA)\n# 5. Cross-validate and Evaluate",
+      "dependencies": [
+        "pandas",
+        "statsmodels",
+        "sktime"
+      ]
+    }
+  ],
+  "api_knowledge": [
+    {
+      "api_name": "Nixtla Open Source",
+      "endpoints_used": [
+        "neuralforecast",
+        "timeGPT"
+      ],
+      "auth_method": "API Key (for TimeGPT)",
+      "example_calls": [
+        "neuralforecast.NeuralForecast(models=[...])"
+      ]
+    }
+  ],
+  "gotchas": [
+    {
+      "description": "Ignoring the trend when using historical mean.",
+      "context": "Forecasting a dataset like milk production which increases over years.",
+      "solution": "Use models that account for trend or use more recent data for the mean calculation."
+    },
+    {
+      "description": "Expecting perfect forecasts.",
+      "context": "Every time series forecast.",
+      "solution": "Accept that residuals are random and cannot be predicted; focus on capturing the explainable components (Trend/Seasonality)."
+    }
+  ],
+  "confidence": 0.8,
+  "extracted_at": "2026-04-20T05:05:39.258533+00:00"
+}

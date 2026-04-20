@@ -1,0 +1,10 @@
+{
+  "id": 674,
+  "title": "Add Error Recovery and Retry Patterns Skill",
+  "type": "skill",
+  "status": "pending",
+  "created_at": "2026-04-19T23:35:56.471750+00:00",
+  "applied_at": null,
+  "dirname": "674_Add_Error_Recovery_and_Retry_Patterns_Sk",
+  "resolution_target": ""
+}
