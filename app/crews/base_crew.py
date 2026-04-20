@@ -51,6 +51,93 @@ def register_tool_plugin(factory) -> None:
         _plugin_tools_cache = None  # Invalidate cache
 
 
+# Ordered priority list for tool capping (highest = drop last).
+# When an agent's tool count exceeds MAX_TOOLS_PER_AGENT (default 18, max
+# 20 due to Anthropic's strict-tools limit), tools with lower priority
+# are pruned first.  Core capabilities — code execution, web search,
+# file I/O, memory, knowledge base — always survive.  Peripheral
+# introspection/tension/experiential tools drop first.
+_TOOL_PRIORITY_ORDER = (
+    # Priority 100 — core execution / I/O  (never drop these)
+    ("execute_code", 100),
+    ("file_manager", 100),
+    ("read_attachment", 100),
+    ("send_email", 100),
+    # Priority 90 — primary information retrieval
+    ("web_search", 90),
+    ("web_fetch", 90),
+    ("search_knowledge_base", 90),
+    ("get_youtube_transcript", 90),
+    # Priority 80 — memory (one mem0 + one scoped-memory is enough)
+    ("mem0_add", 80),
+    ("mem0_search", 80),
+    ("scoped_memory_add", 80),
+    ("scoped_memory_search", 80),
+    ("team_memory_store", 70),
+    ("team_memory_retrieve", 70),
+    # Priority 70 — calendar / email / pim core
+    ("check_email", 70),
+    ("search_email", 70),
+    ("list_calendar_events", 70),
+    ("create_calendar_event", 70),
+    ("list_tasks", 70),
+    ("create_task", 70),
+    # Priority 65 — MCP manager (needed for dynamic tool discovery)
+    ("mcp_search_servers", 65),
+    ("mcp_list_servers", 65),
+    # Priority 60 — OCR / media
+    ("ocr_extract_text", 60),
+    ("read_pdf", 60),
+    # Priority 55 — browser / host bridge
+    ("browser_fetch", 55),
+    ("execute_on_host", 55),
+    ("http_from_host", 55),
+    # Priority 50 — wiki (read OK, write is peripheral)
+    ("wiki_read", 55),
+    ("wiki_search", 55),
+    ("wiki_write", 40),
+    ("wiki_slides", 30),
+    # Priority 30 — philosophy / aesthetics / introspection (peripheral)
+    ("philosophy_knowledge_base", 30),
+    ("conceptual_blend", 30),
+    ("find_counter_argument", 30),
+    ("search_tensions", 25),
+    ("record_tension", 25),
+    ("search_experiential", 25),
+    ("record_experience", 25),
+    ("search_aesthetic", 25),
+    ("record_aesthetic", 25),
+    ("self_report", 20),
+    # Priority 10 — plugin tools / anything unrecognized (default)
+)
+
+_TOOL_PRIORITY_MAP = {name: prio for name, prio in _TOOL_PRIORITY_ORDER}
+
+
+def _tool_priority(tool) -> int:
+    """Return priority 0-100 for a tool.  Unknown names default to 10."""
+    name = getattr(tool, "name", "") or ""
+    return _TOOL_PRIORITY_MAP.get(name, 10)
+
+
+def _cap_tools_by_priority(tools: list, cap: int) -> list:
+    """Return at most *cap* tools, keeping highest-priority ones.
+
+    Stable within priority bucket: if two tools share a priority,
+    the one listed first in *tools* wins.  This lets a factory
+    declare its preferred order and have it respected among peers.
+    """
+    if len(tools) <= cap:
+        return tools
+    # Sort by (priority DESC, original index ASC).  Then slice.
+    indexed = list(enumerate(tools))
+    indexed.sort(key=lambda it: (-_tool_priority(it[1]), it[0]))
+    kept = [t for _, t in indexed[:cap]]
+    # Preserve the caller's original order for the survivors
+    survivor_set = {id(t) for t in kept}
+    return [t for t in tools if id(t) in survivor_set]
+
+
 def get_plugin_tools() -> list:
     """Collect tools from all registered plugins. Cached after first call."""
     global _plugin_tools_cache
@@ -285,6 +372,18 @@ def run_single_agent_crew(
         existing = list(agent.tools) if agent.tools else []
         agent.tools = existing + extra_tools
 
+    # Re-cap after late additions.  Anthropic tool_use hard-limit is 20;
+    # we default to 18 to leave a small margin for per-turn overhead.
+    import os as _os
+    _cap = int(_os.environ.get("MAX_TOOLS_PER_AGENT", "18"))
+    if agent.tools and len(agent.tools) > _cap:
+        before = len(agent.tools)
+        agent.tools = _cap_tools_by_priority(agent.tools, _cap)
+        logger.warning(
+            f"{crew_name}: capped tools {before} → {len(agent.tools)} "
+            f"to stay under Anthropic's 20-strict-tools limit"
+        )
+
     # Extract model name from the agent's LLM for the task record
     _model_name = ""
     try:
@@ -508,6 +607,36 @@ def _patch_agent_for_plugins() -> None:
                     )
         except Exception:
             logger.debug("Agent plugin pre-init failed (non-fatal)", exc_info=True)
+
+        # Anthropic tool_use caps at 20 strict tools per request — exceed it
+        # and every crew call fails with
+        #   "Too many strict tools (N). The maximum is 20."
+        # CrewAI's default tool schemas get strict=True downstream, so we
+        # have to keep the total ≤ 20.  Cap by dropping low-priority tools
+        # first (peripheral introspection, tensions, experiential, aesthetic,
+        # wiki edit, plugin/MCP additions) while keeping core tools
+        # (execute_code, web_search, web_fetch, file_manager, read_attachment,
+        # search_knowledge_base, memory, etc.) always present.
+        try:
+            tools = list(kwargs.get("tools") or [])
+            MAX_TOOLS_PER_AGENT = int(
+                __import__("os").environ.get("MAX_TOOLS_PER_AGENT", "18")
+            )
+            if len(tools) > MAX_TOOLS_PER_AGENT:
+                tools_after = _cap_tools_by_priority(tools, MAX_TOOLS_PER_AGENT)
+                dropped = len(tools) - len(tools_after)
+                dropped_names = [
+                    getattr(t, "name", "?") for t in tools
+                    if t not in tools_after
+                ][:8]
+                logger.warning(
+                    f"Agent('{kwargs.get('role', '?')}'): capped tools "
+                    f"{len(tools)} → {len(tools_after)} "
+                    f"(dropped {dropped}: {dropped_names})"
+                )
+                kwargs["tools"] = tools_after
+        except Exception:
+            logger.debug("Agent tool-cap pre-init failed (non-fatal)", exc_info=True)
 
         # Tool-First affordance: append a short manifest of available tools to the
         # backstory so the LLM sees "I have tools X, Y, Z — USE THEM" in its system
