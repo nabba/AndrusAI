@@ -119,8 +119,21 @@ def set_assignment(
     invariant. Existing assignments for the same (role, cost_mode)
     stay in the table — priority + created_at order resolves conflicts
     on read.
+
+    Write-time validation: the ``model`` must be a known key in the
+    live ``CATALOG``. Writes pointing at non-catalog keys are rejected
+    at the source so the overlay never lies to the dashboard.
     """
     try:
+        from app.llm_catalog import CATALOG
+        if model not in CATALOG:
+            logger.warning(
+                "role_assignments: refusing to set (%s, %s) -> %s — "
+                "not in live CATALOG (%d entries). Refresh catalog first.",
+                role, cost_mode, model, len(CATALOG),
+            )
+            return False
+
         from app.control_plane.db import execute
         execute(
             """
@@ -146,6 +159,46 @@ def set_assignment(
     except Exception as exc:
         logger.warning(f"role_assignments: upsert failed: {exc}")
         return False
+
+
+def purge_stale_assignments() -> int:
+    """Retire overlay rows whose ``model`` isn't in the live CATALOG.
+
+    Cleans up leftovers from discovery runs that targeted models later
+    renamed or removed (e.g. ``auto``, ``deepseek-chat``,
+    ``gemma-4-31b-it``). Called by the idle scheduler so the overlay
+    self-heals as the catalog evolves.
+    """
+    try:
+        from app.control_plane.db import execute
+        from app.llm_catalog import CATALOG
+    except Exception:
+        return 0
+
+    rows = execute(
+        "SELECT role, cost_mode, model FROM control_plane.role_assignments WHERE active = TRUE",
+        (),
+        fetch=True,
+    ) or []
+    stale = [r for r in rows if r["model"] not in CATALOG]
+    for r in stale:
+        try:
+            execute(
+                """
+                UPDATE control_plane.role_assignments
+                   SET active = FALSE,
+                       retired_at = NOW(),
+                       reason = 'purged: target not in catalog'
+                 WHERE role = %s AND cost_mode = %s AND model = %s
+                """,
+                (r["role"], r["cost_mode"], r["model"]),
+            )
+        except Exception:
+            continue
+    if stale:
+        invalidate_cache()
+        logger.info(f"role_assignments: purged {len(stale)} stale overlays")
+    return len(stale)
 
 
 def retire_assignment(role: str, cost_mode: str, model: str, reason: str = "") -> bool:

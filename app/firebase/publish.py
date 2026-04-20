@@ -384,14 +384,22 @@ def report_request_costs() -> None:
 # ── Model catalog ────────────────────────────────────────────────────────────
 
 def report_catalog() -> None:
-    """Push model catalog and role assignments to Firestore."""
+    """Push model catalog and role assignments to Firestore.
+
+    Role assignments are computed via ``resolve_role_default`` for each
+    role — the same function the selector actually uses at call time —
+    so the dashboard reflects what production will pick, not the raw
+    ``role_assignments`` overlay table (which may contain entries
+    whose targets aren't in the current CATALOG).
+    """
     db = _get_db()
     if not db:
         return
     try:
-        from app.llm_catalog import CATALOG, ROLE_DEFAULTS
+        from app.llm_catalog import CATALOG, get_default_for_role
         from app.config import get_settings
         settings = get_settings()
+
         # Compact catalog for dashboard
         models = []
         for name, info in CATALOG.items():
@@ -406,9 +414,24 @@ def report_catalog() -> None:
                 "tool_reliability": info.get("tool_use_reliability", 0),
                 "description": info.get("description", ""),
             })
-        # Current role assignments
+
+        # Resolver-computed role assignments — authoritative source of
+        # truth for what the selector will actually pick. Serialise as a
+        # plain ``dict[str, str]`` so Firestore accepts it.
         cost_mode = settings.cost_mode
-        assignments = ROLE_DEFAULTS.get(cost_mode, ROLE_DEFAULTS.get("balanced", {}))
+        roles_to_report = [
+            "commander", "coding", "research", "writing", "media", "critic",
+            "vetting", "synthesis", "introspector", "self_improve",
+            "planner", "evo_critic", "default",
+        ]
+        assignments: dict[str, str] = {}
+        for role in roles_to_report:
+            try:
+                assignments[role] = get_default_for_role(role, cost_mode)
+            except Exception:
+                # Never let one failing role take down the whole report.
+                continue
+
         db.collection("status").document("catalog").set({
             "models": models,
             "role_assignments": assignments,
