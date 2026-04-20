@@ -91,13 +91,19 @@ export function useTicketBoardQuery(projectId?: string) {
   });
 }
 
+export interface TicketUpdateResult {
+  status: string;
+  requeued?: boolean;
+}
+
 export function useUpdateTicketStatus() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
-      api<void>(endpoints.ticket(id), { method: 'PUT', body: JSON.stringify({ status }) }),
+      api<TicketUpdateResult>(endpoints.ticket(id), { method: 'PUT', body: JSON.stringify({ status }) }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tickets'] });
+      qc.invalidateQueries({ queryKey: ['crew-tasks'] });
     },
   });
 }

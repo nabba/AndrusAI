@@ -305,6 +305,7 @@ export function KanbanBoard() {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [overColumn, setOverColumn] = useState<KanbanColumnKey | null>(null);
   const [dropError, setDropError] = useState<string | null>(null);
+  const [dropInfo, setDropInfo] = useState<string | null>(null);
   const { data: board, isLoading, error, refetch } = useTicketBoardQuery(activeProject?.id);
   const updateStatus = useUpdateTicketStatus();
   const queryClient = useQueryClient();
@@ -389,7 +390,11 @@ export function KanbanBoard() {
     }
 
     try {
-      await updateStatus.mutateAsync({ id: ticket.id, status: target });
+      const result = await updateStatus.mutateAsync({ id: ticket.id, status: target });
+      if (target === 'todo' && result?.requeued) {
+        setDropInfo(`Re-queued "${ticket.title.slice(0, 50)}${ticket.title.length > 50 ? '…' : ''}" — Commander is picking it up.`);
+        setTimeout(() => setDropInfo(null), 5000);
+      }
     } catch (err) {
       // Roll back on failure and surface the error so the user sees something
       // instead of a silent revert.
@@ -482,6 +487,18 @@ export function KanbanBoard() {
           role="alert"
         >
           Status update failed: {dropError}
+        </div>
+      )}
+
+      {dropInfo && (
+        <div
+          className="fixed bottom-6 right-6 z-50 bg-[#111820] border border-[#34d399]/40 text-[#34d399] text-sm rounded-lg px-4 py-3 shadow-lg max-w-sm"
+          role="status"
+        >
+          <div className="flex items-center gap-2">
+            <span>⚡</span>
+            <span>{dropInfo}</span>
+          </div>
         </div>
       )}
 

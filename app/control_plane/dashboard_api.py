@@ -123,6 +123,7 @@ def get_ticket(ticket_id: str):
 def update_ticket(ticket_id: str, body: TicketUpdate):
     from app.control_plane.tickets import get_tickets
     tm = get_tickets()
+    requeued = False
     if body.status == "done":
         tm.complete(ticket_id, body.result_summary or "Closed")
     elif body.status == "failed":
@@ -133,7 +134,59 @@ def update_ticket(ticket_id: str, body: TicketUpdate):
             "UPDATE control_plane.tickets SET status = %s, updated_at = NOW() WHERE id = %s",
             (body.status, ticket_id),
         )
-    return {"status": "updated"}
+        if body.status == "todo":
+            # Drag-to-todo from the dashboard means "run this again" — spawn
+            # Commander in the background so a crew actually picks it up
+            # instead of the ticket sitting orphaned.
+            requeued = _requeue_ticket_async(ticket_id)
+    return {"status": "updated", "requeued": requeued}
+
+
+def _requeue_ticket_async(ticket_id: str) -> bool:
+    """Fire-and-forget: dispatch the ticket's title through Commander so the
+    existing routing pipeline assigns it to a crew and runs it.
+
+    Leaves the original ticket in the 'todo' column as a historical marker
+    and comments on it so the audit trail is obvious. Returns True when a
+    background worker was spawned, False when the prerequisites couldn't be
+    assembled (missing ticket, Commander unavailable, etc).
+    """
+    import threading
+    try:
+        from app.control_plane.tickets import get_tickets
+        ticket = get_tickets().get(ticket_id)
+        if not ticket:
+            return False
+        title = (ticket.get("title") or "").strip()
+        if not title:
+            return False
+
+        def _worker():
+            try:
+                try:
+                    get_tickets().add_comment(
+                        ticket_id, "dashboard",
+                        "Re-queued via dashboard drag-to-todo; routing through Commander.",
+                    )
+                except Exception:
+                    logger.debug("requeue: comment write failed", exc_info=True)
+                try:
+                    from app.agents.commander import Commander
+                    Commander().handle(title, sender="dashboard")
+                except Exception:
+                    logger.warning("requeue: commander dispatch failed", exc_info=True)
+            except Exception:
+                logger.debug("requeue: worker crashed", exc_info=True)
+
+        threading.Thread(
+            target=_worker,
+            name=f"ticket-requeue-{ticket_id[:8]}",
+            daemon=True,
+        ).start()
+        return True
+    except Exception:
+        logger.debug("requeue: setup failed", exc_info=True)
+        return False
 
 @router.post("/tickets/{ticket_id}/comments")
 def add_comment(ticket_id: str, body: CommentCreate):
