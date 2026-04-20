@@ -120,8 +120,10 @@ function DroppableColumn({
     <div
       ref={setNodeRef}
       data-column={col.key}
-      // Tall hit area so empty / sparse columns are easy to drop into.
-      className={`min-w-[200px] min-h-[50vh] p-1 rounded-lg transition-colors ${
+      // Hit area matches the column content; cross-card drop inference still
+      // lets you drop on another ticket without missing, so columns don't
+      // need to be tall to be reachable.
+      className={`min-w-[200px] p-1 rounded-lg transition-colors ${
         isOver ? 'bg-[#60a5fa]/10 ring-1 ring-[#60a5fa]/40 ring-inset' : ''
       }`}
     >
