@@ -380,16 +380,17 @@ def run_single_agent_crew(
         existing = list(agent.tools) if agent.tools else []
         agent.tools = existing + extra_tools
 
-    # Re-cap after late additions.  Anthropic tool_use hard-limit is 20;
-    # we default to 18 to leave a small margin for per-turn overhead.
+    # Re-cap after late additions.  With strict=False the 20-tool Anthropic
+    # limit doesn't apply, but we still cap for token-efficiency and to keep
+    # LLM decisions focused.
     import os as _os
-    _cap = int(_os.environ.get("MAX_TOOLS_PER_AGENT", "18"))
+    _cap = int(_os.environ.get("MAX_TOOLS_PER_AGENT", "40"))
     if agent.tools and len(agent.tools) > _cap:
         before = len(agent.tools)
         agent.tools = _cap_tools_by_priority(agent.tools, _cap)
         logger.warning(
             f"{crew_name}: capped tools {before} → {len(agent.tools)} "
-            f"to stay under Anthropic's 20-strict-tools limit"
+            f"(MAX_TOOLS_PER_AGENT={_cap})"
         )
 
     # Extract model name from the agent's LLM for the task record
@@ -616,19 +617,19 @@ def _patch_agent_for_plugins() -> None:
         except Exception:
             logger.debug("Agent plugin pre-init failed (non-fatal)", exc_info=True)
 
-        # Anthropic tool_use caps at 20 strict tools per request — exceed it
-        # and every crew call fails with
-        #   "Too many strict tools (N). The maximum is 20."
-        # CrewAI's default tool schemas get strict=True downstream, so we
-        # have to keep the total ≤ 20.  Cap by dropping low-priority tools
-        # first (peripheral introspection, tensions, experiential, aesthetic,
-        # wiki edit, plugin/MCP additions) while keeping core tools
-        # (execute_code, web_search, web_fetch, file_manager, read_attachment,
-        # search_knowledge_base, memory, etc.) always present.
+        # Tool-count safety cap.  With strict=False (patched below) Anthropic's
+        # 20-tool limit no longer applies, but a very large tool list still:
+        #   - Burns tokens on every system prompt (each tool schema is ~200
+        #     tokens, so 60 tools = ~12k tokens of system-prompt overhead).
+        #   - Overwhelms LLM decision-making (more choices = more chance of
+        #     picking a marginally-wrong tool).
+        # So we still cap, just much more generously than before.  The
+        # priority pruning is defensive — if anyone reverts the strict-false
+        # patch, this keeps the 20-strict cap from biting immediately.
         try:
             tools = list(kwargs.get("tools") or [])
             MAX_TOOLS_PER_AGENT = int(
-                __import__("os").environ.get("MAX_TOOLS_PER_AGENT", "18")
+                __import__("os").environ.get("MAX_TOOLS_PER_AGENT", "40")
             )
             if len(tools) > MAX_TOOLS_PER_AGENT:
                 tools_after = _cap_tools_by_priority(tools, MAX_TOOLS_PER_AGENT)
@@ -664,3 +665,33 @@ def _patch_agent_for_plugins() -> None:
     Agent.__init__ = patched_init
     _agent_patched = True
     logger.info("crewai.Agent patched for plugin-tool auto-injection (pre-init)")
+
+    # Also patch tool-schema emission so strict=False is sent to Anthropic.
+    # Anthropic's tool_use API caps STRICT tools at 20 per request; non-strict
+    # tools have a much higher limit (~100).  CrewAI's agent_utils hard-codes
+    # strict=True on every tool schema, which forces the cap.  Flipping to
+    # strict=False removes Anthropic's cap, so agents can see the full set of
+    # peripheral tools (introspection, tensions, experiential, philosophy)
+    # without the 18-tool priority cull in patched_init.
+    _patch_crewai_strict_false()
+
+
+def _patch_crewai_strict_false() -> None:
+    """Monkey-patch CrewAI's convert_tools_to_openai_schema so every tool is
+    emitted with strict=False.  Unlocks Anthropic's higher tool limit."""
+    try:
+        import crewai.utilities.agent_utils as _cu
+        _original_convert = _cu.convert_tools_to_openai_schema
+
+        def _loose_convert(*args, **kwargs):
+            schemas, fns, name_map = _original_convert(*args, **kwargs)
+            for s in schemas:
+                fn = s.get("function")
+                if isinstance(fn, dict) and fn.get("strict") is True:
+                    fn["strict"] = False
+            return schemas, fns, name_map
+
+        _cu.convert_tools_to_openai_schema = _loose_convert
+        logger.info("crewai: tool schemas patched to strict=False (lifts Anthropic 20-tool cap)")
+    except Exception:
+        logger.debug("crewai strict-false patch failed (non-fatal)", exc_info=True)
