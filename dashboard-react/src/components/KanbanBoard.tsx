@@ -1,14 +1,27 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useProject } from '../context/useProject';
 import { priorityLabel, difficultyLabel } from '../types';
-import type { Ticket, TicketStatus, KanbanColumnKey } from '../types';
+import type { Ticket, TicketStatus, KanbanColumnKey, KanbanBoard as KanbanBoardType } from '../types';
 import { Skeleton } from './ui/Skeleton';
 import { ErrorPanel } from './ui/ErrorPanel';
 import {
   useTicketBoardQuery,
   useUpdateTicketStatus,
   useAddTicketComment,
+  keys,
 } from '../api/queries';
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
+import { useQueryClient } from '@tanstack/react-query';
 
 const COLUMNS: { key: KanbanColumnKey; label: string; color: string }[] = [
   { key: 'todo', label: 'To Do', color: 'text-[#e2e8f0]' },
@@ -26,24 +39,20 @@ const PRIORITY_COLORS: Record<string, string> = {
   critical: 'text-[#f87171] border-[#f87171]/30 bg-[#f87171]/10',
 };
 
-// Difficulty is the Commander-routed task complexity 1-10 — far more useful
-// on the card than priority, which is always 5 (the schema default that
-// nothing in the routing pipeline ever overrides).
 const DIFFICULTY_COLORS: Record<string, string> = {
-  trivial: 'text-[#7a8599] border-[#7a8599]/30 bg-[#7a8599]/10',   // 1-2
-  easy:    'text-[#34d399] border-[#34d399]/30 bg-[#34d399]/10',   // 3-4
-  moderate:'text-[#fbbf24] border-[#fbbf24]/30 bg-[#fbbf24]/10',   // 5-6
-  hard:    'text-[#fb923c] border-[#fb923c]/30 bg-[#fb923c]/10',   // 7-8
-  extreme: 'text-[#f87171] border-[#f87171]/30 bg-[#f87171]/10',   // 9-10
+  trivial: 'text-[#7a8599] border-[#7a8599]/30 bg-[#7a8599]/10',
+  easy:    'text-[#34d399] border-[#34d399]/30 bg-[#34d399]/10',
+  moderate:'text-[#fbbf24] border-[#fbbf24]/30 bg-[#fbbf24]/10',
+  hard:    'text-[#fb923c] border-[#fb923c]/30 bg-[#fb923c]/10',
+  extreme: 'text-[#f87171] border-[#f87171]/30 bg-[#f87171]/10',
 };
 
-function TicketCard({ ticket, onClick }: { ticket: Ticket; onClick: () => void }) {
+// ── Ticket card (presentational — reused by both draggable and overlay) ────
+
+function TicketCardContent({ ticket }: { ticket: Ticket }) {
   const dLabel = difficultyLabel(ticket.difficulty);
   return (
-    <div
-      onClick={onClick}
-      className="bg-[#0a0e14] border border-[#1e2738] rounded-lg p-3 cursor-pointer hover:border-[#60a5fa]/40 transition-colors group"
-    >
+    <>
       <div className="flex items-start justify-between gap-2 mb-2">
         <h3 className="text-sm text-[#e2e8f0] group-hover:text-[#60a5fa] transition-colors leading-snug">
           {ticket.title}
@@ -65,9 +74,55 @@ function TicketCard({ ticket, onClick }: { ticket: Ticket; onClick: () => void }
           <span className="text-[#34d399]">${ticket.cost_usd.toFixed(4)}</span>
         )}
       </div>
+    </>
+  );
+}
+
+function DraggableTicket({ ticket, onClick }: { ticket: Ticket; onClick: () => void }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: ticket.id,
+    data: { ticket },
+  });
+
+  // When dragging: hide the source card (the DragOverlay renders it at the cursor).
+  // Clicks are suppressed by dnd-kit's 6 px activation distance; below that,
+  // pointerdown bubbles up and onClick fires as expected.
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+      className={`bg-[#0a0e14] border border-[#1e2738] rounded-lg p-3 cursor-grab active:cursor-grabbing hover:border-[#60a5fa]/40 transition-colors group touch-none ${
+        isDragging ? 'opacity-30' : ''
+      }`}
+    >
+      <TicketCardContent ticket={ticket} />
     </div>
   );
 }
+
+function DroppableColumn({
+  col,
+  children,
+  isOver,
+}: {
+  col: { key: KanbanColumnKey; label: string; color: string };
+  children: React.ReactNode;
+  isOver: boolean;
+}) {
+  const { setNodeRef } = useDroppable({ id: col.key });
+  return (
+    <div
+      ref={setNodeRef}
+      className={`min-w-[200px] rounded-lg transition-colors ${isOver ? 'bg-[#60a5fa]/5 ring-1 ring-[#60a5fa]/30 ring-inset' : ''}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ── Modal (unchanged behavior, still opens on click) ──────────────────────
 
 function TicketModal({
   ticket,
@@ -140,9 +195,7 @@ function TicketModal({
             <div>
               <span className="text-[#7a8599]">Difficulty</span>
               <p className={`mt-0.5 ${ticket.difficulty != null ? DIFFICULTY_COLORS[dLabel].split(' ')[0] : 'text-[#7a8599]'}`}>
-                {ticket.difficulty != null
-                  ? `${dLabel} (${ticket.difficulty}/10)`
-                  : '—'}
+                {ticket.difficulty != null ? `${dLabel} (${ticket.difficulty}/10)` : '—'}
               </p>
             </div>
             <div>
@@ -236,10 +289,81 @@ function TicketModal({
   );
 }
 
+// ── Board ─────────────────────────────────────────────────────────────────
+
 export function KanbanBoard() {
   const { activeProject } = useProject();
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [overColumn, setOverColumn] = useState<KanbanColumnKey | null>(null);
   const { data: board, isLoading, error, refetch } = useTicketBoardQuery(activeProject?.id);
+  const updateStatus = useUpdateTicketStatus();
+  const queryClient = useQueryClient();
+
+  // Pointer sensor with an activation distance so click-to-open still works
+  // and tap-scroll on mobile isn't hijacked by the drag handler.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+  );
+
+  // Build a quick lookup of id → ticket so DragOverlay can render the card
+  // that's currently under the cursor.
+  const ticketsById = useMemo(() => {
+    const map = new Map<string, Ticket>();
+    if (board) {
+      for (const col of COLUMNS) for (const t of board.board[col.key] ?? []) map.set(t.id, t);
+    }
+    return map;
+  }, [board]);
+
+  const activeTicket = activeDragId ? ticketsById.get(activeDragId) : null;
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
+  };
+
+  const handleDragOver = (event: { over: { id: string | number } | null }) => {
+    const id = event.over?.id ? String(event.over.id) : null;
+    if (id && COLUMNS.some((c) => c.key === id)) setOverColumn(id as KanbanColumnKey);
+    else setOverColumn(null);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveDragId(null);
+    setOverColumn(null);
+    const { active, over } = event;
+    if (!over || !board) return;
+
+    const ticket = ticketsById.get(String(active.id));
+    if (!ticket) return;
+    const target = String(over.id) as TicketStatus;
+    if (ticket.status === target) return;
+    if (!COLUMNS.some((c) => c.key === target)) return;
+
+    // Optimistic update: move the ticket in the cached board, then mutate.
+    const queryKey = keys.ticketsBoard(activeProject?.id);
+    const previous = queryClient.getQueryData<KanbanBoardType>(queryKey);
+    if (previous) {
+      const next: KanbanBoardType = {
+        ...previous,
+        board: { ...previous.board },
+        counts: { ...previous.counts },
+      };
+      next.board[ticket.status] = (next.board[ticket.status] ?? []).filter((t) => t.id !== ticket.id);
+      next.board[target] = [{ ...ticket, status: target }, ...(next.board[target] ?? [])];
+      next.counts[ticket.status] = next.board[ticket.status].length;
+      next.counts[target] = next.board[target].length;
+      queryClient.setQueryData<KanbanBoardType>(queryKey, next);
+    }
+
+    try {
+      await updateStatus.mutateAsync({ id: ticket.id, status: target });
+    } catch {
+      // Roll back on failure. Mutation's onSuccess already invalidates on
+      // success, which will re-fetch the authoritative state.
+      if (previous) queryClient.setQueryData(queryKey, previous);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -248,6 +372,7 @@ export function KanbanBoard() {
           <h1 className="text-xl font-semibold text-[#e2e8f0]">Tickets</h1>
           <p className="text-sm text-[#7a8599] mt-1">
             {activeProject ? activeProject.name : 'All projects'}
+            <span className="opacity-60"> · drag cards between columns to change status</span>
           </p>
         </div>
       </div>
@@ -268,36 +393,52 @@ export function KanbanBoard() {
       ) : !board ? (
         <div className="text-center text-[#7a8599] py-12">Failed to load board.</div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-4 overflow-x-auto">
-          {COLUMNS.map((col) => {
-            const tickets = board.board[col.key] ?? [];
-            return (
-              <div key={col.key} className="min-w-[200px]">
-                <div className="flex items-center gap-2 mb-3">
-                  <h2 className={`text-sm font-medium ${col.color}`}>{col.label}</h2>
-                  <span className="text-xs text-[#7a8599] bg-[#1e2738] rounded-full px-2 py-0.5">
-                    {tickets.length}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {tickets.length === 0 ? (
-                    <div className="bg-[#111820] border border-dashed border-[#1e2738] rounded-lg p-4 text-center text-xs text-[#7a8599]">
-                      Empty
-                    </div>
-                  ) : (
-                    tickets.map((ticket) => (
-                      <TicketCard
-                        key={ticket.id}
-                        ticket={ticket}
-                        onClick={() => setSelectedTicket(ticket)}
-                      />
-                    ))
-                  )}
-                </div>
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+          onDragCancel={() => { setActiveDragId(null); setOverColumn(null); }}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-4 overflow-x-auto">
+            {COLUMNS.map((col) => {
+              const tickets = board.board[col.key] ?? [];
+              return (
+                <DroppableColumn key={col.key} col={col} isOver={overColumn === col.key}>
+                  <div className="flex items-center gap-2 mb-3 px-1">
+                    <h2 className={`text-sm font-medium ${col.color}`}>{col.label}</h2>
+                    <span className="text-xs text-[#7a8599] bg-[#1e2738] rounded-full px-2 py-0.5">
+                      {tickets.length}
+                    </span>
+                  </div>
+                  <div className="space-y-2 p-1">
+                    {tickets.length === 0 ? (
+                      <div className="bg-[#111820] border border-dashed border-[#1e2738] rounded-lg p-4 text-center text-xs text-[#7a8599]">
+                        {overColumn === col.key ? 'Drop here' : 'Empty'}
+                      </div>
+                    ) : (
+                      tickets.map((ticket) => (
+                        <DraggableTicket
+                          key={ticket.id}
+                          ticket={ticket}
+                          onClick={() => setSelectedTicket(ticket)}
+                        />
+                      ))
+                    )}
+                  </div>
+                </DroppableColumn>
+              );
+            })}
+          </div>
+
+          <DragOverlay dropAnimation={null}>
+            {activeTicket ? (
+              <div className="bg-[#0a0e14] border border-[#60a5fa]/60 rounded-lg p-3 shadow-2xl rotate-2 cursor-grabbing w-[220px]">
+                <TicketCardContent ticket={activeTicket} />
               </div>
-            );
-          })}
-        </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       )}
 
       {selectedTicket && (
