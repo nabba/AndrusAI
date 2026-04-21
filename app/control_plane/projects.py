@@ -51,9 +51,9 @@ class ProjectManager:
         ) or []
 
     def get_by_name(self, name: str) -> dict | None:
-        """Get a project by name."""
+        """Get a project by name (case-insensitive)."""
         return execute_one(
-            "SELECT * FROM control_plane.projects WHERE name = %s",
+            "SELECT * FROM control_plane.projects WHERE LOWER(name) = LOWER(%s)",
             (name,),
         )
 

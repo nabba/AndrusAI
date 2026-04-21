@@ -549,7 +549,8 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
             except Exception as exc:
                 return f"Error: {str(exc)[:200]}"
 
-        _proj_switch = re.match(r"^project\s+switch\s+(\S+)", lower)
+        # Match against original (non-lowercased) input so project name case is preserved
+        _proj_switch = re.match(r"^project\s+switch\s+(\S+)", user_input.strip(), re.IGNORECASE)
         if _proj_switch:
             try:
                 from app.control_plane.projects import get_projects
