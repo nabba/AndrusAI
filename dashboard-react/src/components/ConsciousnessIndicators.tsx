@@ -5,6 +5,7 @@ import {
   useConsciousnessQuery,
   type ProbeResult,
   type ConsciousnessHistoryEntry,
+  type HomeostasisState,
 } from '../api/queries';
 
 // Port of the legacy dashboard's "Consciousness Indicators (Garland/Butlin-Chalmers)" card.
@@ -37,6 +38,49 @@ function ProbeCard({ probe }: { probe: ProbeResult }) {
         className="absolute bottom-0 left-0 h-[3px] transition-all"
         style={{ width: `${pct}%`, backgroundColor: color }}
       />
+    </div>
+  );
+}
+
+const HOMEO_BARS: Array<{ key: keyof HomeostasisState; label: string; color: string }> = [
+  { key: 'cognitive_energy', label: 'Energy', color: '#60a5fa' },
+  { key: 'frustration', label: 'Frustration', color: '#f87171' },
+  { key: 'confidence', label: 'Confidence', color: '#34d399' },
+  { key: 'curiosity', label: 'Curiosity', color: '#fbbf24' },
+];
+
+function HomeostasisBars({ state }: { state: HomeostasisState }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[11px] text-[#7a8599] uppercase tracking-wider">Homeostasis</div>
+        {state.last_updated && (
+          <div className="text-[10px] text-[#7a8599]">
+            {new Date(state.last_updated).toLocaleTimeString()}
+          </div>
+        )}
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        {HOMEO_BARS.map((bar) => {
+          const raw = state[bar.key];
+          const v = typeof raw === 'number' ? raw : 0;
+          const pct = Math.round(v * 100);
+          return (
+            <div key={bar.key} className="text-center">
+              <div className="relative h-8 bg-black/20 rounded overflow-hidden">
+                <div
+                  className="absolute bottom-0 left-0 right-0 rounded-b"
+                  style={{ height: `${pct}%`, backgroundColor: bar.color, opacity: 0.3 }}
+                />
+                <div className="relative leading-8 text-[11px] font-semibold text-[#e2e8f0]">
+                  {pct}%
+                </div>
+              </div>
+              <div className="text-[10px] text-[#7a8599] mt-0.5">{bar.label}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -78,6 +122,11 @@ export function ConsciousnessIndicators() {
   const composite = latest?.composite_score ?? 0;
   const compositePct = Math.round(composite * 100);
   const compositeColor = SCORE_COLOR(composite);
+  const homeostasis = data?.homeostasis;
+  const hasHomeostasis =
+    !!homeostasis &&
+    [homeostasis.cognitive_energy, homeostasis.frustration, homeostasis.confidence, homeostasis.curiosity]
+      .some((v) => typeof v === 'number');
 
   return (
     <section>
@@ -101,7 +150,10 @@ export function ConsciousnessIndicators() {
         ) : data?.error ? (
           <div className="text-xs text-[#f87171]">{data.error}</div>
         ) : !latest || probes.length === 0 ? (
-          <div className="text-sm text-[#7a8599] italic">Waiting for first probe run…</div>
+          <>
+            {hasHomeostasis && homeostasis && <HomeostasisBars state={homeostasis} />}
+            <div className="text-sm text-[#7a8599] italic">Waiting for first probe run…</div>
+          </>
         ) : (
           <>
             {/* Composite score headline */}
@@ -117,6 +169,9 @@ export function ConsciousnessIndicators() {
                 {latest.report_id && <div className="text-[10px] mt-0.5">#{latest.report_id}</div>}
               </div>
             </div>
+
+            {/* Homeostasis bars — functional control signals */}
+            {hasHomeostasis && homeostasis && <HomeostasisBars state={homeostasis} />}
 
             {/* Probe grid */}
             <div

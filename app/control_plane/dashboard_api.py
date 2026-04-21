@@ -928,8 +928,28 @@ def consciousness_indicators(history_limit: int = Query(30, ge=1, le=200)):
                 "summary": fs.get("summary", ""),
             }
 
+    # Homeostasis — functional control signals (energy/frustration/confidence/
+    # curiosity). Read from the same in-process source the kernel writes to.
+    homeostasis: dict = {}
+    try:
+        from app.subia.homeostasis.state import get_state as _homeo_get
+
+        h = _homeo_get() or {}
+        homeostasis = {
+            "cognitive_energy": h.get("cognitive_energy"),
+            "frustration": h.get("frustration"),
+            "confidence": h.get("confidence"),
+            "curiosity": h.get("curiosity"),
+            "tasks_since_rest": h.get("tasks_since_rest"),
+            "consecutive_failures": h.get("consecutive_failures"),
+            "last_updated": h.get("last_updated"),
+        }
+    except Exception as exc:
+        logger.debug("consciousness endpoint: homeostasis read failed: %s", exc)
+
     return {
         "latest": latest,
         "history": history,
+        "homeostasis": homeostasis,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }

@@ -1016,9 +1016,20 @@ export interface ConsciousnessHistoryEntry {
   probes: ProbeResult[];
 }
 
+export interface HomeostasisState {
+  cognitive_energy?: number | null;
+  frustration?: number | null;
+  confidence?: number | null;
+  curiosity?: number | null;
+  tasks_since_rest?: number | null;
+  consecutive_failures?: number | null;
+  last_updated?: string | null;
+}
+
 export interface ConsciousnessReport {
   latest: ConsciousnessLatest;
   history: ConsciousnessHistoryEntry[];
+  homeostasis?: HomeostasisState;
   updated_at?: string | null;
   error?: string;
 }
