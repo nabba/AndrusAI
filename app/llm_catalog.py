@@ -384,7 +384,7 @@ _ROLE_LOCAL_PREFERRED: set[str] = {
 # Roles whose crews use tool-calling — must pick models with tool support.
 _ROLES_NEEDING_TOOLS: set[str] = {
     "coding", "research", "writing", "media", "self_improve", "critic",
-    "vetting", "commander", "synthesis",
+    "vetting", "commander", "synthesis", "introspector",
 }
 
 _TIER_RANK: dict[str, int] = {

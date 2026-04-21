@@ -229,6 +229,68 @@ class TestPlannerResolution(unittest.TestCase):
         )
 
 
+class TestIntrospectorResolution(unittest.TestCase):
+    """Lock in the ``introspector`` specialist role wiring.
+
+    The Introspector agent uses memory/reflection tools, so the resolver
+    must only pick tool-supporting models. It's local-preferred (meta-
+    cognitive retrospective analysis is background work, cost-sensitive).
+    """
+
+    def test_introspector_is_a_recognised_role(self):
+        from app.llm_catalog import SPECIALIST_ROLES, PUBLIC_ROLES
+        assert "introspector" in SPECIALIST_ROLES
+        assert "introspector" in PUBLIC_ROLES
+
+    def test_introspector_maps_to_reasoning_task_type(self):
+        from app.llm_catalog import canonical_task_type
+        assert canonical_task_type(role="introspector") == "reasoning"
+
+    def test_introspector_is_local_preferred(self):
+        from app.llm_catalog import _ROLE_LOCAL_PREFERRED
+        assert "introspector" in _ROLE_LOCAL_PREFERRED
+
+    def test_introspector_requires_tool_support(self):
+        """Introspector uses memory + reflection tools — resolver must
+        only pick tool-supporting models."""
+        from app.llm_catalog import _ROLES_NEEDING_TOOLS
+        assert "introspector" in _ROLES_NEEDING_TOOLS
+
+    def test_resolve_returns_valid_entry_for_all_cost_modes(self):
+        from app.llm_catalog import resolve_role_default
+        for mode in ("budget", "balanced", "quality"):
+            pick = resolve_role_default("introspector", mode)
+            assert pick in CATALOG, f"introspector/{mode} → {pick!r} not in CATALOG"
+
+    def test_resolver_only_picks_tool_supporting_models(self):
+        from app.llm_catalog import resolve_role_default
+        for mode in ("budget", "balanced", "quality"):
+            pick = resolve_role_default("introspector", mode)
+            entry = CATALOG[pick]
+            # supports_tools defaults to True when absent (bootstrap convention)
+            assert entry.get("supports_tools", True), (
+                f"introspector/{mode} → {pick} has supports_tools=False"
+            )
+
+    def test_introspector_wired_in_agent_factory(self):
+        """Guard against reverting ``create_introspector`` to role=architecture.
+
+        Previously the factory used role=architecture, which bypassed the
+        local-preference policy and locked every retrospective run to
+        premium cloud ($12-15/M-out).
+        """
+        import pathlib, re
+        source = pathlib.Path("app/agents/introspector.py").read_text()
+        match = re.search(
+            r"def create_introspector\(.*?\).*?create_specialist_llm\([^)]*role=\"(\w+)\"",
+            source, re.DOTALL,
+        )
+        assert match is not None, "create_introspector not found or doesn't call create_specialist_llm"
+        assert match.group(1) == "introspector", (
+            f"create_introspector must use role='introspector' (got role={match.group(1)!r})"
+        )
+
+
 class TestTaskAliases(unittest.TestCase):
     """Verify task aliases map to valid task types."""
 
