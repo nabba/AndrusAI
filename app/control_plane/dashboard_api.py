@@ -463,7 +463,7 @@ def llm_catalog():
     """
     models: list[dict] = []
     err: str | None = None
-    cost_mode = "balanced"
+    mode = "balanced"
     try:
         from app.llm_catalog import CATALOG
         for name, entry in CATALOG.items():
@@ -473,25 +473,28 @@ def llm_catalog():
     except Exception as exc:
         err = str(exc)
         logger.debug("llms/catalog endpoint: %s", exc)
+    # Read the live runtime mode (dashboard switch / Signal command /
+    # env-config startup) so the dashboard reflects what the resolver
+    # is actually using. Falls back to "balanced" on any failure.
     try:
-        from app.config import get_settings
-        cost_mode = getattr(get_settings(), "cost_mode", "balanced") or "balanced"
+        from app.llm_mode import get_mode
+        mode = get_mode() or "balanced"
     except Exception:
         pass
     role_assignments: dict[str, str] = {}
     public_roles: list[str] = []
-    cost_modes: list[str] = []
+    modes_list: list[str] = []
     try:
         from app.llm_catalog import (
             resolve_role_default,
             PUBLIC_ROLES,
-            COST_MODES,
+            RUNTIME_MODES,
         )
         public_roles = list(PUBLIC_ROLES)
-        cost_modes = list(COST_MODES)
+        modes_list = list(RUNTIME_MODES)
         for role in public_roles:
             try:
-                resolved = resolve_role_default(role, cost_mode)
+                resolved = resolve_role_default(role, mode)
                 if resolved:
                     role_assignments[role] = resolved
             except Exception:
@@ -501,9 +504,14 @@ def llm_catalog():
     return {
         "models": models,
         "role_assignments": role_assignments,
-        "cost_mode": cost_mode,
+        # ``mode`` is the canonical unified axis. ``cost_mode`` is kept
+        # as an alias in the payload for one release so legacy clients
+        # keep working; migrate readers to ``mode``.
+        "mode": mode,
+        "cost_mode": mode,
         "roles": public_roles,     # single source of truth for the UI pin dialog
-        "cost_modes": cost_modes,
+        "modes": modes_list,
+        "cost_modes": modes_list,  # alias for legacy clients
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "error": err,
     }
@@ -628,10 +636,20 @@ def llm_demote_endpoint(body: DemoteRequest):
 # ── Hand pins (layer 3 — hard override) ───────────────────────────────
 
 class PinRequest(BaseModel):
+    """Hand-pin request body.
+
+    Clients should send ``mode`` (the unified runtime-mode axis).
+    ``cost_mode`` is accepted as a legacy alias; if both are present,
+    ``mode`` wins.
+    """
     role: str
-    cost_mode: str = "balanced"
+    mode: str | None = None
+    cost_mode: str | None = None  # legacy alias
     model: str
     reason: str = ""
+
+    def resolved_mode(self) -> str:
+        return (self.mode or self.cost_mode or "balanced")
 
 @router.get("/llms/pins")
 def llm_pins_endpoint():
@@ -648,11 +666,12 @@ def llm_pins_endpoint():
 
 @router.post("/llms/pin")
 def llm_pin_endpoint(body: PinRequest):
-    """Hand-pin a model to (role, cost_mode) — hard resolver override."""
+    """Hand-pin a model to (role, mode) — hard resolver override."""
     try:
         from app.llm_role_assignments import pin_role
+        mode = body.resolved_mode()
         ok = pin_role(
-            body.role, body.cost_mode, body.model,
+            body.role, mode, body.model,
             assigned_by="user:dashboard",
             reason=body.reason or "dashboard pin",
         )
@@ -662,7 +681,8 @@ def llm_pin_endpoint(body: PinRequest):
                 detail=f"pin rejected — {body.model!r} not in live CATALOG",
             )
         return {"status": "ok", "role": body.role,
-                "cost_mode": body.cost_mode, "model": body.model}
+                "mode": mode, "cost_mode": mode,  # alias for legacy clients
+                "model": body.model}
     except HTTPException:
         raise
     except Exception as exc:
@@ -671,16 +691,21 @@ def llm_pin_endpoint(body: PinRequest):
 
 class UnpinRequest(BaseModel):
     role: str
-    cost_mode: str = "balanced"
+    mode: str | None = None
+    cost_mode: str | None = None  # legacy alias
+
+    def resolved_mode(self) -> str:
+        return (self.mode or self.cost_mode or "balanced")
 
 @router.post("/llms/unpin")
 def llm_unpin_endpoint(body: UnpinRequest):
-    """Remove hand pins for (role, cost_mode). Resolver takes back over."""
+    """Remove hand pins for (role, mode). Resolver takes back over."""
     try:
         from app.llm_role_assignments import unpin_role
-        n = unpin_role(body.role, body.cost_mode)
+        mode = body.resolved_mode()
+        n = unpin_role(body.role, mode)
         return {"status": "ok", "retired": n,
-                "role": body.role, "cost_mode": body.cost_mode}
+                "role": body.role, "mode": mode, "cost_mode": mode}
     except Exception as exc:
         logger.warning("llms/unpin failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))

@@ -4,13 +4,17 @@ NOTE: `from __future__ import annotations` makes all type hints strings,
 avoiding the need to import crewai.LLM at module load time (~2s saving).
 
 Architecture:
-  Commander:     always Claude Opus 4.6 (routing reliability, tiny token volume)
-  Specialists:   cascade through tiers based on llm_mode + cost_mode + availability:
-                   1. Local Ollama (free, Metal GPU)  — if mode allows and local_llm_enabled
-                   2. API tier (budget/mid via OpenRouter) — if mode allows and api_tier_enabled
+  Commander:     resolver pick (premium-floor role) at current runtime mode
+  Specialists:   cascade through tiers based on runtime mode + availability:
+                   1. Local Ollama (free, Metal GPU)  — if mode allows local
+                      tier and local_llm_enabled
+                   2. API tier (budget/mid via OpenRouter) — if mode whitelist
+                      includes it and api_tier_enabled
                    3. Claude Sonnet 4.6 (premium fallback) — always available
-  Vetting:       Claude Sonnet 4.6 by default (near-Opus quality, 5x cheaper)
-                 Only applied to local Ollama output (API-tier models are frontier quality)
+  Vetting:       Resolver pick for the vetting role at the current runtime mode.
+
+Runtime mode vocabulary (see app.llm_catalog.RUNTIME_MODES):
+  free, budget, balanced [default], quality, insane, anthropic
 """
 from __future__ import annotations
 
@@ -232,9 +236,11 @@ def create_commander_llm() -> LLM:
     to the DeepSeek survival bootstrap.
     """
     from app.config import get_openrouter_api_key
+    from app.llm_mode import get_mode
 
     settings = get_settings()
-    model_name = get_default_for_role("commander", settings.cost_mode)
+    mode = get_mode()
+    model_name = get_default_for_role("commander", mode)
     entry = get_model(model_name) or {}
 
     provider = entry.get("provider")
@@ -305,11 +311,14 @@ def create_specialist_llm(
 ) -> LLM:
     """
     Create an LLM for a specialist role using the tier cascade.
-    Behavior depends on current llm_mode:
-      local:  Ollama only, Claude fallback if Ollama fails
-      cloud:  API tier (OpenRouter) or Claude, skip Ollama
-      hybrid: Try Ollama first, cascade to API tier, then Claude
-      insane: Premium only — Opus for critical roles, Gemini 3.1 Pro / Sonnet for others
+
+    Behavior depends on current runtime mode (see app.llm_mode.get_mode):
+      free      Local + OpenRouter-free only, Claude fallback if empty pool
+      budget    Cascade local → cheap cloud APIs (~$1.5/M-out ceiling)
+      balanced  Default. Cascade every tier, mild cost preference
+      quality   Cascade every tier, strong preference for premium
+      insane    Premium only, no cost ceiling, no local
+      anthropic Anthropic-only (Haiku/Sonnet/Opus) line-up
 
     If force_tier is set (e.g. from difficulty-based routing), it overrides
     the default tier selection from llm_selector.
@@ -326,10 +335,14 @@ def create_specialist_llm(
 
     from app.llm_selector import select_model
 
-    # ── Modes other than HYBRID constrain the candidate pool, then run the
-    #    regular LLM selector inside that pool. Every role still gets its
-    #    normal score-driven pick — the mode only narrows the shortlist.
-    if mode != "hybrid":
+    # ── Restrictive modes (free / budget / quality / insane / anthropic)
+    #    constrain the candidate pool, then run the regular LLM selector
+    #    inside that pool. Every role still gets its normal score-driven
+    #    pick — the mode only narrows the shortlist.
+    #
+    #    ``balanced`` (default) gets the unconstrained selector + full
+    #    tier-cascading fallback path below.
+    if mode != "balanced":
         chosen = _pool_constrained_select(role, task_hint, mode, force_tier)
         if not chosen:
             logger.warning(
@@ -343,7 +356,7 @@ def create_specialist_llm(
             phase=phase, mode=mode, settings=settings,
         )
 
-    # ── HYBRID mode: unconstrained selector + full cascade (default) ──
+    # ── BALANCED mode: unconstrained selector + full cascade (default) ──
     model_name = select_model(role, task_hint, force_tier=force_tier)
     entry = get_model(model_name)
 
@@ -364,7 +377,7 @@ def create_specialist_llm(
         # Local failed — try API tier
         if settings.api_tier_enabled:
             logger.info(f"llm_factory: local failed for role={role}, trying API tier")
-            api_model = get_default_for_role(role, settings.cost_mode)
+            api_model = get_default_for_role(role, mode)
             api_entry = get_model(api_model)
             if api_entry and api_entry["tier"] in ("free", "budget", "mid"):
                 llm = _try_api(api_model, api_entry, max_tokens, role, phase=phase)
@@ -401,9 +414,10 @@ def create_vetting_llm() -> LLM:
     approval). The resolver + overlay are the single source of truth.
     """
     from app.config import get_openrouter_api_key
+    from app.llm_mode import get_mode
     settings = get_settings()
 
-    model_name = get_default_for_role("vetting", settings.cost_mode)
+    model_name = get_default_for_role("vetting", get_mode())
     entry = get_model(model_name) or {}
 
     provider = entry.get("provider") if entry else None
@@ -528,7 +542,8 @@ def _maybe_race_wrap(primary, role: str, max_tokens: int, phase: str | None):
             return primary
         if not settings.api_tier_enabled:
             return primary
-        api_model = get_default_for_role(role, settings.cost_mode)
+        from app.llm_mode import get_mode
+        api_model = get_default_for_role(role, get_mode())
         api_entry = get_model(api_model)
         if not (api_entry and api_entry.get("tier") in ("free", "budget", "mid")):
             return primary
@@ -576,17 +591,30 @@ def _sampling(phase: str | None, provider: str) -> tuple[dict, str]:
 # Every non-hybrid mode narrows the candidate pool the selector scores across.
 # Shape: {mode: {"tiers": [...] | None, "provider": str | None}}.
 # "tiers=None" means any tier is acceptable.
-_MODE_POOL: dict[str, dict[str, object]] = {
-    "local":     {"tiers": ["local"],                                "provider": None},
-    "free":      {"tiers": ["local", "free"],                        "provider": None},
-    "cloud":     {"tiers": ["free", "budget", "mid", "premium"],     "provider": None},
-    "insane":    {"tiers": ["premium"],                              "provider": None},
-    # Anthropic-only: any tier is fine, but provider must match. In practice
-    # Anthropic publishes tiers premium (Opus) and mid (Sonnet/Haiku) via the
-    # catalog; the selector picks whichever scores best for the role.
-    "anthropic": {"tiers": None,                                     "provider": "anthropic"},
-    # Hybrid is handled by the default cascade path — no filter here.
-}
+def _mode_pool(mode: str) -> dict[str, object]:
+    """Return ``{"tiers": [...], "provider": str | None}`` for a mode.
+
+    Reads from the unified policy dicts in ``app.llm_catalog``. The
+    factory no longer maintains its own shadow table — the policy is
+    defined once, in the catalog, and this function is just a thin
+    adapter keeping the existing ``_pool_constrained_select`` signature.
+    """
+    from app.llm_catalog import (
+        _MODE_TIER_WHITELIST, _MODE_PROVIDER_WHITELIST, _normalize_mode,
+    )
+    canon = _normalize_mode(mode)
+    tiers = _MODE_TIER_WHITELIST.get(canon)
+    provider_set = _MODE_PROVIDER_WHITELIST.get(canon)
+    # _pool_constrained_select expects a list (or None) for tiers and a
+    # single string (or None) for provider. Anthropic is the only mode
+    # with a provider lock today, and its whitelist is a single value.
+    provider: str | None = None
+    if provider_set is not None and len(provider_set) == 1:
+        provider = next(iter(provider_set))
+    return {
+        "tiers": list(tiers) if tiers is not None else None,
+        "provider": provider,
+    }
 
 
 def _entry_in_pool(entry: dict, tiers: list[str] | None, provider: str | None) -> bool:
@@ -618,7 +646,7 @@ def _pool_constrained_select(
     from app.llm_catalog import CATALOG
     from app.llm_selector import select_model as _select
 
-    pool = _MODE_POOL.get(mode, {})
+    pool = _mode_pool(mode)
     tiers = pool.get("tiers")  # type: ignore[assignment]
     provider = pool.get("provider")  # type: ignore[assignment]
 

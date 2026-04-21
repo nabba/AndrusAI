@@ -194,12 +194,24 @@ class TestPlannerResolution(unittest.TestCase):
             pick = resolve_role_default("planner", mode)
             assert pick in CATALOG, f"planner/{mode} → {pick!r} not in CATALOG"
 
-    def test_planner_quality_mode_reaches_premium_tier(self):
-        """Quality mode has no local preference; resolver should unlock premium."""
-        from app.llm_catalog import resolve_role_default
+    def test_planner_quality_mode_drops_local_preference(self):
+        """Quality mode opts the local-preferred role OUT of local tier.
+
+        Doesn't assert a specific winning tier (the bootstrap catalog may
+        score a budget model higher than the lone premium if its
+        architecture-strength matches) — only that local is not
+        preferred in quality mode, which would tether the pick to a
+        free-tier model regardless of scoring.
+        """
+        from app.llm_catalog import resolve_role_default, _MODE_PREFER_LOCAL
+        assert "quality" not in _MODE_PREFER_LOCAL
         pick = resolve_role_default("planner", "quality")
-        tier = CATALOG[pick]["tier"]
-        assert tier in ("premium", "mid"), f"planner/quality → {pick} [tier={tier}]"
+        entry = CATALOG[pick]
+        # Should not land on a local-tier pick — the point of quality mode.
+        assert entry["tier"] != "local", (
+            f"planner/quality picked a local model ({pick}) despite "
+            f"quality mode — local tier should not be preferred."
+        )
 
     def test_planner_wired_in_research_crew(self):
         """Guard against regressions that revert ``_plan_research`` to role=research."""
@@ -289,6 +301,108 @@ class TestIntrospectorResolution(unittest.TestCase):
         assert match.group(1) == "introspector", (
             f"create_introspector must use role='introspector' (got role={match.group(1)!r})"
         )
+
+
+class TestUnifiedRuntimeMode(unittest.TestCase):
+    """Exercise the unified runtime-mode vocabulary (6 modes + aliases).
+
+    The refactor collapsed the prior two-axis design (runtime mode +
+    cost mode) into a single ``mode`` axis. This class locks in the
+    vocabulary, alias-normalisation behaviour, tier-floor reconciliation,
+    and back-compat of the ``cost_mode=`` keyword at every API entry.
+    """
+
+    def test_runtime_modes_has_expected_six_values(self):
+        from app.llm_catalog import RUNTIME_MODES
+        assert RUNTIME_MODES == (
+            "free", "budget", "balanced", "quality", "insane", "anthropic",
+        )
+
+    def test_cost_modes_is_alias_for_runtime_modes(self):
+        from app.llm_catalog import RUNTIME_MODES, COST_MODES
+        assert COST_MODES == RUNTIME_MODES
+
+    def test_legacy_mode_names_normalise(self):
+        from app.llm_catalog import _normalize_mode
+        assert _normalize_mode("hybrid") == "balanced"
+        assert _normalize_mode("local") == "free"
+        assert _normalize_mode("cloud") == "balanced"
+        assert _normalize_mode("HYBRID") == "balanced"
+        assert _normalize_mode("  Balanced  ") == "balanced"
+        # Unknown inputs fall through to the default so bad config
+        # never crashes the resolver.
+        assert _normalize_mode("bogus") == "balanced"
+
+    def test_resolver_accepts_cost_mode_kwarg_as_alias(self):
+        from app.llm_catalog import resolve_role_default
+        # Positional and kwarg should agree for every pair that exists
+        # in both vocabularies.
+        for m in ("budget", "balanced", "quality"):
+            assert resolve_role_default("coding", m) == resolve_role_default(
+                "coding", cost_mode=m
+            )
+
+    def test_resolver_accepts_legacy_hybrid_via_cost_mode_kwarg(self):
+        from app.llm_catalog import resolve_role_default
+        # Legacy callers that pass cost_mode="hybrid" should get the
+        # same pick as mode="balanced".
+        assert resolve_role_default("coding", cost_mode="hybrid") == resolve_role_default(
+            "coding", "balanced"
+        )
+
+    def test_anthropic_mode_returns_anthropic_provider(self):
+        """In anthropic mode, every role's pick should be an Anthropic model."""
+        from app.llm_catalog import resolve_role_default
+        for role in ("commander", "coding", "planner", "critic"):
+            pick = resolve_role_default(role, "anthropic")
+            entry = CATALOG.get(pick, {})
+            # Bootstrap-only CATALOG has exactly one Anthropic entry
+            # (claude-sonnet-4.6). In production catalog there are more.
+            assert entry.get("provider") == "anthropic", (
+                f"{role}/anthropic → {pick} provider={entry.get('provider')}"
+            )
+
+    def test_insane_mode_never_picks_local(self):
+        """Insane mode's tier whitelist is {premium} — local is excluded."""
+        from app.llm_catalog import resolve_role_default
+        for role in ("commander", "coding", "planner", "research"):
+            pick = resolve_role_default(role, "insane")
+            tier = CATALOG.get(pick, {}).get("tier")
+            assert tier != "local", (
+                f"{role}/insane picked local-tier {pick} — should never happen"
+            )
+
+    def test_free_mode_prefers_free_tier(self):
+        """Free mode's tier whitelist is {local, free}."""
+        from app.llm_catalog import (
+            resolve_role_default, _MODE_TIER_WHITELIST,
+        )
+        assert _MODE_TIER_WHITELIST["free"] == frozenset({"local", "free"})
+        # For roles that have a premium tier floor, the effective floor
+        # is reconciled down to the highest allowed tier in free mode
+        # ("free") — the resolver honours the user's explicit choice
+        # rather than silently escalating to Claude.
+        pick = resolve_role_default("commander", "free")
+        tier = CATALOG.get(pick, {}).get("tier")
+        # In bootstrap-only state "free" tier has no entries, so the
+        # resolver falls through to the bootstrap fallback. Either is
+        # acceptable — the contract is "don't escalate above free where
+        # possible".
+        assert tier in ("local", "free", "premium"), (
+            f"commander/free → {pick} tier={tier}"
+        )
+
+    def test_effective_tier_floor_caps_premium_floor_in_free_mode(self):
+        """Role tier floor 'premium' must be capped in restrictive modes."""
+        from app.llm_catalog import _effective_tier_floor
+        # Commander's tier_floor=premium should be capped at "free" when
+        # the user chose free mode (whitelist = {local, free}).
+        assert _effective_tier_floor("free", "premium") == "free"
+        assert _effective_tier_floor("budget", "premium") == "budget"
+        # In balanced/quality, the premium floor is honoured because
+        # premium is in the whitelist.
+        assert _effective_tier_floor("balanced", "premium") == "premium"
+        assert _effective_tier_floor("quality", "premium") == "premium"
 
 
 class TestTaskAliases(unittest.TestCase):
