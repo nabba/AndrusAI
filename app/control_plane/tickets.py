@@ -33,8 +33,50 @@ class TicketManager:
         difficulty: int = None,
         priority: int = 5,
     ) -> dict:
-        """Create a ticket from an incoming Signal message."""
+        """Create a ticket from an incoming Signal message.
+
+        Idempotent w.r.t. the inbound_queue replay path: if an active ticket
+        with the same title already exists for this project within the last
+        60 minutes, reuse it instead of spawning a duplicate.  Without this,
+        a crash-loop where the crew fails to finalize (cost stays $0,
+        ticket stays in_progress) produces N new tickets for the same
+        message every time the inbound queue replays.
+        """
         title = message[:200].strip()
+
+        # ── Replay idempotency ──────────────────────────────────────────
+        # We key on (project_id, title, source='signal', active-status,
+        # recent) because the tickets table has no sender/signal_ts
+        # columns.  Title is message[:200] so exact-duplicate messages
+        # from the same queue row always match.  60 min window is long
+        # enough to cover inbound-queue retry spacing but short enough
+        # that an intentional same-text resend an hour later creates a
+        # fresh ticket.
+        existing = execute_one(
+            """SELECT id, title, status, created_at
+                 FROM control_plane.tickets
+                WHERE project_id = %s
+                  AND title = %s
+                  AND source = 'signal'
+                  AND status IN ('todo', 'in_progress')
+                  AND created_at >= NOW() - interval '60 minutes'
+                ORDER BY created_at DESC
+                LIMIT 1""",
+            (project_id, title),
+        )
+        if existing:
+            self.audit.log(
+                actor="system", action="ticket.reused",
+                project_id=project_id,
+                resource_type="ticket", resource_id=str(existing["id"]),
+                detail={"title": title[:100], "source": "signal"},
+            )
+            logger.info(
+                "tickets: reused existing active ticket id=%s title=%r (skip duplicate on replay)",
+                existing["id"], title[:60],
+            )
+            return existing
+
         row = execute_one(
             """INSERT INTO control_plane.tickets
                (project_id, title, description, source, difficulty, priority)
@@ -142,6 +184,74 @@ class TicketManager:
                WHERE id = %s""",
             (ticket_id,),
         )
+
+    def fail_stuck_in_progress(
+        self,
+        max_age_minutes: int = 15,
+        only_zero_cost: bool = True,
+    ) -> list[str]:
+        """Janitor: mark any in_progress ticket that has been running for
+        longer than ``max_age_minutes`` without accruing cost as failed.
+
+        Handles the case where the orchestrator gets trapped in a retry
+        loop deep inside the auditor or a crew — the thread keeps running
+        past the 600s asyncio.wait_for timeout (Python can't cancel
+        threads), so the outer safety net in handle_task() never fires
+        and the ticket stays ``in_progress`` indefinitely at $0.  This
+        janitor runs every 5 min on the scheduler and is a last-resort
+        sweeper.
+
+        Args:
+            max_age_minutes: tickets with started_at older than this are
+                considered stuck.
+            only_zero_cost: when True (default), only fail tickets that
+                have recorded $0 of cost — a ticket actively spending on
+                LLM calls is clearly making progress and should be left
+                alone.
+
+        Returns:
+            list of ticket ids that were marked failed.
+        """
+        cond = ["status = 'in_progress'",
+                f"started_at < NOW() - interval '{int(max_age_minutes)} minutes'"]
+        if only_zero_cost:
+            cond.append("cost_usd = 0")
+        where = " AND ".join(cond)
+        rows = execute(
+            f"""UPDATE control_plane.tickets
+                   SET status = 'failed',
+                       result_summary = 'janitor: stuck in_progress > '
+                                        || %s || ' min with $0 cost — '
+                                        || 'orchestrator hung past timeout '
+                                        || '(see stuck-ticket janitor).',
+                       completed_at = NOW(),
+                       updated_at = NOW()
+                 WHERE {where}
+             RETURNING id, title""",
+            (int(max_age_minutes),),
+            fetch=True,
+        ) or []
+        failed_ids: list[str] = []
+        for r in rows:
+            tid = str(r.get("id"))
+            failed_ids.append(tid)
+            try:
+                self.audit.log(
+                    actor="system", action="ticket.janitor_failed",
+                    resource_type="ticket", resource_id=tid,
+                    detail={
+                        "title": str(r.get("title", ""))[:100],
+                        "reason": f"stuck in_progress > {max_age_minutes}min @ $0",
+                    },
+                )
+            except Exception:
+                pass
+        if failed_ids:
+            logger.warning(
+                "tickets.janitor: marked %d stuck in_progress ticket(s) as failed: %s",
+                len(failed_ids), failed_ids,
+            )
+        return failed_ids
 
     def get(self, ticket_id: str) -> dict | None:
         """Get a single ticket with its comments."""

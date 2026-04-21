@@ -132,6 +132,15 @@ _breakers: dict[str, CircuitBreaker] = {
     "ollama": CircuitBreaker("ollama", failure_threshold=5, cooldown_seconds=30),
     "openrouter": CircuitBreaker("openrouter", failure_threshold=5, cooldown_seconds=30),
     "anthropic": CircuitBreaker("anthropic", failure_threshold=8, cooldown_seconds=45),
+    # `anthropic_credits` is a semantic-specific breaker: it trips the
+    # instant we see a 400 "credit balance too low" response.  Unlike the
+    # generic `anthropic` transient-failure breaker (threshold 8, 45s),
+    # credit exhaustion is not a transient glitch — a single occurrence
+    # is authoritative.  The long cooldown gives the operator enough
+    # time to top up the account before we probe direct Anthropic again.
+    "anthropic_credits": CircuitBreaker(
+        "anthropic_credits", failure_threshold=1, cooldown_seconds=3600,
+    ),
     "self_healer": CircuitBreaker("self_healer", failure_threshold=3, cooldown_seconds=600),
 }
 

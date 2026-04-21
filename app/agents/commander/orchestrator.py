@@ -967,50 +967,22 @@ class Commander:
         _task_type = _canonical(role=crew_name, task_hint=enriched_task, crew_name=crew_name)
         try:
             with _llm_scope(crew_name=crew_name, role=crew_name, task_type=_task_type):
-                if crew_name == "research":
-                    from app.crews.research_crew import ResearchCrew
-                    result = ResearchCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-                elif crew_name == "coding":
-                    from app.crews.coding_crew import CodingCrew
-                    result = CodingCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-                elif crew_name == "writing":
-                    from app.crews.writing_crew import WritingCrew
-                    result = WritingCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-                elif crew_name == "media":
-                    from app.crews.media_crew import MediaCrew
-                    result = MediaCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-                elif crew_name == "creative":
-                    # Multi-agent 3-phase divergent/discussion/convergence pipeline.
-                    # Routed here when the router tagged the task as requiring
-                    # genuine creative synthesis (creativity_required: high|medium).
-                    # The creativity level defaults to "high"; finer-grained
-                    # routing (from router metadata) can be wired later.
-                    from app.crews.creative_crew import run_creative_crew
-                    run_result = run_creative_crew(
-                        enriched_task,
-                        creativity="high",
-                        parent_task_id=parent_task_id,
-                    )
-                    result = run_result.final_output
-                    if run_result.aborted_reason:
-                        result = f"{result}\n\n[Note: {run_result.aborted_reason}]"
-                elif crew_name == "pim":
-                    from app.crews.pim_crew import PIMCrew
-                    result = PIMCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-                elif crew_name == "financial":
-                    from app.crews.financial_crew import FinancialCrew
-                    result = FinancialCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-                elif crew_name == "desktop":
-                    from app.crews.desktop_crew import DesktopCrew
-                    result = DesktopCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-                elif crew_name == "repo_analysis":
-                    from app.crews.repo_analysis_crew import RepoAnalysisCrew
-                    result = RepoAnalysisCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-                elif crew_name == "devops":
-                    from app.crews.devops_crew import DevOpsCrew
-                    result = DevOpsCrew().run(enriched_task, parent_task_id=parent_task_id, difficulty=difficulty)
-                else:
+                # Crew selection is a registry lookup rather than an
+                # if/elif chain — see app/crews/registry.py for the
+                # registration table and the creative-crew adapter.
+                # A None return means the crew name is unknown; the
+                # commander's convention in that case is to pass the
+                # task through unchanged (preserves the prior
+                # ``else: return crew_task`` behaviour).
+                from app.crews import registry as _crew_registry
+                dispatched = _crew_registry.dispatch(
+                    crew_name, enriched_task,
+                    parent_task_id=parent_task_id,
+                    difficulty=difficulty,
+                )
+                if dispatched is None:
                     return crew_task
+                result = dispatched
         except Exception as e:
             crew_error = e
             success = False

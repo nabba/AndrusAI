@@ -4,6 +4,7 @@ import logging
 
 from app.agents.coder import create_coder
 from app.crews.base_crew import run_single_agent_crew
+from app.crews.delegation import dispatch, lazy
 
 logger = logging.getLogger(__name__)
 
@@ -22,23 +23,20 @@ Return the working code along with its output.
 
 class CodingCrew:
     def run(self, task_description: str, parent_task_id: str = None, difficulty: int = 5) -> str:
-        # Delegation-mode switch: Org Chart toggle.  When ON, route to
-        # Coordinator + Execution + Debug specialists instead of a single
-        # monolithic coder.  Any error falls back silently to single-agent.
-        try:
-            from app.crews.delegation_settings import is_enabled
-            if is_enabled("coding"):
-                from app.crews.delegated_coding import DelegatedCodingCrew
-                return DelegatedCodingCrew().run(
-                    task_description,
-                    parent_task_id=parent_task_id,
-                    difficulty=difficulty,
-                )
-        except Exception:
-            logger.warning(
-                "Delegated coding crew failed; falling back to single-agent",
-                exc_info=True,
-            )
+        # Delegation-mode switch is handled uniformly by dispatch() —
+        # when the Org Chart toggle is ON, route to the Coordinator +
+        # Execution + Debug specialists; on any delegated-path error,
+        # fall back silently to the single-agent implementation.
+        return dispatch(
+            "coding",
+            delegated_cls=lazy("app.crews.delegated_coding", "DelegatedCodingCrew"),
+            single_agent_fn=self._run_single_agent,
+            task_description=task_description,
+            parent_task_id=parent_task_id,
+            difficulty=difficulty,
+        )
+
+    def _run_single_agent(self, task_description: str, parent_task_id: str = None, difficulty: int = 5) -> str:
         return run_single_agent_crew(
             crew_name="coding",
             agent_role="coder",

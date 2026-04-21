@@ -858,7 +858,7 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
     # "rebenchmark <model>" — force a full multi-role rebenchmark and
     # report drift vs. the prior strengths columns.
     if lower.startswith("rebenchmark"):
-        parts = content.split(None, 1)
+        parts = user_input.split(None, 1)
         model_key = parts[1].strip() if len(parts) > 1 else ""
         if not model_key:
             return "Usage: rebenchmark <catalog-key>  e.g. 'rebenchmark claude-sonnet-4.6'"
@@ -875,6 +875,80 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
             if summary.get("alerted"):
                 lines.append("⚠️  Drift alert filed to governance.")
             return "\n".join(lines)
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    # ── LLM promotions (global "first choice" flag) ─────────────────
+    if lower.startswith("promote "):
+        model_key = user_input[len("promote "):].strip()
+        if not model_key:
+            return "Usage: promote <catalog-key>   e.g. 'promote kimi-k2.6'"
+        try:
+            from app.llm_promotions import promote
+            ok = promote(model_key, promoted_by=f"signal:{sender or 'user'}",
+                         reason="signal promote command")
+            if not ok:
+                return f"❌ {model_key!r} not in live catalog. Run `refresh catalog` first."
+            return f"🚀 Promoted {model_key}. It'll be first-choice wherever it fits."
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    if lower.startswith("demote "):
+        model_key = user_input[len("demote "):].strip()
+        if not model_key:
+            return "Usage: demote <catalog-key>"
+        try:
+            from app.llm_promotions import demote
+            demote(model_key)
+            return f"Demoted {model_key}. Back in the regular pool."
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    if lower in ("promoted", "list promoted", "show promoted"):
+        try:
+            from app.llm_promotions import format_promotions
+            return format_promotions()
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    # ── Hand pins (hard override per role × cost_mode) ──────────────
+    if lower.startswith("pin "):
+        # Syntax: pin <role> <cost_mode> <model>
+        parts = user_input.split(None, 3)
+        if len(parts) < 4:
+            return "Usage: pin <role> <cost_mode> <model>   e.g. 'pin commander balanced claude-opus-4.7'"
+        _, role, cost_mode, model_key = parts
+        try:
+            from app.llm_role_assignments import pin_role
+            ok = pin_role(role.lower(), cost_mode.lower(), model_key.strip(),
+                          assigned_by=f"signal:{sender or 'user'}",
+                          reason="signal pin command")
+            if not ok:
+                return f"❌ Pin rejected — {model_key!r} not in live catalog."
+            return (f"📌 Pinned {role} [{cost_mode}] → {model_key}. "
+                    f"Resolver will return this model for that pair until unpinned.")
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    if lower.startswith("unpin "):
+        # Syntax: unpin <role> <cost_mode>
+        parts = user_input.split()
+        if len(parts) < 3:
+            return "Usage: unpin <role> <cost_mode>   e.g. 'unpin commander balanced'"
+        _, role, cost_mode = parts[:3]
+        try:
+            from app.llm_role_assignments import unpin_role
+            n = unpin_role(role.lower(), cost_mode.lower())
+            if n == 0:
+                return f"No active hand-pins for {role} [{cost_mode}]."
+            return f"Unpinned {role} [{cost_mode}] ({n} row{'s' if n!=1 else ''} retired). Resolver takes back over."
+        except Exception as exc:
+            return f"Error: {str(exc)[:200]}"
+
+    if lower in ("pinned", "list pins", "show pins"):
+        try:
+            from app.llm_role_assignments import format_pins
+            return format_pins()
         except Exception as exc:
             return f"Error: {str(exc)[:200]}"
 

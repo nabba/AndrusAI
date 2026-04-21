@@ -22,8 +22,11 @@ from pathlib import Path
 from crewai import Task, Crew, Process
 
 from app.config import get_settings
-from app.firebase_reporter import crew_started, crew_completed, crew_failed
-from app.memory.belief_state import update_belief
+# Lifecycle-related sinks (crew_started/completed/failed, belief state,
+# completion-time metric) are now reached via app.crews.lifecycle's
+# context manager.  ``record_metric`` is still imported directly because
+# it's used here for the refusal-retry counters, which are NOT
+# envelope-level (they fire mid-body, not at the outer boundary).
 from app.benchmarks import record_metric
 from app.llm_selector import difficulty_to_tier
 from app.sanitize import wrap_user_input
@@ -68,6 +71,16 @@ _TOOL_PRIORITY_ORDER = (
     ("web_fetch", 90),
     ("search_knowledge_base", 90),
     ("get_youtube_transcript", 90),
+    # Firecrawl — structured scraping/extraction of public data sources
+    # (stat.ee, FAO, Global Forest Watch etc.).  Without these at high
+    # priority, Anthropic's 25-tool cap drops them → researcher falls back
+    # to training data and tells the user "I can't access live sources."
+    # Kept at 90 so they always survive alongside web_search.
+    ("firecrawl_scrape", 90),
+    ("firecrawl_search", 90),
+    ("firecrawl_extract", 88),
+    ("firecrawl_crawl", 86),
+    ("firecrawl_map", 84),
     # Priority 80 — memory (one mem0 + one scoped-memory is enough)
     ("mem0_add", 80),
     ("mem0_search", 80),
@@ -437,10 +450,9 @@ def run_single_agent_crew(
     Returns:
         The crew's output as a string.
     """
-    start = _time.monotonic()
-
-    from app.conversation_store import estimate_eta
     from app.llm_mode import get_mode
+    from app.crews.lifecycle import crew_lifecycle
+
     force_tier = difficulty_to_tier(difficulty, get_mode())
     agent = create_agent_fn(force_tier=force_tier)
 
@@ -491,30 +503,41 @@ def run_single_agent_crew(
                         _clean_desc = _rest[-1].strip()
                         break
             break
-    task_id = crew_started(
-        crew_name,
-        f"{crew_name.title()}: {_clean_desc[:100]}",
-        eta_seconds=estimate_eta(crew_name),
+
+    # Lifecycle envelope — handles crew_started/belief/metric/journal/
+    # completed-or-failed/auto-skill uniformly.  Everything between
+    # ``with`` and ``return`` is the crew's actual work.
+    with crew_lifecycle(
+        crew_name=crew_name,
+        agent_role=agent_role,
+        task_title=f"{crew_name.title()}: {_clean_desc[:100]}",
+        task_description=task_description,
         parent_task_id=parent_task_id,
         model=_model_name,
-    )
-    update_belief(agent_role, "working", current_task=_clean_desc[:100])
+    ) as _ctx:
+        task = Task(
+            description=task_template.format(user_input=wrap_user_input(task_description)),
+            expected_output=expected_output,
+            agent=agent,
+        )
 
-    task = Task(
-        description=task_template.format(user_input=wrap_user_input(task_description)),
-        expected_output=expected_output,
-        agent=agent,
-    )
+        crew = Crew(
+            agents=[agent],
+            tasks=[task],
+            process=Process.sequential,
+            verbose=settings.crew_verbose,
+        )
 
-    crew = Crew(
-        agents=[agent],
-        tasks=[task],
-        process=Process.sequential,
-        verbose=settings.crew_verbose,
-    )
-
-    try:
-        result = str(crew.kickoff())
+        try:
+            result = str(crew.kickoff())
+        except Exception as exc:
+            # Non-lifecycle side-effect: error-journal diagnosis.  Must
+            # fire BEFORE the lifecycle manager's failure path re-raises,
+            # so the diagnose_and_fix pipeline sees the original exception
+            # with the right task_id (so subsequent retries attach to
+            # the same parent).
+            diagnose_and_fix(crew_name, task_description, exc, task_id=_ctx.task_id)
+            raise
 
         # Tool-First enforcement: if the agent refused without calling tools, retry once
         # with an explicit nudge listing the tools it has.
@@ -545,75 +568,8 @@ def run_single_agent_crew(
             except Exception:
                 logger.debug(f"base_crew: refusal retry in {crew_name} crashed", exc_info=True)
 
-        duration = _time.monotonic() - start
-
-        update_belief(agent_role, "completed", current_task=task_description[:100])
-        record_metric("task_completion_time", duration, {"crew": crew_name})
-
-        # L4: Autobiographical journal entry (append-only, ~100 bytes)
-        try:
-            import json as _json
-            from datetime import datetime as _dt, timezone as _tz
-            _journal = Path("/app/workspace/journal.jsonl")
-            with open(_journal, "a") as _jf:
-                _jf.write(_json.dumps({
-                    "ts": _dt.now(_tz.utc).isoformat(),
-                    "crew": crew_name,
-                    "task": task_description[:200],
-                    "result": "success",
-                    "duration_s": round(duration, 1),
-                }) + "\n")
-        except Exception:
-            pass
-
-        # Capture token usage from active request tracker
-        _tokens = 0; _model = ""; _cost = 0.0
-        try:
-            from app.rate_throttle import get_active_tracker
-            t = get_active_tracker()
-            if t:
-                _tokens = t.total_tokens
-                _model = ", ".join(sorted(t.models_used)) if t.models_used else ""
-                _cost = t.total_cost_usd
-        except Exception:
-            pass
-        crew_completed(crew_name, task_id, result[:2000],
-                       tokens_used=_tokens, model=_model, cost_usd=_cost)
-
-        # Auto-skill creation for complex tasks
-        if crew_name not in _SKILL_EXCLUDED_CREWS:
-            tool_calls = _estimate_tool_calls(result)
-            if tool_calls >= _SKILL_CREATION_THRESHOLD:
-                threading.Thread(
-                    target=_auto_create_skill,
-                    args=(crew_name, task_description, result, tool_calls),
-                    daemon=True, name=f"skill-{crew_name}",
-                ).start()
-
+        _ctx.set_outcome(result)
         return result
-    except Exception as exc:
-        update_belief(agent_role, "failed", current_task=task_description[:100])
-        crew_failed(crew_name, task_id, str(exc)[:200])
-
-        # L4: Journal failure entry
-        try:
-            import json as _json
-            from datetime import datetime as _dt, timezone as _tz
-            _journal = Path("/app/workspace/journal.jsonl")
-            with open(_journal, "a") as _jf:
-                _jf.write(_json.dumps({
-                    "ts": _dt.now(_tz.utc).isoformat(),
-                    "crew": crew_name,
-                    "task": task_description[:200],
-                    "result": "failed",
-                    "error": str(exc)[:100],
-                    "duration_s": round(_time.monotonic() - start, 1),
-                }) + "\n")
-        except Exception:
-            pass
-
-        diagnose_and_fix(crew_name, task_description, exc, task_id=task_id)
-        raise
 
 
 # ── Plugin auto-registration at import time ──────────────────────────────────
@@ -752,24 +708,108 @@ def _patch_agent_for_plugins() -> None:
     # peripheral tools (introspection, tensions, experiential, philosophy)
     # without the 18-tool priority cull in patched_init.
     _patch_crewai_strict_false()
+    _patch_crewai_anthropic_prefill()
+
+
+def _patch_crewai_anthropic_prefill() -> None:
+    """Ensure the Anthropic `messages` array never ends with an assistant
+    message.
+
+    Claude Sonnet 4.5+ (and other newer Anthropic models) reject requests
+    where the last message has role='assistant' with:
+
+        400 {"type":"invalid_request_error","message":"This model does not
+        support assistant message prefill. The conversation must end with
+        a user message."}
+
+    CrewAI's hierarchical mode and reflexion-retry paths occasionally feed
+    a prior assistant turn back as the tail of the conversation (to
+    provide context for a refinement pass), which triggers this.  Rather
+    than fixing every CrewAI call site, we wrap
+    `AnthropicCompletion._format_messages_for_anthropic` (the real entry
+    point for Anthropic message formatting — NOT the base class's
+    `_format_messages` which is only called internally) so it appends a
+    minimal user continuation message whenever the tail turns out to be
+    assistant.  The continuation is a single space — harmless to the
+    model, makes Anthropic's API accept the conversation.
+    """
+    try:
+        from crewai.llms.providers.anthropic.completion import AnthropicCompletion
+        _orig_fmt = AnthropicCompletion._format_messages_for_anthropic
+
+        def _safe_fmt(self, messages):
+            formatted, system = _orig_fmt(self, messages)
+            # If the last message is from assistant, Anthropic (Sonnet 4.5+)
+            # rejects the request.  Append a tiny user continuation so the
+            # conversation ends with a user turn.
+            if formatted and formatted[-1].get("role") == "assistant":
+                formatted = list(formatted) + [
+                    {"role": "user", "content": " "}
+                ]
+            return formatted, system
+
+        AnthropicCompletion._format_messages_for_anthropic = _safe_fmt
+        logger.info(
+            "crewai: Anthropic provider patched — trailing assistant messages "
+            "now get a user continuation (prevents 'model does not support prefill' 400)"
+        )
+    except Exception:
+        logger.debug("crewai Anthropic prefill patch failed (non-fatal)",
+                     exc_info=True)
 
 
 def _patch_crewai_strict_false() -> None:
     """Monkey-patch CrewAI's convert_tools_to_openai_schema so every tool is
-    emitted with strict=False.  Unlocks Anthropic's higher tool limit."""
+    emitted with strict=False.  Unlocks Anthropic's higher tool limit.
+
+    NOTE: CrewAI's `crew_agent_executor.py` does
+        `from crewai.utilities.agent_utils import convert_tools_to_openai_schema`
+    which creates a name binding captured at import time.  Replacing the
+    attribute on `crewai.utilities.agent_utils` alone is insufficient — the
+    executor keeps calling the original.  We must also rebind the name in
+    every module that imported it directly.  (We also dig through
+    `sys.modules` to cover any future importers we don't know about yet.)
+    """
     try:
+        import sys
         import crewai.utilities.agent_utils as _cu
+        from app.observability import schema_transforms
+
+        # Install the built-in transforms (strict→False + required-list
+        # normalisation) into the shared registry.  Any future provider
+        # quirks register additional transforms via the same module; the
+        # wrapping function below is provider-agnostic and doesn't need
+        # to know what's in the registry.
+        schema_transforms.install_default_transforms()
+
         _original_convert = _cu.convert_tools_to_openai_schema
 
         def _loose_convert(*args, **kwargs):
             schemas, fns, name_map = _original_convert(*args, **kwargs)
             for s in schemas:
-                fn = s.get("function")
-                if isinstance(fn, dict) and fn.get("strict") is True:
-                    fn["strict"] = False
+                schema_transforms.apply_to_function_schema(s.get("function"))
             return schemas, fns, name_map
 
+        # (1) Patch the canonical location.
         _cu.convert_tools_to_openai_schema = _loose_convert
-        logger.info("crewai: tool schemas patched to strict=False (lifts Anthropic 20-tool cap)")
+
+        # (2) Rebind in every already-imported module that pulled the name in
+        #     via `from ... import convert_tools_to_openai_schema`.
+        rebound = 0
+        for modname, mod in list(sys.modules.items()):
+            if mod is None or mod is _cu:
+                continue
+            if getattr(mod, "convert_tools_to_openai_schema", None) is _original_convert:
+                try:
+                    setattr(mod, "convert_tools_to_openai_schema", _loose_convert)
+                    rebound += 1
+                except Exception:
+                    pass
+
+        logger.info(
+            "crewai: tool schemas patched (rebound in %d additional modules; "
+            "transforms registered: %s)",
+            rebound, ", ".join(schema_transforms.registered_names()),
+        )
     except Exception:
         logger.debug("crewai strict-false patch failed (non-fatal)", exc_info=True)

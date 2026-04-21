@@ -1,14 +1,36 @@
 from crewai.tools import tool
 import docker
+import logging
 import tempfile
 import pathlib
 from app.config import get_settings
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 WORKSPACE = pathlib.Path("/app/workspace/output").resolve()
 # Dedicated temp dir for sandbox — isolates code from other output files
 SANDBOX_TMPDIR = pathlib.Path("/app/workspace/output/.sandbox_tmp").resolve()
+
+_WORKSPACE_ROOT = "/app/workspace"
+
+def _to_host_path(container_path: str) -> str:
+    """Translate a gateway-container path to its host-OS equivalent.
+
+    The Docker daemon mounting volumes lives on the host, not inside this
+    container.  When we ask it to bind-mount SANDBOX_TMPDIR (which is a
+    *gateway-internal* path like /app/workspace/output/.sandbox_tmp),
+    Docker would try to resolve that path on the host's filesystem — and
+    fail, because the host sees it as
+    <WORKSPACE_HOST_PATH>/output/.sandbox_tmp instead.  Without this
+    translation the sandbox dies with a silent ContainerError before any
+    code executes — surfaced to agents as the opaque "sandbox failed to
+    run" message.
+    """
+    host_ws = settings.workspace_host_path or ""
+    if host_ws and container_path.startswith(_WORKSPACE_ROOT):
+        return host_ws + container_path[len(_WORKSPACE_ROOT):]
+    return container_path
 
 
 @tool("execute_code")
@@ -55,11 +77,16 @@ def execute_code(language: str, code: str) -> str:
     # distinct from the container execution timeout below
     client = docker.from_env(timeout=10)
 
+    # Docker daemon runs on the HOST — bind-mount paths must be host
+    # paths, not gateway-internal paths.  _to_host_path() handles the
+    # translation using WORKSPACE_HOST_PATH from the environment.
+    sandbox_mount_host = _to_host_path(str(SANDBOX_TMPDIR))
+
     try:
         result = client.containers.run(
             settings.sandbox_image,
             command=[*cmd_parts, container_path],  # List form avoids shell injection
-            volumes={str(SANDBOX_TMPDIR): {"bind": "/sandbox", "mode": "ro"}},
+            volumes={sandbox_mount_host: {"bind": "/sandbox", "mode": "ro"}},
             network_disabled=True,  # No network in sandbox
             read_only=True,  # No writing to container FS
             mem_limit=settings.sandbox_memory_limit,
@@ -74,8 +101,18 @@ def execute_code(language: str, code: str) -> str:
         output = result.decode("utf-8", errors="replace")
     except docker.errors.ContainerError as e:
         output = f"Runtime error:\n{e.stderr.decode('utf-8', errors='replace')}"
-    except Exception:
-        output = "Execution error: sandbox failed to run."
+    except Exception as exc:
+        # Surface the actual exception so agents (and diagnostics) see WHY
+        # sandboxing failed — not the previous opaque fallback message.
+        # Common causes: image not present, volume mount host-path wrong,
+        # docker-proxy ACL blocking /containers/create, CPU/memory
+        # over-commit.
+        logger.exception("code_executor: sandbox run failed — %s: %s",
+                         type(exc).__name__, exc)
+        output = (
+            f"Execution error: sandbox failed to run "
+            f"({type(exc).__name__}: {str(exc)[:300]})"
+        )
     finally:
         try:
             host_path.unlink()

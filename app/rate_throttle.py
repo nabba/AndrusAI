@@ -204,61 +204,22 @@ def install_throttle() -> None:
         except ImportError:
             logger.warning("rate_throttle: litellm not found, throttle not installed")
 
-        # Also patch CrewAI's BaseLLM._track_token_usage_internal to record
-        # token usage for ALL providers (Anthropic, Gemini, etc.) that CrewAI
-        # handles natively without going through litellm.
-        try:
-            from crewai.llms.base_llm import BaseLLM
-            _original_track = BaseLLM._track_token_usage_internal
+        # NOTE: we used to patch ``BaseLLM._track_token_usage_internal``
+        # here to cover CrewAI-native providers (Anthropic, Gemini,
+        # Azure, Bedrock) that bypass litellm's callback machinery.
+        # That responsibility moved to the CrewAI event-bus subscriber
+        # in ``app.observability.llm_events`` — one hook on
+        # ``LLMCallCompletedEvent`` covers every provider uniformly,
+        # including any CrewAI ships in the future.
 
-            def _patched_track(self, usage_data: dict):
-                _original_track(self, usage_data)
-                try:
-                    model = getattr(self, "model", "unknown")
-                    prompt = (
-                        usage_data.get("prompt_tokens")
-                        or usage_data.get("input_tokens")
-                        or usage_data.get("prompt_token_count")
-                        or 0
-                    )
-                    completion = (
-                        usage_data.get("completion_tokens")
-                        or usage_data.get("output_tokens")
-                        or usage_data.get("candidates_token_count")
-                        or 0
-                    )
-                    total = prompt + completion
-                    if total > 0:
-                        cost_usd = 0.0
-                        cost_info = _find_cost(model) or _find_cost(f"anthropic/{model}")
-                        if cost_info:
-                            cost_usd = (
-                                (prompt / 1_000_000) * cost_info[0]
-                                + (completion / 1_000_000) * cost_info[1]
-                            )
-                        from app.llm_benchmarks import record_tokens
-                        record_tokens(model, prompt, completion, cost_usd)
-                        # NOTE: benchmark success/failure is recorded inside
-                        # _throttled_completion where we have accurate call
-                        # timing. Recording again here would double-count rows
-                        # in the benchmarks table and skew confidence scores.
-                        tracker = _request_cost.get(None)
-                        if tracker is not None:
-                            tracker.record(model, prompt, completion, cost_usd)
-                except Exception:
-                    pass
-
-            BaseLLM._track_token_usage_internal = _patched_track
-            logger.info("rate_throttle: CrewAI BaseLLM token tracking patched")
-        except Exception:
-            logger.debug("rate_throttle: could not patch BaseLLM", exc_info=True)
-
-    # Also register a litellm success callback for direct LLM.call() usage
-    # (the BaseLLM patch only fires during Crew execution, not direct calls)
+    # Litellm success_callback is still useful for the observability
+    # concerns that the event payload can't represent: measured
+    # ``latency_ms`` for benchmark scoring and the raw response shape
+    # for training-data capture.  See ``_record_token_usage``.
     try:
         import litellm
         litellm.success_callback = [_record_token_usage]
-        logger.info("rate_throttle: litellm success_callback registered for token tracking")
+        logger.info("rate_throttle: litellm success_callback registered (scoped to latency-aware benchmark scoring + training capture)")
     except Exception:
         logger.debug("rate_throttle: could not register litellm callback", exc_info=True)
 
@@ -330,18 +291,26 @@ def _find_cost(model: str) -> tuple[float, float] | None:
 
 
 def _record_token_usage(response, kwargs: dict, latency_ms: int = 0) -> None:
-    """Extract token usage from a litellm response and record it.
+    """Scoped observability hooks that need the raw LiteLLM response
+    shape (richer than what the CrewAI event payload carries).
 
-    Records:
-      - per-call token + cost accounting into ``token_usage``
-      - a success row into ``benchmarks`` tagged with the canonical task
-        type from :mod:`app.llm_context` and the measured ``latency_ms``
-      - training-data capture (fire-and-forget)
-      - per-request cost accumulation for dashboard aggregation
+    Token + cost accounting and the activity heartbeat are handled by
+    the event-bus subscriber in ``app.observability.llm_events`` — that
+    path covers every provider uniformly and doesn't need this richer
+    payload.
+
+    What remains here:
+      - **Benchmark scoring** (success row with ``latency_ms``) — the
+        event payload doesn't carry latency, and measuring it here
+        gives us an accurate number for the scoring model.
+      - **Training-data capture** — needs the full LiteLLM response
+        (prompt+completion text, tool_use blocks), not the normalised
+        event shape.
 
     Called both as a litellm ``success_callback`` and inline from the
-    throttled completion wrapper. The benchmark write is idempotent-per-
-    call via a ContextVar guard so the two call paths never double-count.
+    throttled completion wrapper.  A ContextVar guard
+    (:data:`_benchmark_recorded`) keeps the benchmark row idempotent
+    when both callers fire for the same call.
     """
     try:
         usage = getattr(response, "usage", None)
@@ -354,23 +323,8 @@ def _record_token_usage(response, kwargs: dict, latency_ms: int = 0) -> None:
         if total <= 0:
             return
 
-        # Cost accounting — always recorded; read-time dedup handles
-        # repeated callback firings (see llm_benchmarks.get_tokens_since).
-        cost_usd = 0.0
-        try:
-            cost_info = _find_cost(model)
-            if cost_info:
-                cost_usd = (
-                    (prompt_tokens / 1_000_000) * cost_info[0]
-                    + (completion_tokens / 1_000_000) * cost_info[1]
-                )
-        except Exception:
-            pass
-
-        from app.llm_benchmarks import record_tokens
-        record_tokens(model, prompt_tokens, completion_tokens, cost_usd)
-
-        # Training pipeline capture (fire-and-forget)
+        # Training pipeline capture (fire-and-forget) — stays here
+        # because it consumes the raw response object.
         try:
             _capture_training_data(response, kwargs, model)
         except Exception:
@@ -378,9 +332,8 @@ def _record_token_usage(response, kwargs: dict, latency_ms: int = 0) -> None:
 
         # Benchmark scoring — guarded so _throttled_completion's direct
         # invocation and the success_callback don't both write a row for
-        # the same call. First writer wins; the guard is cleared when
-        # the scope ends (see llm_context.scope) or by fallthrough after
-        # the callback returns in non-scoped paths.
+        # the same call.  First writer wins; guard is cleared when the
+        # llm_context scope ends.
         if not _benchmark_recorded.get(False):
             try:
                 from app.llm_benchmarks import record
@@ -392,11 +345,6 @@ def _record_token_usage(response, kwargs: dict, latency_ms: int = 0) -> None:
                 _benchmark_recorded.set(True)
             except Exception:
                 pass
-
-        # Per-request cost tracker for dashboard aggregation
-        tracker = _request_cost.get(None)
-        if tracker is not None:
-            tracker.record(model, prompt_tokens, completion_tokens, cost_usd)
     except Exception:
         pass  # never fail the actual LLM call
 
@@ -418,6 +366,8 @@ def _record_benchmark_failure(model: str, latency_ms: int) -> None:
         _benchmark_recorded.set(True)
     except Exception:
         pass
+    # Heartbeat is emitted by the CrewAI event-bus subscriber
+    # (LLMCallFailedEvent).  No explicit call needed here.
 
 
 # ── Credit alert integration ─────────────────────────────────────────────────
@@ -535,6 +485,61 @@ _request_cost: contextvars.ContextVar["RequestCostTracker | None"] = contextvars
 _benchmark_recorded: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "llm_benchmark_recorded", default=False,
 )
+
+
+# ── LLM activity heartbeat ─────────────────────────────────────────────
+#
+# Process-wide "last time any LLM call completed (success OR failure)"
+# timestamp.  Used by the progressive timeout in ``handle_task`` to
+# distinguish a genuinely long-running task (LLM calls still completing,
+# tokens still accruing) from a stalled one (no LLM activity for N
+# minutes, usually means the orchestrator is stuck in a loop or the
+# provider is unreachable).
+#
+# Thread-safe.  The monotonic clock is used so wall-clock jumps
+# (NTP sync, suspend-resume) don't confuse the stall detector.
+
+_llm_activity_lock = threading.Lock()
+_last_llm_activity_ts: float = 0.0
+_llm_activity_count: int = 0
+
+
+def record_llm_activity() -> None:
+    """Mark that an LLM call just completed (success or failure).
+
+    Called from ``_record_token_usage`` (success path) and
+    ``_record_benchmark_failure`` (failure path).  Both paths count as
+    "activity" because both prove the orchestrator is cycling through
+    LLM interactions — a stalled task is one where NO LLM call has
+    returned for an extended period.
+    """
+    global _last_llm_activity_ts, _llm_activity_count
+    with _llm_activity_lock:
+        _last_llm_activity_ts = time.monotonic()
+        _llm_activity_count += 1
+
+
+def seconds_since_last_llm_activity() -> float | None:
+    """Return seconds since the last LLM call completed, or None if no
+    call has completed yet this process.
+
+    Callers use this to implement progress-gated timeouts:
+      * None              → never seen activity (bootstrap / cold start)
+      * small number      → task alive, LLM calls happening
+      * large number (>N) → stalled, safe to abandon
+    """
+    with _llm_activity_lock:
+        if _last_llm_activity_ts == 0.0:
+            return None
+        return time.monotonic() - _last_llm_activity_ts
+
+
+def llm_activity_count() -> int:
+    """Process-wide count of completed LLM calls.  Useful as an
+    alternative to the timestamp when callers want to detect progress
+    strictly by "new calls happened since I last looked"."""
+    with _llm_activity_lock:
+        return _llm_activity_count
 
 
 class RequestCostTracker:

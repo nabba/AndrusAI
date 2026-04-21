@@ -359,12 +359,22 @@ def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
 
     # Rehydrate previously promoted models from the discovered_models
     # table. Runs after the catalog builder so promoted overrides layer
-    # on top of the auto-populated snapshot.
+    # on top of the auto-populated snapshot. force=True so a gateway
+    # restart after the boot-time call also picks up whatever landed
+    # between start() invocations (shouldn't happen in practice but
+    # guards against subtle module-state bugs).
     try:
         from app.llm_rehydrate import rehydrate_catalog
-        rehydrate_catalog()
-    except Exception:
-        logger.debug("idle_scheduler: llm catalog rehydration skipped", exc_info=True)
+        added = rehydrate_catalog(force=True)
+        logger.info(
+            "idle_scheduler: boot rehydrate added %d promoted model(s)",
+            added,
+        )
+    except Exception as exc:
+        logger.warning(
+            "idle_scheduler: boot rehydrate failed — %s: %s",
+            type(exc).__name__, str(exc)[:200],
+        )
 
     if jobs is None:
         jobs = _default_jobs()
@@ -1468,91 +1478,168 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
 
     # ── Phase 16a: SubIA idle jobs (TSAL + Phase 12) ──────────────────
     # Gated on subia_idle_jobs_enabled. Each wrapper lazy-imports the
-    # SubIA module so disabled flag costs zero bytes at idle_scheduler
-    # import time. Any failure is swallowed — idle jobs must never
-    # crash the scheduler thread.
+    # SubIA module so the disabled flag costs zero bytes at
+    # idle_scheduler import time. Any failure is swallowed — idle jobs
+    # must never crash the scheduler thread.
     try:
         from app.config import get_settings as _gs
         if _gs().subia_idle_jobs_enabled:
-
-            def _tsal_resources():
-                """Phase 13 TSAL: probe host resource state (CPU/RAM/disk
-                + Ollama/Neo4j/Postgres process detection). Feeds the
-                homeostasis overload variable."""
-                try:
-                    from app.subia.tsal.probers import ResourceMonitor
-                    rs = ResourceMonitor().probe()
-                    logger.debug(
-                        "idle: tsal-resources probed "
-                        f"(compute_pressure={rs.compute_pressure:.2f} "
-                        f"storage_pressure={rs.storage_pressure:.2f})"
-                    )
-                except Exception:
-                    logger.debug("idle: tsal-resources failed", exc_info=True)
-            jobs.append(("tsal-resources", _tsal_resources, JobWeight.LIGHT))
-
-            def _tsal_host():
-                """Phase 13 TSAL: slow-changing hardware + OS profile
-                (daily cadence implicit via idle-loop pacing)."""
-                try:
-                    from app.subia.tsal.probers import HostProber
-                    HostProber().probe()
-                    logger.debug("idle: tsal-host probed")
-                except Exception:
-                    logger.debug("idle: tsal-host failed", exc_info=True)
-            jobs.append(("tsal-host", _tsal_host, JobWeight.LIGHT))
-
-            def _subia_reverie():
-                """Phase 12 Reverie: idle mind-wandering. Skips cleanly
-                if the ReverieEngine's adapters are not wired to real
-                Neo4j / ChromaDB / Mem0 (which is the current state).
-                Registering the job now so adapter wiring is the only
-                remaining step to activate it."""
-                try:
-                    from app.subia.reverie import ReverieEngine
-                    # Production adapter wiring is a follow-up task;
-                    # the engine requires injected adapters and no
-                    # default production adapter exists yet. Log and
-                    # skip rather than crash.
-                    logger.debug(
-                        "idle: subia-reverie skipped "
-                        "(adapters not yet wired — see Phase 16a follow-up)"
-                    )
-                except Exception:
-                    logger.debug("idle: subia-reverie failed", exc_info=True)
-            jobs.append(("subia-reverie", _subia_reverie, JobWeight.HEAVY))
-
-            def _subia_understanding():
-                """Phase 12 Understanding: post-ingest causal-chain pass
-                over wiki pages. Same adapter-wiring caveat as reverie."""
-                try:
-                    from app.subia.understanding import UnderstandingPassRunner
-                    logger.debug(
-                        "idle: subia-understanding skipped "
-                        "(adapters not yet wired)"
-                    )
-                except Exception:
-                    logger.debug("idle: subia-understanding failed", exc_info=True)
-            jobs.append(("subia-understanding", _subia_understanding, JobWeight.HEAVY))
-
-            def _subia_shadow():
-                """Phase 12 Shadow: behavioural bias mining. Adapter
-                wiring pending (requires Mem0 full-tier + scene history
-                log adapters)."""
-                try:
-                    from app.subia.shadow import ShadowMiner
-                    logger.debug(
-                        "idle: subia-shadow skipped "
-                        "(adapters not yet wired)"
-                    )
-                except Exception:
-                    logger.debug("idle: subia-shadow failed", exc_info=True)
-            jobs.append(("subia-shadow", _subia_shadow, JobWeight.HEAVY))
+            jobs.extend(_build_subia_idle_jobs())
     except Exception:
         logger.debug("idle_scheduler: SubIA job registration failed",
                      exc_info=True)
 
     return jobs
+
+
+def _build_subia_idle_jobs() -> list:
+    """Assemble the SubIA idle jobs behind subia_idle_jobs_enabled.
+
+    Five TSAL jobs come from `app.subia.tsal.register_tsal_jobs`, which
+    is the canonical registration path (cadence, page generators, and
+    bridge callbacks are all set up there). We register them against a
+    temporary `IdleScheduler`, then hand the resulting IdleJobs to
+    `adapt_for_production` to get `(name, fn, JobWeight)` tuples.
+
+    The Phase 12 jobs (reverie / understanding / shadow) wrap the real
+    engines assembled by `production_adapters.build_*`. Each body is
+    circadian-gated by the Phase 14 temporal_subia_bridge when the
+    kernel is live — during "active_hours" the engines skip so the
+    system is not mind-wandering while the operator is trying to work.
+    """
+    from app.subia.idle import (
+        IdleScheduler,
+        adapt_for_production,
+        _build_reverie_engine,
+        _build_understanding_runner,
+        _build_shadow_miner,
+    )
+
+    out: list = []
+
+    # ── TSAL (5 jobs) ───────────────────────────────────────────────
+    try:
+        from app.subia.tsal import register_tsal_jobs
+        from app.subia.connections.tsal_subia_bridge import (
+            enrich_self_state_from_tsal,
+            update_homeostasis_from_resources,
+        )
+        from app.subia.kernel import get_active_kernel
+
+        subia_sched = IdleScheduler()
+
+        def _on_resources_updated(rs):
+            kernel = get_active_kernel()
+            if kernel is None:
+                return
+            try:
+                update_homeostasis_from_resources(kernel, rs)
+            except Exception:
+                logger.debug("idle: tsal resource bridge failed", exc_info=True)
+
+        def _on_model_updated(model):
+            kernel = get_active_kernel()
+            if kernel is None:
+                return
+            try:
+                enrich_self_state_from_tsal(kernel, model)
+            except Exception:
+                logger.debug("idle: tsal self_state bridge failed",
+                             exc_info=True)
+
+        register_tsal_jobs(
+            subia_sched,
+            on_resources_updated=_on_resources_updated,
+            on_model_updated=_on_model_updated,
+        )
+        for job in subia_sched.jobs():
+            out.append(adapt_for_production(job))
+    except Exception:
+        logger.debug("idle: tsal registration failed", exc_info=True)
+
+    # ── Phase 12 Reverie ────────────────────────────────────────────
+    def _subia_reverie():
+        try:
+            from app.subia.kernel import get_active_kernel
+            from app.subia.connections.temporal_subia_bridge import (
+                circadian_should_run_reverie,
+            )
+            from app.subia.connections.six_proposals_bridges import (
+                drain_reverie_priority_topics,
+                reverie_analogy_to_understanding,
+            )
+            kernel = get_active_kernel()
+            if kernel is not None and not circadian_should_run_reverie(kernel):
+                logger.debug("idle: subia-reverie skipped (circadian)")
+                return
+            engine = _build_reverie_engine()
+            # Drain wonder-registered priority topics so they bias the
+            # walk start when the engine supports it. (The current
+            # engine picks random; topics feed the Understanding queue
+            # via reverie_analogy_to_understanding downstream.)
+            drain_reverie_priority_topics()
+            result = engine.run_cycle()
+            if result.resonances:
+                reverie_analogy_to_understanding(result)
+            logger.debug(
+                "idle: subia-reverie ran "
+                f"(resonances={len(result.resonances)}, "
+                f"tokens={result.tokens_spent})"
+            )
+        except Exception:
+            logger.debug("idle: subia-reverie failed", exc_info=True)
+    out.append(("subia-reverie", _subia_reverie, JobWeight.HEAVY))
+
+    # ── Phase 12 Understanding ──────────────────────────────────────
+    def _subia_understanding():
+        try:
+            from app.subia.kernel import get_active_kernel
+            from app.subia.connections.six_proposals_bridges import (
+                drain_understanding_queue,
+                understanding_to_wonder,
+            )
+            runner = _build_understanding_runner()
+            queue = drain_understanding_queue(limit=3)
+            ran = 0
+            for item in queue:
+                # Items are analogy candidates — pick one side's wiki
+                # page as the pass target when the candidate includes
+                # a concrete page path, otherwise fall back to the
+                # concept name.
+                target = str(item.get("concept_a") or "").strip()
+                if not target:
+                    continue
+                result = runner.run_pass(target)
+                ran += 1
+                kernel = get_active_kernel()
+                if kernel is not None and result.depth:
+                    understanding_to_wonder(
+                        kernel, result.depth,
+                        triggering_topic=target,
+                    )
+            logger.debug(f"idle: subia-understanding ran {ran} pass(es)")
+        except Exception:
+            logger.debug("idle: subia-understanding failed", exc_info=True)
+    out.append(("subia-understanding", _subia_understanding, JobWeight.HEAVY))
+
+    # ── Phase 12 Shadow ─────────────────────────────────────────────
+    def _subia_shadow():
+        try:
+            from app.subia.kernel import get_active_kernel
+            kernel = get_active_kernel()
+            if kernel is None:
+                logger.debug("idle: subia-shadow skipped (no active kernel)")
+                return
+            miner = _build_shadow_miner(kernel)
+            report = miner.run_analysis(days=30)
+            logger.debug(
+                f"idle: subia-shadow ran ({len(report.findings)} findings)"
+            )
+        except Exception:
+            logger.debug("idle: subia-shadow failed", exc_info=True)
+    out.append(("subia-shadow", _subia_shadow, JobWeight.HEAVY))
+
+    return out
 
 
 # Per-role marker of the last generation we migrated from. Lives in module

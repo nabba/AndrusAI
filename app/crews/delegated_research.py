@@ -18,7 +18,6 @@ margin.  Scales to any provider.
 from __future__ import annotations
 
 import logging
-import time as _time
 
 from crewai import Crew, Task, Process
 
@@ -29,10 +28,7 @@ from app.agents.specialists import (
     create_synthesis_specialist,
 )
 from app.sanitize import wrap_user_input
-from app.firebase_reporter import crew_started, crew_completed, crew_failed
-from app.memory.belief_state import update_belief
-from app.benchmarks import record_metric
-from app.conversation_store import estimate_eta
+from app.crews.lifecycle import crew_lifecycle
 from app.llm_selector import difficulty_to_tier
 
 logger = logging.getLogger(__name__)
@@ -43,6 +39,22 @@ _DELEGATED_TASK_TEMPLATE = """\
 Research the following topic for the user:
 
 {user_input}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TOOL-USE IS MANDATORY FOR LIVE DATA — DO NOT FABRICATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When the user asks for statistics, URLs, citations, or "live data":
+ • The Web Specialist MUST call web_search + firecrawl_scrape /
+   firecrawl_extract to fetch the actual page.  Every number / URL / DOI
+   in the final answer must come from a tool result, not from memory.
+ • Invented slugs ("bankwatch.org/story/clearcutting-chaos"), unverifiable
+   paper titles, and false-precision figures ("~29,000 ha / $4.2M") are
+   treated as task FAILURE by vetting and will be rejected.
+ • If a source is unreachable after 3-4 tries, say so explicitly —
+   partial honest coverage beats fabricated completeness.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Process:
 1. Classify what's needed: live web content, document/KB facts, dialectical synthesis, or a combination.
@@ -57,8 +69,12 @@ Process:
 OUTPUT RULES:
  - Return ONLY the final answer — do not narrate delegation steps.
  - The user reads on a phone via Signal.  Keep the answer focused.
- - Cite sources (URL or document name) inline.
+ - Cite sources (URL or document name) inline — only REAL URLs your
+   specialists actually fetched.
  - 200-800 words typical; longer only if the request explicitly asks for depth.
+ - If the user asked for graphics/PDF/charts and the available tools
+   cannot produce them, SAY SO directly — do not promise deliverables
+   you cannot actually generate.
 """
 
 
@@ -71,20 +87,17 @@ class DelegatedResearchCrew:
         parent_task_id: str | None = None,
         difficulty: int = 5,
     ) -> str:
-        task_id = crew_started(
-            "research",
-            f"Research (delegated): {topic[:100]}",
-            eta_seconds=estimate_eta("research"),
-            parent_task_id=parent_task_id,
-        )
-        start = _time.monotonic()
-
         from app.llm_mode import get_mode
         force_tier = difficulty_to_tier(difficulty, get_mode())
 
-        update_belief("researcher", "working", current_task=topic[:100])
-
-        try:
+        with crew_lifecycle(
+            crew_name="research",
+            agent_role="researcher",
+            task_title=f"Research (delegated): {topic[:100]}",
+            task_description=topic,
+            parent_task_id=parent_task_id,
+            mode="delegated",
+        ) as ctx:
             # Build the team.  Sub-agents share the same LLM tier for cost
             # predictability; coordinator uses the role default for
             # research which, with the 353-model catalog loaded, tends
@@ -115,20 +128,6 @@ class DelegatedResearchCrew:
                 verbose=False,
             )
 
-            result = crew.kickoff()
-            result_str = str(result)
-
-            update_belief("researcher", "completed", current_task=topic[:100])
-            record_metric(
-                "task_completion_time",
-                _time.monotonic() - start,
-                {"crew": "research", "mode": "delegated"},
-            )
-            crew_completed("research", task_id, result_str[:2000])
+            result_str = str(crew.kickoff())
+            ctx.set_outcome(result_str)
             return result_str
-
-        except Exception as exc:
-            update_belief("researcher", "failed", current_task=topic[:100])
-            crew_failed("research", task_id, str(exc)[:200])
-            logger.exception("Delegated research crew failed")
-            raise

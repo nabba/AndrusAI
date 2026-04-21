@@ -15,8 +15,22 @@ Defense layers:
 import re
 import unicodedata
 
-# Max length for user input interpolated into task descriptions
+# Max length for RAW user input (what the user actually typed).  Signal
+# messages are capped well below this; this is a safety bound for hostile
+# oversized inputs that bomb the pipeline.
 MAX_TASK_INPUT_LENGTH = 4000
+
+# Max length for ENRICHED tasks passed through `wrap_user_input`.
+# Commander's `_run_crew` prepends RELEVANT_KNOWLEDGE + RELEVANT_TEAM_CONTEXT
+# + world-model lessons + KB passages + <reference_data> wrappers + the
+# "═══ YOUR ACTUAL TASK" header BEFORE the user's actual question.  On a
+# fully-primed system this easily reaches 8–20 KB.  The 4 KB raw-input cap
+# was silently chopping the user's real question off the end, so the
+# research agent saw "═══ YOUR ACTUAL TASK (answer THIS, n" as the last
+# characters of the prompt and — correctly — replied that the task was
+# incomplete.  64 KB gives the enrichment pipeline ample headroom while
+# still bounding runaway growth.
+MAX_WRAPPED_INPUT_LENGTH = 65536
 
 # Zero-width and invisible Unicode characters to strip
 _INVISIBLE_CHARS = re.compile(
@@ -175,8 +189,15 @@ def wrap_user_input(text: str) -> str:
     """
     Wrap sanitized user input with clear delimiters so the LLM
     can distinguish user data from system instructions.
+
+    Note: callers usually pass an *enriched* task (context + user
+    question) here, not raw user input.  We therefore sanitize with
+    ``MAX_WRAPPED_INPUT_LENGTH`` (64 KB) instead of the 4 KB raw-input
+    bound — otherwise commander-enriched tasks get chopped and the user's
+    real question at the tail is lost, producing "your request appears to
+    be incomplete" responses from agents.
     """
-    sanitized = sanitize_input(text)
+    sanitized = sanitize_input(text, max_length=MAX_WRAPPED_INPUT_LENGTH)
     return (
         f"<user_request>\n"
         f"{sanitized}\n"

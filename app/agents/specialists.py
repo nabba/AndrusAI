@@ -139,7 +139,12 @@ _SYNTH_BACKSTORY = (
 
 
 def create_synthesis_specialist(force_tier: str | None = None) -> Agent:
-    llm = create_specialist_llm(max_tokens=4096, role="writing", force_tier=force_tier)
+    # Synthesis is the one that writes the FINAL long-form answer after
+    # research/document specialists have gathered raw facts.  8192 tokens
+    # so "extensive document" requests don't get chopped mid-section,
+    # which was causing vetting to reject for "response is cut off" and
+    # reflexion to re-run the whole 6-min hierarchical flow.
+    llm = create_specialist_llm(max_tokens=8192, role="writing", force_tier=force_tier)
     tools: list = []
 
     # Philosophy KB + dialectics
@@ -204,7 +209,10 @@ _COORD_BACKSTORY = compose_backstory("researcher") + (
 
 
 def create_research_coordinator(force_tier: str | None = None) -> Agent:
-    llm = create_specialist_llm(max_tokens=4096, role="research", force_tier=force_tier)
+    # 8192 tokens because the coordinator is the final voice to the user
+    # when it chooses to answer directly (simple classifications) — 4096
+    # truncated mid-section on deep-research prompts.
+    llm = create_specialist_llm(max_tokens=8192, role="research", force_tier=force_tier)
     tools: list = []
 
     # Coordinator needs memory access to remember context across delegations
@@ -434,7 +442,8 @@ _WRITE_COORD_BACKSTORY = compose_backstory("writer") + (
 
 
 def create_writing_coordinator(force_tier: str | None = None) -> Agent:
-    llm = create_specialist_llm(max_tokens=4096, role="writing", force_tier=force_tier)
+    # 8192 so long-form writing (reports, essays) isn't cut off mid-section.
+    llm = create_specialist_llm(max_tokens=8192, role="writing", force_tier=force_tier)
     tools: list = []
 
     from app.tools.memory_tool import create_memory_tools

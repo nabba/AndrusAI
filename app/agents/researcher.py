@@ -45,7 +45,13 @@ def create_researcher(force_tier: str | None = None, light: bool = False, task_i
                Used for difficulty ≤ 3 simple factual questions.
         task_id: If set, adds blackboard tools scoped to this task.
     """
-    llm = create_specialist_llm(max_tokens=4096, role="research", force_tier=force_tier)
+    # max_tokens = 8192 so the researcher can produce an extensive report
+    # (the user often asks for "extensive document with numbers and
+    # commentaries").  At 4096 the output was getting cut off mid-section
+    # — vetting would reject "response is cut off mid-sentence in Section
+    # 5.1" and reflexion retry re-ran the whole 6-min crew producing the
+    # same cut-off result.  Claude Sonnet/Opus models accept 8K natively.
+    llm = create_specialist_llm(max_tokens=8192, role="research", force_tier=force_tier)
 
     if light:
         # S8→S10: "Medium-light" — enough tools for most factual questions

@@ -10,7 +10,6 @@ reuses its philosophy/dialectics/tensions toolkit).
 from __future__ import annotations
 
 import logging
-import time as _time
 
 from crewai import Crew, Task, Process
 
@@ -20,10 +19,7 @@ from app.agents.specialists import (
     create_synthesis_specialist,
 )
 from app.sanitize import wrap_user_input
-from app.firebase_reporter import crew_started, crew_completed, crew_failed
-from app.memory.belief_state import update_belief
-from app.benchmarks import record_metric
-from app.conversation_store import estimate_eta
+from app.crews.lifecycle import crew_lifecycle
 from app.llm_selector import difficulty_to_tier
 
 logger = logging.getLogger(__name__)
@@ -56,20 +52,17 @@ class DelegatedWritingCrew:
         parent_task_id: str | None = None,
         difficulty: int = 5,
     ) -> str:
-        task_id = crew_started(
-            "writing",
-            f"Writing (delegated): {task_description[:100]}",
-            eta_seconds=estimate_eta("writing"),
-            parent_task_id=parent_task_id,
-        )
-        start = _time.monotonic()
-
         from app.llm_mode import get_mode
         force_tier = difficulty_to_tier(difficulty, get_mode())
 
-        update_belief("writer", "working", current_task=task_description[:100])
-
-        try:
+        with crew_lifecycle(
+            crew_name="writing",
+            agent_role="writer",
+            task_title=f"Writing (delegated): {task_description[:100]}",
+            task_description=task_description,
+            parent_task_id=parent_task_id,
+            mode="delegated",
+        ) as ctx:
             coordinator = create_writing_coordinator(force_tier=force_tier)
             researcher = create_writing_research_specialist(force_tier=force_tier)
             synth = create_synthesis_specialist(force_tier=force_tier)
@@ -92,20 +85,6 @@ class DelegatedWritingCrew:
                 verbose=False,
             )
 
-            result = crew.kickoff()
-            result_str = str(result)
-
-            update_belief("writer", "completed", current_task=task_description[:100])
-            record_metric(
-                "task_completion_time",
-                _time.monotonic() - start,
-                {"crew": "writing", "mode": "delegated"},
-            )
-            crew_completed("writing", task_id, result_str[:2000])
+            result_str = str(crew.kickoff())
+            ctx.set_outcome(result_str)
             return result_str
-
-        except Exception as exc:
-            update_belief("writer", "failed", current_task=task_description[:100])
-            crew_failed("writing", task_id, str(exc)[:200])
-            logger.exception("Delegated writing crew failed")
-            raise

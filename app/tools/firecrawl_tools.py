@@ -81,10 +81,52 @@ def firecrawl_scrape(url: str, only_main_content: bool = True) -> str:
         if len(content) > 8000:
             content = content[:8000] + f"\n\n[TRUNCATED — full page is {len(content)} chars]"
 
+        # Close the Firecrawl → Predictor loop (SIA #6). The bridge
+        # routes the observed content through the live PredictiveLayer;
+        # the call is a no-op when SubIA is disabled or the predictive
+        # layer hasn't been built yet.
+        _route_to_subia_predictor(url, str(source), str(title), content)
+
         return f"# {title}\nSource: {source}\n\n{content}"
     except Exception as e:
         logger.error(f"Firecrawl scrape failed for {url}: {e}")
         return f"Error scraping {url}: {str(e)[:200]}"
+
+
+def _route_to_subia_predictor(
+    url: str, source: str, title: str, content: str,
+) -> None:
+    """Forward a Firecrawl result through the SubIA PredictiveLayer so
+    Step 8 compare / PP-1 surprise routing fires on actual web content.
+    Never raises.
+    """
+    try:
+        from app.subia.live_integration import get_live_predictive_layer
+        from app.subia.connections.firecrawl_predictor import (
+            build_channel_key,
+            record_firecrawl_outcome,
+        )
+    except Exception:
+        return
+    layer = get_live_predictive_layer()
+    if layer is None:
+        return
+    try:
+        # A stable per-source channel key so per-channel confidence
+        # tracking accumulates predictable context across scrapes.
+        from urllib.parse import urlparse
+        host = urlparse(str(source or url)).netloc or "unknown"
+        channel = build_channel_key(venture="firecrawl", topic=host)
+        record_firecrawl_outcome(
+            source_url=str(source or url),
+            channel=channel,
+            actual_content=f"{title}\n{content[:1500]}",
+            predictive_layer=layer,
+            context=f"scrape: {url}",
+        )
+    except Exception:
+        logger.debug("firecrawl: subia predictor routing failed",
+                     exc_info=True)
 
 # ── Tool 2: Structured Extract (page → typed JSON via LLM) ──────────────────
 

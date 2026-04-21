@@ -34,6 +34,27 @@ install_throttle()
 from app.prompt_cache_hook import install_cache_hook
 install_cache_hook()
 
+# Subscribe the single LLM-activity heartbeat to CrewAI's event bus.  Covers
+# every CrewAI-routed provider (native Anthropic/OpenAI/Gemini/Azure/Bedrock
+# AND the LiteLLM-mediated generic ``crewai.LLM``) through one subscriber
+# instead of per-path instrumentation.  See app/observability/llm_events.py.
+from app.observability.llm_events import install as install_llm_event_subscriber
+install_llm_event_subscriber()
+
+# Populate the crew-dispatch registry so the commander resolves crew names
+# via a registered table rather than an if/elif chain.  See
+# app/crews/registry.py for the full list + adapters.
+from app.crews.registry import install_defaults as _install_crew_registry
+_install_crew_registry()
+
+# Subscribe the default lifecycle event handlers (belief state, Firebase,
+# metric, journal, auto-skill distillation) to the crew event bus.
+# Adding a new sink (e.g. SubIA pre/post hooks once that layer goes live)
+# is a single @crew_events.on_crew_completed() registration somewhere —
+# no more editing app/crews/lifecycle.py to add another inline call.
+from app.crews.event_handlers import install_defaults as _install_crew_event_handlers
+_install_crew_event_handlers()
+
 from fastapi import FastAPI, Request, HTTPException
 from contextlib import asynccontextmanager
 from app.config import get_settings, get_gateway_secret
@@ -292,44 +313,57 @@ async def lifespan(app: FastAPI):
         sync_trigger,
         kwargs={"backup_repo": settings.workspace_backup_repo},
     )
-    # Heartbeat — keep monitoring dashboard "last_seen" fresh + anomaly detection + dashboard data
+    # ── Heartbeat publishers (every 60s) ─────────────────────────────────
+    # The set of publishers and their cadences live in
+    # app/firebase/publishers.py so that adding a new dashboard report is
+    # a single register() call, not an edit of the heartbeat body here.
+    # Each publisher runs under its own try/except so one failing sink
+    # (e.g. Firestore rate limit on tech_radar) doesn't cancel the rest.
+    from app.firebase.publishers import install_defaults as _install_fb_publishers
+    from app.firebase import publishers as _fb_publishers
+    _install_fb_publishers()
+    logger.info(
+        "firebase.publishers: active publishers: %s",
+        ", ".join(_fb_publishers.registered_names()),
+    )
+
     _hb_counter = [0]
-    def _heartbeat_with_anomaly():
-        heartbeat()
+    def _heartbeat_tick():
         _hb_counter[0] += 1
+        _fb_publishers.run_all(tick=_hb_counter[0])
+    scheduler.add_job(_heartbeat_tick, "interval", seconds=60, id="heartbeat")
+
+    # ── Stuck-ticket janitor ────────────────────────────────────────────
+    # Background sweeper for control-plane tickets that are "in_progress"
+    # with $0 cost for longer than 15 min.  This is the last line of
+    # defense against orchestrator paths that hang past the 900s
+    # handle_task timeout (Python can't cancel threads, so when the
+    # auditor retry loop or a crew thread spins forever, the outer
+    # safety net in handle_task() never fires and the ticket stays
+    # in_progress indefinitely).  Runs every 5 min; no-ops when the
+    # board is clean.
+    def _run_stuck_ticket_janitor():
         try:
-            from app.anomaly_detector import collect_and_check, handle_alerts
-            alerts = collect_and_check()
-            if alerts:
-                handle_alerts(alerts)
+            from app.control_plane.tickets import get_tickets
+            failed = get_tickets().fail_stuck_in_progress(
+                max_age_minutes=15, only_zero_cost=True,
+            )
+            # Intentionally no-op-quiet when nothing to fail — the
+            # fail_stuck_in_progress() method already logs a WARNING
+            # with ids when it acts.
+            return failed
         except Exception:
-            pass
-        # Push self-healing/evolving data to dashboard every 5 minutes (every 5th heartbeat)
-        if _hb_counter[0] % 5 == 0:
-            try:
-                from app.firebase_reporter import (
-                    report_anomalies, report_variants, report_tech_radar,
-                    report_deploys, report_proposal_actions, report_proposals,
-                )
-                report_anomalies()
-                report_variants()
-                report_tech_radar()
-                report_deploys()
-                report_proposals()  # push pending proposals to dashboard
-                report_proposal_actions()  # process dashboard approve/reject clicks
-                from app.firebase_reporter import report_philosophy_kb, report_evolution_stats
-                report_philosophy_kb()
-                report_evolution_stats()
-                # Phase 16a: publish SubIA kernel state (inactive record
-                # when flag=0, live projection when flag=1). Safe always.
-                try:
-                    from app.firebase.publish import report_subia_state
-                    report_subia_state()
-                except Exception:
-                    pass
-            except Exception:
-                pass
-    scheduler.add_job(_heartbeat_with_anomaly, "interval", seconds=60, id="heartbeat")
+            logger.debug("Stuck-ticket janitor failed (non-fatal)",
+                         exc_info=True)
+            return []
+    scheduler.add_job(
+        _run_stuck_ticket_janitor,
+        "interval",
+        minutes=5,
+        id="stuck_ticket_janitor",
+    )
+    logger.info("Stuck-ticket janitor scheduled: every 5 min "
+                "(fails in_progress > 15min with $0 cost)")
 
     # ── User-configurable schedules (loaded from workspace/schedules.json) ──
     try:
@@ -1145,16 +1179,134 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         report_chat_message("user", text + att_note, source="signal")
 
         loop = asyncio.get_running_loop()
+        # ── Progressive timeout ─────────────────────────────────────────────
+        #
+        # Deep-research tasks at difficulty 9+ can legitimately take 15–30 min
+        # (commander routing ~90s + crew_exec 6–7 min + vetting ~60s + optional
+        # reflexion retry 6 min).  A single hard wall-clock timeout couldn't
+        # distinguish "still making progress" from "stalled", so we used to
+        # either kill healthy work early (900s) or let stuck threads burn
+        # budget indefinitely.
+        #
+        # This progressive scheme keeps the task alive as long as it's
+        # demonstrably doing LLM work:
+        #
+        #   1. Soft checkpoint @ 900s:
+        #        If finished → return.  If not → notify the user that we're
+        #        still working and enter progress-gated extension mode.
+        #   2. Progress-gated extension (up to hard cap):
+        #        Every 30s, check both (a) did the task finish? and (b) has
+        #        ANY LLM call completed in the last `_STALL_THRESHOLD_SECS`?
+        #        If no LLM activity for that long → stalled, give up cleanly.
+        #        Otherwise keep waiting.
+        #   3. Hard cap @ 2700s (45 min):
+        #        Absolute ceiling.  Nothing legitimate in this system takes
+        #        longer than this; past the cap the thread is abandoned and
+        #        the user gets a "hit hard cap" message.
+        #
+        # Progress signal is the process-wide "last LLM call completed"
+        # timestamp in rate_throttle — fires on success AND failure because
+        # a retrying-but-cycling task is still alive, and this is the
+        # cheapest progress signal we have that covers all LLM paths
+        # (CrewAI native Anthropic, LiteLLM OpenRouter, Ollama, etc.).
+        from app.rate_throttle import seconds_since_last_llm_activity
+
+        _SOFT_TIMEOUT_SECS = 900         # 15 min — soft checkpoint
+        _HARD_TIMEOUT_SECS = 2700        # 45 min — absolute ceiling
+        _STALL_THRESHOLD_SECS = 240      # 4 min without an LLM return → stalled
+        _PROGRESS_CHECK_EVERY = 30       # how often we re-check after soft
+
+        _task_started_at = _time.monotonic()
+        _handle_fut = loop.run_in_executor(
+            _commander_pool, commander.handle, text, sender, attachments or [],
+        )
+
         try:
-            result = await asyncio.wait_for(
-                loop.run_in_executor(
-                    _commander_pool, commander.handle, text, sender, attachments or []
-                ),
-                timeout=600,  # 10 min absolute max per task
+            # ── Phase 1: wait up to soft timeout ──
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.shield(_handle_fut),
+                    timeout=_SOFT_TIMEOUT_SECS,
+                )
+            except asyncio.TimeoutError:
+                # Not done in 15 min — is the crew still doing useful work?
+                stall = seconds_since_last_llm_activity()
+                # `stall is None` means the heartbeat has NEVER been recorded
+                # in this process.  That can mean either:
+                #   (a) genuinely no LLM call has completed (very cold start)
+                #   (b) an instrumentation gap — some LLM path bypasses every
+                #       heartbeat hook (e.g. a provider we didn't wire up yet)
+                # Killing the task on (b) is wrong — the crew may be actively
+                # working.  So we only stall-kill on a POSITIVE age that
+                # exceeds the threshold.  If the heartbeat is silent we give
+                # the task the benefit of the doubt and enter extension mode;
+                # the hard cap still bounds the worst case.
+                if stall is not None and stall > _STALL_THRESHOLD_SECS:
+                    raise asyncio.TimeoutError(
+                        f"soft-timeout with stall (no LLM activity for {stall:.0f}s)"
+                    )
+
+                # Alive (or heartbeat uncertain) — let the user know we're continuing.
+                stall_label = f"{stall:.0f}s ago" if stall is not None else "unknown (no heartbeat)"
+                logger.info(
+                    "handle_task: soft timeout (%ds) reached, last LLM call %s"
+                    " — extending toward hard cap",
+                    _SOFT_TIMEOUT_SECS, stall_label,
+                )
+                try:
+                    await signal_client.send(
+                        sender,
+                        "Still working on this — the request is deep enough that "
+                        "it's taking longer than usual. I'll keep going as long as "
+                        "there's progress, up to ~30 more minutes.",
+                    )
+                except Exception:
+                    pass  # don't let a Signal blip abort the extension
+
+                # ── Phase 2: progress-gated extension ──
+                deadline_monotonic = _task_started_at + _HARD_TIMEOUT_SECS
+                result = None  # pyright: ignore[reportGeneralTypeIssues]
+                while True:
+                    remaining_hard = deadline_monotonic - _time.monotonic()
+                    if remaining_hard <= 0:
+                        raise asyncio.TimeoutError("hard-cap reached")
+                    try:
+                        result = await asyncio.wait_for(
+                            asyncio.shield(_handle_fut),
+                            timeout=min(_PROGRESS_CHECK_EVERY, remaining_hard),
+                        )
+                        break  # task finished within the check window
+                    except asyncio.TimeoutError:
+                        # Check-window elapsed — is LLM still cycling?
+                        # Same tolerance rule as Phase 1: stall only on a
+                        # positive threshold breach, never on "heartbeat
+                        # never fired".
+                        stall = seconds_since_last_llm_activity()
+                        if stall is not None and stall > _STALL_THRESHOLD_SECS:
+                            raise asyncio.TimeoutError(
+                                f"extension stalled (no LLM activity for {stall:.0f}s)"
+                            )
+                        # Still cycling (or heartbeat uncertain) — wait another window.
+                        continue
+        except asyncio.TimeoutError as _to_exc:
+            elapsed_min = (_time.monotonic() - _task_started_at) / 60.0
+            reason = str(_to_exc) or "soft+extension timeout"
+            logger.error(
+                "TIMEOUT (%.1f min elapsed): handle_task for %s: %s (reason: %s)",
+                elapsed_min, _redact_number(sender), text[:80], reason,
             )
-        except asyncio.TimeoutError:
-            result = "Sorry, your request took too long to process. Please try a simpler question."
-            logger.error(f"TIMEOUT (600s): handle_task for {_redact_number(sender)}: {text[:80]}")
+            if "stall" in reason.lower():
+                result = (
+                    "Sorry — your request stalled (no LLM activity for several "
+                    "minutes). This usually means a provider outage or a stuck "
+                    "retry loop.  Please try again in a moment."
+                )
+            else:
+                result = (
+                    "Sorry — your request hit the absolute 45-minute ceiling. "
+                    "I'll deliver what's been assembled where I can; otherwise "
+                    "please break the question into smaller parts."
+                )
         except Exception as _handle_exc:
             result = "Sorry, an error occurred processing your request. Please try again."
             logger.error(

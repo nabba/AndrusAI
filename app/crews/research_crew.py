@@ -26,13 +26,45 @@ Research the following topic thoroughly:
 
 {user_input}
 
-Search the web for at least 3 high-quality sources. Read articles and extract key
-information.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TOOL-USE IS MANDATORY — READ THIS BEFORE ANSWERING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+You have real tools that hit the live internet — use them.  Do NOT answer
+from training data and do NOT fabricate.
+
+For any live data, statistic, URL, DOI, or citation the user asks for:
+  1. CALL `web_search` first to locate candidate sources.
+  2. CALL `firecrawl_scrape` or `firecrawl_extract` on authoritative pages
+     (stat.ee, fao.org, globalforestwatch.org, ec.europa.eu/eurostat,
+     *.gov, peer-reviewed journals).  Extract the exact numbers from the
+     page — do NOT paraphrase from memory.
+  3. If you need structured extraction across multiple pages, use
+     `firecrawl_crawl` or `firecrawl_map`.
+  4. Every numeric figure in your answer must come from a tool call you
+     actually made — not from training data.  Every URL you cite must be
+     one a tool actually returned — inventing slugs like
+     "bankwatch.org/story/clearcutting-chaos" is a FAILURE.
+
+If a tool call returns an error, TRY A DIFFERENT SOURCE.  Never fill the
+gap with plausible-sounding made-up data.  If after 3-4 tool calls you
+genuinely cannot reach live sources, SAY SO explicitly — "I could not
+reach [source X]; here is what I found at [source Y]".  Honest partial
+coverage beats fabricated completeness.
+
+Forbidden behaviors (vetting will reject these and fail the task):
+  • Citing URLs you did not actually fetch.
+  • Citing DOIs, paper titles, or author names without a tool call.
+  • Inventing statistics with false precision ("~29,000 ha", "$4.2M").
+  • Claiming "I accessed X" when you did not call the tool for X.
+  • Promising output (charts, PDFs) that your tools cannot produce.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 IMPORTANT: The user reads your answer on a PHONE via Signal. Keep it focused:
 - Lead with the direct answer to the question asked.
-- Include the most important facts and data points.
-- Cite key sources.
+- Include the most important facts and data points (from actual tool calls).
+- Cite key sources with REAL URLs the tools returned.
 - Do NOT pad with tangential topics the user didn't ask about.
 - Do NOT write a "Unified Report" or "Synthesis Report" — just answer the question.
 - Aim for 200-400 words, not 2000.
@@ -87,23 +119,19 @@ RIGHT: ["economic outlook and business risks for 2027"]\
 
 class ResearchCrew:
     def run(self, topic: str, parent_task_id: str = None, difficulty: int = 5) -> str:
-        # Delegation-mode switch: when enabled via the dashboard Org Chart,
-        # route to the Coordinator + 3-specialist variant instead of a
-        # single monolithic researcher.  Preserves full tool palette on
-        # any provider without hitting tool-count limits.
-        try:
-            from app.crews.delegation_settings import is_enabled
-            if is_enabled("research"):
-                from app.crews.delegated_research import DelegatedResearchCrew
-                return DelegatedResearchCrew().run(
-                    topic, parent_task_id=parent_task_id, difficulty=difficulty,
-                )
-        except Exception:
-            logger.warning(
-                "Delegated research crew failed; falling back to single-agent",
-                exc_info=True,
-            )
-        return self._run_single_agent(topic, parent_task_id, difficulty)
+        # Delegation-mode switch handled by the shared dispatcher: when
+        # the Org Chart toggle is ON, route to Coordinator + 3-specialist
+        # variant; otherwise use the single-agent path (which has its
+        # own nested sub-task structure for parallel subtopics).
+        from app.crews.delegation import dispatch, lazy
+        return dispatch(
+            "research",
+            delegated_cls=lazy("app.crews.delegated_research", "DelegatedResearchCrew"),
+            single_agent_fn=self._run_single_agent,
+            topic=topic,
+            parent_task_id=parent_task_id,
+            difficulty=difficulty,
+        )
 
     def _run_single_agent(self, topic: str, parent_task_id: str = None, difficulty: int = 5) -> str:
         """Run research, spawning sub-agents in parallel for complex topics.
