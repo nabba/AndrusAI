@@ -318,8 +318,75 @@ def control_plane_health():
 
 @router.get("/costs/by-agent")
 def costs_by_agent(project_id: str = Query(None)):
-    from app.control_plane.audit import get_audit
-    return get_audit().cost_summary(project_id)
+    """Per-agent / per-crew cost breakdown.
+
+    Combines two sources so every crew and every agent role shows up:
+      * ``llm_benchmarks.request_costs`` (SQLite) grouped by ``crew_name``
+        — has the broader historical picture with real per-crew tagging
+        from the crew tracker.
+      * ``control_plane.budgets`` (Postgres) grouped by ``agent_role``
+        — adds agent roles that crews haven't touched yet (coder,
+        commander, critic, writer, …) so idle slots still render.
+
+    Rows are merged on ``actor`` and returned in total-cost-descending
+    order. The legacy ``audit_log.cost_summary`` path collapsed every
+    LLM cost into a single ``actor='system'`` row because the
+    cost-bearing audit event (``ticket.completed``) is always written
+    by the system — useless for a breakdown chart.
+    """
+    by_actor: dict[str, dict] = {}
+
+    # Source 1 — per-crew from the SQLite tracker (year-long window).
+    try:
+        from app.llm_benchmarks import get_crew_cost_stats
+        for row in get_crew_cost_stats("year", project_id=project_id) or []:
+            name = row.get("crew") or "unknown"
+            entry = by_actor.setdefault(
+                name, {"actor": name, "calls": 0, "total_cost": 0.0, "total_tokens": 0}
+            )
+            entry["calls"] += int(row.get("requests") or 0)
+            entry["total_cost"] += float(row.get("total_cost_usd") or 0.0)
+            # avg_tokens * requests is the best reconstruction available
+            avg_tokens = float(row.get("avg_tokens") or 0.0)
+            entry["total_tokens"] += int(avg_tokens * (row.get("requests") or 0))
+    except Exception as exc:
+        logger.debug("costs_by_agent: crew stats read failed: %s", exc)
+
+    # Source 2 — per-agent from the budgets table.
+    try:
+        from app.control_plane.db import execute
+        sql = (
+            """SELECT COALESCE(NULLIF(agent_role, ''), 'unknown') AS actor,
+                      SUM(spent_usd)    AS total_cost,
+                      SUM(spent_tokens) AS total_tokens
+                 FROM control_plane.budgets
+                WHERE spent_usd > 0
+            """
+        )
+        params: tuple = ()
+        if project_id:
+            sql += " AND project_id::text = %s"
+            params = (project_id,)
+        sql += " GROUP BY COALESCE(NULLIF(agent_role, ''), 'unknown')"
+        for r in execute(sql, params, fetch=True) or []:
+            name = r["actor"]
+            entry = by_actor.setdefault(
+                name, {"actor": name, "calls": 0, "total_cost": 0.0, "total_tokens": 0}
+            )
+            # Don't double-count if the same name already came from crew
+            # stats; the SQLite source is more granular (per-call), so
+            # treat budgets as the fallback only.
+            if entry["total_cost"] == 0.0:
+                entry["total_cost"] = float(r["total_cost"] or 0)
+                entry["total_tokens"] = int(r["total_tokens"] or 0)
+    except Exception as exc:
+        logger.debug("costs_by_agent: budgets read failed: %s", exc)
+
+    items = sorted(by_actor.values(), key=lambda x: x["total_cost"], reverse=True)
+    return {
+        "by_actor": items,
+        "total_cost": round(sum(i["total_cost"] for i in items), 6),
+    }
 
 @router.get("/costs/daily")
 def costs_daily(project_id: str = Query(None), days: int = Query(30)):
@@ -924,4 +991,89 @@ def consciousness_indicators(history_limit: int = Query(30, ge=1, le=200)):
         "history": history,
         "homeostasis": homeostasis,
         "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── Observability snapshots ─────────────────────────────────────────
+#
+# These endpoints expose the Postgres-backed observability snapshot
+# store (see ``app/observability/snapshots.py``) so the React dashboard
+# can read them without going through Firestore.  Part of the
+# Firebase-dependency reduction: as publishers migrate to write
+# snapshots, the corresponding dashboard pages switch to these
+# endpoints and the Firestore collection for that concern goes unread.
+
+
+@router.get("/observability/snapshots/{kind}/latest")
+def observability_snapshot_latest(kind: str):
+    """Return the most recent snapshot of the given ``kind``, or 404 if
+    nothing has been recorded.  Shape: ``{ts, kind, payload}``."""
+    from app.observability.snapshots import latest as _latest
+    snap = _latest(kind)
+    if snap is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No snapshot recorded for kind={kind!r}",
+        )
+    return {
+        "ts": snap.ts.isoformat() if hasattr(snap.ts, "isoformat") else str(snap.ts),
+        "kind": snap.kind,
+        "payload": snap.payload,
+    }
+
+
+@router.get("/observability/snapshots/{kind}/recent")
+def observability_snapshot_recent(
+    kind: str,
+    limit: int = Query(default=50, ge=1, le=500),
+):
+    """Return the most recent ``limit`` snapshots for ``kind``, newest
+    first.  Empty list if nothing has been recorded for that kind."""
+    from app.observability.snapshots import recent as _recent
+    snaps = _recent(kind, limit=limit)
+    return {
+        "kind": kind,
+        "count": len(snaps),
+        "items": [
+            {
+                "ts": s.ts.isoformat() if hasattr(s.ts, "isoformat") else str(s.ts),
+                "payload": s.payload,
+            }
+            for s in snaps
+        ],
+    }
+
+
+@router.get("/observability/snapshots")
+def observability_snapshot_kinds():
+    """Return every distinct ``kind`` currently recorded + its newest
+    timestamp.  Useful for dashboards to discover what's available
+    without enumerating hardcoded kinds.
+    """
+    try:
+        from app.control_plane.db import execute
+        rows = execute(
+            """
+            SELECT kind, MAX(ts) AS latest_ts, COUNT(*) AS count
+              FROM observability_snapshots
+          GROUP BY kind
+          ORDER BY MAX(ts) DESC
+            """,
+            fetch=True,
+        )
+    except Exception:
+        rows = []
+    return {
+        "kinds": [
+            {
+                "kind": r.get("kind") if isinstance(r, dict) else r[0],
+                "latest_ts": (
+                    (r.get("latest_ts") if isinstance(r, dict) else r[1]).isoformat()
+                    if (r.get("latest_ts") if isinstance(r, dict) else r[1])
+                    else None
+                ),
+                "count": r.get("count") if isinstance(r, dict) else r[2],
+            }
+            for r in (rows or [])
+        ],
     }
