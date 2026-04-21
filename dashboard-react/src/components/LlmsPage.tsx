@@ -112,7 +112,10 @@ function CatalogTab() {
     <div className="space-y-6">
       {catQ.data?.error && <div className="text-xs text-[#fbbf24]">{catQ.data.error}</div>}
 
-      {/* Role assignments table */}
+      {/* Role assignments — one card per role. A hand-pin on this
+          (role, cost_mode) gets a 📌 badge + inline "unpin" action so
+          the user never has to scroll past 360 model cards to find the
+          unpin button. */}
       <section>
         <h3 className="text-xs font-medium text-[#7a8599] uppercase tracking-wider mb-2">
           Role Assignments — cost mode: <span className="text-[#60a5fa]">{costMode}</span>
@@ -122,24 +125,81 @@ function CatalogTab() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {Object.entries(roleAssignments).map(([role, model]) => {
+              const activePin = (pinsQ.data?.pins ?? []).find(
+                (p) => p.role === role && p.cost_mode === costMode,
+              );
               const override = overrides.find((o) => o.role === role && o.cost_mode === costMode);
               return (
-                <div key={role} className="flex items-center justify-between bg-[#0a0e14] border border-[#1e2738] rounded-lg px-3 py-2">
-                  <span className="text-xs text-[#a78bfa] uppercase tracking-wider">{role}</span>
-                  <div className="text-right min-w-0">
-                    <div className="text-xs text-[#e2e8f0] truncate">{model}</div>
-                    {override && (
-                      <div className="text-[10px] text-[#7a8599]">
-                        via {override.source ?? 'override'}{override.assigned_by ? ` · by ${override.assigned_by}` : ''}
+                <div
+                  key={role}
+                  className={`bg-[#0a0e14] border rounded-lg px-3 py-2 ${
+                    activePin ? 'border-[#fbbf24]/50 ring-1 ring-[#fbbf24]/20' : 'border-[#1e2738]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-[#a78bfa] uppercase tracking-wider">{role}</span>
+                    <div className="text-right min-w-0 flex-1">
+                      <div className="text-xs text-[#e2e8f0] truncate flex items-center justify-end gap-1">
+                        {activePin && <span title="Hand-pinned">📌</span>}
+                        {model}
                       </div>
-                    )}
+                      {override && (
+                        <div className="text-[10px] text-[#7a8599]">
+                          via {override.source ?? 'override'}
+                          {override.assigned_by ? ` · by ${override.assigned_by}` : ''}
+                        </div>
+                      )}
+                    </div>
                   </div>
+                  {activePin && (
+                    <div className="flex justify-end mt-1">
+                      <button
+                        onClick={() =>
+                          unpin.mutate({ role: activePin.role, cost_mode: activePin.cost_mode })
+                        }
+                        disabled={unpin.isPending}
+                        className="text-[10px] text-[#f87171] hover:underline disabled:opacity-50"
+                        title="Remove hand-pin — resolver takes back over"
+                      >
+                        {unpin.isPending ? 'unpinning…' : '✕ unpin'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         )}
       </section>
+
+      {/* Global promotions strip — one chip per promoted model with a
+          quick "demote" action. Surfaces layer-2 state at the top of
+          the page so it's never buried. */}
+      {(promotionsQ.data?.promotions?.length ?? 0) > 0 && (
+        <section>
+          <h3 className="text-xs font-medium text-[#7a8599] uppercase tracking-wider mb-2">
+            Promoted models (resolver first choice where they fit)
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {(promotionsQ.data?.promotions ?? []).map((p) => (
+              <div
+                key={p.model}
+                className="flex items-center gap-2 bg-[#0a0e14] border border-[#34d399]/40 rounded-lg px-2 py-1"
+              >
+                <span className="text-xs text-[#34d399]">🚀 {p.model}</span>
+                <button
+                  onClick={() => demote.mutate({ model: p.model })}
+                  disabled={demote.isPending}
+                  className="text-[10px] text-[#7a8599] hover:text-[#f87171] disabled:opacity-50"
+                  title={`promoted by ${p.promoted_by}${p.reason ? ` — ${p.reason}` : ''}`}
+                >
+                  demote
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Model catalog grouped by tier */}
       <section>
