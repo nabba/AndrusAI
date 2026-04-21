@@ -146,6 +146,18 @@ class TicketManager:
     def complete(self, ticket_id: str, result_summary: str,
                  cost_usd: float = 0, tokens: int = 0) -> None:
         """Mark ticket done with cost and result summary."""
+        from app.control_plane.db import execute_one
+        project_id = None
+        try:
+            row = execute_one(
+                "SELECT project_id FROM control_plane.tickets WHERE id = %s",
+                (ticket_id,),
+            )
+            if row:
+                pid = row.get("project_id") if isinstance(row, dict) else row[0]
+                project_id = str(pid) if pid is not None else None
+        except Exception:
+            pass
         execute(
             """UPDATE control_plane.tickets
                SET status = 'done', result_summary = %s,
@@ -156,6 +168,7 @@ class TicketManager:
         )
         self.audit.log(
             actor="system", action="ticket.completed",
+            project_id=project_id,
             resource_type="ticket", resource_id=str(ticket_id),
             cost_usd=cost_usd, tokens=tokens,
             detail={"result_preview": result_summary[:200]},
