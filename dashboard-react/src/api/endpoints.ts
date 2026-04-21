@@ -59,6 +59,12 @@ export const endpoints = {
   llmRoles: () => `${CP}/llms/roles`,
   llmDiscovery: (limit = 50) => `${CP}/llms/discovery?limit=${limit}`,
   llmDiscoveryRun: () => `${CP}/llms/discovery/run`,
+  llmPromotions: () => `${CP}/llms/promotions`,
+  llmPromote: () => `${CP}/llms/promote`,
+  llmDemote: () => `${CP}/llms/demote`,
+  llmPins: () => `${CP}/llms/pins`,
+  llmPin: () => `${CP}/llms/pin`,
+  llmUnpin: () => `${CP}/llms/unpin`,
 
   // Evolution genealogy (variants)
   evolutionVariants: (n = 30) => `${CP}/evolution/variants?n=${n}`,

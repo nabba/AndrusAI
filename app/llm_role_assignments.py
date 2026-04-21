@@ -30,6 +30,12 @@ from typing import Iterable
 
 logger = logging.getLogger(__name__)
 
+# Priority bands drive resolver authority. Hand-pins (priority ≥ this
+# floor) are hard overrides — the resolver returns them directly without
+# scoring. Everything below is advisory / historical and gets filtered
+# out of the hot path.
+HAND_PIN_PRIORITY: int = 1000
+
 # ── Cache ────────────────────────────────────────────────────────────────
 # Role assignment queries sit on the selector's hot path. Assignments change
 # on the order of minutes (governance approvals, promotions); a 5-second
@@ -70,6 +76,13 @@ def invalidate_cache(role: str | None = None, cost_mode: str | None = None) -> N
 # ── Queries ──────────────────────────────────────────────────────────────
 
 def _query_assigned_model(role: str, cost_mode: str) -> str | None:
+    """Return the top hand-pin for (role, cost_mode), or None.
+
+    Hand-pins are overlay rows with ``priority ≥ HAND_PIN_PRIORITY``.
+    Lower-priority rows (legacy auto_promotion artefacts, future
+    suggestion layers) are NOT returned from this function — they
+    surface only via ``list_assignments`` for the dashboard.
+    """
     try:
         from app.control_plane.db import execute_scalar
         return execute_scalar(
@@ -79,10 +92,11 @@ def _query_assigned_model(role: str, cost_mode: str) -> str | None:
              WHERE role = %s
                AND cost_mode = %s
                AND active = TRUE
+               AND priority >= %s
           ORDER BY priority DESC, created_at DESC
              LIMIT 1
             """,
-            (role, cost_mode),
+            (role, cost_mode, HAND_PIN_PRIORITY),
         )
     except Exception as exc:
         logger.debug(f"role_assignments: query failed: {exc}")
@@ -90,12 +104,15 @@ def _query_assigned_model(role: str, cost_mode: str) -> str | None:
 
 
 def get_assigned_model(role: str, cost_mode: str) -> str | None:
-    """Return the currently active model for the (role, cost_mode) pair,
-    or ``None`` if no active overlay exists.
+    """Return the active HAND-PIN for (role, cost_mode), or ``None``.
 
-    The returned string is a *catalog key* (e.g. ``"deepseek-v3.2"``),
-    not a provider-prefixed model_id. Callers must verify that the key
-    is present in ``CATALOG`` before using it.
+    Returns only manual (hand-pinned) overrides — the resolver's
+    "return directly without scoring" layer. Auto-promotion rows and
+    other advisory overlays are excluded; use :func:`list_assignments`
+    when you need the full history.
+
+    The returned string is a *catalog key*. Callers should still
+    verify ``override in CATALOG`` before using it.
     """
     if not role or not cost_mode:
         return None
@@ -266,3 +283,108 @@ def bulk_set(
         ):
             written += 1
     return written
+
+
+# ── Hand-pin convenience layer ──────────────────────────────────────
+# Hand-pins are the strongest layer in the resolver's authority cake.
+# They write to the same ``role_assignments`` table but always at
+# priority ≥ HAND_PIN_PRIORITY and source='manual' so ``get_assigned_model``
+# recognises them. ``unpin_role`` retires every active hand-pin for the
+# (role, cost_mode) pair — legacy priority-100 auto_promotion rows are
+# left alone.
+
+def pin_role(
+    role: str,
+    cost_mode: str,
+    model: str,
+    *,
+    assigned_by: str = "user",
+    reason: str = "",
+) -> bool:
+    """Hand-assign ``model`` to ``(role, cost_mode)`` — hard override.
+
+    The resolver will return this model directly without scoring while
+    the pin is active. ``unpin_role`` removes the pin and the resolver
+    takes back over.
+    """
+    return set_assignment(
+        role=role,
+        cost_mode=cost_mode,
+        model=model,
+        source="manual",
+        reason=reason,
+        assigned_by=assigned_by,
+        priority=HAND_PIN_PRIORITY,
+    )
+
+
+def unpin_role(role: str, cost_mode: str) -> int:
+    """Retire every active hand-pin for ``(role, cost_mode)``.
+
+    Returns the number of rows retired. Does NOT touch lower-priority
+    overlays (auto_promotion artefacts) — use ``retire_assignment``
+    for surgical removals.
+    """
+    try:
+        from app.control_plane.db import execute
+        rows = execute(
+            """
+            UPDATE control_plane.role_assignments
+               SET active = FALSE,
+                   retired_at = NOW(),
+                   reason = COALESCE(NULLIF(reason, ''), '') || ' [unpinned]'
+             WHERE role = %s
+               AND cost_mode = %s
+               AND active = TRUE
+               AND priority >= %s
+         RETURNING role, cost_mode, model
+            """,
+            (role, cost_mode, HAND_PIN_PRIORITY),
+            fetch=True,
+        ) or []
+        invalidate_cache(role, cost_mode)
+        if rows:
+            logger.info(
+                "role_assignments: unpinned %d hand-pin(s) for (%s, %s)",
+                len(rows), role, cost_mode,
+            )
+        return len(rows)
+    except Exception as exc:
+        logger.warning(f"role_assignments: unpin failed: {exc}")
+        return 0
+
+
+def list_pins() -> list[dict]:
+    """Return all active hand-pins (priority ≥ HAND_PIN_PRIORITY)."""
+    try:
+        from app.control_plane.db import execute
+        return execute(
+            """
+            SELECT role, cost_mode, model, priority, source, reason,
+                   assigned_by, created_at
+              FROM control_plane.role_assignments
+             WHERE active = TRUE
+               AND priority >= %s
+          ORDER BY role, cost_mode, priority DESC
+            """,
+            (HAND_PIN_PRIORITY,),
+            fetch=True,
+        ) or []
+    except Exception:
+        return []
+
+
+def format_pins() -> str:
+    """Human-readable pin list for Signal output."""
+    rows = list_pins()
+    if not rows:
+        return "No hand-pinned role assignments. Use `pin <role> <cost_mode> <model>`."
+    lines = [f"📌 Hand-pinned assignments ({len(rows)}):"]
+    for r in rows:
+        who = r.get("assigned_by", "?")
+        reason = r.get("reason") or ""
+        tail = f" — {reason}" if reason else ""
+        lines.append(
+            f"  · {r['role']:<14} [{r['cost_mode']:<8}] → {r['model']:<30} by {who}{tail}"
+        )
+    return "\n".join(lines)

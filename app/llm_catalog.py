@@ -376,17 +376,31 @@ def _filter_candidates(
 
 
 def resolve_role_default(role: str, cost_mode: str = "balanced") -> str:
-    """Score-based role → catalog-key resolution.
+    """Three-layer role → catalog-key resolution.
 
-    Replaces the hand-coded ``ROLE_DEFAULTS`` dict. Picks the highest-
-    scoring candidate that satisfies the role's hard constraints, where
-    the score is a blend of live telemetry, auto-derived strengths,
-    tool-use reliability, and a cost penalty controlled by ``cost_mode``.
+    Authority (strongest first):
+      1. **Hand-pin** — active overlay in ``control_plane.role_assignments``
+         with ``priority ≥ HAND_PIN_PRIORITY`` (source='manual').
+         Returned directly; no scoring. ``unpin_role`` removes the pin.
+      2. **Promotion** — catalog entries present in
+         ``control_plane.model_promotions``. If any promoted model fits
+         the role's hard constraints, candidates are filtered down to
+         the promoted set before scoring. ``demote`` removes the flag.
+      3. **Pool** — regular blended scoring (telemetry + catalog
+         strengths + tool-use reliability minus cost penalty).
 
-    When no candidate survives the hard filters (possible if the catalog
-    hasn't been refreshed and only 3 bootstrap entries exist), returns
+    When no candidate survives the hard filters, returns
     ``"claude-sonnet-4.6"`` — the universal bootstrap fallback.
     """
+    # Layer 1: hand-pin hard override
+    try:
+        from app.llm_role_assignments import get_assigned_model
+        pin = get_assigned_model(role, cost_mode)
+        if pin and pin in CATALOG:
+            return pin
+    except Exception:
+        pass  # graceful degradation to layer 2/3
+
     task_type = canonical_task_type(role=role)
     tier_floor = _ROLE_TIER_FLOOR.get(role, _ROLE_TIER_FLOOR["default"])
     needs_multimodal = task_type == "multimodal"
@@ -401,6 +415,18 @@ def resolve_role_default(role: str, cost_mode: str = "balanced") -> str:
         local_cands = [c for c in candidates if CATALOG[c].get("tier") == "local"]
         if local_cands:
             candidates = local_cands
+
+    # Layer 2: promotion filter
+    try:
+        from app.llm_promotions import list_promoted
+        promoted = list_promoted()
+        if promoted:
+            promoted_candidates = [c for c in candidates if c in promoted]
+            if promoted_candidates:
+                # At least one promoted model fits → restrict to promoted.
+                candidates = promoted_candidates
+    except Exception:
+        pass  # missing promotions table just means layer 2 is inert
 
     if not candidates:
         return "claude-sonnet-4.6"

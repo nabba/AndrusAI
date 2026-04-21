@@ -56,6 +56,8 @@ export const keys = {
   llmCatalog: ['llms', 'catalog'] as const,
   llmRoles: ['llms', 'roles'] as const,
   llmDiscovery: (limit: number) => ['llms', 'discovery', limit] as const,
+  llmPromotions: ['llms', 'promotions'] as const,
+  llmPins: ['llms', 'pins'] as const,
   evolutionVariants: (n: number) => ['evolution', 'variants', n] as const,
   evolutionVariantLineage: (id: string) => ['evolution', 'variant-lineage', id] as const,
   notesRoots: ['notes', 'roots'] as const,
@@ -756,6 +758,112 @@ export function useRunLlmDiscovery() {
       api<{ status: string; result: Record<string, unknown> }>(endpoints.llmDiscoveryRun(), {
         method: 'POST',
         body: JSON.stringify({ max_benchmarks }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llms'] });
+    },
+  });
+}
+
+// ── Promotions + hand pins ──────────────────────────────────────────────────
+
+export interface PromotionRow {
+  model: string;
+  promoted_by: string;
+  reason?: string | null;
+  created_at?: string;
+}
+
+export interface PromotionsReport {
+  promotions: PromotionRow[];
+  updated_at?: string;
+  error?: string | null;
+}
+
+export interface PinRow {
+  role: string;
+  cost_mode: string;
+  model: string;
+  priority?: number;
+  source?: string;
+  reason?: string | null;
+  assigned_by?: string;
+  created_at?: string;
+}
+
+export interface PinsReport {
+  pins: PinRow[];
+  updated_at?: string;
+  error?: string | null;
+}
+
+export function useLlmPromotionsQuery() {
+  return useQuery({
+    queryKey: keys.llmPromotions,
+    queryFn: () => api<PromotionsReport>(endpoints.llmPromotions()),
+    refetchInterval: POLL.oneMin,
+  });
+}
+
+export function useLlmPinsQuery() {
+  return useQuery({
+    queryKey: keys.llmPins,
+    queryFn: () => api<PinsReport>(endpoints.llmPins()),
+    refetchInterval: POLL.oneMin,
+  });
+}
+
+export function usePromoteModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ model, reason }: { model: string; reason?: string }) =>
+      api<{ status: string; model: string }>(endpoints.llmPromote(), {
+        method: 'POST',
+        body: JSON.stringify({ model, reason: reason ?? '' }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llms'] });
+    },
+  });
+}
+
+export function useDemoteModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ model }: { model: string }) =>
+      api<{ status: string; model: string }>(endpoints.llmDemote(), {
+        method: 'POST',
+        body: JSON.stringify({ model }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llms'] });
+    },
+  });
+}
+
+export function usePinRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      body: { role: string; cost_mode: string; model: string; reason?: string },
+    ) =>
+      api<{ status: string }>(endpoints.llmPin(), {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llms'] });
+    },
+  });
+}
+
+export function useUnpinRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { role: string; cost_mode: string }) =>
+      api<{ status: string; retired: number }>(endpoints.llmUnpin(), {
+        method: 'POST',
+        body: JSON.stringify(body),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['llms'] });

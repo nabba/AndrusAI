@@ -303,14 +303,29 @@ def _update_benchmark(model_id: str, score: float, role: str) -> None:
     )
 
 def _promote_model(model_id: str, tier: str, roles: list[str], reviewer: str = "system") -> None:
-    """Mark a model as promoted."""
+    """Mark a model as promoted in ``discovered_models``.
+
+    ``promoted_roles`` is **merged** with the existing array — each
+    call appends to the set of roles the model is endorsed for.
+    Previously this was an outright replace, which meant a second
+    approval for a different role clobbered the first.
+    """
     from app.control_plane.db import execute
     execute(
-        """UPDATE control_plane.discovered_models
-           SET status = 'promoted', promoted_tier = %s,
-               promoted_roles = %s, promoted_at = NOW(),
-               reviewed_by = %s, updated_at = NOW()
-           WHERE model_id = %s""",
+        """
+        UPDATE control_plane.discovered_models
+           SET status = 'promoted',
+               promoted_tier = %s,
+               promoted_roles = ARRAY(
+                   SELECT DISTINCT unnest(
+                       COALESCE(promoted_roles, ARRAY[]::text[]) || %s::text[]
+                   )
+               ),
+               promoted_at = COALESCE(promoted_at, NOW()),
+               reviewed_by = %s,
+               updated_at = NOW()
+         WHERE model_id = %s
+        """,
         (tier, roles, reviewer, model_id),
     )
 
@@ -1482,6 +1497,31 @@ def consume_approved_promotions(limit: int = 10) -> dict:
                 model_id, tier, [role],
                 reviewer=row.get("reviewed_by") or "governance",
             )
+
+            # Three-layer authority wiring:
+            #   - discovered_models.status = 'promoted' (above)
+            #   - model_promotions row     (below) → resolver prefers it
+            #   - rehydrate_catalog pulls the entry into live CATALOG so
+            #     the resolver sees it on the very next selection.
+            catalog_key = (
+                model_id.split("/")[-1] if "/" in model_id else model_id
+            )
+            try:
+                from app.llm_promotions import promote
+                promote(
+                    catalog_key,
+                    promoted_by=f"governance:{row.get('reviewed_by') or 'user'}",
+                    reason=f"approved for {role} via governance request {row.get('id')}",
+                )
+            except Exception as exc:
+                logger.debug(f"llm_discovery: model_promotions insert failed: {exc}")
+
+            try:
+                from app.llm_rehydrate import rehydrate_catalog
+                rehydrate_catalog(force=True)
+            except Exception as exc:
+                logger.debug(f"llm_discovery: rehydrate after promotion failed: {exc}")
+
             execute(
                 """
                 UPDATE control_plane.governance_requests

@@ -564,6 +564,123 @@ def llm_discovery_run(body: DiscoveryRun):
         logger.warning("llms/discovery/run failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
+
+# ── Promotions (layer 2 of the resolver's authority cake) ────────────
+
+class PromoteRequest(BaseModel):
+    model: str
+    reason: str = ""
+
+@router.get("/llms/promotions")
+def llm_promotions_endpoint():
+    """List currently-promoted models (global boost)."""
+    try:
+        from app.llm_promotions import list_promotions_with_detail
+        return {
+            "promotions": list_promotions_with_detail(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.debug("llms/promotions endpoint: %s", exc)
+        return {"promotions": [], "error": str(exc)}
+
+@router.post("/llms/promote")
+def llm_promote_endpoint(body: PromoteRequest):
+    """Promote a catalog model — becomes resolver's first choice where it fits."""
+    try:
+        from app.llm_promotions import promote
+        ok = promote(
+            body.model,
+            promoted_by="user:dashboard",
+            reason=body.reason or "dashboard promotion",
+        )
+        if not ok:
+            raise HTTPException(
+                status_code=400,
+                detail=f"model {body.model!r} not in live CATALOG",
+            )
+        return {"status": "ok", "model": body.model}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("llms/promote failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+class DemoteRequest(BaseModel):
+    model: str
+
+@router.post("/llms/demote")
+def llm_demote_endpoint(body: DemoteRequest):
+    """Remove a promotion. Model returns to the regular scored pool."""
+    try:
+        from app.llm_promotions import demote
+        demote(body.model)
+        return {"status": "ok", "model": body.model}
+    except Exception as exc:
+        logger.warning("llms/demote failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Hand pins (layer 3 — hard override) ───────────────────────────────
+
+class PinRequest(BaseModel):
+    role: str
+    cost_mode: str = "balanced"
+    model: str
+    reason: str = ""
+
+@router.get("/llms/pins")
+def llm_pins_endpoint():
+    """List currently-active hand pins."""
+    try:
+        from app.llm_role_assignments import list_pins
+        return {
+            "pins": list_pins(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.debug("llms/pins endpoint: %s", exc)
+        return {"pins": [], "error": str(exc)}
+
+@router.post("/llms/pin")
+def llm_pin_endpoint(body: PinRequest):
+    """Hand-pin a model to (role, cost_mode) — hard resolver override."""
+    try:
+        from app.llm_role_assignments import pin_role
+        ok = pin_role(
+            body.role, body.cost_mode, body.model,
+            assigned_by="user:dashboard",
+            reason=body.reason or "dashboard pin",
+        )
+        if not ok:
+            raise HTTPException(
+                status_code=400,
+                detail=f"pin rejected — {body.model!r} not in live CATALOG",
+            )
+        return {"status": "ok", "role": body.role,
+                "cost_mode": body.cost_mode, "model": body.model}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("llms/pin failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+class UnpinRequest(BaseModel):
+    role: str
+    cost_mode: str = "balanced"
+
+@router.post("/llms/unpin")
+def llm_unpin_endpoint(body: UnpinRequest):
+    """Remove hand pins for (role, cost_mode). Resolver takes back over."""
+    try:
+        from app.llm_role_assignments import unpin_role
+        n = unpin_role(body.role, body.cost_mode)
+        return {"status": "ok", "retired": n,
+                "role": body.role, "cost_mode": body.cost_mode}
+    except Exception as exc:
+        logger.warning("llms/unpin failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
 # ── Crew tasks (live execution + roster) ─────────────────────────────────────
 
 # Canonical crew roster. "kind" distinguishes user-addressable crews (routed

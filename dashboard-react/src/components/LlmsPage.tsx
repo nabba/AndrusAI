@@ -9,11 +9,25 @@ import {
   useTechRadarQuery,
   useLlmModeQuery,
   useSetLlmMode,
+  useLlmPromotionsQuery,
+  useLlmPinsQuery,
+  usePromoteModel,
+  useDemoteModel,
+  usePinRole,
+  useUnpinRole,
   type LlmModel,
   type DiscoveredModel,
   type TechDiscovery,
   type LlmMode,
 } from '../api/queries';
+
+// Roles the resolver knows about — used by the pin dialog.
+const PINNABLE_ROLES = [
+  'commander', 'coding', 'research', 'writing', 'media', 'critic',
+  'vetting', 'synthesis', 'introspector', 'self_improve',
+  'planner', 'evo_critic', 'default',
+] as const;
+const COST_MODES = ['budget', 'balanced', 'quality'] as const;
 
 type LlmsTab = 'catalog' | 'discovery' | 'radar';
 
@@ -56,6 +70,16 @@ function relTime(iso?: string): string {
 function CatalogTab() {
   const catQ = useLlmCatalogQuery();
   const rolesQ = useLlmRolesQuery();
+  const promotionsQ = useLlmPromotionsQuery();
+  const pinsQ = useLlmPinsQuery();
+  const promote = usePromoteModel();
+  const demote = useDemoteModel();
+  const pin = usePinRole();
+  const unpin = useUnpinRole();
+  const [pinDialog, setPinDialog] = useState<
+    | null
+    | { model: string; role: string; cost_mode: string; reason: string }
+  >(null);
 
   if (catQ.isLoading) return <Skeleton className="h-64" />;
   if (catQ.error) return <ErrorPanel error={catQ.error} onRetry={catQ.refetch} />;
@@ -64,6 +88,13 @@ function CatalogTab() {
   const roleAssignments = catQ.data?.role_assignments ?? {};
   const costMode = catQ.data?.cost_mode ?? 'balanced';
   const overrides = rolesQ.data?.assignments ?? [];
+  const promotedSet = new Set(
+    (promotionsQ.data?.promotions ?? []).map((p) => p.model),
+  );
+  const pinsByModel: Record<string, { role: string; cost_mode: string }[]> = {};
+  for (const p of pinsQ.data?.pins ?? []) {
+    (pinsByModel[p.model] ||= []).push({ role: p.role, cost_mode: p.cost_mode });
+  }
 
   // Group models by tier.
   const byTier = new Map<string, LlmModel[]>();
@@ -127,13 +158,150 @@ function CatalogTab() {
                   <span className="text-[10px] text-[#7a8599]">{rows.length} model{rows.length === 1 ? '' : 's'}</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {rows.map((m) => <ModelCard key={m.name} model={m} assignedRoles={Object.entries(roleAssignments).filter(([, mod]) => mod === m.name).map(([r]) => r)} />)}
+                  {rows.map((m) => (
+                    <ModelCard
+                      key={m.name}
+                      model={m}
+                      assignedRoles={Object.entries(roleAssignments).filter(([, mod]) => mod === m.name).map(([r]) => r)}
+                      promoted={promotedSet.has(m.name)}
+                      pins={pinsByModel[m.name] ?? []}
+                      onTogglePromote={(model) => {
+                        if (promotedSet.has(model)) demote.mutate({ model });
+                        else promote.mutate({ model });
+                      }}
+                      onOpenPin={(model) =>
+                        setPinDialog({
+                          model,
+                          role: PINNABLE_ROLES[0],
+                          cost_mode: costMode,
+                          reason: '',
+                        })
+                      }
+                      promoteBusy={promote.isPending || demote.isPending}
+                    />
+                  ))}
                 </div>
               </div>
             );
           })}
         </div>
       </section>
+
+      {/* Pin dialog (opens from any ModelCard) */}
+      {pinDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setPinDialog(null)}
+        >
+          <div
+            className="bg-[#0a0e14] border border-[#1e2738] rounded-lg p-4 w-full max-w-md space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h4 className="text-sm font-medium text-[#e2e8f0]">
+              Pin <span className="text-[#a78bfa]">{pinDialog.model}</span>
+            </h4>
+            <p className="text-[11px] text-[#7a8599]">
+              Hand-pin overrides the resolver for the chosen role + cost_mode.
+              Remove the pin to let scoring take over again.
+            </p>
+
+            <label className="block text-[10px] uppercase tracking-wider text-[#7a8599]">Role</label>
+            <select
+              value={pinDialog.role}
+              onChange={(e) => setPinDialog({ ...pinDialog, role: e.target.value })}
+              className="w-full bg-[#0a0e14] border border-[#1e2738] rounded px-2 py-1.5 text-sm text-[#e2e8f0]"
+            >
+              {PINNABLE_ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+
+            <label className="block text-[10px] uppercase tracking-wider text-[#7a8599]">Cost mode</label>
+            <select
+              value={pinDialog.cost_mode}
+              onChange={(e) => setPinDialog({ ...pinDialog, cost_mode: e.target.value })}
+              className="w-full bg-[#0a0e14] border border-[#1e2738] rounded px-2 py-1.5 text-sm text-[#e2e8f0]"
+            >
+              {COST_MODES.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+
+            <label className="block text-[10px] uppercase tracking-wider text-[#7a8599]">Reason (optional)</label>
+            <input
+              value={pinDialog.reason}
+              onChange={(e) => setPinDialog({ ...pinDialog, reason: e.target.value })}
+              placeholder="why this pin?"
+              className="w-full bg-[#0a0e14] border border-[#1e2738] rounded px-2 py-1.5 text-sm text-[#e2e8f0]"
+            />
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={() => setPinDialog(null)}
+                className="px-3 py-1.5 text-sm text-[#7a8599] hover:text-[#e2e8f0]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  pin.mutate({
+                    role: pinDialog.role,
+                    cost_mode: pinDialog.cost_mode,
+                    model: pinDialog.model,
+                    reason: pinDialog.reason || undefined,
+                  });
+                  setPinDialog(null);
+                }}
+                disabled={pin.isPending}
+                className="px-3 py-1.5 text-sm bg-[#a78bfa]/20 border border-[#a78bfa]/40 text-[#a78bfa] rounded hover:bg-[#a78bfa]/30 disabled:opacity-50"
+              >
+                {pin.isPending ? 'Pinning…' : 'Pin'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Active hand-pins (layer 3 overrides) */}
+      {(pinsQ.data?.pins?.length ?? 0) > 0 && (
+        <section>
+          <h3 className="text-xs font-medium text-[#7a8599] uppercase tracking-wider mb-2">
+            Active Hand Pins ({pinsQ.data?.pins.length})
+          </h3>
+          <div className="bg-[#111820] border border-[#1e2738] rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#1e2738]">
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Role</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Cost Mode</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Model</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Reason</th>
+                  <th className="text-right px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#1e2738]">
+                {(pinsQ.data?.pins ?? []).map((p) => (
+                  <tr key={`${p.role}-${p.cost_mode}-${p.model}`}>
+                    <td className="px-3 py-2 text-[#a78bfa]">{p.role}</td>
+                    <td className="px-3 py-2 text-[#7a8599]">{p.cost_mode}</td>
+                    <td className="px-3 py-2 text-[#e2e8f0]">{p.model}</td>
+                    <td className="px-3 py-2 text-[#7a8599] truncate max-w-xs">{p.reason ?? '—'}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        onClick={() => unpin.mutate({ role: p.role, cost_mode: p.cost_mode })}
+                        disabled={unpin.isPending}
+                        className="text-xs text-[#f87171] hover:underline disabled:opacity-50"
+                      >
+                        unpin
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* Postgres role-assignment overrides */}
       {overrides.length > 0 && (
@@ -173,14 +341,39 @@ function CatalogTab() {
   );
 }
 
-function ModelCard({ model, assignedRoles }: { model: LlmModel; assignedRoles: string[] }) {
+function ModelCard({
+  model,
+  assignedRoles,
+  promoted,
+  pins,
+  onTogglePromote,
+  onOpenPin,
+  promoteBusy,
+}: {
+  model: LlmModel;
+  assignedRoles: string[];
+  promoted: boolean;
+  pins: { role: string; cost_mode: string }[];
+  onTogglePromote: (model: string) => void;
+  onOpenPin: (model: string) => void;
+  promoteBusy: boolean;
+}) {
   const tier = (model.tier as string) ?? 'unknown';
   return (
-    <div className="bg-[#0a0e14] border border-[#1e2738] rounded-lg p-3">
+    <div
+      className={`bg-[#0a0e14] border rounded-lg p-3 ${
+        promoted ? 'border-[#34d399]/50 ring-1 ring-[#34d399]/30' : 'border-[#1e2738]'
+      }`}
+    >
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="min-w-0 flex-1">
-          <div className="text-sm text-[#e2e8f0] font-medium truncate">{model.name}</div>
-          <div className="text-[10px] text-[#7a8599] truncate">{model.provider ?? '?'} · ctx {model.context ?? '?'}</div>
+          <div className="text-sm text-[#e2e8f0] font-medium truncate flex items-center gap-1.5">
+            {promoted && <span title="Promoted — resolver's first choice">🚀</span>}
+            {model.name}
+          </div>
+          <div className="text-[10px] text-[#7a8599] truncate">
+            {model.provider ?? '?'} · ctx {model.context ?? '?'}
+          </div>
         </div>
         <span className={`text-[10px] px-1.5 py-0.5 rounded border ${TIER_COLORS[tier] ?? TIER_COLORS.local}`}>
           {tier}
@@ -202,9 +395,40 @@ function ModelCard({ model, assignedRoles }: { model: LlmModel; assignedRoles: s
           ))}
         </div>
       )}
+      {pins.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1">
+          {pins.map((p, i) => (
+            <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-[#fbbf24]/10 text-[#fbbf24] border border-[#fbbf24]/30 uppercase tracking-wider">
+              📌 {p.role}·{p.cost_mode}
+            </span>
+          ))}
+        </div>
+      )}
       {model.description ? (
         <p className="text-[10px] text-[#7a8599] mt-2 line-clamp-2">{String(model.description)}</p>
       ) : null}
+      {/* Actions */}
+      <div className="flex gap-2 mt-3 pt-2 border-t border-[#1e2738]">
+        <button
+          onClick={() => onTogglePromote(model.name)}
+          disabled={promoteBusy}
+          className={
+            promoted
+              ? 'text-[10px] px-2 py-1 rounded bg-[#34d399]/20 border border-[#34d399]/40 text-[#34d399] hover:bg-[#34d399]/30 disabled:opacity-50'
+              : 'text-[10px] px-2 py-1 rounded bg-[#0a0e14] border border-[#1e2738] text-[#7a8599] hover:border-[#34d399]/40 hover:text-[#34d399] disabled:opacity-50'
+          }
+          title={promoted ? 'Click to demote' : 'Promote — becomes resolver first choice where it fits'}
+        >
+          {promoted ? '🚀 promoted · demote' : 'promote'}
+        </button>
+        <button
+          onClick={() => onOpenPin(model.name)}
+          className="text-[10px] px-2 py-1 rounded bg-[#0a0e14] border border-[#1e2738] text-[#7a8599] hover:border-[#fbbf24]/40 hover:text-[#fbbf24]"
+          title="Pin to a specific role + cost_mode — hard resolver override"
+        >
+          📌 pin to role
+        </button>
+      </div>
     </div>
   );
 }
