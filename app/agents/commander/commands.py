@@ -549,12 +549,16 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
             except Exception as exc:
                 return f"Error: {str(exc)[:200]}"
 
+        # Match both word orders: "project switch X" AND "switch project X"
         # Match against original (non-lowercased) input so project name case is preserved
-        _proj_switch = re.match(r"^project\s+switch\s+(\S+)", user_input.strip(), re.IGNORECASE)
+        _proj_switch = re.match(
+            r"^(?:project\s+switch|switch\s+(?:to\s+)?project)\s+(\S+)",
+            user_input.strip(), re.IGNORECASE,
+        )
         if _proj_switch:
             try:
                 from app.control_plane.projects import get_projects
-                name = _proj_switch.group(1)
+                name = _proj_switch.group(1).strip(".,!?")
                 result = get_projects().switch(name)
                 if result:
                     return f"Switched to project: {result.get('name')} — {result.get('mission', '')[:100]}"

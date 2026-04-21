@@ -219,18 +219,38 @@ class ProjectManager:
         # Fallback: use directory name
         return ProjectConfig(name=project_dir.name)
 
+    def _resolve_name(self, project_name: str) -> str | None:
+        """Resolve a project name case-insensitively to its canonical key.
+
+        Returns the canonical (stored) name, or None if no match.
+        """
+        if project_name in self._projects:
+            return project_name
+        # Case-insensitive fallback
+        lowered = project_name.lower()
+        for key in self._projects:
+            if key.lower() == lowered:
+                return key
+        return None
+
     def activate(self, project_name: str) -> ProjectContext:
-        """Activate a project, loading its instructions and variables."""
-        if project_name not in self._projects:
+        """Activate a project, loading its instructions and variables.
+
+        Name matching is case-insensitive — "PLG", "plg", and "Plg" all
+        resolve to the same project.
+        """
+        canonical = self._resolve_name(project_name)
+        if canonical is None:
             self.scan_projects()
-        if project_name not in self._projects:
+            canonical = self._resolve_name(project_name)
+        if canonical is None:
             raise ValueError(
                 f"Unknown project: {project_name}. "
                 f"Available: {list(self._projects.keys())}"
             )
 
-        config = self._projects[project_name]
-        project_dir = self._dir / project_name
+        config = self._projects[canonical]
+        project_dir = self._dir / canonical
 
         # Load agent instruction overrides
         instructions: dict[str, str] = {}
@@ -249,7 +269,7 @@ class ProjectManager:
         with self._lock:
             self._active = ctx
 
-        logger.info(f"project_isolation: activated '{project_name}' "
+        logger.info(f"project_isolation: activated '{canonical}' "
                     f"(ns={ctx.mem0_namespace}, instructions={len(instructions)})")
         return ctx
 

@@ -78,20 +78,30 @@ class ProjectManager:
         return str(self.get_default_project_id() or "")
 
     def switch(self, project_name: str) -> dict | None:
-        """Switch active project context."""
+        """Switch active project context.
+
+        Name matching is case-insensitive (see get_by_name). Passes the
+        canonical DB name to project_isolation.activate() to avoid
+        case-mismatch ValueError on the in-memory dict.
+        """
         project = self.get_by_name(project_name)
         if not project:
             return None
+        canonical_name = project.get("name") or project_name
         with self._lock:
             self._active_project_id = str(project["id"])
-        # Also activate in the existing project_isolation system
+        # Also activate in the existing project_isolation system using the
+        # canonical name (not the user-supplied casing).
         try:
             from app.project_isolation import get_manager
             pm = get_manager()
-            pm.activate(project_name)
+            pm.activate(canonical_name)
         except Exception:
-            pass
-        logger.info(f"control_plane: switched to project '{project_name}'")
+            logger.debug(
+                f"control_plane: project_isolation activate failed for "
+                f"'{canonical_name}'", exc_info=True,
+            )
+        logger.info(f"control_plane: switched to project '{canonical_name}'")
         return project
 
     def get_status(self, project_id: str) -> dict:
