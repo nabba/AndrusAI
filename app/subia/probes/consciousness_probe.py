@@ -262,10 +262,28 @@ class ConsciousnessProbeRunner:
                 return ProbeResult("SM-A", "Damasio Self-Model", 0.5,
                                    "No agent stats available", 0)
 
+            # SELF_MODELS is keyed by *role* name ("researcher", "coder",
+            # "writer"), while agent_state tracks per-*crew* ("research",
+            # "coding", "writing").  Without this translation every
+            # stats.get(role, {}) lookup misses, total_checks stays 0,
+            # and SM-A pins at 0.5 ("no agents with sufficient data")
+            # even when 100+ successful tasks have been recorded.
+            _ROLE_TO_CREW = {
+                "researcher":     "research",
+                "coder":          "coding",
+                "writer":         "writing",
+                "commander":      "commander",
+                "critic":         "critic",
+                "introspector":   "introspector",
+                "self_improver":  "self_improvement",
+                "media_analyst":  "media",
+            }
+
             matches = 0
             total_checks = 0
             for role, model in SELF_MODELS.items():
-                agent_stats = stats.get(role, {})
+                crew_key = _ROLE_TO_CREW.get(role, role)
+                agent_stats = stats.get(crew_key) or stats.get(role) or {}
                 completed = agent_stats.get("tasks_completed", 0)
                 if completed < 3:
                     continue
@@ -388,6 +406,14 @@ class ConsciousnessProbeRunner:
         """
         try:
             from app.control_plane.db import execute
+            # Filter out rows where the certainty-vector computer failed
+            # or was skipped — those rows land in the DB with every
+            # certainty slot at the dataclass default (0.5), which is
+            # indistinguishable from "genuinely medium confidence" and
+            # pollutes the calibration signal.  The ``IS DISTINCT FROM``
+            # comparison treats NULL as "unknown" too, so either missing
+            # or defaulted rows are excluded.  A row with at least one
+            # non-default certainty value passes the filter.
             rows = execute(
                 """
                 SELECT
@@ -398,6 +424,11 @@ class ConsciousnessProbeRunner:
                     risk_tier
                 FROM internal_states
                 WHERE created_at > NOW() - INTERVAL '24 hours'
+                  AND (
+                        certainty_factual_grounding IS DISTINCT FROM 0.5
+                     OR certainty_tool_confidence   IS DISTINCT FROM 0.5
+                     OR certainty_coherence         IS DISTINCT FROM 0.5
+                  )
                 ORDER BY created_at DESC
                 LIMIT 100
                 """,
@@ -405,7 +436,8 @@ class ConsciousnessProbeRunner:
             )
             if not rows or len(rows) < 10:
                 return ProbeResult("INT", "General Introspection", 0.5,
-                                   "Insufficient data", len(rows or []))
+                                   "Insufficient data (need 10 non-default certainty rows)",
+                                   len(rows or []))
 
             calibrated = 0
             total = len(rows)
