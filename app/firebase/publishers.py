@@ -169,6 +169,20 @@ def install_defaults() -> None:
     except ImportError:
         logger.debug("firebase.publishers: subia_state not available", exc_info=True)
 
+    # Stale-belief janitor — every 5 min, delete "working" beliefs whose
+    # last_updated is older than 6 hours.  See
+    # app/memory/belief_state.py::cleanup_stale_working_beliefs for the
+    # HOT-3-preserving rationale.  Uses the publisher registry rather
+    # than its own scheduler job so it shares the heartbeat cadence +
+    # per-failure log + observability naming.
+    register("stale_belief_cleanup", _stale_belief_cleanup, every_ticks=5)
+
+
+def _stale_belief_cleanup() -> None:
+    """Thin wrapper so the publisher registry sees a zero-arg callable."""
+    from app.memory.belief_state import cleanup_stale_working_beliefs
+    cleanup_stale_working_beliefs(max_age_hours=6)
+
 
 def _anomaly_tick() -> None:
     """Run the anomaly-detector sweep.  Kept as a tiny internal

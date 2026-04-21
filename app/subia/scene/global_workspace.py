@@ -10,7 +10,12 @@ as a key consciousness indicator.
 
 Architecture:
   - In-memory ring buffer (max 50 messages) for fast access
-  - Critical messages persisted to PostgreSQL for durability
+  - ALL broadcasts persisted to Postgres ``subia_broadcasts`` table
+  - On singleton creation, the in-memory ring is hydrated from the most
+    recent N rows of that table so broadcasts survive gateway restarts
+    (previously every restart started the deque empty, which pinned the
+    GWT probe at its 0.4 "no broadcasts, sent test" floor for up to an
+    hour).
   - Agents check for unread broadcasts before each task
   - Broadcasts can only ADD caution (safety property)
 
@@ -64,6 +69,11 @@ class GlobalWorkspace:
     _instance: "GlobalWorkspace" | None = None
     _lock = threading.Lock()
 
+    # Hydrate this many recent broadcasts from Postgres on startup.  Keep
+    # at / just under the deque's ``max_messages`` (50) so a fresh process
+    # inherits a full working set immediately without repeated DB reads.
+    _HYDRATE_LIMIT: int = 50
+
     def __init__(self, max_messages: int = 50):
         self._messages: deque[BroadcastMessage] = deque(maxlen=max_messages)
         self._counter = 0
@@ -74,8 +84,69 @@ class GlobalWorkspace:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
-                    cls._instance = cls()
+                    inst = cls()
+                    inst._hydrate_from_db()
+                    cls._instance = inst
         return cls._instance
+
+    def _hydrate_from_db(self) -> None:
+        """Load the most-recent ``_HYDRATE_LIMIT`` broadcasts from Postgres
+        into the in-memory deque.
+
+        Runs once when the singleton is created (process startup).  Rows
+        are re-appended in chronological order so ``get_recent()``'s
+        "take last N" slice continues to return the newest messages.
+
+        The ``read_by`` set is not persisted — after a restart every
+        agent will (correctly) see these rehydrated messages as unread
+        on its next ``check_broadcasts()`` call.  That's intentional;
+        pre-restart read-state wouldn't be reliable anyway (the new
+        process serves different agent identities).
+        """
+        try:
+            from app.control_plane.db import execute
+            rows = execute(
+                """
+                SELECT content, importance, source_agent,
+                       ts, broadcast_id
+                  FROM subia_broadcasts
+              ORDER BY ts DESC
+                 LIMIT %s
+                """,
+                (self._HYDRATE_LIMIT,),
+                fetch=True,
+            )
+            if not rows:
+                return
+            with self._msg_lock:
+                # Re-insert oldest-first so the deque order (chronological,
+                # newest at the right end) matches what ``get_recent(n)``
+                # callers expect.
+                for r in reversed(rows):
+                    r = r if isinstance(r, dict) else {}
+                    ts = r.get("ts")
+                    ts_iso = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                    msg = BroadcastMessage(
+                        content=r.get("content", "") or "",
+                        importance=r.get("importance", "normal") or "normal",
+                        source_agent=r.get("source_agent", "") or "",
+                        timestamp=ts_iso,
+                        broadcast_id=r.get("broadcast_id", 0) or 0,
+                    )
+                    self._messages.append(msg)
+                # Resume the local id counter from the largest persisted
+                # ``broadcast_id`` so new sends don't collide or regress.
+                max_id = max(
+                    (m.broadcast_id for m in self._messages if m.broadcast_id),
+                    default=0,
+                )
+                self._counter = max_id
+            logger.info(
+                "GWT: hydrated %d broadcasts from DB (counter resumed at %d)",
+                len(rows), self._counter,
+            )
+        except Exception:
+            logger.debug("GWT: hydration skipped (non-fatal)", exc_info=True)
 
     def broadcast(
         self,
@@ -85,8 +156,11 @@ class GlobalWorkspace:
     ) -> BroadcastMessage:
         """Broadcast a message to the global workspace.
 
-        All agents will see this in their next context injection.
-        Critical messages are also persisted to PostgreSQL.
+        All agents will see this in their next context injection.  Every
+        broadcast — regardless of importance — is persisted to the
+        ``subia_broadcasts`` table so the in-memory ring survives
+        gateway restarts.  DB writes are best-effort; a failed insert
+        never drops the in-memory broadcast.
         """
         with self._msg_lock:
             self._counter += 1
@@ -98,28 +172,29 @@ class GlobalWorkspace:
             )
             self._messages.append(msg)
 
-        # Persist critical messages
-        if importance == "critical":
-            try:
-                from app.control_plane.db import execute
-                execute(
-                    """
-                    INSERT INTO internal_states (
-                        agent_id, decision_context, meta_strategy_assessment,
-                        action_disposition, risk_tier, full_state
-                    ) VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        f"broadcast:{source_agent}",
-                        content[:2000],
-                        "critical_broadcast",
-                        "escalate",
-                        4,
-                        '{"type": "broadcast", "importance": "critical"}',
-                    ),
-                )
-            except Exception:
-                pass
+        # Persist every broadcast (normal + high + critical) to the
+        # dedicated ``subia_broadcasts`` table.  Rationale:
+        #   * Having normal broadcasts persisted is what lets the GWT
+        #     probe's baseline score survive a restart.
+        #   * The prior design wrote only critical broadcasts, and wrote
+        #     them into ``internal_states`` under a bespoke
+        #     ``meta_strategy_assessment='critical_broadcast'`` string,
+        #     which silently polluted the HOT-2 and INT probe readers
+        #     (both filter on the same column).  The dedicated table
+        #     keeps the two concerns separate.
+        try:
+            from app.control_plane.db import execute
+            execute(
+                """
+                INSERT INTO subia_broadcasts
+                    (source_agent, importance, content, broadcast_id)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (source_agent, importance, content[:5000], msg.broadcast_id),
+            )
+        except Exception:
+            logger.debug("GWT: broadcast persist failed (non-fatal)",
+                         exc_info=True)
 
         logger.info(f"GWT broadcast [{importance}] from {source_agent}: {content[:80]}")
         return msg
