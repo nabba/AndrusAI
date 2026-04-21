@@ -1,0 +1,76 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=uzsXGJY0ko4",
+  "source_title": "Reference Data Harmonization Webinar (1/4) from Data Foundations",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Reference Data",
+      "definition": "Data used to categorize other data, often standardized lists of values (e.g., country codes, currency codes).",
+      "related_concepts": [
+        "Master Data",
+        "Data Governance"
+      ]
+    },
+    {
+      "name": "Data Harmonization",
+      "definition": "The process of bringing together data from different sources and providing a consistent view of them, reconciling differences in formats and structures.",
+      "related_concepts": [
+        "Data Integration",
+        "Data Quality"
+      ]
+    },
+    {
+      "name": "Golden Record",
+      "definition": "A single, authoritative record for an entity created by merging and de-duplicating data from multiple sources.",
+      "related_concepts": [
+        "Master Data Management",
+        "Entity Resolution"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Reference Data Harmonization Process",
+      "steps": [
+        {
+          "action": "Inventory existing reference data sources",
+          "details": "Catalog all systems and their respective code lists to understand scope."
+        },
+        {
+          "action": "Standardize codes",
+          "details": "Map local codes to standard ISO or industry standards where possible."
+        },
+        {
+          "action": "Map hierarchy and mapping tables",
+          "details": "Create a central dictionary that maps local codes to a master reference set."
+        },
+        {
+          "action": "Implement Master Data Management (MDM)",
+          "details": "Use the harmonized data to create a single source of truth."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Python Map Codes to Reference Codes",
+      "language": "python",
+      "code": "import pandas as pd\n\nmapping = {'A': 'Alpha', 'B': 'Beta', 'C': 'Gamma'}\ndef map_reference_data(code):\n    return mapping.get(code, 'Unknown')\n\ndf['standardized_code'] = df['raw_code'].apply(map_reference_data)"
+    }
+  ],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Using internal codes as keys instead of standard codes",
+      "context": "Developers often use internal database IDs or legacy codes as keys. When harmonizing, using internal IDs breaks the link to external reference data.",
+      "solution": "Map internal keys to standard IDs (like ISO codes) explicitly in a mapping table."
+    },
+    {
+      "description": "Cross-walk ambiguity",
+      "context": "One source code might map to multiple standard codes, or multiple source codes map to one standard code.",
+      "solution": "Create explicit one-to-one mapping tables where possible, and define business rules for many-to-one/one-to-many relationships."
+    }
+  ],
+  "confidence": 0.65,
+  "extracted_at": "2026-04-20T19:25:14.378174+00:00"
+}

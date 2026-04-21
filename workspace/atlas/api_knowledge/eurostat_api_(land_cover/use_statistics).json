@@ -1,0 +1,357 @@
+{
+  "name": "Eurostat API (Land cover/use statistics)",
+  "base_url": "https://ec.europa.eu/eurostat/api/dissemination/statistics",
+  "version": "latest",
+  "description": "Eurostat's API provides access to land cover/use statistics and other European statistical data. The API requires registration for an API key and supports JSON responses.",
+  "auth_type": "api_key_query",
+  "auth_details": {
+    "token_url": "https://ec.europa.eu/eurostat/web/main/request-token",
+    "scopes": [],
+    "header_name": null,
+    "query_param_name": "token"
+  },
+  "endpoints": [
+    {
+      "path": "/{dataset_code}",
+      "method": "GET",
+      "description": "Retrieve data for a specific dataset using its Eurostat dataset code (e.g., 'demo_r_d3area' for land use statistics). Supports filtering by time, geography, and other dimensions via query parameters.",
+      "parameters": [
+        {
+          "name": "dataset_code",
+          "type": "string",
+          "required": true,
+          "in": "path",
+          "description": "Eurostat dataset code (e.g., 'demo_r_d3area')"
+        },
+        {
+          "name": "time",
+          "type": "string",
+          "required": false,
+          "in": "query",
+          "description": "Time period filter (e.g., '2020' or '2010-2020')"
+        },
+        {
+          "name": "geo",
+          "type": "string",
+          "required": false,
+          "in": "query",
+          "description": "Geographical filter (e.g., 'EU27_2020', 'DE')"
+        },
+        {
+          "name": "unit",
+          "type": "string",
+          "required": false,
+          "in": "query",
+          "description": "Measurement unit filter"
+        },
+        {
+          "name": "precision",
+          "type": "integer",
+          "required": false,
+          "in": "query",
+          "description": "Number of decimal places for values (1-6)"
+        },
+        {
+          "name": "format",
+          "type": "string",
+          "required": false,
+          "in": "query",
+          "description": "Response format: 'json' (default), 'sdmx', 'tsv', 'csv'"
+        },
+        {
+          "name": "token",
+          "type": "string",
+          "required": true,
+          "in": "query",
+          "description": "API key obtained from registration"
+        }
+      ],
+      "request_body": {
+        "format": "none",
+        "fields": {},
+        "example": null
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "version": "string",
+          "label": "string",
+          "updated": "string",
+          "dataset": {
+            "id": "string",
+            "label": "string",
+            "agency": "string",
+            "source": "string",
+            "description": "string"
+          },
+          "dimension": {
+            "observation": [
+              {
+                "id": "string",
+                "label": "string"
+              }
+            ]
+          },
+          "value": [
+            {
+              "time": "string",
+              "geo": "string",
+              "values": [
+                {
+                  "unit": "string",
+                  "precision": "integer",
+                  "value": "number"
+                }
+              ]
+            }
+          ]
+        },
+        "example": {
+          "version": "1.0",
+          "label": "Land use data",
+          "updated": "2024-01-15",
+          "dataset": {
+            "id": "demo_r_d3area",
+            "label": "Land use by type of area and NUTS 3 regions",
+            "agency": "Eurostat",
+            "description": "Land cover/use statistics"
+          }
+        }
+      },
+      "rate_limit": "1000 requests per day per token",
+      "requires_auth": true
+    },
+    {
+      "path": "/metadata/{dataset_code}",
+      "method": "GET",
+      "description": "Retrieve metadata for a specific dataset including variable definitions, classifications, and data structure.",
+      "parameters": [
+        {
+          "name": "dataset_code",
+          "type": "string",
+          "required": true,
+          "in": "path",
+          "description": "Eurostat dataset code"
+        },
+        {
+          "name": "token",
+          "type": "string",
+          "required": true,
+          "in": "query",
+          "description": "API key"
+        }
+      ],
+      "request_body": {
+        "format": "none",
+        "fields": {},
+        "example": null
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "metadata": {
+            "id": "string",
+            "label": "string",
+            "description": "string",
+            "dimensions": [
+              {
+                "id": "string",
+                "label": "string",
+                "category": [
+                  {
+                    "id": "string",
+                    "label": "string"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "example": {
+          "metadata": {
+            "id": "demo_r_d3area",
+            "label": "Land use by type of area",
+            "dimensions": [
+              {
+                "id": "TIME_PERIOD",
+                "label": "Time",
+                "category": [
+                  {
+                    "id": "2020",
+                    "label": "2020"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "rate_limit": "1000 requests per day per token",
+      "requires_auth": true
+    },
+    {
+      "path": "/available/datasets",
+      "method": "GET",
+      "description": "List all available datasets with their codes, labels, and metadata. Supports optional filtering by keyword.",
+      "parameters": [
+        {
+          "name": "keyword",
+          "type": "string",
+          "required": false,
+          "in": "query",
+          "description": "Filter datasets by keyword (e.g., 'land', 'cover')"
+        },
+        {
+          "name": "token",
+          "type": "string",
+          "required": true,
+          "in": "query",
+          "description": "API key"
+        }
+      ],
+      "request_body": {
+        "format": "none",
+        "fields": {},
+        "example": null
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "datasets": [
+            {
+              "id": "string",
+              "label": "string",
+              "description": "string",
+              "category": "string"
+            }
+          ]
+        },
+        "example": {
+          "datasets": [
+            {
+              "id": "demo_r_d3area",
+              "label": "Land use by type of area and NUTS 3 regions",
+              "description": " Land cover statistics",
+              "category": "Environment"
+            }
+          ]
+        }
+      },
+      "rate_limit": "100 requests per hour per token",
+      "requires_auth": true
+    },
+    {
+      "path": "/available/geo",
+      "method": "GET",
+      "description": "List all available geographical entities (NUTS regions, countries) with their codes and labels.",
+      "parameters": [
+        {
+          "name": "token",
+          "type": "string",
+          "required": true,
+          "in": "query",
+          "description": "API key"
+        }
+      ],
+      "request_body": {
+        "format": "none",
+        "fields": {},
+        "example": null
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "geography": [
+            {
+              "id": "string",
+              "label": "string",
+              "level": "integer"
+            }
+          ]
+        },
+        "example": {
+          "geography": [
+            {
+              "id": "EU27_2020",
+              "label": "European Union (27 countries)",
+              "level": 0
+            },
+            {
+              "id": "DE",
+              "label": "Germany",
+              "level": 0
+            }
+          ]
+        }
+      },
+      "rate_limit": "100 requests per hour per token",
+      "requires_auth": true
+    }
+  ],
+  "rate_limits": {
+    "requests_per_minute": 60,
+    "requests_per_day": 1000,
+    "notes": "Rate limits apply per API token. Higher limits available for institutional users upon request."
+  },
+  "error_codes": {
+    "400": "Bad Request - Invalid parameters or dataset code",
+    "401": "Unauthorized - Missing or invalid API token",
+    "403": "Forbidden - Token lacks permission for requested dataset",
+    "404": "Not Found - Dataset code does not exist",
+    "429": "Too Many Requests - Rate limit exceeded",
+    "500": "Internal Server Error",
+    "503": "Service Unavailable - API temporarily down"
+  },
+  "doc_sources": [
+    {
+      "url": "https://pypi.org/project/eurostat/",
+      "title": "eurostat \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://ec.europa.eu/eurostat/web/user-guides/data-browser/api-data-access/api-getting-started/api",
+      "title": "API - Getting started with statistics API - User guides - Eurostat",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://ec.europa.eu/eurostat/web/user-guides/data-browser/api-data-access/api-detailed-guidelines/api-statistics",
+      "title": "API - Detailed guidelines - API Statistics - User guides - Eurostat",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://ec.europa.eu/eurostat/web/user-guides/data-browser/api-data-access/api-introduction",
+      "title": "API - Introduction - User guides - Eurostat",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/eurostatapiclient/",
+      "title": "eurostatapiclient \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://github.com/opus-42/eurostat-api-client",
+      "title": "GitHub - opus-42/eurostat-api-client: A simple python client to query eurostat API \u00b7 GitHub",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://ropengov.github.io/eurostat/reference/get_eurostat_json.html",
+      "title": "Get Data from Eurostat API in JSON \u2014 get_eurostat_json \u2022 eurostat",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://wikis.ec.europa.eu/display/EUROSTATHELP/Developer's+corner",
+      "title": "Developer's corner - Eurostat Online Help for Data Browser - EC Public Wiki",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T10:17:39.721088+00:00"
+}

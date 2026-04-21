@@ -1,0 +1,66 @@
+{
+  "name": "SQLAlchemy",
+  "base_url": "",
+  "version": "",
+  "description": "Database Abstraction Library",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {
+    "requests_per_minute": 0,
+    "requests_per_second": 0
+  },
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://github.com/thomaxxl/safrs",
+      "title": "GitHub - thomaxxl/safrs: SqlAlchemy Flask-Restful Swagger Json:API OpenAPI",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://pypi.org/project/SQLAlchemy/",
+      "title": "SQLAlchemy \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/sqlalchemy-bigquery/",
+      "title": "sqlalchemy-bigquery \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://openapi-sqlalchemy.readthedocs.io/",
+      "title": "Home - - Read the Docs",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://openapi-sqlalchemy.readthedocs.io/en/latest/",
+      "title": "Home -",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://docs.sqlalchemy.org/en/20/",
+      "title": "SQLAlchemy Documentation \u2014 SQLAlchemy 2.0 Documentation",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://docs.databricks.com/aws/en/dev-tools/sqlalchemy",
+      "title": "Use SQLAlchemy with Databricks | Databricks on AWS",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/sqlalchemy-api/",
+      "title": "sqlalchemy-api \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T08:56:56.579531+00:00"
+}

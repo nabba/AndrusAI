@@ -1,0 +1,194 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=OJKv2kxpJGE",
+  "source_title": "Supervised & Unsupervised land use and land cover classification using R || Random forest and CART",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Land Use and Land Cover (LULC) Classification",
+      "definition": "The process of categorizing earth's surface into classes based on physical characteristics (land cover) and human usage (land use) from remote sensing data.",
+      "prerequisites": [
+        "Remote sensing fundamentals",
+        "Basic statistics",
+        "R programming"
+      ],
+      "related_concepts": [
+        "GIS",
+        "Spectral indices",
+        "Accuracy assessment"
+      ]
+    },
+    {
+      "name": "Supervised Classification",
+      "definition": "A machine learning approach where a model is trained on labeled data to predict class membership for unlabeled pixels.",
+      "prerequisites": [
+        "Labeled training samples",
+        "Feature extraction",
+        "Classification algorithms"
+      ],
+      "related_concepts": [
+        "Random Forest",
+        "CART",
+        "Cross-validation"
+      ]
+    },
+    {
+      "name": "Unsupervised Classification",
+      "definition": "A clustering approach that groups pixels into spectral clusters without prior labels, often followed by manual interpretation.",
+      "prerequisites": [
+        "Unlabeled data",
+        "Clustering algorithms",
+        "Distance metrics"
+      ],
+      "related_concepts": [
+        "K-means",
+        "ISODATA",
+        "Cluster validation"
+      ]
+    },
+    {
+      "name": "Random Forest",
+      "definition": "An ensemble learning method that builds multiple decision trees and aggregates their predictions to improve accuracy and reduce overfitting.",
+      "prerequisites": [
+        "Decision trees",
+        "Bootstrap aggregating",
+        "Feature randomness"
+      ],
+      "related_concepts": [
+        "CART",
+        "Ensemble methods",
+        "Variable importance"
+      ]
+    },
+    {
+      "name": "CART (Classification and Regression Trees)",
+      "definition": "A binary decision tree algorithm that splits data recursively based on Gini impurity or variance reduction for classification and regression tasks.",
+      "prerequisites": [
+        "Tree-based modeling",
+        "Recursive partitioning"
+      ],
+      "related_concepts": [
+        "Random Forest",
+        "Pruning",
+        "Decision boundaries"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Perform Supervised LULC Classification with Random Forest in R",
+      "steps": [
+        {
+          "action": "Install and load required R packages",
+          "explanation": "Packages like randomForest, raster, and caret are essential for processing imagery and modeling.",
+          "code_snippet": "install.packages(c('randomForest', 'raster', 'caret')); library(randomForest); library(raster); library(caret)",
+          "gotcha": "Package installation may fail due to missing system dependencies; ensure Rtools or similar is installed."
+        },
+        {
+          "action": "Load and preprocess satellite imagery",
+          "explanation": "Read raster data, extract spectral bands, and handle missing or no-data values to create a clean dataset.",
+          "code_snippet": "img <- brick('satellite_image.tif'); img <- calc(img, function(x) { x[x == -9999] <- NA; return(x) })",
+          "gotcha": "Large images can cause memory overflow; consider cropping or using raster::blockSize for processing."
+        },
+        {
+          "action": "Prepare training data from vector samples",
+          "explanation": "Extract spectral values from training polygons (shapefiles) and create a data frame with features and class labels.",
+          "code_snippet": "train_shapes <- shapefile('training_samples.shp'); train_data <- data.frame(class=train_shapes$class, extract(img, train_shapes))",
+          "gotcha": "Training samples must be representative and balanced across classes to avoid bias."
+        },
+        {
+          "action": "Train Random Forest model",
+          "explanation": "Fit the Random Forest classifier with tuning parameters like ntree (number of trees) and mtry (variables per split).",
+          "code_snippet": "set.seed(123); rf_model <- randomForest(class ~ ., data=train_data, ntree=500, mtry=sqrt(ncol(train_data)-1))",
+          "gotcha": "Too few trees may underfit; too many increase computation time without significant gains. Tune using caret::train."
+        },
+        {
+          "action": "Validate model using test data",
+          "explanation": "Predict on a held-out test set and compute accuracy metrics like overall accuracy, Kappa, and per-class statistics.",
+          "code_snippet": "test_pred <- predict(rf_model, test_data); confusionMatrix(test_pred, test_data$class)",
+          "gotcha": "Overall accuracy can be misleading with imbalanced classes; always examine per-class metrics and confusion matrix."
+        },
+        {
+          "action": "Apply model to entire image for classification",
+          "explanation": "Use the trained model to predict land cover classes for all pixels in the raster.",
+          "code_snippet": "lc_map <- predict(img, model=rf_model, filename='classified_output.tif', overwrite=TRUE, progress='text')",
+          "gotcha": "Prediction on large rasters may fail due to memory; use raster::writeRaster with datatype='INT1U' and format='GTiff' for efficiency."
+        }
+      ]
+    },
+    {
+      "name": "Perform Unsupervised Classification using ISODATA in R",
+      "steps": [
+        {
+          "action": "Extract spectral values for clustering",
+          "explanation": "Convert raster data to a matrix of spectral band values for all pixels or a sample.",
+          "code_snippet": "spectra <- getValuesBlock(img, row=1, nrows=nrow(img), col=1, ncols=ncol(img)); spectra <- na.omit(spectra)",
+          "gotcha": "Full-image extraction may exceed memory; use a random sample for large datasets."
+        },
+        {
+          "action": "Run k-means clustering",
+          "explanation": "Apply k-means to group pixels into clusters based on spectral similarity.",
+          "code_snippet": "set.seed(123); clusters <- kmeans(spectra, centers=10, iter.max=100)",
+          "gotcha": "Choosing the number of clusters (k) is arbitrary; use elbow method or silhouette score to inform decision."
+        },
+        {
+          "action": "Assign clusters to land cover classes",
+          "explanation": "Manually interpret clusters using spectral plots or ancillary data (e.g., high-resolution imagery) to assign meaningful labels.",
+          "code_snippet": "cluster_classes <- c(1,2,3); # Example: map cluster IDs to 'forest', 'water', 'urban'\nclass_raster <- reclassify(cluster_raster, rcl=cbind(1:10, cluster_classes))",
+          "gotcha": "Clusters may not correspond to actual land cover types; supervised methods are preferred if training data exists."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Random Forest Classification in R",
+      "language": "R",
+      "purpose": "Train a Random Forest model on spectral data to classify land cover, including model fitting and prediction.",
+      "code": "library(randomForest)\n# Prepare data: train_data with 'class' factor column and numeric feature columns\nset.seed(123)\nmodel <- randomForest(class ~ ., data=train_data, ntree=500, importance=TRUE)\n# Predict on new data\npredictions <- predict(model, newdata=test_data)\n# Evaluate\nprint(confusionMatrix(predictions, test_data$class))",
+      "dependencies": [
+        "randomForest",
+        "caret"
+      ]
+    },
+    {
+      "name": "CART Classification in R",
+      "language": "R",
+      "purpose": "Build and visualize a CART decision tree for land cover classification, including pruning.",
+      "code": "library(rpart)\nlibrary(rpart.plot)\n# Train CART model\nmodel <- rpart(class ~ ., data=train_data, method='class', control=rpart.control(cp=0.01))\n# Plot tree\nrpart.plot(model, type=4, extra=101)\n# Prune based on complexity parameter\nopt_cp <- model$cptable[which.min(model$cptable[,'xerror']), 'CP']\npruned_model <- prune(model, cp=opt_cp)\n# Predict\npredictions <- predict(pruned_model, test_data, type='class')",
+      "dependencies": [
+        "rpart",
+        "rpart.plot"
+      ]
+    }
+  ],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Overfitting in Random Forest due to excessive trees or noise",
+      "context": "When model accuracy on training data is high but test accuracy is low, often caused by too many trees or irrelevant features.",
+      "solution": "Tune mtry and ntree using out-of-bag error or cross-validation; use variable importance to select features; ensure adequate training samples."
+    },
+    {
+      "description": "Class imbalance in training data leading to biased predictions",
+      "context": "Minority land cover classes (e.g., wetland) have few training samples, causing the model to ignore them.",
+      "solution": "Apply stratified sampling to balance classes; use class weights via randomForest(..., strata=class, sampsize=...); or employ oversampling (e.g., SMOTE) via caret::upSample."
+    },
+    {
+      "description": "Memory errors when processing large satellite images",
+      "context": "High-resolution or large-area rasters exceed available RAM during extraction or prediction.",
+      "solution": "Use raster::writeRaster with blocks; sample pixels for unsupervised clustering; work with lower resolution or tile the image; increase memory limit via memory.limit() on Windows."
+    },
+    {
+      "description": "Mismatch between unsupervised clusters and actual land cover classes",
+      "context": "Clusters from k-means or ISODATA may not align with known land cover types due to spectral variability or noise.",
+      "solution": "Combine unsupervised clustering with supervised labeling; use ancillary data (e.g., land masks) to refine; prefer supervised classification when label data is available."
+    },
+    {
+      "description": "Incorrect factor levels in R leading to model errors",
+      "context": "Response variable not set as factor for classification, or factor levels mismatch between train and test data.",
+      "solution": "Ensure class column is factor: train_data$class <- as.factor(train_data$class); align levels using factor(train_data$class, levels=unique(c(train_data$class, test_data$class)))."
+    }
+  ],
+  "confidence": 0.8,
+  "extracted_at": "2026-04-20T10:24:47.427975+00:00"
+}

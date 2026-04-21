@@ -1,0 +1,51 @@
+{
+  "name": "Copernicus Land Monitoring Service API (Corine Land Cover, High Resolution Layers)",
+  "base_url": "",
+  "version": "",
+  "description": "Corine Land Cover open data in a single API request",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://github.com/eea/copernicus-land-monitoring-service-ApiTools",
+      "title": "GitHub - eea/copernicus-land-monitoring-service-ApiTools: Copernicus",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://api.store/eu-institutions-api/european-environment-agency-api/copernicus-land-monitoring-service-corine-land-cover-api",
+      "title": "Copernicus Land Monitoring Service - Corine Land Cover open data in a single API request",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://land.copernicus.eu/global/faq/which-web-services-api-are-available",
+      "title": "Which web services (API) are available? | Copernicus Global Land Service",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_CORINE_V20_100m",
+      "title": "Copernicus CORINE Land Cover | Earth Engine Data Catalog | Google for Developers",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://land.copernicus.eu/en",
+      "title": "Copernicus Land Monitoring Service",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://documentation.dataspace.copernicus.eu/APIs/openEO/Python_Client/Python.html",
+      "title": "Getting started with the openEO Python client \u2013 Documentation",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T11:27:45.566449+00:00"
+}

@@ -1,0 +1,63 @@
+{
+  "name": "Eurostat API",
+  "base_url": null,
+  "version": null,
+  "description": "Eurostat Python Package",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://interoperable-europe.ec.europa.eu/collection/semic-support-centre/semantic-enrichment-apis-openapi-case-study",
+      "title": "Semantic enrichment of APIs: an OpenAPI case study | Interoperable Europe Portal",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://pypi.org/project/eurostat/",
+      "title": "eurostat \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://ec.europa.eu/eurostat/web/user-guides/data-browser/api-data-access/api-introduction",
+      "title": "API - Introduction - User guides - Eurostat",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://ec.europa.eu/eurostat/web/user-guides/data-browser/api-data-access/api-getting-started/api",
+      "title": "API - Getting started with statistics API - User guides - Eurostat",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://ec.europa.eu/eurostat/web/user-guides/data-browser/api-data-access/api-getting-started",
+      "title": "API - Getting started - User guides - Eurostat",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://github.com/opus-42/eurostat-api-client",
+      "title": "GitHub - opus-42/eurostat-api-client: A simple python client to query eurostat API \u00b7 GitHub",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/eurostatapiclient/",
+      "title": "eurostatapiclient \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://ropengov.github.io/eurostat/reference/get_eurostat_json.html",
+      "title": "Get Data from Eurostat API in JSON \u2014 get_eurostat_json \u2022 eurostat",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T19:21:13.447586+00:00"
+}

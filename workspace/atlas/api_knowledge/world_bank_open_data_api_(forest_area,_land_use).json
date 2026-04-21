@@ -1,0 +1,69 @@
+{
+  "name": "World Bank Open Data API (forest area, land use)",
+  "base_url": "",
+  "version": "",
+  "description": "",
+  "auth_type": "",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://pypi.org/project/world-bank-data/",
+      "title": "The World Bank Data in Python",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://datahelpdesk.worldbank.org/knowledgebase/articles/898581-api-basic-call-structures",
+      "title": "API Basic Call Structures \u2013 World Bank Data Help Desk",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://data360.worldbank.org/en/api",
+      "title": "API | World Bank Data360",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://datahelpdesk.worldbank.org/knowledgebase/articles/1886686-advanced-data-api-queries",
+      "title": "Advanced Data API Queries \u2013 World Bank Data Help Desk",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://datahelpdesk.worldbank.org/knowledgebase/topics/125589-developer-information",
+      "title": "Developer Information \u2013 World Bank Data Help Desk",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://datahelpdesk.worldbank.org/knowledgebase/articles/889386-developer-information-overview",
+      "title": "Developer Information: Overview \u2013 World Bank Data Help Desk",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://datahelpdesk.worldbank.org/knowledgebase/articles/889392-about-the-indicators-api-documentation",
+      "title": "About the Indicators API Documentation \u2013 World Bank Data Help Desk",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://blogs.worldbank.org/en/opendata/introducing-wbgapi-new-python-package-accessing-world-bank-data",
+      "title": "Introducing WBGAPI: A new python package for accessing World Bank data",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/wbgapi/",
+      "title": "wbgapi \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.3,
+  "discovered_at": "2026-04-20T11:31:15.671621+00:00"
+}

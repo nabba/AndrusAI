@@ -1,0 +1,33 @@
+{
+  "skill_id": "learned/from_youtube/Age_Group_Classification_Formula",
+  "name": "Age Group Classification Formula",
+  "category": "learned",
+  "version": "1.0.0",
+  "language": "python",
+  "description": "Classifies a given age into a specific text category based on a predefined reference table.",
+  "confidence": 0.0,
+  "source_type": "youtube_tutorial",
+  "source_urls": [
+    "https://www.youtube.com/watch?v=UlJ4lVA2h3o"
+  ],
+  "dependencies": [
+    "Named Range 'AgeGroup'"
+  ],
+  "auth_pattern": "",
+  "tests_total": 0,
+  "tests_passing": 0,
+  "tests_failing": 0,
+  "last_tested": "",
+  "usage_count": 0,
+  "usage_success_count": 0,
+  "last_used": "",
+  "created_at": "2026-04-20T20:24:47.660677+00:00",
+  "last_verified": "2026-04-20T20:24:47.660677+00:00",
+  "code_hash": "91e3b345703238f224f0036912243372",
+  "known_limitations": [],
+  "tags": [
+    "youtube",
+    "coding_tutorial",
+    "Excel Formula"
+  ]
+}

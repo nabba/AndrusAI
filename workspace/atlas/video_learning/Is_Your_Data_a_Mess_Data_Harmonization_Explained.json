@@ -1,0 +1,92 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=dZacXJc9xGo",
+  "source_title": "Is Your Data a Mess? Data Harmonization Explained",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Data Harmonization",
+      "definition": "The process of collecting, transforming, and integrating data from various sources into a consistent, accurate, and meaningful format.",
+      "prerequisites": [],
+      "related_concepts": [
+        "Data Quality",
+        "Data Integration",
+        "Data Transformation"
+      ]
+    },
+    {
+      "name": "Data Transformation",
+      "definition": "The process of converting collected data into a common format or structure to ensure consistency and easy integration.",
+      "prerequisites": [
+        "Data Collection"
+      ],
+      "related_concepts": [
+        "Data Harmonization",
+        "Data Integration"
+      ]
+    },
+    {
+      "name": "Data Integration",
+      "definition": "The process of combining transformed data into a single dataset, which involves matching and merging records, removing duplicates, and filling in missing values.",
+      "prerequisites": [
+        "Data Transformation"
+      ],
+      "related_concepts": [
+        "Data Harmonization",
+        "Data Validation"
+      ]
+    },
+    {
+      "name": "Data Validation",
+      "definition": "The process of ensuring that the harmonized dataset meets desired quality standards by checking for errors, inconsistencies, or inaccuracies and correcting them.",
+      "prerequisites": [
+        "Data Integration"
+      ],
+      "related_concepts": [
+        "Quality Assurance",
+        "Data Quality"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Data Harmonization Process",
+      "steps": [
+        {
+          "action": "Collect data from various sources",
+          "explanation": "Gather raw data from databases, spreadsheets, or other storage systems.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Transform data into a common format",
+          "explanation": "Convert the collected data into a consistent structure to ensure easy integration.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Integrate data into a single dataset",
+          "explanation": "Combine the transformed data by matching and merging records, removing duplicates, and filling in missing values.",
+          "code_snippet": null,
+          "gotcha": null
+        },
+        {
+          "action": "Validate data and perform quality assurance",
+          "explanation": "Check the harmonized dataset for errors, inconsistencies, or inaccuracies and correct them to meet quality standards.",
+          "code_snippet": null,
+          "gotcha": null
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Difficulties arising from data variety, poor data quality, and scalability issues.",
+      "context": "These challenges are commonly encountered when attempting to harmonize data from disparate sources.",
+      "solution": "Employ data profiling techniques, implement data validation and cleansing processes, and leverage cloud-based data storage and processing technologies."
+    }
+  ],
+  "confidence": 0.65,
+  "extracted_at": "2026-04-20T19:26:15.983663+00:00"
+}

@@ -1,0 +1,57 @@
+{
+  "name": "Estonian Environment Agency (Keskkonnaministeerium) API",
+  "base_url": "",
+  "version": "",
+  "description": "No API specification found in the provided documentation. The provided HTML content appears to be from generic OpenAPI viewer/converter tools (StackUtils and Format JSON Online) and does not contain the Estonian Environment Agency API endpoints or details.",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://stackutils.dev/tools/openapi-viewer",
+      "title": "OpenAPI / Swagger Viewer \u2013 View API Specs Online | StackUtils",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://formatjsononline.com/json-to-openapi",
+      "title": "JSON to OpenAPI Converter - Generate API Specs from JSON Data",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://tecdocs.github.io/api-atlas-docs/docs/integration/openapi-spec",
+      "title": "OpenAPI Specification Masterclass | API Atlas Docs",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://publicapi.dev/open-government-estonia-api",
+      "title": "Open Government, Estonia API - PublicAPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://keskkonnaagentuur.ee/en/estonian-environment-agency-news-and-contact/estonian-environment-agency",
+      "title": "Estonian Environment Agency | Keskkonnaagentuur",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://keskkonnaagentuur.ee/en",
+      "title": "Avaleht | Keskkonnaagentuur",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://rocketreach.co/ministry-of-environment-of-estonia-keskkonnaministeerium-technology-stack_b5c1a6c2f42e08dc",
+      "title": "Ministry of Environment of Estonia / Keskkonnaministeerium Technology Stack | Ministry of Environment of Estonia / Keskkonnaministeerium Technology Profile",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T10:18:57.386884+00:00"
+}

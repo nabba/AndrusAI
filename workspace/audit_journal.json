@@ -1587,5 +1587,94 @@
     "event": "error_resolution",
     "detail": "Error resolution: 1 resolved, 1 attempted, 21 total patterns",
     "files_changed": []
+  },
+  {
+    "ts": "2026-04-20T07:02:44.119821+00:00",
+    "event": "error_resolution",
+    "detail": "Error resolution: 1 resolved, 1 attempted, 21 total patterns",
+    "files_changed": []
+  },
+  {
+    "ts": "2026-04-20T08:00:14.253359+00:00",
+    "event": "error_resolution",
+    "detail": "Error resolution: 7 resolved, 1 attempted, 21 total patterns",
+    "files_changed": []
+  },
+  {
+    "ts": "2026-04-20T20:25:17.430524+00:00",
+    "event": "error_fix_proposed",
+    "detail": "Pattern coding:RuntimeError attempt #2: The 'wiki_write' tool definition has a schema mismatch: the key 'title' is listed in the 'required' array but is missing from the 'properties' dictionary. To fix, locate the tool definition (likely in a tools file or Pydantic model) and add 'title' to 'properties' (e.g., 'title': {'type': 'string', 'description': 'The title of the wiki page'}) or remove 'title' from the 'required' list if it is not a mandatory parameter.",
+    "files_changed": []
+  },
+  {
+    "ts": "2026-04-20T20:25:18.291264+00:00",
+    "event": "error_resolution",
+    "detail": "Error resolution: 1 resolved, 1 attempted, 23 total patterns",
+    "files_changed": []
+  },
+  {
+    "ts": "2026-04-21T00:02:41.775828+00:00",
+    "event": "code_audit",
+    "detail": "1 issues in 6 files: Path traversal vulnerability in aesthetics/api.py - flagged_by parameter used unsanitized in file path construction",
+    "files_changed": [
+      "app/aesthetics/__init__.py",
+      "app/aesthetics/api.py",
+      "app/aesthetics/config.py",
+      "app/aesthetics/tools.py",
+      "app/aesthetics/vectorstore.py",
+      "app/agents/media_analyst.py"
+    ]
+  },
+  {
+    "ts": "2026-04-21T04:01:18.599283+00:00",
+    "event": "code_audit",
+    "detail": "1 issues in 6 files: Fixed early return in handle_alerts() that prevented processing of multiple alerts",
+    "files_changed": [
+      "app/agents/specialists.py",
+      "app/anomaly_detector.py",
+      "app/api/__init__.py",
+      "app/api/config_api.py",
+      "app/api/fiction.py",
+      "app/api/health.py"
+    ]
+  },
+  {
+    "ts": "2026-04-21T08:03:00.865431+00:00",
+    "event": "code_audit",
+    "detail": "2 issues in 6 files: Fixed uninitialized variable bug in error handling and completed truncated code file",
+    "files_changed": [
+      "app/api/kb.py",
+      "app/atlas/auth_patterns.py",
+      "app/atlas/code_forge.py",
+      "app/atlas/competence_tracker.py",
+      "app/atlas/learning_planner.py",
+      "app/atlas/skill_library.py"
+    ]
+  },
+  {
+    "ts": "2026-04-21T12:01:44.285252+00:00",
+    "event": "code_audit",
+    "detail": "2 issues in 6 files: Found 2 bugs in app/auditor.py: undefined variable reference and incomplete code that would cause runtime errors",
+    "files_changed": [
+      "app/atlas/video_learner.py",
+      "app/auditor.py",
+      "app/auto_deployer.py",
+      "app/avo_operator.py",
+      "app/backup_planner.py",
+      "app/benchmarks.py"
+    ]
+  },
+  {
+    "ts": "2026-04-21T16:01:24.693633+00:00",
+    "event": "code_audit",
+    "detail": "1 issues in 6 files: Fixed incomplete state property in circuit_breaker.py that returned None instead of transitioning to HALF_OPEN after cooldown",
+    "files_changed": [
+      "app/bridge_client.py",
+      "app/cascade_evaluator.py",
+      "app/chaos_tester.py",
+      "app/circuit_breaker.py",
+      "app/confidence_tracker.py",
+      "app/config.py"
+    ]
   }
 ]

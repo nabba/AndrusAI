@@ -1,0 +1,89 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=T3nrEfQqgaI",
+  "source_title": "Excel Tutorial to Quickly Reconcile two sets of Data",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Data Reconciliation",
+      "definition": "The process of comparing two datasets to identify matching records, discrepancies, missing values, or inconsistencies.",
+      "prerequisites": [
+        "Basic Excel skills",
+        "Understanding of dataset structure"
+      ],
+      "related_concepts": [
+        "VLOOKUP",
+        "Conditional Formatting",
+        "Data Matching",
+        "IFERROR"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Reconcile Two Datasets Using VLOOKUP and Conditional Formatting",
+      "steps": [
+        {
+          "action": "Use VLOOKUP to bring matching data from the second dataset into the first.",
+          "explanation": "Creates a column showing corresponding values from the second dataset for each record in the first, enabling direct comparison.",
+          "code_snippet": "=VLOOKUP(lookup_value, table_array, col_index_num, [range_lookup])",
+          "gotcha": "The table_array reference must be absolute (use F4) to prevent errors when copying the formula down."
+        },
+        {
+          "action": "Apply conditional formatting to highlight mismatched or missing values.",
+          "explanation": "Visually flags records where the original value and the VLOOKUP result differ, or where VLOOKUP returns an error.",
+          "code_snippet": "Use a formula like =$A2<>$B2 (if comparing columns A and B) and set formatting for TRUE.",
+          "gotcha": "Ensure the conditional formatting rule applies to the correct range and uses relative/absolute references appropriately."
+        },
+        {
+          "action": "Handle missing values with IFERROR around the VLOOKUP.",
+          "explanation": "Replaces #N/A errors (indicating no match found) with a clear label like 'Missing' for easier identification.",
+          "code_snippet": "=IFERROR(VLOOKUP(...), \"Missing\")",
+          "gotcha": "IFERROR masks all errors, not just #N/A. Use IFNA if you only want to handle #N/A specifically."
+        },
+        {
+          "action": "Sort or filter the data to group discrepancies.",
+          "explanation": "Isolates all mismatched or missing records together for focused review and correction.",
+          "code_snippet": "",
+          "gotcha": "Sorting may disrupt the original dataset order; consider adding a helper column with original row numbers first."
+        },
+        {
+          "action": "Export or finalize the reconciled data.",
+          "explanation": "Saves the results, often by converting formulas to values and exporting to CSV for sharing.",
+          "code_snippet": "",
+          "gotcha": "Before exporting, copy and paste the results as values to ensure formulas are not lost or recalculated incorrectly elsewhere."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "VLOOKUP range not locked when copying formula",
+      "context": "Dragging the VLOOKUP formula down without making the table_array absolute (e.g., $D$2:$E$100).",
+      "solution": "Press F4 after selecting the table_array in the formula bar to add absolute references ($)."
+    },
+    {
+      "description": "Conditional formatting applied to incorrect cells",
+      "context": "The 'Applies to' range in conditional formatting rules does not match the data range being evaluated.",
+      "solution": "Manually adjust the 'Applies to' range in the Conditional Formatting Rules Manager to cover all relevant rows."
+    },
+    {
+      "description": "Misinterpreting IFERROR results",
+      "context": "Using IFERROR hides all errors (like #REF! or #DIV/0!), not just the #N/A from missing matches, potentially masking other issues.",
+      "solution": "Use IFNA for #N/A specifically, or combine with ISERROR to target only the expected error type."
+    },
+    {
+      "description": "Sorting disrupts data context",
+      "context": "After sorting the dataset to group issues, the original order or relationships to other columns are lost.",
+      "solution": "Add a helper column with original row numbers (e.g., =ROW()) before sorting and use it to restore order later."
+    },
+    {
+      "description": "Exported CSV retains formulas instead of values",
+      "context": "Saving as CSV before converting formulas to values results in a file showing formula text, not computed results.",
+      "solution": "Copy the reconciled columns, paste special as values, then save/export."
+    }
+  ],
+  "confidence": 0.5,
+  "extracted_at": "2026-04-20T08:57:00.142598+00:00"
+}

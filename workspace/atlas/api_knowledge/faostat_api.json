@@ -1,0 +1,51 @@
+{
+  "name": "FAOSTAT API",
+  "base_url": "",
+  "version": "",
+  "description": "Faostat Python Package",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://stackutils.dev/tools/openapi-viewer",
+      "title": "OpenAPI / Swagger Viewer \u2013 View API Specs Online | StackUtils",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://pypi.org/project/faostat/",
+      "title": "faostat \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/faodata/",
+      "title": "faodata \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://github.com/FAOSTAT/faostat-api",
+      "title": "GitHub - FAOSTAT/faostat-api: FAOSTAT public API. \u00b7 GitHub",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://openknowledge.fao.org/server/api/core/bitstreams/bcf75647-8a01-42ee-b148-6007aaf1a386/content",
+      "title": "Application Programming Interface (API) \u2013 Everything you need to know 2022",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://www.fao.org/statistics/highlights-archive/highlights-detail/faostat-launches-a-new-api-developer-portal-to-make-data-access-easier/en",
+      "title": "FAOSTAT launches a new API Developer Portal to make ...",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T19:55:26.302310+00:00"
+}

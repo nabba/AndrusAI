@@ -1,0 +1,230 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=ReS6iN5alDE",
+  "source_title": "\ud83d\uded1How to make LANDUSE AND LAND COVER CHANGE mapping using Google Earth Engine | LULC change detection",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Land Use/Land Cover (LULC) Change Detection",
+      "definition": "The process of identifying and mapping changes in land use and land cover categories between two or more time periods using satellite imagery.",
+      "prerequisites": [
+        "Remote sensing fundamentals",
+        "GIS software/platform (e.g., Google Earth Engine, ArcMap)"
+      ],
+      "related_concepts": [
+        "Classification",
+        "Image compositing",
+        "Change vector analysis"
+      ]
+    },
+    {
+      "name": "Google Earth Engine (GEE)",
+      "definition": "A cloud-based geospatial analysis platform that enables planetary-scale environmental data analysis using a multi-petabyte catalog of satellite imagery and geospatial datasets.",
+      "prerequisites": [
+        "JavaScript programming",
+        "Basic remote sensing concepts"
+      ],
+      "related_concepts": [
+        "Cloud computing",
+        "Geospatial big data",
+        "API-driven analysis"
+      ]
+    },
+    {
+      "name": "Sentinel-2 Satellite Imagery",
+      "definition": "A constellation of twin satellites carrying a multi-spectral imaging spectrometer for land monitoring, providing 13 spectral bands with resolutions from 10m to 60m.",
+      "prerequisites": [
+        "Understanding of multispectral data",
+        "Spatial resolution concepts"
+      ],
+      "related_concepts": [
+        "Surface reflectance",
+        "Spectral indices",
+        "Radiometric calibration"
+      ]
+    },
+    {
+      "name": "Region of Interest (ROI)",
+      "definition": "A spatial boundary (e.g., shapefile) defining the geographic area to be analyzed, used to filter and clip datasets.",
+      "prerequisites": [
+        "GIS data handling",
+        "Vector data operations"
+      ],
+      "related_concepts": [
+        "Boundary processing",
+        "Clip operation",
+        "Spatial subsetting"
+      ]
+    },
+    {
+      "name": "Median Composite",
+      "definition": "An image created by taking the median value of each pixel across multiple images in a collection, reducing noise and cloud effects while representing typical conditions.",
+      "prerequisites": [
+        "Image collection processing",
+        "Statistical operations on rasters"
+      ],
+      "related_concepts": [
+        "Mosaic",
+        "Reduction",
+        "Cloud-free composite"
+      ]
+    },
+    {
+      "name": "Cloud Filtering",
+      "definition": "The process of removing satellite images with excessive cloud cover or masking cloud pixels using QA bands or cloud detection algorithms.",
+      "prerequisites": [
+        "Understanding of cloud impact on remote sensing",
+        "QA band interpretation"
+      ],
+      "related_concepts": [
+        "Cloud masking",
+        "QA bands",
+        "Image quality assessment"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Import and Define Study Area",
+      "steps": [
+        {
+          "action": "Import a boundary shapefile into GEE as a Feature",
+          "explanation": "Defines the geographic extent (ROI) for analysis, ensuring all subsequent operations are spatially constrained.",
+          "code_snippet": "var roi = ee.FeatureCollection('users/your_shapefile_path');",
+          "gotcha": "Shapefile must be uploaded to GEE assets first; path must be correct and accessible."
+        },
+        {
+          "action": "Display ROI on the map and center view",
+          "explanation": "Visually confirm the correct area is loaded and set the map view to the ROI.",
+          "code_snippet": "Map.addLayer(roi, {}, 'ROI');\nMap.centerObject(roi, 10);",
+          "gotcha": "Zoom level (second parameter) may need adjustment based on ROI size."
+        }
+      ]
+    },
+    {
+      "name": "Prepare Image Collection for a Time Period",
+      "steps": [
+        {
+          "action": "Load Sentinel-2 Surface Reflectance collection",
+          "explanation": "Accesses the pre-processed, atmospherically corrected imagery suitable for quantitative analysis.",
+          "code_snippet": "var s2 = ee.ImageCollection('COPERNICUS/S2_SR');",
+          "gotcha": "Collection ID must be exact; 'SR' denotes Surface Reflectance product."
+        },
+        {
+          "action": "Filter collection by spatial bounds (ROI)",
+          "explanation": "Limits images to those overlapping the study area, reducing computation.",
+          "code_snippet": ".filterBounds(roi.geometry())",
+          "gotcha": "ROI geometry must be used, not the FeatureCollection itself."
+        },
+        {
+          "action": "Filter collection by date range",
+          "explanation": "Selects images acquired within the specific temporal window for comparison (e.g., dry season to avoid phenology changes).",
+          "code_snippet": ".filterDate('2023-01-01', '2023-02-10')",
+          "gotcha": "Date format must be 'YYYY-MM-DD'; end date is exclusive."
+        },
+        {
+          "action": "Filter by cloud cover percentage",
+          "explanation": "Excludes images with high cloud contamination using the QA metadata property.",
+          "code_snippet": ".filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 1))",
+          "gotcha": "Property name is case-sensitive; percentage threshold (e.g., 1%) depends on region/climate."
+        },
+        {
+          "action": "Select desired spectral bands",
+          "explanation": "Retains only necessary bands for classification (e.g., B2-B4 for true color/NDVI).",
+          "code_snippet": ".select(['B2','B3','B4','B8'])",
+          "gotcha": "Omission selects all bands but increases data size; explicitly listing improves efficiency."
+        }
+      ]
+    },
+    {
+      "name": "Create Median Composite and Clip",
+      "steps": [
+        {
+          "action": "Compute median of filtered image collection",
+          "explanation": "Reduces residual clouds/nulls by taking the median pixel value across all images in the filtered collection.",
+          "code_snippet": "var composite = filteredCollection.median();",
+          "gotcha": "Median assumes consistent atmospheric conditions; may smooth over real changes if temporal window is large."
+        },
+        {
+          "action": "Clip composite to ROI",
+          "explanation": "Removes pixels outside the study boundary to focus analysis and reduce display clutter.",
+          "code_snippet": "var clippedComposite = composite.clip(roi);",
+          "gotcha": "Clipping must be done after median; clipping individual images before median can create edge artifacts."
+        }
+      ]
+    },
+    {
+      "name": "Visualize and Compare Two Periods",
+      "steps": [
+        {
+          "action": "Repeat preparation for second time period (e.g., 2018)",
+          "explanation": "Creates a comparable composite for the earlier period using same bands/cloud threshold.",
+          "code_snippet": "var after = s2.filterBounds(roi.geometry())\n                .filterDate('2018-01-01', '2018-12-31')\n                .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 1))\n                .median()\n                .clip(roi);",
+          "gotcha": "Date ranges should be seasonally comparable to minimize phenological differences."
+        },
+        {
+          "action": "Add both layers to map with visualization parameters",
+          "explanation": "Applies band combinations and stretches (e.g., 2-98% percentiles) for meaningful visual contrast.",
+          "code_snippet": "Map.addLayer(before, {bands: ['B4','B3','B2'], min:0, max:3000}, 'Before');\nMap.addLayer(after, {bands: ['B4','B3','B2'], min:0, max:3000}, 'After');",
+          "gotcha": "Digital numbers (DN) or reflectance values vary by product; scaling may be needed (Sentinel-2 SR: 0-10000)."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Create Cloud-Filtered Median Composite for ROI",
+      "language": "javascript",
+      "purpose": "Generates a cloud-minimized, cloud-free composite image for a defined area and time period using Sentinel-2 SR data.",
+      "code": "var roi = ee.FeatureCollection('users/your_id/your_roi_shapefile');\nvar s2 = ee.ImageCollection('COPERNICUS/S2_SR');\nvar startDate = '2023-01-01';\nvar endDate = '2023-02-10';\nvar cloudThreshold = 1;\n\nvar composite = s2.filterBounds(roi.geometry())\n  .filterDate(startDate, endDate)\n  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', cloudThreshold))\n  .median()\n  .clip(roi);\n\nMap.centerObject(roi, 10);\nMap.addLayer(composite, {bands: ['B4','B3','B2'], min:0, max:3000}, 'S2 Composite');",
+      "dependencies": [
+        "Google Earth Engine JavaScript API",
+        "Pre-uploaded ROI shapefile in GEE assets"
+      ]
+    }
+  ],
+  "api_knowledge": [
+    {
+      "api_name": "Google Earth Engine JavaScript API",
+      "endpoints_used": [
+        "ee.ImageCollection",
+        "ee.FeatureCollection",
+        "filterBounds()",
+        "filterDate()",
+        "filter()",
+        "median()",
+        "clip()",
+        "Map.addLayer()",
+        "Map.centerObject()"
+      ],
+      "auth_method": "OAuth 2.0 via Google account (automatic in Code Editor)",
+      "example_calls": [
+        "ee.ImageCollection('COPERNICUS/S2_SR').filterBounds(geometry).filterDate('2023-01-01', '2023-02-10')",
+        "imageCollection.filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 1))"
+      ]
+    }
+  ],
+  "gotchas": [
+    {
+      "description": "Incorrect cloud filtering leads to cloudy composites",
+      "context": "When using 'CLOUDY_PIXEL_PERCENTAGE' property without understanding its derivation (from Sen2Cor algorithm), which may miss some clouds or misclassify shadows.",
+      "solution": "Inspect individual images; consider additional cloud masking (e.g., using 'QA60' band for opaque clouds) or a more sophisticated masking function."
+    },
+    {
+      "description": "Phenological differences masquerade as land cover change",
+      "context": "Comparing images from different seasons (e.g., wet vs. dry) shows spectral differences due to vegetation health, not actual land cover change.",
+      "solution": "Use comparable seasonal windows (e.g., same month range across years) or apply normalization indices that reduce phenological effects."
+    },
+    {
+      "description": "Edge effects from clipping",
+      "context": "Clipping an image after median compositing can create sharp boundaries at ROI edges, especially if the median used pixels outside the ROI.",
+      "solution": "Always apply `.clip(roi)` as the final step after all reductions (median, sum, etc.)."
+    },
+    {
+      "description": "Incorrect visualization parameters hide features",
+      "context": "Using default min/max values (0-255 for byte data) on 16-bit Sentinel-2 data (0-10000) results in a dark, low-contrast image.",
+      "solution": "Set appropriate min/max based on data type. For Sentinel-2 SR, common stretch is min:0, max:3000 (or use percentiles: {bands:..., min:0, max:3000} or calculate .reduceRegion(ee.Reducer.percentile([2,98])))."
+    }
+  ],
+  "confidence": 0.8,
+  "extracted_at": "2026-04-20T11:35:10.360168+00:00"
+}

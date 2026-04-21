@@ -1,0 +1,72 @@
+{
+  "name": "FAO Forest Resources Assessment API",
+  "base_url": "",
+  "version": "",
+  "description": "The provided documentation content is an HTML page for a generic OpenAPI/Swagger viewer tool (StackUtils), not the actual FAO Forest Resources Assessment API specification. No API endpoints, authentication details, or other specific information about the FAO API were found in the content.",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {
+    "requests_per_minute": 0,
+    "requests_per_second": 0
+  },
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://spec.openapis.org/oas/v3.2.0.html",
+      "title": "OpenAPI Specification v3.2.0",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://stackutils.dev/tools/openapi-viewer",
+      "title": "OpenAPI / Swagger Viewer \u2013 View API Specs Online | StackUtils",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://learn.openapis.org/specification/structure.html",
+      "title": "Structure of an OpenAPI Description",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://pypi.org/project/faodata/",
+      "title": "faodata \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/faostat/",
+      "title": "faostat \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://openknowledge.fao.org/server/api/core/bitstreams/12322cae-5b20-4be2-927a-72a86fd319e9/content",
+      "title": "2025 Global Forest Resources Assessment 2025",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://openknowledge.fao.org/server/api/core/bitstreams/5100a18e-1432-42b1-945e-398daac0176e/content",
+      "title": "Global Forest Resources Assessment 2015 Desk reference",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://openknowledge.fao.org/server/api/core/bitstreams/2dee6e93-1988-4659-aa89-30dd20b43b15/content/cd6709en.html",
+      "title": "Global Forest Resources Assessment 2025",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://github.com/ashki23/fia-py-api",
+      "title": "GitHub - ashki23/fia-py-api: A Python API for accessing Forest Inventory and Analysis (FIA) database in parallel.",
+      "type": "official_docs",
+      "confidence": 0.85
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T10:19:11.432636+00:00"
+}

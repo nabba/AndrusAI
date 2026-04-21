@@ -1,0 +1,113 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=1LWL1qGf9X4",
+  "source_title": "Spatial Joins in GIS - The Core Vector GIS Toolkit (6)",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Spatial Join",
+      "definition": "A GIS operation that combines attributes from two vector layers based on a specified spatial relationship between their geometries (e.g., intersect, within, contains).",
+      "prerequisites": [
+        "Basic GIS terminology",
+        "Understanding of vector data model (points, lines, polygons)",
+        "Familiarity with attribute tables"
+      ],
+      "related_concepts": [
+        "Spatial predicate",
+        "Coordinate Reference System (CRS)",
+        "Spatial index"
+      ]
+    },
+    {
+      "name": "Spatial Predicate",
+      "definition": "The geometric relationship used to define how features from two layers are matched in a spatial join (e.g., intersects, within, contains, touches).",
+      "prerequisites": [
+        "Basic geometry types"
+      ],
+      "related_concepts": [
+        "Spatial join",
+        "DE-9IM model"
+      ]
+    },
+    {
+      "name": "Coordinate Reference System (CRS)",
+      "definition": "A framework used to precisely measure locations on the Earth's surface. All layers in a spatial join must share the same CRS for accurate results.",
+      "prerequisites": [
+        "Basic geography"
+      ],
+      "related_concepts": [
+        "Spatial join",
+        "Projection"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Perform a Spatial Join using GeoPandas",
+      "steps": [
+        {
+          "action": "Import required libraries and load spatial data files.",
+          "explanation": "GeoPandas is needed for spatial operations; reading files (e.g., GeoJSON, Shapefile) loads the vector data into GeoDataFrames.",
+          "code_snippet": "import geopandas as gpd\npoints = gpd.read_file('points.geojson')\npolygons = gpd.read_file('polygons.geojson')",
+          "gotcha": "Ensure file paths are correct and libraries are installed (`pip install geopandas`)."
+        },
+        {
+          "action": "Verify and align the Coordinate Reference Systems (CRS) of both layers.",
+          "explanation": "Spatial operations require both layers to be in the same CRS. Mismatched CRS will yield incorrect or empty results.",
+          "code_snippet": "print(points.crs)\nprint(polygons.crs)\npoints = points.to_crs(polygons.crs)",
+          "gotcha": "Always check CRS before joining. Use `to_crs()` to reproject one layer to match the other's CRS."
+        },
+        {
+          "action": "Execute the spatial join using a chosen spatial predicate.",
+          "explanation": "The `sjoin` function merges attributes based on the spatial relationship defined by the `predicate` parameter.",
+          "code_snippet": "joined = gpd.sjoin(points, polygons, how='inner', predicate='within')",
+          "gotcha": "Common predicates: 'intersects', 'within', 'contains', 'overlaps'. Choose based on the analytical question. The `how` parameter ('inner', 'left') controls which geometries are retained."
+        },
+        {
+          "action": "Inspect the resulting GeoDataFrame.",
+          "explanation": "The output contains geometries from the left layer (first argument) and attributes from both layers, indexed by the spatial relationship.",
+          "code_snippet": "print(joined.head())\nprint(joined.columns)",
+          "gotcha": "The geometry column will be from the left DataFrame (points in this example). Attribute columns may have suffixes like '_left' and '_right' if names conflict."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Point-in-Polygon Spatial Join with GeoPandas",
+      "language": "python",
+      "purpose": "Assign polygon attributes (e.g., district name, ID) to point features that fall within them.",
+      "code": "import geopandas as gpd\n\n# Load data\npoints = gpd.read_file('data/points.geojson')  # e.g., GPS locations\npolygons = gpd.read_file('data/districts.geojson')  # e.g., administrative boundaries\n\n# Ensure consistent CRS\nif points.crs != polygons.crs:\n    points = points.to_crs(polygons.crs)\n\n# Perform spatial join (points within polygons)\nresult = gpd.sjoin(points, polygons, how='inner', predicate='within')\n\n# Save or use result\nresult.to_file('data/joined_result.geojson', driver='GeoJSON')\nprint(f'Joined {len(result)} points to polygons.')",
+      "dependencies": [
+        "geopandas",
+        "pandas",
+        "fiona (for file I/O)",
+        "shapely (for geometry operations)"
+      ]
+    }
+  ],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Coordinate Reference System (CRS) Mismatch",
+      "context": "When the two input layers have different CRSs, the spatial relationship test is mathematically incorrect, often resulting in empty outputs or misaligned joins.",
+      "solution": "Always check the `.crs` attribute of both GeoDataFrames. Use `.to_crs(target_crs)` to reproject one layer to match the other's CRS before performing `sjoin`."
+    },
+    {
+      "description": "Incorrect Spatial Predicate Selection",
+      "context": "Using a predicate that doesn't match the intended spatial relationship (e.g., using 'contains' when you need 'within' for point-in-polygon).",
+      "solution": "Understand the directional nature of predicates: `A contains B` means B is within A. For points in polygons, use `predicate='within'` on the points GeoDataFrame joined to polygons."
+    },
+    {
+      "description": "Performance Issues with Large Datasets",
+      "context": "Spatial joins on large layers without a spatial index can be extremely slow.",
+      "solution": "GeoPandas automatically uses spatial indexes (via `rtree` or `pygeos`) if installed. Ensure `rtree` is present for optimized performance on large datasets."
+    },
+    {
+      "description": "Attribute Column Name Conflicts",
+      "context": "If both layers have columns with the same name, the resulting joined GeoDataFrame will have duplicate columns with suffixes.",
+      "solution": "Rename conflicting columns before the join or carefully manage the output columns afterward. Use the `lsuffix` and `rsuffix` parameters in `sjoin` to customize suffixes."
+    }
+  ],
+  "confidence": 0.65,
+  "extracted_at": "2026-04-20T07:09:26.542099+00:00"
+}

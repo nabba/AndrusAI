@@ -1,0 +1,45 @@
+{
+  "name": "Estonian Environment Agency (Keskkonnateenistused) Data Portal API / WFS services",
+  "base_url": "https://keskkonnaportaal.ee/geoserver/wfs",
+  "version": "latest",
+  "description": "Open data API providing access to Estonian National Geoportal spatial data services, including environmental, meteorological, hydrological, and geographic datasets. Based on Web Feature Service (WFS) standards for retrieving geospatial features.",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://api.store/estonia-api/maa-amet-api",
+      "title": "Estonian National Geoportal open data in a single API request",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://keskkonnaportaal.ee/en/spatial-data-services-and-use-eelis",
+      "title": "Spatial data services and the use of EELIS | The Estonian Environmental Portal",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://keskkonnaportaal.ee/en/node/9566",
+      "title": "Clone of Open data | The Estonian Environmental Portal",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://geoportaal.maaamet.ee/eng/services/public-wms-wfs-p346.html",
+      "title": "Public WMS, WFS | Geoportal | Estonian Land and Spatial Development Board",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://keskkonnaagentuur.ee/en/estonian-environment-agency-news-and-contact/estonian-environment-agency",
+      "title": "Estonian Environment Agency | Keskkonnaagentuur",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.85,
+  "discovered_at": "2026-04-20T11:29:57.630421+00:00"
+}

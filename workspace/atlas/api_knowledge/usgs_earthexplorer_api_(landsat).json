@@ -1,0 +1,64 @@
+{
+  "name": "USGS EarthExplorer API (Landsat)",
+  "base_url": "",
+  "version": "",
+  "description": "Search and download Landsat scenes from EarthExplorer",
+  "auth_type": "none",
+  "auth_details": {
+    "token_url": "",
+    "scopes": [],
+    "header_name": ""
+  },
+  "endpoints": [],
+  "rate_limits": {
+    "requests_per_minute": 0,
+    "requests_per_second": 0
+  },
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://pypi.org/project/landsatxplore/",
+      "title": "landsatxplore \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://libraries.io/pypi/landsatxplore",
+      "title": "landsatxplore 0.12.1 on PyPI - Libraries.io - security & maintenance data for open source software",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/usgs-m2m-api/",
+      "title": "usgs-m2m-api \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://mapbox.github.io/usgs/_modules/usgs/api.html",
+      "title": "usgs.api \u2014 usgs 0.1.5 documentation",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://github.com/scottyhq/usgs-json-api/blob/master/0-usgs-api.ipynb",
+      "title": "usgs-json-api/0-usgs-api.ipynb at master \u00b7 scottyhq/usgs-json-api",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://gis.stackexchange.com/questions/300323/search-images-in-usgs-earth-explorer-using-python-api",
+      "title": "landsat - Search images in USGS earth explorer using Python API - Geographic Information Systems Stack Exchange",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://mapbox.github.io/usgs/index.html",
+      "title": "usgs \u2014 usgs 0.1.5 documentation",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T10:15:41.073388+00:00"
+}

@@ -1,0 +1,134 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=UlJ4lVA2h3o",
+  "source_title": "Calculating Age Groups",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "VLOOKUP",
+      "definition": "A spreadsheet function that searches for a value in the first column of a range and returns a value in the same row from a specified column.",
+      "prerequisites": [],
+      "related_concepts": [
+        "HLOOKUP",
+        "Named Range",
+        "Approximate Match"
+      ]
+    },
+    {
+      "name": "Named Range",
+      "definition": "A descriptive name assigned to a specific cell range, which simplifies formula creation and readability.",
+      "prerequisites": [],
+      "related_concepts": [
+        "VLOOKUP"
+      ]
+    },
+    {
+      "name": "Approximate Match",
+      "definition": "A setting in lookup functions (using TRUE) that finds the largest value that is less than or equal to the lookup value, requiring the data to be sorted.",
+      "prerequisites": [
+        "Sorting"
+      ],
+      "related_concepts": [
+        "Exact Match"
+      ]
+    },
+    {
+      "name": "Lookup Table",
+      "definition": "A reference table containing data used to map input values (like specific ages) to output categories (like age groups).",
+      "prerequisites": [],
+      "related_concepts": [
+        "VLOOKUP"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Setting up the Age Group Reference Table",
+      "steps": [
+        {
+          "action": "Create a two-column list on a separate sheet.",
+          "explanation": "The first column contains the starting age (lower bound) for each group, and the second contains the group label.",
+          "code_snippet": "",
+          "gotcha": "The first column must list the youngest age for each group and must be sorted numerically in ascending order."
+        },
+        {
+          "action": "Highlight the data cells (excluding headers).",
+          "explanation": "Select the specific range of cells to be named (e.g., B4 to C11).",
+          "code_snippet": "",
+          "gotcha": ""
+        },
+        {
+          "action": "Define a Named Range.",
+          "explanation": "Type a name (e.g., 'AgeGroup') into the Name Box and press Enter to save the range reference.",
+          "code_snippet": "",
+          "gotcha": "Named ranges cannot contain spaces or special characters."
+        }
+      ]
+    },
+    {
+      "name": "Calculating Age Group using VLOOKUP Wizard",
+      "steps": [
+        {
+          "action": "Select the target cell and open the Insert Function dialog.",
+          "explanation": "Navigate to the Formulas ribbon and search for 'VLOOKUP'.",
+          "code_snippet": "",
+          "gotcha": ""
+        },
+        {
+          "action": "Set the Lookup_value.",
+          "explanation": "Select the cell containing the specific age to categorize (e.g., E3).",
+          "code_snippet": "",
+          "gotcha": ""
+        },
+        {
+          "action": "Set the Table_array.",
+          "explanation": "Press F3 to open the list of named ranges and select the one created earlier (e.g., 'AgeGroup').",
+          "code_snippet": "",
+          "gotcha": ""
+        },
+        {
+          "action": "Set the Col_index_num.",
+          "explanation": "Enter '2' to return the value from the second column of the reference table (the age group name).",
+          "code_snippet": "",
+          "gotcha": ""
+        },
+        {
+          "action": "Set the Range_lookup.",
+          "explanation": "Type 'TRUE' to enable approximate match, which allows the formula to map ages into ranges.",
+          "code_snippet": "",
+          "gotcha": "Using 'FALSE' (exact match) will fail for ages not explicitly listed in the first column of the reference table."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Age Group Classification Formula",
+      "language": "Excel Formula",
+      "purpose": "Classifies a given age into a specific text category based on a predefined reference table.",
+      "code": "=VLOOKUP(E3, AgeGroup, 2, TRUE)",
+      "dependencies": [
+        "Named Range 'AgeGroup'"
+      ]
+    }
+  ],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "VLOOKUP returns incorrect or unexpected results.",
+      "context": "Using the VLOOKUP function with TRUE (approximate match).",
+      "solution": "Ensure the first column of the lookup table is sorted in numerical ascending order (youngest to oldest)."
+    },
+    {
+      "description": "Formula returns an error for ages not explicitly listed.",
+      "context": "Setting the Range_lookup argument to FALSE.",
+      "solution": "Change the argument to TRUE to allow the formula to find the nearest match (lower bound) for grouping."
+    },
+    {
+      "description": "Named range fails to create.",
+      "context": "Typing the name into the Name Box.",
+      "solution": "Ensure the name contains no spaces or illegal characters (e.g., use 'AgeGroup' instead of 'Age Group')."
+    }
+  ],
+  "confidence": 0.75,
+  "extracted_at": "2026-04-20T20:22:59.093626+00:00"
+}

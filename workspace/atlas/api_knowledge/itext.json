@@ -1,0 +1,70 @@
+{
+  "name": "iText",
+  "base_url": "",
+  "version": "",
+  "description": "",
+  "auth_type": "",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://idratherbewriting.com/learnapidoc/pubapis_yaml.html",
+      "title": "Working in YAML (OpenAPI tutorial) | I'd Rather Be Writing Blog and API doc course",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://spec.openapis.org/oas/v3.2.0.html",
+      "title": "OpenAPI Specification v3.2.0",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://www.jetbrains.com/help/idea/openapi.html",
+      "title": "OpenAPI | IntelliJ IDEA Documentation",
+      "type": "openapi_spec",
+      "confidence": 0.95,
+      "parsed_spec": "<!DOCTYPE html SYSTEM \"about:legacy-compat\"> <html lang=\"en-US\" data-preset=\"contrast\" data-primary-color=\"#307FFF\" data-link-color=\"#4F86EA\"><head><link rel=\"canonical\" href=\"https://www.jetbrains.com/help/idea/openapi.html\" data-react-helmet=\"true\"/><meta charset=\"UTF-8\"></meta><meta name=\"built-on\" content=\"2026-04-15T16:20:05.102725983\"><meta name=\"build-number\" content=\"2289\"><title>OpenAPI | IntelliJ&nbsp;IDEA Documentation</title><script type=\"application/json\" id=\"virtual-toc-data\">[{\"id\":\"create-spec\",\"level\":0,\"title\":\"Create an OpenAPI specification\",\"anchor\":\"#create-spec\"},{\"id\":\"preview-api\",\"level\":0,\"title\":\"Preview an OpenAPI specification\",\"anchor\":\"#preview-api\"},{\"id\":\"remote-spec\",\"level\":0,\"title\":\"Add a remote OpenAPI specification\",\"anchor\":\"#remote-spec\"},{\"id\":\"compare\",\"level\":0,\"title\":\"Compare OpenAPI specifications\",\"anchor\":\"#compare\"},{\"id\":\"codegen\",\"level\":0,\"title\":\"Generate code from an OpenAPI specification\",\"anchor\":\"#codegen\"},{\"id\":\"http-client\",\"level\":0,\"title\":\"Test your OpenAPI specification in the HTTP client\",\"anchor\":\"#http-client\"}]</script><script type=\"application/json\" id=\"topic-shortcuts\">{\"ClickLink\":{\"Windows\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-B\"]}],\"platform\":\"PC\"},\"GNOME\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-B\"]}],\"platform\":\"PC\"},\"KDE\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-B\"]}],\"platform\":\"PC\"},\"XWin\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-B\"]}],\"platform\":\"PC\"},\"Emacs\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"mod-Alt\",\"char-G\"]}],\"platform\":\"PC\"},\"NetBeans\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-B\"]}],\"platform\":\"PC\"},\"Eclipse\":{\"keystrokes\":[{\"keys\":[\"key-F3\"]}],\"platform\":\"PC\"},\"Sublime Text\":{\"keystrokes\":[{\"keys\":[\"key-F12\"]}],\"platform\":\"PC\"},\"Visual Studio\":{\"keystrokes\":[{\"keys\":[\"key-F12\"]}],\"platform\":\"PC\"},\"macOS\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-B\"]}],\"platform\":\"MAC\"},\"macOS System Shortcuts\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-B\"]}],\"platform\":\"MAC\"},\"IntelliJ IDEA Classic (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-B\"]}],\"platform\":\"MAC\"},\"Eclipse (macOS)\":{\"keystrokes\":[{\"keys\":[\"key-F3\"]}],\"platform\":\"MAC\"},\"Sublime Text (macOS)\":{\"keystrokes\":[{\"keys\":[\"key-F12\"]}],\"platform\":\"MAC\"},\"Visual Studio (macOS)\":{\"keystrokes\":[{\"keys\":[\"key-F12\"]}],\"platform\":\"MAC\"}},\"Diff.ShowDiff\":{\"Windows\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-D\"]}],\"platform\":\"PC\"},\"GNOME\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-D\"]}],\"platform\":\"PC\"},\"KDE\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-D\"]}],\"platform\":\"PC\"},\"XWin\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-D\"]}],\"platform\":\"PC\"},\"Emacs\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-D\"]}],\"platform\":\"PC\"},\"NetBeans\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-D\"]}],\"platform\":\"PC\"},\"Eclipse\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-D\"]}],\"platform\":\"PC\"},\"Sublime Text\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-D\"]}],\"platform\":\"PC\"},\"Visual Studio\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-D\"]}],\"platform\":\"PC\"},\"macOS\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-D\"]}],\"platform\":\"MAC\"},\"macOS System Shortcuts\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-D\"]}],\"platform\":\"MAC\"},\"IntelliJ IDEA Classic (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-D\"]}],\"platform\":\"MAC\"},\"Eclipse (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-D\"]}],\"platform\":\"MAC\"},\"Sublime Text (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-D\"]}],\"platform\":\"MAC\"},\"Visual Studio (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-D\"]}],\"platform\":\"MAC\"}},\"EditorTab\":{\"Windows\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"PC\"},\"GNOME\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"PC\"},\"KDE\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"PC\"},\"XWin\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"PC\"},\"Emacs\":{\"platform\":\"PC\"},\"NetBeans\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"PC\"},\"Eclipse\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"PC\"},\"Sublime Text\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"PC\"},\"Visual Studio\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"PC\"},\"macOS\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"MAC\"},\"macOS System Shortcuts\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"MAC\"},\"IntelliJ IDEA Classic (macOS)\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"MAC\"},\"Eclipse (macOS)\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"MAC\"},\"Sublime Text (macOS)\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"MAC\"},\"Visual Studio (macOS)\":{\"keystrokes\":[{\"keys\":[\"key-Tab\"]}],\"platform\":\"MAC\"}},\"NewElement\":{\"Windows\":{\"keystrokes\":[{\"keys\":[\"mod-Alt\",\"key-Insert\"]}],\"platform\":\"PC\"},\"GNOME\":{\"keystrokes\":[{\"keys\":[\"mod-Alt\",\"key-Insert\"]}],\"platform\":\"PC\"},\"KDE\":{\"keystrokes\":[{\"keys\":[\"mod-Alt\",\"key-Insert\"]}],\"platform\":\"PC\"},\"XWin\":{\"keystrokes\":[{\"keys\":[\"mod-Alt\",\"key-Insert\"]}],\"platform\":\"PC\"},\"Emacs\":{\"keystrokes\":[{\"keys\":[\"mod-Alt\",\"key-Insert\"]}],\"platform\":\"PC\"},\"NetBeans\":{\"keystrokes\":[{\"keys\":[\"mod-Alt\",\"key-Insert\"]}],\"platform\":\"PC\"},\"Eclipse\":{\"keystrokes\":[{\"keys\":[\"mod-Alt\",\"key-Insert\"]}],\"platform\":\"PC\"},\"Sublime Text\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-N\"]}],\"platform\":\"PC\"},\"Visual Studio\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-N\"]}],\"platform\":\"PC\"},\"macOS\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-N\"]}],\"platform\":\"MAC\"},\"macOS System Shortcuts\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-N\"]}],\"platform\":\"MAC\"},\"IntelliJ IDEA Classic (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-N\"]}],\"platform\":\"MAC\"},\"Eclipse (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-N\"]}],\"platform\":\"MAC\"},\"Sublime Text (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-N\"]}],\"platform\":\"MAC\"},\"Visual Studio (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-N\"]}],\"platform\":\"MAC\"}},\"RenameElement\":{\"Windows\":{\"keystrokes\":[{\"keys\":[\"mod-Shift\",\"key-F6\"]}],\"platform\":\"PC\"},\"GNOME\":{\"keystrokes\":[{\"keys\":[\"mod-Shift\",\"key-F6\"]}],\"platform\":\"PC\"},\"KDE\":{\"keystrokes\":[{\"keys\":[\"mod-Shift\",\"key-F6\"]}],\"platform\":\"PC\"},\"XWin\":{\"keystrokes\":[{\"keys\":[\"mod-Shift\",\"key-F6\"]}],\"platform\":\"PC\"},\"Emacs\":{\"keystrokes\":[{\"keys\":[\"mod-Shift\",\"key-F6\"]}],\"platform\":\"PC\"},\"NetBeans\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-R\"]}],\"platform\":\"PC\"},\"Eclipse\":{\"keystrokes\":[{\"keys\":[\"mod-Alt\",\"mod-Shift\",\"char-R\"]}],\"platform\":\"PC\"},\"Sublime Text\":{\"keystrokes\":[{\"keys\":[\"mod-Shift\",\"key-F6\"]}],\"platform\":\"PC\"},\"Visual Studio\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"char-R\"]},{\"keys\":[\"char-R\"]}],\"platform\":\"PC\"},\"macOS\":{\"keystrokes\":[{\"keys\":[\"mod-Shift\",\"key-F6\"]}],\"platform\":\"MAC\"},\"macOS System Shortcuts\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"mod-Alt\",\"char-R\"]}],\"platform\":\"MAC\"},\"IntelliJ IDEA Classic (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Shift\",\"key-F6\"]}],\"platform\":\"MAC\"},\"Eclipse (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Shift\",\"key-F6\"]}],\"platform\":\"MAC\"},\"Sublime Text (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Shift\",\"key-F6\"]}],\"platform\":\"MAC\"},\"Visual Studio (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-R\"]},{\"keys\":[\"char-R\"]}],\"platform\":\"MAC\"}},\"ShowSettings\":{\"Windows\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"mod-Alt\",\"char-S\"]}],\"platform\":\"PC\"},\"GNOME\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"mod-Alt\",\"char-S\"]}],\"platform\":\"PC\"},\"KDE\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"mod-Alt\",\"char-S\"]}],\"platform\":\"PC\"},\"XWin\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"mod-Alt\",\"char-S\"]}],\"platform\":\"PC\"},\"Emacs\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"mod-Alt\",\"char-S\"]}],\"platform\":\"PC\"},\"NetBeans\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"mod-Alt\",\"char-S\"]}],\"platform\":\"PC\"},\"Eclipse\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"mod-Alt\",\"char-S\"]}],\"platform\":\"PC\"},\"Sublime Text\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"mod-Alt\",\"char-S\"]}],\"platform\":\"PC\"},\"Visual Studio\":{\"keystrokes\":[{\"keys\":[\"mod-Control\",\"mod-Alt\",\"char-S\"]}],\"platform\":\"PC\"},\"macOS\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-,\"]}],\"platform\":\"MAC\"},\"macOS System Shortcuts\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-,\"]}],\"platform\":\"MAC\"},\"IntelliJ IDEA Classic (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-,\"]}],\"platform\":\"MAC\"},\"Eclipse (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-,\"]}],\"platform\":\"MAC\"},\"Sublime Text (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-,\"]}],\"platform\":\"MAC\"},\"Visual Studio (macOS)\":{\"keystrokes\":[{\"keys\":[\"mod-Command\",\"char-,\"]}],\"platform\":\"MAC\"}}}</script><link href=\"https://resources.jetbrains.com/writerside/apidoc/6.27/app.css\" rel=\"stylesheet\"><link rel=\"manifest\" href=\"https://www.jetbrains.com/site.webmanifest\"><meta name=\"msapplication-TileColor\" content=\"#000000\"><link rel=\"apple-touch-icon\" sizes=\"180x180\" href=\"https://jetbrains.com/apple-touch-icon.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"https://jetbrains.com/favicon-32x32.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"16x16\" href=\"https://jetbrains.com/favicon-16x16.png\"><meta name=\"msapplication-TileImage\" content=\"https://resources.jetbrains.com/storage/ui/favicons/mstile-144x144.png\"><meta name=\"msapplication-square70x70logo\" content=\"https://resources.jetbrains.com/storage/ui/favicons/mstile-70x70.png\"><meta name=\"msapplication-square150x150logo\" content=\"https://resources.jetbrains.com/storage/ui/favicons/mstile-150x150.png\"><meta name=\"msapplication-wide310x150logo\" content=\"https://resources.jetbrains.com/storage/ui/favicons/mstile-310x150.png\"><meta name=\"msapplication-square310x310logo\" content=\"https://resources.jetbrains.com/storage/ui/favicons/mstile-310x310.png\"><meta name=\"image\" content=\"https://resources.jetbrains.com/storage/products/intellij-idea/img/meta/preview.png\"><!-- Open Graph --><meta property=\"og:title\" content=\"OpenAPI | IntelliJ&nbsp;IDEA\"><meta property=\"og:description\" content=\"\"><meta property=\"og:image\" content=\"https://resources.jetbrains.com/storage/products/intellij-idea/img/meta/preview.png\"><meta property=\"og:site_name\" content"
+    },
+    {
+      "url": "https://github.com/itext/itext-python-example",
+      "title": "GitHub - itext/itext-python-example \u00b7 GitHub",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://itextpdf.com/resources/api-documentation",
+      "title": "iText pdf library API documentation for Java and .Net",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://stackoverflow.com/questions/9229548/a-good-guide-book-or-api-doc-for-itextsharp",
+      "title": "itext - A good guide book or API doc for iTextSharp? - Stack Overflow",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://itextpdf.com/resources",
+      "title": "Resource Center | iText PDF",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://kb.itextpdf.com/itext/how-to-use-itext-in-python-environments",
+      "title": "How to Use iText in Python Environments",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://itextpdf.com/",
+      "title": "The Leading PDF Library for Developers | iText",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.3,
+  "discovered_at": "2026-04-20T08:53:56.904965+00:00"
+}

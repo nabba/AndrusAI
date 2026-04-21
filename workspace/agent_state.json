@@ -1,20 +1,20 @@
 {
   "research": {
-    "tasks_completed": 116,
+    "tasks_completed": 142,
     "tasks_failed": 3,
-    "success_rate": 0.9748,
-    "avg_confidence": 0.7226,
+    "success_rate": 0.9793,
+    "avg_confidence": 0.6785,
     "by_difficulty": {
       "2": {
-        "completed": 45,
+        "completed": 49,
         "failed": 2
       },
       "3": {
-        "completed": 42,
+        "completed": 43,
         "failed": 1
       },
       "5": {
-        "completed": 7,
+        "completed": 8,
         "failed": 0
       },
       "6": {
@@ -30,7 +30,7 @@
         "failed": 0
       },
       "9": {
-        "completed": 5,
+        "completed": 25,
         "failed": 0
       },
       "8": {
@@ -38,14 +38,14 @@
         "failed": 0
       }
     },
-    "streak": 33,
-    "last_task_at": "2026-04-20T06:46:50.421229+00:00"
+    "streak": 59,
+    "last_task_at": "2026-04-21T15:24:27.064594+00:00"
   },
   "writing": {
     "tasks_completed": 21,
-    "tasks_failed": 2,
-    "success_rate": 0.913,
-    "avg_confidence": 0.7035,
+    "tasks_failed": 3,
+    "success_rate": 0.875,
+    "avg_confidence": 0.6532,
     "by_difficulty": {
       "2": {
         "completed": 12,
@@ -53,7 +53,7 @@
       },
       "3": {
         "completed": 7,
-        "failed": 0
+        "failed": 1
       },
       "6": {
         "completed": 0,
@@ -68,21 +68,21 @@
         "failed": 0
       }
     },
-    "streak": 2,
-    "last_task_at": "2026-04-19T19:19:20.327868+00:00"
+    "streak": 0,
+    "last_task_at": "2026-04-21T13:56:03.677544+00:00"
   },
   "coding": {
-    "tasks_completed": 12,
+    "tasks_completed": 19,
     "tasks_failed": 1,
-    "success_rate": 0.9231,
-    "avg_confidence": 0.6375,
+    "success_rate": 0.95,
+    "avg_confidence": 0.6642,
     "by_difficulty": {
       "7": {
-        "completed": 4,
+        "completed": 6,
         "failed": 1
       },
       "5": {
-        "completed": 3,
+        "completed": 4,
         "failed": 0
       },
       "3": {
@@ -94,12 +94,12 @@
         "failed": 0
       },
       "8": {
-        "completed": 1,
+        "completed": 5,
         "failed": 0
       }
     },
-    "streak": 8,
-    "last_task_at": "2026-04-20T05:56:31.841180+00:00"
+    "streak": 15,
+    "last_task_at": "2026-04-21T13:43:58.478139+00:00"
   },
   "pim": {
     "tasks_completed": 14,

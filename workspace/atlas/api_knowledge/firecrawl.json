@@ -1,0 +1,242 @@
+{
+  "name": "Firecrawl",
+  "base_url": "https://api.firecrawl.dev/v1",
+  "version": "v1",
+  "description": "An API to crawl, scrape, and map websites to extract clean, LLM-ready data (markdown, structured data).",
+  "auth_type": "api_key_header",
+  "auth_details": {
+    "header_name": "Authorization",
+    "prefix": "Bearer"
+  },
+  "endpoints": [
+    {
+      "path": "/scrape",
+      "method": "POST",
+      "description": "Scrapes a specific URL and returns its content in the specified format.",
+      "parameters": [],
+      "request_body": {
+        "format": "json",
+        "fields": {
+          "url": {
+            "type": "string",
+            "required": true,
+            "description": "The URL to scrape"
+          },
+          "formats": {
+            "type": "array",
+            "required": false,
+            "description": "Formats to output (e.g., ['markdown', 'html', 'rawHtml'])"
+          },
+          "onlyMainContent": {
+            "type": "boolean",
+            "required": false,
+            "description": "Only extract main content, excluding navs, footers, etc."
+          }
+        }
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "object",
+            "description": "Contains content, metadata, and links based on requested formats"
+          }
+        }
+      },
+      "rate_limit": "",
+      "requires_auth": true
+    },
+    {
+      "path": "/crawl",
+      "method": "POST",
+      "description": "Initiates a crawl job starting from a specific URL.",
+      "parameters": [],
+      "request_body": {
+        "format": "json",
+        "fields": {
+          "url": {
+            "type": "string",
+            "required": true,
+            "description": "The base URL to start crawling from"
+          },
+          "limit": {
+            "type": "integer",
+            "required": false,
+            "description": "Maximum number of pages to crawl"
+          },
+          "maxDepth": {
+            "type": "integer",
+            "required": false,
+            "description": "Maximum depth to crawl relative to the URL"
+          }
+        }
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "success": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "description": "The job ID for checking status"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL to check the status of the crawl job"
+          }
+        }
+      },
+      "rate_limit": "",
+      "requires_auth": true
+    },
+    {
+      "path": "/crawl/{jobId}",
+      "method": "GET",
+      "description": "Checks the status of a running crawl job and returns results if completed.",
+      "parameters": [
+        {
+          "name": "jobId",
+          "type": "string",
+          "required": true,
+          "in": "path",
+          "description": "The ID of the crawl job"
+        }
+      ],
+      "request_body": {
+        "format": "none"
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "status": {
+            "type": "string",
+            "description": "Status of the job (e.g., scraping, completed, failed)"
+          },
+          "data": {
+            "type": "array",
+            "description": "List of scraped documents (populated when completed)"
+          },
+          "completed": {
+            "type": "integer"
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "rate_limit": "",
+      "requires_auth": true
+    },
+    {
+      "path": "/map",
+      "method": "POST",
+      "description": "Maps a website to retrieve a list of links.",
+      "parameters": [],
+      "request_body": {
+        "format": "json",
+        "fields": {
+          "url": {
+            "type": "string",
+            "required": true,
+            "description": "The URL to map"
+          },
+          "search": {
+            "type": "string",
+            "required": false,
+            "description": "Search string to filter links"
+          },
+          "limit": {
+            "type": "integer",
+            "required": false,
+            "description": "Maximum number of links to return"
+          }
+        }
+      },
+      "response_schema": {
+        "format": "json",
+        "fields": {
+          "success": {
+            "type": "boolean"
+          },
+          "links": {
+            "type": "array",
+            "items": "string"
+          }
+        }
+      },
+      "rate_limit": "",
+      "requires_auth": true
+    }
+  ],
+  "rate_limits": {
+    "requests_per_minute": 500,
+    "concurrent_requests": 20
+  },
+  "error_codes": {
+    "401": "Unauthorized - Missing or invalid API key",
+    "429": "Rate limit exceeded",
+    "500": "Internal Server Error"
+  },
+  "doc_sources": [
+    {
+      "url": "https://github.com/firecrawl/firecrawl/blob/main/apps/api/openapi.json",
+      "title": "firecrawl/apps/api/openapi.json at main \u00b7 firecrawl/firecrawl",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://github.com/devflowinc/firecrawl-simple/blob/main/apps/api/v1-openapi.json",
+      "title": "firecrawl-simple/apps/api/v1-openapi.json at main \u00b7 devflowinc/firecrawl-simple",
+      "type": "openapi_spec",
+      "confidence": 0.95
+    },
+    {
+      "url": "https://github.com/firecrawl/firecrawl",
+      "title": "GitHub - firecrawl/firecrawl: \ud83d\udd25 The API to search, scrape, and interact with the web for AI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/firecrawl/",
+      "title": "Firecrawl Python SDK",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/firecrawl/2.0.0/",
+      "title": "firecrawl \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://docs.firecrawl.dev/api-reference/introduction",
+      "title": "Introduction - Firecrawl Docs",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://docs.firecrawl.dev/introduction",
+      "title": "Introduction | Firecrawl",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://docs.firecrawl.dev/sdks/python",
+      "title": "Python SDK | Firecrawl",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://www.firecrawl.dev/playground",
+      "title": "Firecrawl - Search, Scrape, and Interact with the Web for AI",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T20:20:12.795819+00:00"
+}

@@ -1,0 +1,45 @@
+{
+  "name": "Estonian Land Board (Maa-amet) API",
+  "base_url": null,
+  "version": null,
+  "description": "The Estonian Land Board (Maa-amet) API provides access to Estonian National Geoportal open data via a single API request, available through the API Store marketplace.",
+  "auth_type": null,
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://api.store/estonia-api/maa-amet-api",
+      "title": "Estonian National Geoportal open data in a single API request",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://api.store/estonia-api",
+      "title": "Estonia open data in a single API request",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://www.programmableweb.com/api/maa-amet",
+      "title": "Maa-Amet API | ProgrammableWeb",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://geoportaal.maaamet.ee/eng/Services/In-ADS-p660.html",
+      "title": "In-ADS | Geoportal | Estonian Land and Spatial Development Board",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://geoportaal.maaamet.ee/eng/services/in-ads-p660.html",
+      "title": "In-ADS | Geoportal | Estonian Land and Spatial Development Board",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.85,
+  "discovered_at": "2026-04-20T07:00:17.714327+00:00"
+}

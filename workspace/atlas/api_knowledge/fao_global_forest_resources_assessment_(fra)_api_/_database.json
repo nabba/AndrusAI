@@ -1,0 +1,57 @@
+{
+  "name": "FAO Global Forest Resources Assessment (FRA) API / database",
+  "base_url": "",
+  "version": "",
+  "description": "",
+  "auth_type": "",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://pypi.org/project/faodata/",
+      "title": "faodata \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://pypi.org/project/faostat/",
+      "title": "faostat \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://openknowledge.fao.org/server/api/core/bitstreams/12322cae-5b20-4be2-927a-72a86fd319e9/content",
+      "title": "2025 Global Forest Resources Assessment 2025",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://openknowledge.fao.org/server/api/core/bitstreams/5100a18e-1432-42b1-945e-398daac0176e/content",
+      "title": "Global Forest Resources Assessment 2015 Desk reference",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://openknowledge.fao.org/server/api/core/bitstreams/e52bd00a-7b1c-4907-a595-bb288189feca/content",
+      "title": "Global Forest Resources Assessment (FRA) 2020 Canada",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://fra-data.fao.org/",
+      "title": "FRA Platform | Global Forest Resources Data | Food and Agriculture Organization of the United Nations",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://www.fao.org/forest-resources-assessment/en",
+      "title": "Home | Global Forest Resources Assessments | Food and Agriculture Organization of the United Nations",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.3,
+  "discovered_at": "2026-04-20T11:30:26.803340+00:00"
+}

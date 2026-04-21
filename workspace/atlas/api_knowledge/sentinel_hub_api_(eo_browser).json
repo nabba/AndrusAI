@@ -1,0 +1,63 @@
+{
+  "name": "Sentinel Hub API (EO Browser)",
+  "base_url": "",
+  "version": "",
+  "description": "",
+  "auth_type": "api_key_header",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://pypi.org/project/sentinelhub/",
+      "title": "sentinelhub \u00b7 PyPI",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://docs.sentinel-hub.com/api/latest/reference/openapi.v1.yaml",
+      "title": "Sentinel-hub",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://www.sentinel-hub.com/develop/api/",
+      "title": "API",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://www.sentinel-hub.com/develop/api/ogc/",
+      "title": "OGC API",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://docs.sentinel-hub.com/api/latest/user-guides/beginners-guide/",
+      "title": "Beginners Guide",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://sentinelhub-py.readthedocs.io/en/latest/",
+      "title": "Documentation of sentinelhub Python package \u2014 Sentinel Hub 3.11.5 documentation",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/Overview.html",
+      "title": "API Overview - Sentinel Hub - Documentation - Copernicus",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://www.sentinel-hub.com/develop/integrate/python-integrate/",
+      "title": "Python and Javascript Tools",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.3,
+  "discovered_at": "2026-04-20T10:16:08.771086+00:00"
+}

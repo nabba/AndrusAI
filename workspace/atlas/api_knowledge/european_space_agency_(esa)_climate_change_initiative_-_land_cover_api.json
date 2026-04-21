@@ -1,0 +1,45 @@
+{
+  "name": "European Space Agency (ESA) Climate Change Initiative - Land Cover API",
+  "base_url": "https://climate.esa.int/api",
+  "version": "",
+  "description": "The Land Cover project critically revisits all algorithms required for the generation of a global land product in the light of GCOS requirements, providing interfaces to access land cover data.",
+  "auth_type": "none",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://climate.esa.int/en/data/apis/",
+      "title": "Status & APIs - ESA Climate Change Initiative",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://climate.esa.int/en/projects/land-cover/",
+      "title": "Land Cover - ESA Climate Change Initiative",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://climate.esa.int/en/data/",
+      "title": "The ESA Climate Change Initiative Open Data Portal",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://www.esa-landcover-cci.org/",
+      "title": "ESA CCI Land cover website",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://esa-worldcover.org/en/data-access",
+      "title": "DATA | WORLDCOVER",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.85,
+  "discovered_at": "2026-04-20T11:32:18.522042+00:00"
+}

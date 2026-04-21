@@ -1,0 +1,196 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=-VsKusL9deA",
+  "source_title": "Land use and Land cover classification using Machine learning: CART , SVM, Random forest classifier",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Land use and land cover classification",
+      "definition": "A remote sensing task that categorizes Earth's surface into thematic classes (e.g., forest, urban, water) based on spectral and spatial features from satellite or aerial imagery.",
+      "prerequisites": [
+        "Remote sensing data acquisition",
+        "Basic machine learning knowledge"
+      ],
+      "related_concepts": [
+        "Geographic Information Systems (GIS)",
+        "Spectral indices like NDVI",
+        "Pixel-based classification"
+      ]
+    },
+    {
+      "name": "CART (Classification and Regression Trees)",
+      "definition": "A decision tree algorithm that recursively splits data using Gini impurity or entropy to create a model for classification or regression.",
+      "prerequisites": [
+        "Decision tree theory",
+        "Understanding of impurity measures"
+      ],
+      "related_concepts": [
+        "Random Forest",
+        "Boosting algorithms",
+        "Tree pruning"
+      ]
+    },
+    {
+      "name": "SVM (Support Vector Machine)",
+      "definition": "A supervised learning model that finds the optimal hyperplane to separate classes with maximum margin, often using kernel tricks for non-linear data.",
+      "prerequisites": [
+        "Linear algebra fundamentals",
+        "Concept of margins and support vectors"
+      ],
+      "related_concepts": [
+        "Kernel methods",
+        "Regularization parameter C",
+        "Margin maximization"
+      ]
+    },
+    {
+      "name": "Random Forest classifier",
+      "definition": "An ensemble method that aggregates predictions from multiple decision trees (via bagging) to improve accuracy and reduce overfitting.",
+      "prerequisites": [
+        "Decision trees",
+        "Ensemble learning concepts"
+      ],
+      "related_concepts": [
+        "Bagging",
+        "Feature importance",
+        "Out-of-bag error estimation"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Standard ML classification workflow for land cover",
+      "steps": [
+        {
+          "action": "Load and preprocess remote sensing data",
+          "explanation": "Inspect datasets, handle missing values, normalize features, and extract spectral bands or indices (e.g., NDVI) for modeling.",
+          "code_snippet": "",
+          "gotcha": "Ignoring data normalization can severely impact SVM performance due to scale sensitivity."
+        },
+        {
+          "action": "Split data into training and testing sets",
+          "explanation": "Use stratified splitting to maintain class distribution across sets for reliable evaluation.",
+          "code_snippet": "from sklearn.model_selection import train_test_split\nX_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)",
+          "gotcha": "Non-stratified splits may lead to unrepresentative test sets in imbalanced land cover data."
+        },
+        {
+          "action": "Train base classifiers (CART, SVM, Random Forest)",
+          "explanation": "Initialize and fit each model on training data to learn patterns for land cover classes.",
+          "code_snippet": "from sklearn.tree import DecisionTreeClassifier\nfrom sklearn.svm import SVC\nfrom sklearn.ensemble import RandomForestClassifier\n\ncart = DecisionTreeClassifier()\nsvm = SVC(kernel='rbf')\nrf = RandomForestClassifier(n_estimators=100)\n\ncart.fit(X_train, y_train)\nsvm.fit(X_train, y_train)\nrf.fit(X_train, y_train)",
+          "gotcha": "Default hyperparameters may not be optimal; tuning is often needed for best performance."
+        },
+        {
+          "action": "Evaluate and compare models",
+          "explanation": "Use metrics like accuracy, precision, recall, F1-score, and confusion matrix to assess classification performance on test data.",
+          "code_snippet": "from sklearn.metrics import classification_report\n\nfor model in [cart, svm, rf]:\n    y_pred = model.predict(X_test)\n    print(f'{model.__class__.__name__} Report:')\n    print(classification_report(y_test, y_pred))",
+          "gotcha": "Accuracy can be misleading with imbalanced land cover classes; always examine per-class metrics."
+        },
+        {
+          "action": "Perform hyperparameter tuning (optional but recommended)",
+          "explanation": "Use GridSearchCV or RandomizedSearchCV to optimize parameters like tree depth, C for SVM, or n_estimators for Random Forest.",
+          "code_snippet": "from sklearn.model_selection import GridSearchCV\nparam_grid = {'n_estimators': [50, 100, 200], 'max_depth': [None, 10, 20]}\ngrid_search = GridSearchCV(RandomForestClassifier(), param_grid, cv=5)\ngrid_search.fit(X_train, y_train)",
+          "gotcha": "Tuning can be computationally expensive; balance with available resources."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [
+    {
+      "name": "Random Forest for land cover classification",
+      "language": "python",
+      "purpose": "Train a Random Forest classifier to predict land cover classes from multispectral satellite imagery features.",
+      "code": "import numpy as np\nfrom sklearn.ensemble import RandomForestClassifier\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.metrics import classification_report, confusion_matrix\n\n# Assume X: feature matrix (e.g., bands, indices), y: integer labels\nX_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, stratify=y, random_state=42)\n\n# Initialize and train model\nrf_clf = RandomForestClassifier(n_estimators=100, max_depth=None, random_state=42, n_jobs=-1)\nrf_clf.fit(X_train, y_train)\n\n# Predict and evaluate\ny_pred = rf_clf.predict(X_test)\nprint('Classification Report:')\nprint(classification_report(y_test, y_pred))\nprint('Confusion Matrix:')\nprint(confusion_matrix(y_test, y_pred))\n\n# Optional: Feature importance\nimportances = rf_clf.feature_importances_\nprint('Feature Importances:', importances)",
+      "dependencies": [
+        "scikit-learn>=1.0",
+        "numpy"
+      ]
+    },
+    {
+      "name": "SVM with RBF kernel for land cover",
+      "language": "python",
+      "purpose": "Train an SVM classifier with radial basis function kernel for non-linear separation of land cover classes, including feature scaling.",
+      "code": "from sklearn.svm import SVC\nfrom sklearn.preprocessing import StandardScaler\nfrom sklearn.pipeline import make_pipeline\nfrom sklearn.model_selection import train_test_split\nfrom sklearn.metrics import accuracy_score\n\nX_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)\n\n# Create pipeline with scaling and SVM\nsvm_pipeline = make_pipeline(StandardScaler(), SVC(kernel='rbf', C=1.0, gamma='scale'))\nsvm_pipeline.fit(X_train, y_train)\n\ny_pred = svm_pipeline.predict(X_test)\nprint('Accuracy:', accuracy_score(y_test, y_pred))",
+      "dependencies": [
+        "scikit-learn>=1.0"
+      ]
+    }
+  ],
+  "api_knowledge": [
+    {
+      "api_name": "scikit-learn RandomForestClassifier",
+      "endpoints_used": [
+        "fit",
+        "predict",
+        "feature_importances_",
+        "predict_proba"
+      ],
+      "auth_method": "N/A (Python library, no authentication required)",
+      "example_calls": [
+        "clf = RandomForestClassifier(n_estimators=100, random_state=42)",
+        "clf.fit(X_train, y_train)",
+        "predictions = clf.predict(X_test)",
+        "importances = clf.feature_importances_"
+      ]
+    },
+    {
+      "api_name": "scikit-learn SVC (Support Vector Classification)",
+      "endpoints_used": [
+        "fit",
+        "predict",
+        "support_vectors_",
+        "n_support_"
+      ],
+      "auth_method": "N/A",
+      "example_calls": [
+        "svm = SVC(kernel='rbf', C=1.0, gamma='auto')",
+        "svm.fit(X_train, y_train)",
+        "svm.predict(X_test)",
+        "svm.support_vectors_"
+      ]
+    },
+    {
+      "api_name": "scikit-learn DecisionTreeClassifier (for CART)",
+      "endpoints_used": [
+        "fit",
+        "predict",
+        "feature_importances_",
+        "tree_"
+      ],
+      "auth_method": "N/A",
+      "example_calls": [
+        "tree = DecisionTreeClassifier(max_depth=5)",
+        "tree.fit(X_train, y_train)",
+        "tree.predict(X_test)",
+        "tree.feature_importances_"
+      ]
+    }
+  ],
+  "gotchas": [
+    {
+      "description": "Overfitting in single decision trees (CART)",
+      "context": "CART models can become overly complex with deep trees, memorizing noise in training data.",
+      "solution": "Limit tree depth (max_depth), set minimum samples per leaf, or use pruning via cost-complexity pruning."
+    },
+    {
+      "description": "SVM computational cost with large datasets",
+      "context": "SVM training time scales poorly with sample size, especially with non-linear kernels.",
+      "solution": "Use linear kernel for large data, reduce features via PCA, or sample data for tuning."
+    },
+    {
+      "description": "Class imbalance in land cover datasets",
+      "context": "Common in remote sensing where natural classes (e.g., water) may have fewer pixels than others (e.g., vegetation).",
+      "solution": "Apply class weights (class_weight='balanced' in scikit-learn), use SMOTE for oversampling, or focus on metrics like F1-score."
+    },
+    {
+      "description": "Feature scaling neglect for SVM",
+      "context": "SVM is distance-based; unscaled features with different ranges can bias the model.",
+      "solution": "Always standardize features (e.g., StandardScaler) before SVM training, often via a pipeline."
+    },
+    {
+      "description": "Random Forest Feature Importance Bias",
+      "context": "Feature importances from Random Forest can be biased towards features with more categories or continuous variables.",
+      "solution": "Use permutation importance or SHAP values for more reliable interpretation; be cautious with high-cardinality features."
+    }
+  ],
+  "confidence": 0.8,
+  "extracted_at": "2026-04-20T10:22:56.480392+00:00"
+}

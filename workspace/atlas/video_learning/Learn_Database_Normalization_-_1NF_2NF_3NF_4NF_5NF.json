@@ -1,0 +1,163 @@
+{
+  "source_url": "https://www.youtube.com/watch?v=GFQaEYEc8_8",
+  "source_title": "Learn Database Normalization - 1NF, 2NF, 3NF, 4NF, 5NF",
+  "video_type": "coding_tutorial",
+  "concepts": [
+    {
+      "name": "Database Normalization",
+      "definition": "The process of structuring a database table so that it cannot express redundant information, ensuring data integrity and protecting against anomalies.",
+      "prerequisites": [
+        "Relational Databases"
+      ],
+      "related_concepts": [
+        "Data Integrity",
+        "Normal Forms",
+        "Redundancy"
+      ]
+    },
+    {
+      "name": "Normal Forms",
+      "definition": "Sets of criteria used to assess the level of 'safety' or normalization of a database table, ranging from 1NF to 5NF, analogous to safety levels for a bridge.",
+      "prerequisites": [
+        "Database Normalization"
+      ],
+      "related_concepts": [
+        "1NF",
+        "2NF",
+        "3NF",
+        "4NF",
+        "5NF"
+      ]
+    },
+    {
+      "name": "First Normal Form (1NF)",
+      "definition": "The basic level of database normalization requiring that a table has a primary key, atomic values (no repeating groups), consistent data types per column, and no row-order dependency.",
+      "prerequisites": [
+        "Database Table"
+      ],
+      "related_concepts": [
+        "Primary Key",
+        "Repeating Groups",
+        "Data Types"
+      ]
+    },
+    {
+      "name": "Data Integrity",
+      "definition": "The reliability and trustworthiness of data, ensuring that the data does not contradict itself (e.g., one customer having two different dates of birth).",
+      "prerequisites": [],
+      "related_concepts": [
+        "Normalization",
+        "Anomalies"
+      ]
+    },
+    {
+      "name": "Primary Key",
+      "definition": "A column or combination of columns that uniquely identifies a specific row in a table, preventing contradictory duplicate entries.",
+      "prerequisites": [
+        "Table"
+      ],
+      "related_concepts": [
+        "Uniqueness",
+        "1NF"
+      ]
+    },
+    {
+      "name": "Repeating Groups",
+      "definition": "A design flaw where multiple values of the same type (e.g., a list of inventory items) are stored in a single cell or across multiple similar columns (e.g., Item1, Item2), violating 1NF.",
+      "prerequisites": [],
+      "related_concepts": [
+        "1NF",
+        "Atomicity"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "name": "Eliminating Row Order Dependency",
+      "steps": [
+        {
+          "action": "Identify if row order conveys meaning",
+          "explanation": "In a relational database, row order should not carry information (e.g., a list sorted by height implies meaning by position).",
+          "code_snippet": "",
+          "gotcha": "Relying on row order violates 1NF."
+        },
+        {
+          "action": "Create an explicit column for the ordering attribute",
+          "explanation": "If order conveys meaning (like height ranking), create a specific column (e.g., 'Height') to store that data explicitly.",
+          "code_snippet": "",
+          "gotcha": ""
+        }
+      ]
+    },
+    {
+      "name": "Ensuring Data Type Consistency",
+      "steps": [
+        {
+          "action": "Define strict data types for columns",
+          "explanation": "Unlike spreadsheets, relational databases require a single data type per column (e.g., only integers or only strings).",
+          "code_snippet": "",
+          "gotcha": "Mixing data types (e.g., integers and strings) in one column violates 1NF."
+        }
+      ]
+    },
+    {
+      "name": "Applying Primary Keys",
+      "steps": [
+        {
+          "action": "Designate a unique identifier column",
+          "explanation": "Choose a column (or set of columns) that uniquely identifies each row to prevent logical impossibilities like one entity having two different values for the same attribute.",
+          "code_snippet": "",
+          "gotcha": "Tables without a primary key are not in 1NF."
+        }
+      ]
+    },
+    {
+      "name": "Handling Repeating Groups",
+      "steps": [
+        {
+          "action": "Identify repeating groups",
+          "explanation": "Look for cells containing lists of items (e.g., 'arrows, shields, coins') or columns with numbered suffixes (Item1, Item2).",
+          "code_snippet": "",
+          "gotcha": "Storing lists as text strings makes querying impractical."
+        },
+        {
+          "action": "Restructure the data",
+          "explanation": "While the solution is implied (normalization), the first step is recognizing that lumping data together or creating hundreds of columns is a design failure.",
+          "code_snippet": "",
+          "gotcha": "Creating columns like 'Item1', 'Item2', etc. limits scalability and query capability."
+        }
+      ]
+    }
+  ],
+  "code_recipes": [],
+  "api_knowledge": [],
+  "gotchas": [
+    {
+      "description": "Row Order Dependency",
+      "context": "Designing a table where the sequence of rows holds meaning (e.g., tallest to shortest).",
+      "solution": "Add a specific column to store the attribute that determines the order (e.g., a 'Height' column)."
+    },
+    {
+      "description": "Mixed Data Types",
+      "context": "Attempting to store different types of data (numbers and strings) in the same column.",
+      "solution": "Enforce a strict schema where each column is defined with a single specific data type."
+    },
+    {
+      "description": "Missing Primary Key",
+      "context": "Designing a table without a unique identifier for rows.",
+      "solution": "Define a primary key to ensure every row represents a unique entity and prevent contradictory data."
+    },
+    {
+      "description": "Repeating Groups in Single Cell",
+      "context": "Storing multiple values (like a list of inventory items) in a single text field.",
+      "solution": "Avoid this design as it makes querying specific items impossible; normalize the structure (though specific restructuring steps are not detailed in this segment)."
+    },
+    {
+      "description": "Repeating Groups across Columns",
+      "context": "Creating multiple columns to hold the same type of data (e.g., Item1, Item2, Item3).",
+      "solution": "Avoid creating wide tables for variable-length lists; this violates 1NF and complicates queries."
+    }
+  ],
+  "confidence": 0.8,
+  "extracted_at": "2026-04-20T20:17:20.534977+00:00"
+}

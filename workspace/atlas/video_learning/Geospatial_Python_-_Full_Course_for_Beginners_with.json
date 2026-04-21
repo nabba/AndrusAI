@@ -5,140 +5,151 @@
   "concepts": [
     {
       "name": "GeoPandas",
-      "definition": "An open-source library that extends Pandas by adding support for geospatial data, allowing spatial operations on geometric types.",
+      "definition": "A Python library that extends the pandas library to allow spatial operations on geometric data types.",
       "prerequisites": [
-        "Pandas",
+        "Python",
+        "Pandas"
+      ],
+      "related_concepts": [
+        "GeoDataFrame",
+        "GeoSeries",
+        "Spatial Joins"
+      ]
+    },
+    {
+      "name": "Pandas",
+      "definition": "A foundational Python library for working with tabular data structures (DataFrames) and performing data manipulation/analysis.",
+      "prerequisites": [
         "Python"
       ],
       "related_concepts": [
-        "GeoSeries",
-        "GeoDataFrame",
-        "Shapely"
+        "DataFrame",
+        "GeoPandas"
       ]
     },
     {
       "name": "GeoDataFrame",
-      "definition": "A tabular data structure that contains a 'geometry' column in addition to standard pandas data columns.",
+      "definition": "A tabular data structure that extends the pandas DataFrame to include a geometry column and spatial attributes (CRS).",
       "prerequisites": [
-        "Pandas DataFrame"
+        "DataFrame"
       ],
       "related_concepts": [
         "GeoSeries",
-        "Coordinate Reference System (CRS)"
+        "CRS"
       ]
     },
     {
       "name": "GeoSeries",
-      "definition": "A vector where each element is a set of shapes corresponding to one observation (the geometry column of a GeoDataFrame).",
-      "prerequisites": [
-        "Pandas Series"
-      ],
-      "related_concepts": [
-        "Geometry Object"
-      ]
-    },
-    {
-      "name": "Coordinate Reference System (CRS)",
-      "definition": "A framework used to precisely measure locations on the surface of the Earth as coordinates.",
+      "definition": "A column in a GeoDataFrame that specifically stores geometric objects (e.g., Points, Polygons) and spatial metadata.",
       "prerequisites": [],
       "related_concepts": [
-        "Projections",
-        "Spatial Attributes"
+        "Geometry",
+        "CRS"
       ]
     },
     {
-      "name": "Geometry Attributes",
-      "definition": "Spatial properties associated with geographic data such as area, centroid, and boundary bounds.",
+      "name": "CRS (Coordinate Reference System)",
+      "definition": "A coordinate-based local, regional or global system used to locate geographical entities, stored as metadata within the geometry column.",
+      "prerequisites": [],
+      "related_concepts": [
+        "GeoSeries",
+        "Projection"
+      ]
+    },
+    {
+      "name": "Jupyter Notebook",
+      "definition": "An open-source web application that allows you to create and share documents that contain live code, equations, visualizations and narrative text.",
       "prerequisites": [
-        "GeoSeries"
+        "Python"
       ],
       "related_concepts": [
-        "Spatial Joins",
-        "Overlaps"
+        "Google Colab"
+      ]
+    },
+    {
+      "name": "Homebrew",
+      "definition": "A free and open-source software package management system that simplifies the installation of software on Apple's macOS operating system.",
+      "prerequisites": [
+        "macOS"
+      ],
+      "related_concepts": [
+        "Package Manager"
       ]
     }
   ],
   "procedures": [
     {
-      "name": "Setting up the Environment",
+      "name": "Course Certification Process",
       "steps": [
         {
-          "action": "Install Python",
-          "explanation": "Required to execute Geopandas code. Can be done via direct download, Homebrew (Mac), or package managers (Linux).",
-          "code_snippet": "brew install python",
-          "gotcha": "Be aware of the difference between global and virtual environments."
+          "action": "Visit the course website",
+          "explanation": "Navigate to moderng.xyz to access the course materials.",
+          "code_snippet": "",
+          "gotcha": ""
         },
         {
-          "action": "Install Jupyter Notebook",
-          "explanation": "A notebook service is recommended for interactive geospatial data visualization.",
+          "action": "Create a free account",
+          "explanation": "Sign up to track progress and access quizzes.",
           "code_snippet": "",
-          "gotcha": "Google Colab can be used as a hosted alternative."
+          "gotcha": ""
         },
         {
-          "action": "Access Tutorial Materials",
-          "explanation": "Get notebooks and datasets from modern-gi.xyz for hands-on practice.",
+          "action": "Complete the final quiz",
+          "explanation": "Prove completion of exercises to earn the certification.",
           "code_snippet": "",
-          "gotcha": "Ensure you sign up for a free account to access data."
+          "gotcha": ""
         }
       ]
     },
     {
-      "name": "Learning through Documentation",
+      "name": "Installing Python on macOS via Homebrew",
       "steps": [
         {
-          "action": "Navigate to API Reference",
-          "explanation": "To understand specific operations available for GeoSeries and GeoDataFrames.",
+          "action": "Install Homebrew",
+          "explanation": "Install the package manager to manage software installations.",
           "code_snippet": "",
-          "gotcha": "The API reference is the most detailed source for finding methods like .area or .bounds."
+          "gotcha": ""
         },
         {
-          "action": "Consult the Examples Gallery",
-          "explanation": "To find pre-built snippets for common tasks like mapping the NYC Burrows.",
+          "action": "Install Python via Homebrew",
+          "explanation": "Use the package manager to install a specific version of Python and manage versioning.",
+          "code_snippet": "",
+          "gotcha": ""
+        }
+      ]
+    },
+    {
+      "name": "Navigating GeoPandas Documentation",
+      "steps": [
+        {
+          "action": "Check the Examples Gallery",
+          "explanation": "Look for specific use cases or visual examples of operations.",
+          "code_snippet": "",
+          "gotcha": ""
+        },
+        {
+          "action": "Refer to the API Reference",
+          "explanation": "Find details on specific functions like getting area, bounds, or length of a GeoSeries.",
           "code_snippet": "",
           "gotcha": ""
         }
       ]
     }
   ],
-  "code_recipes": [
-    {
-      "name": "Library Imports and Data Exploration",
-      "language": "python",
-      "purpose": "Standard initialization for a geospatial project.",
-      "code": "import geopandas as gpd\n# Example of reading a built-in dataset or external file\n# path_to_data = gpd.datasets.get_path('nybb')\n# gdf = gpd.read_file(path_to_data)\n# print(gdf.head())",
-      "dependencies": [
-        "geopandas"
-      ]
-    }
-  ],
-  "api_knowledge": [
-    {
-      "api_name": "GeoPandas IO",
-      "endpoints_used": [
-        "read_file()",
-        "to_file()",
-        "read_postgis()",
-        "read_parquet()"
-      ],
-      "auth_method": "N/A",
-      "example_calls": [
-        "gdf = gpd.read_file('data.geojson')",
-        "gdf.to_file('output.shp')"
-      ]
-    }
-  ],
+  "code_recipes": [],
+  "api_knowledge": [],
   "gotchas": [
     {
-      "description": "Confusion between Pandas and GeoPandas data types.",
-      "context": "When performing standard pandas operations on a GeoDataFrame.",
-      "solution": "Remember that a GeoDataFrame is a DataFrame, but it requires a 'geometry' column to support spatial functions."
+      "description": "Global vs. Virtual Environment confusion",
+      "context": "When installing Python and libraries, users might install packages globally which can cause version conflicts.",
+      "solution": "Use a virtual environment to manage dependencies separately for different projects."
     },
     {
-      "description": "Environment management issues.",
-      "context": "Installing packages globally vs in a virtual environment.",
-      "solution": "Use virtual environments or notebook services like Google Colab to avoid library conflicts unique to geospatial dependencies (GDAL, GEOS, etc.)."
+      "description": "Multiple Python Versions",
+      "context": "Users may already have a version of Python installed, which can conflict with the new installation or cause path issues.",
+      "solution": "Be aware of existing installations and use version managers (like Homebrew) to handle different versions."
     }
   ],
   "confidence": 0.8,
-  "extracted_at": "2026-04-20T05:05:51.022003+00:00"
+  "extracted_at": "2026-04-20T19:22:56.666739+00:00"
 }

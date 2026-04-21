@@ -1,452 +1,452 @@
 [
   {
-    "task_hash": "ed6a1967b1a77c55",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
+    "task_hash": "e865e97b4814740e",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
     "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776563355.563788,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run (TypeError: run() got an unexpected keyword argument 'timeout",
+    "ts": 1776681855.3647244,
     "replan_suggested": false
   },
   {
-    "task_hash": "7a0f0c02c4d4f3d3",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776565273.6405673,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "d9f0f40ffc464a7b",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776567375.6165986,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "aeae45aa353643af",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776570138.8484352,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "9c253127c0a84366",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/adaptation/__init__.py",
-    "ts": 1776571601.6619244,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "9c253127c0a84366",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "task_hash": "e865e97b4814740e",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
     "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/adaptation/__init__.py",
-    "ts": 1776571635.5919387,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run (TypeError: run() got an unexpected keyword argument 'timeout",
+    "ts": 1776681861.6762414,
     "replan_suggested": false
   },
   {
-    "task_hash": "b74a5834270e1b89",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776571637.343687,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "9c253127c0a84366",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: adaptation/__init__.py",
-    "ts": 1776571675.184338,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "4414457e726f34da",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776573864.4717147,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "1074814afe2bc5df",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 4,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/commander/context.py",
-    "ts": 1776585630.564626,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "1074814afe2bc5df",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 8,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/commander/context.py",
-    "ts": 1776585632.5571725,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "1074814afe2bc5df",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 9,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list_dir'. Use 'read' or 'write'.",
-    "ts": 1776585634.714497,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "9dadcd2df9c048e9",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/commander/postprocess.py",
-    "ts": 1776600035.981866,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "9dadcd2df9c048e9",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 6,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/researcher.py",
-    "ts": 1776600038.9130049,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "9dadcd2df9c048e9",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 7,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/commander/__init__.py",
-    "ts": 1776600040.7612898,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "9dadcd2df9c048e9",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 10,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/__init__.py",
-    "ts": 1776600080.3596146,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "9dadcd2df9c048e9",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 11,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/config.py",
-    "ts": 1776600130.715257,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "9dadcd2df9c048e9",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 12,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: README.md",
-    "ts": 1776600133.3711457,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "9dadcd2df9c048e9",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 13,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776600141.2866282,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "6b3ab3784a436e79",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'TitanSneaker/paper-search-mcp-openai-v2'. Check command/URL and credentials.",
-    "ts": 1776600347.1015017,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "6b3ab3784a436e79",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 2,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'github'. Check command/URL and credentials.",
-    "ts": 1776600347.3690088,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "6b3ab3784a436e79",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 3,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'neon'. Check command/URL and credentials.",
-    "ts": 1776600347.881833,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "1ddd11e8e99f1808",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776602939.1345823,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "34cca398ba4d9688",
-    "task": "Analyze these execution traces from the AI agent team and generate improvement policies.\n\n## Executi",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'coder failed state task'",
-    "ts": 1776603177.4318953,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "905b32614b60d4ba",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776604706.4601884,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "47426f6552666b91",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: advanced_ecologic",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'error failed missing tool capability'",
-    "ts": 1776608131.1795256,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "d349ec09efe4612e",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/researcher.py",
-    "ts": 1776628804.3320768,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "d349ec09efe4612e",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 6,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/researcher.py",
-    "ts": 1776628857.270875,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "d349ec09efe4612e",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 9,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/researcher.py",
-    "ts": 1776628894.9294648,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "d349ec09efe4612e",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 10,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/__init__.py",
-    "ts": 1776628899.56106,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "f5d3c577bda44e32",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
-    "failure_count": 1,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'vercel/grep'. Check command/URL and credentials.",
-    "ts": 1776629235.9636838,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "f5d3c577bda44e32",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
-    "failure_count": 2,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'github'. Check command/URL and credentials.",
-    "ts": 1776629247.1217813,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "aacb1e4a43ad0b8c",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'failed error unable cannot'",
-    "ts": 1776631253.8067582,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "249d2a46699592c3",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'failed error could not tool missing capability'",
-    "ts": 1776637530.1838298,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "bb72fcb496580b32",
-    "task": "Analyze these execution traces from the AI agent team and generate improvement policies.\n\n## Executi",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'coder failed state error'",
-    "ts": 1776637848.1690178,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "68775b01a250c921",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'failed error unable tool missing'",
-    "ts": 1776639491.770172,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "0f618f969eccf26f",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'task failed error missing tool capability'",
-    "ts": 1776641690.6023662,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "15165c5a7c3b96a8",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'failed error unable cannot tool missing'",
-    "ts": 1776643725.4115644,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "4df8534a8949ab80",
-    "task": "Research the topic: <topic>Estonian Environmental Policy Timeline Analysis</topic>. The text in <top",
-    "failure_count": 1,
-    "last_tool": "web_fetch",
-    "last_error": "",
-    "ts": 1776645819.2478738,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "22cdcd7582eda1f9",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: 'failed error unable cannot tool missing'",
-    "ts": 1776646366.3911152,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "ac28c38bd87eb915",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nWhat is Estonia\u2019s current forest cover p",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776660852.0734837,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "eff3c76e7a4159e3",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nHow has Estonia\u2019s deforestation/forest l",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776660875.9207172,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "afbe22231e187420",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nWhat are the key drivers of Estonia\u2019s de",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776660989.3126402,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "94a94cac3b7d0dff",
-    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
-    "failure_count": 1,
-    "last_tool": "session_search",
-    "last_error": "No past messages matched: \"failed error unable couldn't\"",
-    "ts": 1776661412.1250675,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "19ad03350d8a04db",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 1,
-    "last_tool": "execute_on_host",
-    "last_error": "",
-    "ts": 1776664433.3161314,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "19ad03350d8a04db",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/__init__.py",
-    "ts": 1776664497.7006044,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "19ad03350d8a04db",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "task_hash": "e865e97b4814740e",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
     "failure_count": 3,
     "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776664508.1157207,
+    "last_error": "Execution error: sandbox failed to run (TypeError: run() got an unexpected keyword argument 'timeout",
+    "ts": 1776681883.7104359,
     "replan_suggested": false
   },
   {
-    "task_hash": "19ad03350d8a04db",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "task_hash": "4b89d06ec3720d71",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776682882.2160091,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "4b89d06ec3720d71",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776682889.9971492,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "4b89d06ec3720d71",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 3,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776682890.609549,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "fa695bad3e8ad477",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776683654.4689653,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "fa695bad3e8ad477",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776683685.3372064,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "fa695bad3e8ad477",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 3,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776683685.9234562,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "314bb789e09d053b",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776684451.198099,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "314bb789e09d053b",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776684484.3135493,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "1503c4daefe5e0b2",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776689743.952362,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "1503c4daefe5e0b2",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776689744.3267188,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "dd94ef3434bf7629",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776690074.6921797,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "dd94ef3434bf7629",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776690075.1084042,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "f82e70822ea541b5",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'github'. Check command/URL and credentials.",
+    "ts": 1776690631.524731,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "226c79ca48465e42",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776712824.9040976,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "226c79ca48465e42",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776712825.431674,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "f441eabe9e25f7d0",
+    "task": "Prepare a comprehensive analysis paper with PNG graphics on forest age structure trends over the las",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776714879.5751529,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "f441eabe9e25f7d0",
+    "task": "Prepare a comprehensive analysis paper with PNG graphics on forest age structure trends over the las",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776714880.5448618,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "f441eabe9e25f7d0",
+    "task": "Prepare a comprehensive analysis paper with PNG graphics on forest age structure trends over the las",
+    "failure_count": 3,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776714880.979756,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "f441eabe9e25f7d0",
+    "task": "Prepare a comprehensive analysis paper with PNG graphics on forest age structure trends over the las",
     "failure_count": 4,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run.",
-    "ts": 1776664539.663242,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776714881.4314368,
     "replan_suggested": true
   },
   {
-    "task_hash": "8a46b21d9019d172",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nWhat are the year-by-year statistics on ",
+    "task_hash": "7a07f263c2f91239",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
     "failure_count": 1,
     "last_tool": "browser_fetch",
     "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776667522.4046445,
+    "ts": 1776715323.1964478,
     "replan_suggested": false
   },
   {
-    "task_hash": "c23196d6ae77e49a",
-    "task": "Research this specific subtopic thoroughly:\n\n<user_request>\nWhat is the total forest area in Estonia",
+    "task_hash": "7a07f263c2f91239",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776715325.7690682,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7a07f263c2f91239",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 3,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776715327.5371153,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7a07f263c2f91239",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 4,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776715965.040379,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "28d4a9cd9a5f1649",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
     "failure_count": 1,
     "last_tool": "browser_fetch",
     "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776667522.6946738,
+    "ts": 1776716327.0902493,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "28d4a9cd9a5f1649",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
+    "failure_count": 2,
+    "last_tool": "execute_code",
+    "last_error": "Execution error: sandbox failed to run (TypeError: run() got an unexpected keyword argument 'timeout",
+    "ts": 1776716563.8833063,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7daccfe6735055cc",
+    "task": "Gather real, citable time-series statistics (2009\u20132024) on (a) total forest area, (b) old-growth / o",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776717439.1614835,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7daccfe6735055cc",
+    "task": "Gather real, citable time-series statistics (2009\u20132024) on (a) total forest area, (b) old-growth / o",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776717439.7747881,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7daccfe6735055cc",
+    "task": "Gather real, citable time-series statistics (2009\u20132024) on (a) total forest area, (b) old-growth / o",
+    "failure_count": 3,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776717441.815709,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7daccfe6735055cc",
+    "task": "Gather real, citable time-series statistics (2009\u20132024) on (a) total forest area, (b) old-growth / o",
+    "failure_count": 4,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776717442.4021738,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "6e4d2eeae3ee9827",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776717492.892069,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "6e4d2eeae3ee9827",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776717493.5160446,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "56f4bd44cf55ef4b",
+    "task": "Research and compile forest age distribution data for Estonia, Finland, Latvia, and Sweden over the ",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776718438.7973146,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "56f4bd44cf55ef4b",
+    "task": "Research and compile forest age distribution data for Estonia, Finland, Latvia, and Sweden over the ",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776718439.5057936,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "56f4bd44cf55ef4b",
+    "task": "Research and compile forest age distribution data for Estonia, Finland, Latvia, and Sweden over the ",
+    "failure_count": 3,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776718440.3740907,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "56f4bd44cf55ef4b",
+    "task": "Research and compile forest age distribution data for Estonia, Finland, Latvia, and Sweden over the ",
+    "failure_count": 4,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776718441.076197,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "e0d80c2863593e91",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: output/audit_check.md",
+    "ts": 1776729624.1488323,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "c8e12a92fec518ae",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/specialists.py",
+    "ts": 1776744018.4000945,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "374bb9973d170508",
+    "task": "Find the percentage of forests under 30 years of age for Finland, Sweden, and Latvia. Provide the sp",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776745373.4336526,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "374bb9973d170508",
+    "task": "Find the percentage of forests under 30 years of age for Finland, Sweden, and Latvia. Provide the sp",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776745374.1080668,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "374bb9973d170508",
+    "task": "Find the percentage of forests under 30 years of age for Finland, Sweden, and Latvia. Provide the sp",
+    "failure_count": 3,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776745374.4477482,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "80785b387d81cad8",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/atlas/code_forge.py",
+    "ts": 1776758423.4091907,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "09252e440156d3a1",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/auditor.py",
+    "ts": 1776772822.7182417,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "9f36d9159292ce1b",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
+    "failure_count": 6,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app.py",
+    "ts": 1776778905.892534,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "c93fa42515381798",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776782258.1969893,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "5c4f890e9e8d11f2",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: It looks like you are using Playwright Sync API inside the asyncio loop.\nPlease",
+    "ts": 1776784666.9814703,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "2c55a989afd1c90b",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/circuit_breaker.py",
+    "ts": 1776787220.9707243,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "2c55a989afd1c90b",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: Cannot write to 'applied_code/app/circuit_breaker.py'. Writable directories: output, proposal",
+    "ts": 1776787253.364817,
     "replan_suggested": false
   }
 ]

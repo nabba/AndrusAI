@@ -1,0 +1,63 @@
+{
+  "name": "Copernicus Open Access Hub API",
+  "base_url": "",
+  "version": "",
+  "description": "The openEO standardized API enables you to access and process earth observation datasets in the ecosystem using intuitive programming libraries. The processing is automatically scaled on the cloud infrastructure that also hosts the data. This allows for a range of use cases, from explorative research to large-scale production of EO-derived maps and information.",
+  "auth_type": "",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://github.com/sentinelsat/sentinelsat",
+      "title": "GitHub - sentinelsat/sentinelsat: Search and download Copernicus Sentinel satellite images \u00b7 GitHub",
+      "type": "official_sdk",
+      "confidence": 0.9
+    },
+    {
+      "url": "https://dataspace.copernicus.eu/analyse/apis/openeo-api",
+      "title": "openEO API | Copernicus Data Space Ecosystem",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://forum.step.esa.int/t/api-python-copernicus-data-hub/25694",
+      "title": "API Python: Copernicus Data Hub - python - STEP Forum",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://scihub.copernicus.eu/userguide/APIsOverview",
+      "title": "Open Access Hub",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://documentation.dataspace.copernicus.eu/APIs/SentinelHub/ApiReference.html",
+      "title": "API Reference - Documentation - Copernicus",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://documentation.dataspace.copernicus.eu/APIs.html",
+      "title": "APIs - Documentation - Copernicus",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://documentation.dataspace.copernicus.eu/APIs/openEO/Python_Client/Python.html",
+      "title": "Getting started with the openEO Python client \u2013 Documentation",
+      "type": "community",
+      "confidence": 0.5
+    },
+    {
+      "url": "https://scihub.copernicus.eu/twiki/do/view/SciHubWebPortal/APIHubDescription",
+      "title": "Open Access Hub",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.9,
+  "discovered_at": "2026-04-20T07:01:08.346082+00:00"
+}

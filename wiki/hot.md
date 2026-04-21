@@ -1,30 +1,30 @@
 ---
 title: Hot Cache
-updated_at: "2026-04-20T06:48:59Z"
+updated_at: "2026-04-21T16:30:27Z"
 ---
 
 # Wiki Hot Cache
 
-*Auto-generated 2026-04-20T06:48:59Z. Read this for quick context.*
+*Auto-generated 2026-04-21T16:30:27Z. Read this for quick context.*
 
 ## Recent Wiki Changes
-  | 2026-04-19T20:37:12Z | idle_scheduler.wiki_synthesis | CREATE | meta/circular-import-resolution-patterns | Created: Circular Import Resolution Patterns |
-  | 2026-04-19T20:37:12Z | idle_scheduler.wiki_synthesis | CREATE | meta/llm-capability-detection | Created: Models known to NOT support tool calling (as of 2026) |
-  | 2026-04-19T22:22:27Z | idle_scheduler.wiki_synthesis | CREATE | meta/time-based-email-counting-precision-e90ecab4 | Created: Time-based Email Counting Precision |
-  | 2026-04-19T22:22:27Z | idle_scheduler.wiki_synthesis | CREATE | meta/web-scraping-using-firecrawl-ad705cb6 | Created: Web scraping using Firecrawl |
-  | 2026-04-19T23:28:38Z | idle_scheduler.wiki_synthesis | CREATE | meta/learning-queue | Created: Learning Queue |
+  | 2026-04-21T14:25:24Z | idle_scheduler.wiki_synthesis | CREATE | meta/skill-case-insensitive-lookup-with-original-casing-preservation-03148edd | Created: Skill: Case-Insensitive Lookup with Original Casing Preservation |
+  | 2026-04-21T14:25:24Z | idle_scheduler.wiki_synthesis | CREATE | meta/skill-docker-containerization-basics-aca85774 | Created: SKILL: Docker Containerization Basics |
+  | 2026-04-21T16:22:02Z | idle_scheduler.wiki_synthesis | CREATE | meta/distinguishing-authentication-and-authorization-28efaccb | Created: **** Distinguishing Authentication and Authorization |
+  | 2026-04-21T16:22:03Z | idle_scheduler.wiki_synthesis | CREATE | meta/response-synthesis-optimization | Created: Response Synthesis Optimization |
+  | 2026-04-21T16:22:03Z | idle_scheduler.wiki_synthesis | CREATE | meta/skill-distinguishing-load-balancers-from-reverse-proxies-c54a733a | Created: Skill: Distinguishing Load Balancers from Reverse Proxies |
 
 ## Wiki Stats
-  Total pages: 9
-  - meta: 9
+  Total pages: 22
+  - meta: 22
   Stale (>90 days): 0
 
 ## Active Contradictions
   None.
 
 ## Knowledge Gaps
-  - plg: no pages yet
-  - archibal: no pages yet
-  - philosophy: no pages yet
   - kaicart: no pages yet
   - self: no pages yet
+  - archibal: no pages yet
+  - philosophy: no pages yet
+  - plg: no pages yet

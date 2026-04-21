@@ -1,0 +1,39 @@
+{
+  "name": "Copernicus Climate Data Store (CDS) API",
+  "base_url": "",
+  "version": "",
+  "description": "",
+  "auth_type": "",
+  "auth_details": {},
+  "endpoints": [],
+  "rate_limits": {},
+  "error_codes": {},
+  "doc_sources": [
+    {
+      "url": "https://github.com/ecmwf/cdsapi",
+      "title": "GitHub - ecmwf/cdsapi: Python API to access the Copernicus Climate Data Store (CDS) \u00b7 GitHub",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://cds.climate.copernicus.eu/how-to-api",
+      "title": "CDSAPI setup - Climate Data Store - Copernicus",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://pypi.org/project/cdsapi/",
+      "title": "cdsapi \u00b7 PyPI",
+      "type": "official_docs",
+      "confidence": 0.85
+    },
+    {
+      "url": "https://cds.climate.copernicus.eu/user-guide",
+      "title": "User guide - Climate Data Store - Copernicus",
+      "type": "community",
+      "confidence": 0.5
+    }
+  ],
+  "confidence": 0.3,
+  "discovered_at": "2026-04-20T10:12:59.033852+00:00"
+}

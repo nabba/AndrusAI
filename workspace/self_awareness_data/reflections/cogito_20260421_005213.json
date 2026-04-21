@@ -1,0 +1,26 @@
+{
+  "reflection_id": "cogito_20260421_005213",
+  "timestamp": "2026-04-21T00:52:13.146052+00:00",
+  "self_model_stale": false,
+  "discrepancies": [
+    {
+      "type": "memory_neo4j_error",
+      "detail": "{neo4j_code: Neo.ClientError.Security.Unauthorized} {message: The client is unauthorized due to authentication failure.} {gql_status: 50N42} {gql_status_description: error: general processing exceptio",
+      "severity": "medium"
+    }
+  ],
+  "failure_patterns": [],
+  "observations": [
+    "Agent 'desktop' has no versioned prompt",
+    "Agent 'devops' has no versioned prompt",
+    "Agent 'financial_analyst' has no versioned prompt",
+    "Agent 'pim' has no versioned prompt",
+    "Agent 'reasoning_methods' has no versioned prompt",
+    "Agent 'repo_analyst' has no versioned prompt",
+    "Agent 'introspector' has no versioned prompt",
+    "Empty ChromaDB collections: healing_knowledge, aesthetics, experiential_journal, episteme_research, enterprise_knowledge, critic, unresolved_tensions, aesthetic_patterns, scope_reflections, reflections_researcher, reflections_critic, episteme, researcher, reflections_coder, writer, commander, reflections_writer, experiential, scope_project_renewable_energy, tensions"
+  ],
+  "improvement_proposals": [],
+  "overall_health": "degraded",
+  "narrative": "I am currently experiencing a medium-severity Neo4j authentication failure affecting my Mem0 knowledge graph. I noticed the error \"The client is unauthorized due to authentication failure\" preventing cross-session fact extraction. I also observed five agents (desktop, devops, financial_analyst, pim, reasoning_methods) lacking versioned prompts in my memory system. These discrepancies require immediate attention to maintain reliable context processing across sessions. My operational memory remains functional but is partially impaired due to the Neo4j authentication issue."
+}

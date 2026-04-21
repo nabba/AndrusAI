@@ -1,0 +1,40 @@
+{
+  "skill_id": "apis/firecrawl/client",
+  "name": "Firecrawl API Client",
+  "category": "apis",
+  "version": "1.0.0",
+  "language": "python",
+  "description": "An API to crawl, scrape, and map websites to extract clean, LLM-ready data (markdown, structured data).",
+  "confidence": 0.0,
+  "source_type": "openapi_spec",
+  "source_urls": [
+    "https://github.com/firecrawl/firecrawl/blob/main/apps/api/openapi.json",
+    "https://github.com/devflowinc/firecrawl-simple/blob/main/apps/api/v1-openapi.json",
+    "https://github.com/firecrawl/firecrawl",
+    "https://pypi.org/project/firecrawl/",
+    "https://pypi.org/project/firecrawl/2.0.0/",
+    "https://docs.firecrawl.dev/api-reference/introduction",
+    "https://docs.firecrawl.dev/introduction",
+    "https://docs.firecrawl.dev/sdks/python",
+    "https://www.firecrawl.dev/playground"
+  ],
+  "dependencies": [],
+  "auth_pattern": "api_key_header",
+  "tests_total": 0,
+  "tests_passing": 0,
+  "tests_failing": 0,
+  "last_tested": "",
+  "usage_count": 0,
+  "usage_success_count": 0,
+  "last_used": "",
+  "created_at": "2026-04-20T20:21:13.067365+00:00",
+  "last_verified": "2026-04-20T20:21:13.067365+00:00",
+  "code_hash": "ec3aae0db3b8ab8a92546e9de4e37331",
+  "known_limitations": [],
+  "tags": [
+    "firecrawl",
+    "api",
+    "client",
+    "api_key_header"
+  ]
+}

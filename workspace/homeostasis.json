@@ -1,12 +1,12 @@
 {
-  "cognitive_energy": 0.966,
+  "cognitive_energy": 0.9003,
   "frustration": 0.005,
   "confidence": 0.9825,
   "curiosity": 0.975,
-  "tasks_since_rest": 189,
+  "tasks_since_rest": 223,
   "consecutive_failures": 0,
-  "last_updated": "2026-04-20T06:46:50.426656+00:00",
+  "last_updated": "2026-04-21T15:24:27.077861+00:00",
   "task_failure_pressure": 0.005,
   "exploration_bonus": 0.975,
-  "resource_budget": 0.966
+  "resource_budget": 0.9003
 }
