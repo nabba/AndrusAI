@@ -35,7 +35,8 @@ function ErrorsTab() {
   const { data, isLoading, error, refetch } = useErrorsQuery();
   if (isLoading) return <Skeleton className="h-64" />;
   if (error) return <ErrorPanel error={error} onRetry={refetch} />;
-  const recent = data?.recent ?? [];
+  // self_heal journal records oldest-first; newest on top is what we want.
+  const recent = [...(data?.recent ?? [])].reverse();
   const patterns = data?.patterns ?? {};
 
   const patternEntries = Object.entries(patterns).sort((a, b) => b[1] - a[1]);
@@ -126,7 +127,8 @@ function AnomaliesTab() {
   const { data, isLoading, error, refetch } = useAnomaliesQuery();
   if (isLoading) return <Skeleton className="h-64" />;
   if (error) return <ErrorPanel error={error} onRetry={refetch} />;
-  const alerts = data?.recent_alerts ?? [];
+  // Journals record oldest-first; show newest on top.
+  const alerts = [...(data?.recent_alerts ?? [])].reverse();
   if (alerts.length === 0) {
     return (
       <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-8 text-center">
@@ -182,7 +184,8 @@ function DeploysTab() {
   const { data, isLoading, error, refetch } = useDeploysQuery();
   if (isLoading) return <Skeleton className="h-64" />;
   if (error) return <ErrorPanel error={error} onRetry={refetch} />;
-  const deploys = data?.recent ?? [];
+  // Journals record oldest-first; show newest on top.
+  const deploys = [...(data?.recent ?? [])].reverse();
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 text-xs text-[#7a8599]">

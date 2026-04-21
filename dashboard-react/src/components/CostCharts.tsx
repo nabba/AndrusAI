@@ -79,15 +79,18 @@ export function CostCharts() {
 
   const dailyChartData = useMemo(() => {
     if (!dailyQ.data || dailyQ.data.length === 0) return null;
+    // Backend returns newest-first; reverse so the chart runs
+    // left → right = oldest → newest.
+    const chronological = [...dailyQ.data].reverse();
     return {
-      labels: dailyQ.data.map((c) => {
+      labels: chronological.map((c) => {
         const d = new Date(c.day);
         return `${d.getMonth() + 1}/${d.getDate()}`;
       }),
       datasets: [
         {
           label: 'Daily Cost ($)',
-          data: dailyQ.data.map((c) => c.total_cost ?? 0),
+          data: chronological.map((c) => c.total_cost ?? 0),
           borderColor: '#60a5fa',
           backgroundColor: 'rgba(96, 165, 250, 0.1)',
           pointBackgroundColor: '#60a5fa',

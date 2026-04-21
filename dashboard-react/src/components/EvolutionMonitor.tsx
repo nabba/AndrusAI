@@ -127,7 +127,13 @@ export function EvolutionMonitor() {
   const engineQ = useEvolutionEngineQuery();
 
   const summary = summaryQ.data;
+  // Chronological (oldest → newest) — used by left-to-right charts.
   const resultsList = useMemo(() => resultsQ.data?.results ?? [], [resultsQ.data?.results]);
+  // Newest-first — used by the history list so the top row is the most recent.
+  const resultsListDesc = useMemo(
+    () => [...(resultsQ.data?.results ?? [])].reverse(),
+    [resultsQ.data?.results],
+  );
   const engineInfo = engineQ.data;
   const scoreTrend = summary?.score_trend;
   const engineStats = summary?.engines;
@@ -321,14 +327,14 @@ export function EvolutionMonitor() {
                         <td colSpan={6} className="px-4 py-3"><Skeleton className="h-4 w-full" /></td>
                       </tr>
                     ))
-                  ) : resultsList.length === 0 ? (
+                  ) : resultsListDesc.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-8 text-center text-[#7a8599]">
                         No experiments found
                       </td>
                     </tr>
                   ) : (
-                    resultsList.map((r, i) => (
+                    resultsListDesc.map((r, i) => (
                       <tr key={i} className="border-b border-[#1e2738]/50 hover:bg-[#1e2738]/30 transition-colors">
                         <td className="px-4 py-2.5 text-[#7a8599] whitespace-nowrap">
                           {new Date(r.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -505,6 +511,8 @@ function GenealogyTab() {
   if (error) return <ErrorPanel error={error} onRetry={refetch} />;
 
   const variants = data?.variants ?? [];
+  // List view runs newest → oldest; backend returns ASC by created_at.
+  const variantsDesc = [...variants].reverse();
   const drift = data?.drift_score ?? 0;
   const kept = variants.filter((v) => v.status === 'keep').length;
   const maxGen = variants.reduce((m, v) => Math.max(m, v.generation ?? 0), 0);
@@ -545,7 +553,7 @@ function GenealogyTab() {
               Variants (click to view lineage)
             </div>
             <div className="divide-y divide-[#1e2738] max-h-[500px] overflow-y-auto">
-              {variants.map((v) => (
+              {variantsDesc.map((v) => (
                 <VariantListRow
                   key={v.id}
                   v={v}
