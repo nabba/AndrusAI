@@ -324,15 +324,26 @@ def create_specialist_llm(
     settings = get_settings()
     mode = get_mode()
 
-    # ── INSANE mode: premium-only, hardcoded role mapping ─────────────
-    if mode == "insane":
-        return _insane_mode_select(role, max_tokens, phase=phase)
-
-    # ── ANTHROPIC mode: restrict to Anthropic provider ─────────────────
-    if mode == "anthropic":
-        return _anthropic_mode_select(role, max_tokens, phase=phase)
-
     from app.llm_selector import select_model
+
+    # ── Modes other than HYBRID constrain the candidate pool, then run the
+    #    regular LLM selector inside that pool. Every role still gets its
+    #    normal score-driven pick — the mode only narrows the shortlist.
+    if mode != "hybrid":
+        chosen = _pool_constrained_select(role, task_hint, mode, force_tier)
+        if not chosen:
+            logger.warning(
+                "llm_factory: mode=%s has no usable model for role=%s, falling back to Claude",
+                mode, role,
+            )
+            return _claude_fallback(role, max_tokens, phase=phase)
+        model_name, entry = chosen
+        return _build_from_entry(
+            model_name, entry, max_tokens, role,
+            phase=phase, mode=mode, settings=settings,
+        )
+
+    # ── HYBRID mode: unconstrained selector + full cascade (default) ──
     model_name = select_model(role, task_hint, force_tier=force_tier)
     entry = get_model(model_name)
 
@@ -342,68 +353,6 @@ def create_specialist_llm(
 
     tier = entry["tier"]
     provider = entry["provider"]
-
-    # ── LOCAL mode: only Ollama, Claude fallback ──────────────────────
-    if mode == "local":
-        if tier == "local" and settings.local_llm_enabled:
-            llm = _try_local(model_name, entry, max_tokens, role, phase=phase)
-            if llm:
-                return llm
-        return _claude_fallback(role, max_tokens, phase=phase)
-
-    # ── FREE mode: zero-cost only (local + OpenRouter free tier) ──────
-    # The selector already picked one model; honour it if it's in the
-    # allowed pool, otherwise re-select forcing a free tier.
-    if mode == "free":
-        if tier == "local" and settings.local_llm_enabled:
-            llm = _try_local(model_name, entry, max_tokens, role, phase=phase)
-            if llm:
-                return llm
-        if tier == "free" and settings.api_tier_enabled:
-            llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
-            if llm:
-                return llm
-        # Selector picked a paid tier — force re-selection within free pool.
-        from app.llm_selector import select_model as _select
-        for forced_tier in ("local", "free"):
-            if forced_tier == "local" and not settings.local_llm_enabled:
-                continue
-            if forced_tier == "free" and not settings.api_tier_enabled:
-                continue
-            try:
-                alt_name = _select(role, task_hint, force_tier=forced_tier)
-            except Exception:
-                alt_name = None
-            if not alt_name:
-                continue
-            alt_entry = get_model(alt_name)
-            if not alt_entry:
-                continue
-            if forced_tier == "local":
-                llm = _try_local(alt_name, alt_entry, max_tokens, role, phase=phase)
-            else:
-                llm = _try_api(alt_name, alt_entry, max_tokens, role, phase=phase)
-            if llm:
-                logger.info(f"llm_factory: free-mode fallback → {alt_name} ({forced_tier})")
-                return llm
-        # Nothing free worked — emit a warning and fall back to Claude so
-        # the system remains functional instead of throwing.
-        logger.warning("llm_factory: free mode has no working model for role=%s, falling back to Claude", role)
-        return _claude_fallback(role, max_tokens, phase=phase)
-
-    # ── CLOUD mode: skip Ollama, use API/Anthropic ───────────────────
-    if mode == "cloud":
-        if tier in ("free", "budget", "mid") and settings.api_tier_enabled:
-            llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
-            if llm:
-                return llm
-        if provider == "anthropic":
-            return _create_anthropic(model_name, entry, max_tokens, role, phase=phase)
-        if tier == "premium" and provider == "openrouter":
-            llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
-            if llm:
-                return llm
-        return _claude_fallback(role, max_tokens, phase=phase)
 
     # ── HYBRID mode: full cascade ────────────────────────────────────
     # Try local Ollama first
@@ -622,86 +571,149 @@ def _sampling(phase: str | None, provider: str) -> tuple[dict, str]:
     return build_llm_kwargs(phase, provider), sampling_cache_key(phase, provider)
 
 
-def _anthropic_mode_select(role: str, max_tokens: int, phase: str | None = None) -> LLM:
-    """ANTHROPIC mode: pick the best Anthropic model for this role.
+# ── Mode pool filters ────────────────────────────────────────────────────────
+#
+# Every non-hybrid mode narrows the candidate pool the selector scores across.
+# Shape: {mode: {"tiers": [...] | None, "provider": str | None}}.
+# "tiers=None" means any tier is acceptable.
+_MODE_POOL: dict[str, dict[str, object]] = {
+    "local":     {"tiers": ["local"],                                "provider": None},
+    "free":      {"tiers": ["local", "free"],                        "provider": None},
+    "cloud":     {"tiers": ["free", "budget", "mid", "premium"],     "provider": None},
+    "insane":    {"tiers": ["premium"],                              "provider": None},
+    # Anthropic-only: any tier is fine, but provider must match. In practice
+    # Anthropic publishes tiers premium (Opus) and mid (Sonnet/Haiku) via the
+    # catalog; the selector picks whichever scores best for the role.
+    "anthropic": {"tiers": None,                                     "provider": "anthropic"},
+    # Hybrid is handled by the default cascade path — no filter here.
+}
 
-    Walks the live catalog, keeps entries where ``provider == "anthropic"``,
-    and scores each by its strengths map (falling back to ``general``). Ties
-    break on context size. Falls back to the built-in Claude default when no
-    Anthropic entry is present (e.g. bootstrap before the catalog builder
-    has run).
+
+def _entry_in_pool(entry: dict, tiers: list[str] | None, provider: str | None) -> bool:
+    """Return True when ``entry`` satisfies a mode's pool filter."""
+    if tiers is not None and entry.get("tier") not in tiers:
+        return False
+    if provider is not None and entry.get("provider") != provider:
+        return False
+    return True
+
+
+def _pool_constrained_select(
+    role: str,
+    task_hint: str,
+    mode: str,
+    force_tier: str | None,
+) -> tuple[str, dict] | None:
+    """Run the LLM selector inside the active mode's candidate pool.
+
+    Strategy:
+      1. Ask the normal selector for its preferred model. If it already sits
+         in the allowed pool, use it.
+      2. Otherwise re-run the selector with ``force_tier`` for each allowed
+         tier; first match wins.
+      3. Last resort: catalog scan scored by the role's ``strengths`` map
+         (falling back to ``general``). Ties break on context size.
+    Returns (name, entry) or None if nothing in the pool is usable.
     """
     from app.llm_catalog import CATALOG
-    anthropic_entries = [
+    from app.llm_selector import select_model as _select
+
+    pool = _MODE_POOL.get(mode, {})
+    tiers = pool.get("tiers")  # type: ignore[assignment]
+    provider = pool.get("provider")  # type: ignore[assignment]
+
+    # 1. Selector's default pick
+    try:
+        base_name = _select(role, task_hint, force_tier=force_tier)
+    except Exception:
+        base_name = None
+    if base_name:
+        base_entry = get_model(base_name)
+        if base_entry and _entry_in_pool(base_entry, tiers, provider):
+            return base_name, base_entry
+
+    # 2. Try forcing each allowed tier
+    if tiers:
+        for forced in tiers:
+            try:
+                alt = _select(role, task_hint, force_tier=forced)
+            except Exception:
+                continue
+            if not alt:
+                continue
+            alt_entry = get_model(alt)
+            if alt_entry and _entry_in_pool(alt_entry, tiers, provider):
+                return alt, alt_entry
+
+    # 3. Catalog walk scored by role strengths
+    candidates = [
         (name, dict(entry))
         for name, entry in CATALOG.items()
-        if entry.get("provider") == "anthropic"
+        if _entry_in_pool(entry, tiers, provider)
     ]
-    if not anthropic_entries:
-        logger.warning("llm_factory: [ANTHROPIC] catalog has no Anthropic models, using fallback")
-        return _claude_fallback(role, max_tokens, phase=phase)
+    if not candidates:
+        return None
 
     def _score(name_entry: tuple[str, dict]) -> tuple[float, int]:
         _name, entry = name_entry
         strengths = entry.get("strengths", {}) or {}
         role_score = float(strengths.get(role, 0) or 0.0)
         general = float(strengths.get("general", 0) or 0.0)
-        # Prefer role-specific strength; fall back to general.
         primary = role_score if role_score > 0 else general
         return (primary, int(entry.get("context") or 0))
 
-    anthropic_entries.sort(key=_score, reverse=True)
-    model_name, entry = anthropic_entries[0]
-    _set_last(model_name, entry.get("tier", "premium"))
-    logger.info(f"llm_factory: [ANTHROPIC] role={role} → {model_name}")
-    return _create_anthropic(model_name, entry, max_tokens, role, phase=phase)
+    candidates.sort(key=_score, reverse=True)
+    return candidates[0]
 
 
-def _insane_mode_select(role: str, max_tokens: int, phase: str | None = None) -> LLM:
-    """INSANE mode: resolve the strongest premium-tier model for the role.
+def _build_from_entry(
+    model_name: str,
+    entry: dict,
+    max_tokens: int,
+    role: str,
+    *,
+    phase: str | None,
+    mode: str,
+    settings,
+) -> LLM:
+    """Instantiate the appropriate LLM client for a (name, entry) pick.
 
-    Uses ``resolve_role_default(role, cost_mode="quality")`` so the pick
-    is always data-driven: commander/vetting/critic get whichever premium
-    model currently scores highest (Opus today, next-gen Opus tomorrow);
-    heavy-lifting roles like coding/research auto-pick the strongest
-    non-Anthropic premium model (Gemini 3.1 Pro today).
+    Routes by tier + provider; local Ollama for tier=="local", Anthropic
+    SDK for Anthropic entries, OpenRouter otherwise. When the preferred
+    route isn't available the function falls back to Claude so the system
+    stays functional rather than raising — a warning is emitted so the
+    operator notices.
     """
-    from app.llm_catalog import resolve_role_default
-    model_name = resolve_role_default(role, cost_mode="quality")
-    entry = get_model(model_name)
-    if not entry:
-        return _claude_fallback(role, max_tokens, phase=phase)
+    tier = entry.get("tier", "")
+    provider = entry.get("provider", "")
 
-    _set_last(model_name, entry.get("tier", "premium"))
-
-    if entry["provider"] == "anthropic":
-        logger.info(f"llm_factory: [INSANE] role={role} → ANTHROPIC {model_name}")
-        extra, key = _sampling(phase, "anthropic")
-        return _cached_llm(entry["model_id"], max_tokens=max_tokens,
-                           sampling_key=key, api_key=get_anthropic_api_key(), **extra)
-
-    settings = get_settings()
-    api_key = settings.openrouter_api_key.get_secret_value()
-    if api_key and circuit_breaker.is_available("openrouter"):
-        # Give reasoning-heavy premium picks (e.g. Gemini-class) plenty of
-        # output budget — they benefit from thinking-token headroom.
-        premium_max = max(max_tokens, 16384)
+    if tier == "local" and settings.local_llm_enabled:
+        llm = _try_local(model_name, entry, max_tokens, role, phase=phase)
+        if llm:
+            return llm
         logger.info(
-            f"llm_factory: [INSANE] role={role} → API {model_name} "
-            f"(${entry['cost_output_per_m']:.2f}/Mo, max_tokens={premium_max})"
+            "llm_factory: mode=%s chose local model %s but Ollama unavailable",
+            mode, model_name,
         )
-        circuit_breaker.record_success("openrouter")
-        extra, key = _sampling(phase, "openrouter")
-        return _cached_llm(entry["model_id"], max_tokens=premium_max,
-                           sampling_key=key,
-                           base_url="https://openrouter.ai/api/v1",
-                           api_key=api_key, **extra)
+
+    if provider == "anthropic":
+        return _create_anthropic(model_name, entry, max_tokens, role, phase=phase)
+
+    if settings.api_tier_enabled:
+        llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
+        if llm:
+            return llm
 
     logger.warning(
-        f"llm_factory: [INSANE] OpenRouter unavailable for {model_name}, "
-        "falling back to Claude"
+        "llm_factory: mode=%s could not instantiate %s (tier=%s provider=%s), falling back to Claude",
+        mode, model_name, tier, provider,
     )
     return _claude_fallback(role, max_tokens, phase=phase)
+
+
+# _insane_mode_select was removed when INSANE mode moved to the uniform
+# pool-filter path. If any external module imported it, re-add a thin
+# shim here that delegates to _pool_constrained_select + _build_from_entry.
 
 
 def _try_local(model_name: str, entry: dict, max_tokens: int, role: str, phase: str | None = None) -> LLM | None:
