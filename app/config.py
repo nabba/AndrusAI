@@ -61,8 +61,11 @@ class Settings(BaseSettings):
     external_ranks_weight: float = 0.3  # 0.0 = ignore, 1.0 = replace internal
     artificial_analysis_api_key: SecretStr = SecretStr("")
 
-    # LLM mode — "local", "cloud", or "hybrid" (initial value; changes at runtime)
-    llm_mode: str = "hybrid"
+    # LLM mode — unified runtime-mode vocabulary. See app.llm_catalog.RUNTIME_MODES.
+    # Accepts ``free`` / ``budget`` / ``balanced`` (default) / ``quality`` /
+    # ``insane`` / ``anthropic`` plus legacy aliases (``hybrid``/``local``/
+    # ``cloud``) which are normalised at set_mode() time.
+    llm_mode: str = "balanced"
 
     sandbox_image: str = "crewai-sandbox:latest"
     sandbox_timeout_seconds: int = 30
@@ -365,7 +368,19 @@ class Settings(BaseSettings):
     @field_validator("cost_mode")
     @classmethod
     def validate_cost_mode(cls, v: str) -> str:
-        allowed = ("budget", "balanced", "quality")
+        """Accept the unified 6-mode vocabulary (and legacy 3-mode values).
+
+        ``cost_mode`` is retained for back-compat with deployment configs
+        written against the pre-unification vocabulary. New deployments
+        should set ``llm_mode`` instead — the two fields now share a
+        vocabulary and the factory reads ``llm_mode`` via ``get_mode()``.
+        """
+        allowed = (
+            "free", "budget", "balanced", "quality", "insane", "anthropic",
+            # Legacy aliases — tolerated at config-load time so a stale
+            # .env doesn't brick startup.
+            "hybrid", "local", "cloud",
+        )
         if v not in allowed:
             raise ValueError(f"cost_mode must be one of {allowed}, got {v!r}")
         return v

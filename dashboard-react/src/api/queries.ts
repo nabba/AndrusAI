@@ -647,10 +647,15 @@ export interface LlmModel {
 export interface LlmCatalogReport {
   models: LlmModel[];
   role_assignments: Record<string, string>;
-  cost_mode: string;
+  /** Unified runtime mode (free / budget / balanced / quality / insane / anthropic). */
+  mode: string;
+  /** Legacy alias for ``mode`` — kept for back-compat. Prefer reading ``mode``. */
+  cost_mode?: string;
   /** Authoritative list of pinnable roles from app.llm_catalog.PUBLIC_ROLES. */
   roles?: string[];
-  /** Authoritative list of cost modes from app.llm_catalog.COST_MODES. */
+  /** Authoritative list of runtime modes from app.llm_catalog.RUNTIME_MODES. */
+  modes?: string[];
+  /** Legacy alias for ``modes`` — kept for back-compat. */
   cost_modes?: string[];
   updated_at: string;
   error?: string | null;
@@ -658,7 +663,10 @@ export interface LlmCatalogReport {
 
 export interface LlmRoleAssignment {
   role: string;
-  cost_mode: string;
+  /** Unified runtime mode (free / budget / balanced / quality / insane / anthropic). */
+  mode?: string;
+  /** Legacy alias for ``mode``. */
+  cost_mode?: string;
   model: string;
   priority?: number;
   source?: string;
@@ -701,7 +709,16 @@ export interface LlmDiscoveryReport {
 }
 
 // ── LLM runtime mode ────────────────────────────────────────────────────────
-export type LlmMode = 'local' | 'free' | 'cloud' | 'hybrid' | 'insane' | 'anthropic';
+// The 6-value unified runtime-mode vocabulary. The server also accepts the
+// legacy aliases ``hybrid`` / ``local`` / ``cloud`` at ``set_mode`` time, but
+// they are normalised away and never returned as ``mode`` in the API.
+export type LlmMode =
+  | 'free'
+  | 'budget'
+  | 'balanced'
+  | 'quality'
+  | 'insane'
+  | 'anthropic';
 
 export interface LlmModeReport {
   mode: LlmMode;
@@ -786,7 +803,10 @@ export interface PromotionsReport {
 
 export interface PinRow {
   role: string;
-  cost_mode: string;
+  /** Unified runtime mode. Canonical field. */
+  mode?: string;
+  /** Legacy alias for ``mode``; both are present in the payload for back-compat. */
+  cost_mode?: string;
   model: string;
   priority?: number;
   source?: string;
@@ -848,8 +868,10 @@ export function useDemoteModel() {
 export function usePinRole() {
   const qc = useQueryClient();
   return useMutation({
+    // ``mode`` is the canonical field. The server still accepts legacy
+    // ``cost_mode`` for back-compat if present.
     mutationFn: (
-      body: { role: string; cost_mode: string; model: string; reason?: string },
+      body: { role: string; mode: string; model: string; reason?: string },
     ) =>
       api<{ status: string }>(endpoints.llmPin(), {
         method: 'POST',
@@ -864,7 +886,7 @@ export function usePinRole() {
 export function useUnpinRole() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { role: string; cost_mode: string }) =>
+    mutationFn: (body: { role: string; mode: string }) =>
       api<{ status: string; retired: number }>(endpoints.llmUnpin(), {
         method: 'POST',
         body: JSON.stringify(body),

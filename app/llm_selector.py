@@ -259,8 +259,11 @@ def select_model(
         return env_override
 
     # Step 2: Default from catalog (consults role_assignments overlay)
-    cost_mode = settings.cost_mode
-    default_model = get_default_for_role(role, cost_mode)
+    # Reads the live runtime mode so dashboard/Signal switches take effect
+    # immediately, without waiting for a config reload.
+    from app.llm_mode import get_mode
+    mode = get_mode()
+    default_model = get_default_for_role(role, mode)
 
     # Step 3: Task-specific overrides
     task_type = detect_task_type(role, task_hint)

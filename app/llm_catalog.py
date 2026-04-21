@@ -97,9 +97,45 @@ SPECIALIST_ROLES: tuple[str, ...] = (
 # All roles the resolver knows how to pick for + the user can pin.
 PUBLIC_ROLES: tuple[str, ...] = CREW_ROLES + SPECIALIST_ROLES + ("default",)
 
-# Valid cost-mode keys. Dashboard pin dialog and any cost-sensitive
-# caller should consume this tuple instead of hardcoding.
-COST_MODES: tuple[str, ...] = ("budget", "balanced", "quality")
+# Unified runtime-mode vocabulary. A single axis controls both the
+# candidate pool (which tiers / providers are reachable) and the cost
+# stance (how aggressively to prefer cheaper models). Previously split
+# across two concepts (``llm_mode`` runtime modes + ``cost_mode``); the
+# split was conceptually redundant because the extremes collapsed (free
+# implied budget, insane implied quality).
+#
+# Monotonic cost gradient: free < budget < balanced < quality < insane.
+# ``anthropic`` is the special single-provider lock outside the gradient.
+RUNTIME_MODES: tuple[str, ...] = (
+    "free", "budget", "balanced", "quality", "insane", "anthropic",
+)
+
+# Deprecated alias — kept so legacy imports continue to work for one
+# release. New code should read ``RUNTIME_MODES``. The tuple contents
+# differ from the old ``COST_MODES`` (which had only 3 values), but every
+# legacy value (``budget``/``balanced``/``quality``) is still present.
+COST_MODES: tuple[str, ...] = RUNTIME_MODES
+
+# Legacy-name → new-name normalisation. ``hybrid``/``local``/``cloud``
+# were runtime modes; the unified vocabulary collapses them into the
+# new set so callers don't have to know the history.
+_MODE_ALIASES: dict[str, str] = {
+    "hybrid": "balanced",
+    "local":  "free",
+    "cloud":  "balanced",
+}
+
+
+def _normalize_mode(mode: str) -> str:
+    """Normalise a mode string to the current 6-value vocabulary.
+
+    Accepts the legacy ``hybrid``/``local``/``cloud`` names and maps
+    them onto their modern equivalents. Unknown inputs fall through to
+    ``balanced`` (the default) so callers never crash on stale data.
+    """
+    m = (mode or "").strip().lower()
+    m = _MODE_ALIASES.get(m, m)
+    return m if m in RUNTIME_MODES else "balanced"
 
 
 # Crew/role → canonical task type.
@@ -357,17 +393,54 @@ _apply_overrides_to_catalog(CATALOG)
 
 # ── Policy (tiny, rarely changed) ────────────────────────────────────────
 
-# Cost-mode soft penalty weights: higher = more aggressively prefer cheaper
-# models. Applied as ``quality - weight * (cost / max_cost_in_candidates)``
-# so a 5% quality improvement isn't worth a 20× cost increase under budget.
-_COST_MODE_WEIGHT: dict[str, float] = {
-    "budget":   0.35,
-    "balanced": 0.10,
-    "quality":  0.00,
+# Cost-penalty weight in the scoring function. Applied as
+# ``quality - weight * (cost / max_cost_in_candidates)`` so a 5% quality
+# improvement isn't worth a 20× cost increase under budget. Higher values
+# make the resolver more aggressively prefer cheaper models.
+_MODE_WEIGHT: dict[str, float] = {
+    "free":      0.50,   # aggressively prefer free (everything else is irrelevant anyway)
+    "budget":    0.35,   # strongly prefer cheap
+    "balanced":  0.15,   # mild cost sensitivity
+    "quality":   0.05,   # very mild — prefer the best
+    "insane":    0.00,   # money no object
+    "anthropic": 0.15,   # mild — pick the best Anthropic within reason
 }
 
+# Which catalog tiers a mode is allowed to pick from. This is the single
+# biggest lever — e.g. ``insane`` is premium-only, ``free`` only sees
+# no-cost tiers. Applied as a hard filter before scoring.
+_MODE_TIER_WHITELIST: dict[str, frozenset[str]] = {
+    "free":      frozenset({"local", "free"}),
+    "budget":    frozenset({"local", "free", "budget"}),
+    "balanced":  frozenset({"local", "free", "budget", "mid", "premium"}),
+    "quality":   frozenset({"local", "free", "budget", "mid", "premium"}),
+    "insane":    frozenset({"premium"}),
+    "anthropic": frozenset({"mid", "premium"}),  # includes Haiku-tier entries
+}
+
+# Provider whitelist per mode. ``None`` = every provider allowed.
+# Only ``anthropic`` mode restricts by provider today.
+_MODE_PROVIDER_WHITELIST: dict[str, frozenset[str] | None] = {
+    "free":      None,
+    "budget":    None,
+    "balanced":  None,
+    "quality":   None,
+    "insane":    None,
+    "anthropic": frozenset({"anthropic"}),
+}
+
+# Modes in which a local-preferred role actually gets its local pick.
+# Quality/insane/anthropic explicitly opt out — user wants premium even
+# for background roles.
+_MODE_PREFER_LOCAL: frozenset[str] = frozenset({"free", "budget", "balanced"})
+
+# Back-compat alias — old code reads ``_COST_MODE_WEIGHT``. Keep the
+# reference so ROLE_DEFAULTS shim and any external module continues to
+# work unchanged.
+_COST_MODE_WEIGHT = _MODE_WEIGHT
+
 # Hard tier requirements per role — commander/vetting/critic must be premium
-# regardless of cost_mode. Everything else accepts budget or above.
+# regardless of mode. Everything else accepts budget or above.
 _ROLE_TIER_FLOOR: dict[str, str] = {
     "commander":  "premium",
     "vetting":    "premium",
@@ -375,8 +448,8 @@ _ROLE_TIER_FLOOR: dict[str, str] = {
     "default":    "budget",
 }
 
-# Roles that can opt into local tier when one is available and cost_mode
-# isn't "quality" (self-reflection, background jobs — cost sensitivity high).
+# Roles that can opt into local tier when one is available and the mode
+# allows it (self-reflection, background jobs — cost sensitivity high).
 _ROLE_LOCAL_PREFERRED: set[str] = {
     "introspector", "self_improve", "planner", "evo_critic",
 }
@@ -396,7 +469,26 @@ def _tier_meets_floor(tier: str, floor: str) -> bool:
     return _TIER_RANK.get(tier, 0) >= _TIER_RANK.get(floor, 0)
 
 
+def _effective_tier_floor(mode: str, role_tier_floor: str) -> str:
+    """Reconcile the role's tier floor with the mode's tier whitelist.
+
+    When the user explicitly picks a restrictive mode (e.g. ``free``), we
+    honour that choice by capping the role tier floor at the highest
+    tier the mode allows — otherwise the resolver would fall through to
+    the bootstrap premium fallback even when the user asked for zero
+    cost. The role still gets its *best* available pick within the mode.
+    """
+    whitelist = _MODE_TIER_WHITELIST.get(mode, _MODE_TIER_WHITELIST["balanced"])
+    if not whitelist:
+        return role_tier_floor
+    max_allowed = max(whitelist, key=lambda t: _TIER_RANK.get(t, 0))
+    if _TIER_RANK.get(role_tier_floor, 0) > _TIER_RANK.get(max_allowed, 0):
+        return max_allowed
+    return role_tier_floor
+
+
 def _filter_candidates(
+    mode: str,
     tier_floor: str,
     needs_multimodal: bool,
     prefer_local: bool,
@@ -404,20 +496,33 @@ def _filter_candidates(
 ) -> list[str]:
     """Return catalog keys that satisfy the hard constraints.
 
-    Hard constraints:
-      * Tier floor (unless prefer_local is set and the local tier is allowed)
-      * Multimodal capability when the task requires it
-      * Tool-calling support when the role needs tools
+    Hard constraints (all AND):
+      * Mode tier whitelist (``_MODE_TIER_WHITELIST[mode]``).
+      * Mode provider whitelist (``_MODE_PROVIDER_WHITELIST[mode]``).
+      * Role tier floor (unless prefer_local is set and local is
+        whitelisted by the mode).
+      * Multimodal capability when the task requires it.
+      * Tool-calling support when the role needs tools.
 
     Cost is NOT a hard filter — it enters via the scoring function so the
     selector can surface a cheaper model that meets the tier floor.
     """
+    tier_whitelist = _MODE_TIER_WHITELIST.get(
+        mode, _MODE_TIER_WHITELIST["balanced"],
+    )
+    provider_whitelist = _MODE_PROVIDER_WHITELIST.get(mode)
+
     candidates: list[str] = []
     for name, entry in CATALOG.items():
         tier = entry.get("tier", "budget")
+        provider = entry.get("provider", "")
         if needs_multimodal and not entry.get("multimodal"):
             continue
         if needs_tools and entry.get("supports_tools") is False:
+            continue
+        if provider_whitelist is not None and provider not in provider_whitelist:
+            continue
+        if tier not in tier_whitelist:
             continue
         if not _tier_meets_floor(tier, tier_floor):
             if not (prefer_local and tier == "local"):
@@ -426,8 +531,18 @@ def _filter_candidates(
     return candidates
 
 
-def resolve_role_default(role: str, cost_mode: str = "balanced") -> str:
+def resolve_role_default(
+    role: str,
+    mode: str = "balanced",
+    *,
+    cost_mode: str | None = None,
+) -> str:
     """Three-layer role → catalog-key resolution.
+
+    The ``mode`` parameter is the unified runtime-mode axis (see
+    :data:`RUNTIME_MODES`). For back-compat, callers may still pass
+    ``cost_mode=`` — the value is normalised onto the 6-mode vocabulary
+    via :func:`_normalize_mode`.
 
     Authority (strongest first):
       1. **Hand-pin** — active overlay in ``control_plane.role_assignments``
@@ -443,23 +558,31 @@ def resolve_role_default(role: str, cost_mode: str = "balanced") -> str:
     When no candidate survives the hard filters, returns
     ``"claude-sonnet-4.6"`` — the universal bootstrap fallback.
     """
+    # Back-compat: accept legacy ``cost_mode=`` keyword as alias.
+    if cost_mode is not None:
+        mode = cost_mode
+    mode = _normalize_mode(mode)
+
     # Layer 1: hand-pin hard override
     try:
         from app.llm_role_assignments import get_assigned_model
-        pin = get_assigned_model(role, cost_mode)
+        pin = get_assigned_model(role, mode)
         if pin and pin in CATALOG:
             return pin
     except Exception:
         pass  # graceful degradation to layer 2/3
 
     task_type = canonical_task_type(role=role)
-    tier_floor = _ROLE_TIER_FLOOR.get(role, _ROLE_TIER_FLOOR["default"])
+    role_tier_floor = _ROLE_TIER_FLOOR.get(role, _ROLE_TIER_FLOOR["default"])
+    tier_floor = _effective_tier_floor(mode, role_tier_floor)
     needs_multimodal = task_type == "multimodal"
-    prefer_local = role in _ROLE_LOCAL_PREFERRED and cost_mode != "quality"
+    prefer_local = (
+        role in _ROLE_LOCAL_PREFERRED and mode in _MODE_PREFER_LOCAL
+    )
     needs_tools = role in _ROLES_NEEDING_TOOLS
 
     candidates = _filter_candidates(
-        tier_floor, needs_multimodal, prefer_local, needs_tools,
+        mode, tier_floor, needs_multimodal, prefer_local, needs_tools,
     )
 
     if prefer_local:
@@ -491,7 +614,7 @@ def resolve_role_default(role: str, cost_mode: str = "balanced") -> str:
     except Exception:
         bench = {}
 
-    cost_weight = _COST_MODE_WEIGHT.get(cost_mode, _COST_MODE_WEIGHT["balanced"])
+    cost_weight = _MODE_WEIGHT.get(mode, _MODE_WEIGHT["balanced"])
     # Normalise the cost penalty against the most expensive candidate so
     # the penalty stays comparable across roles with different tier floors.
     costs = [CATALOG[n].get("cost_output_per_m", 0.0) for n in candidates]
@@ -541,8 +664,13 @@ def is_multimodal(name: str) -> bool:
     return entry.get("multimodal", False) if entry else False
 
 
-def get_default_for_role(role: str, cost_mode: str = "balanced") -> str:
-    """Return the catalog key to use for a role + cost_mode pair.
+def get_default_for_role(
+    role: str,
+    mode: str = "balanced",
+    *,
+    cost_mode: str | None = None,
+) -> str:
+    """Return the catalog key to use for a role at a given runtime mode.
 
     Resolution order:
       1. Runtime overlay in ``control_plane.role_assignments`` (manual
@@ -550,15 +678,20 @@ def get_default_for_role(role: str, cost_mode: str = "balanced") -> str:
          :mod:`app.llm_role_assignments`).
       2. :func:`resolve_role_default` — score-based selection against the
          live ``CATALOG``.
+
+    ``cost_mode=`` is accepted as a legacy alias for ``mode=``.
     """
+    if cost_mode is not None:
+        mode = cost_mode
+    mode = _normalize_mode(mode)
     try:
         from app.llm_role_assignments import get_assigned_model
-        override = get_assigned_model(role, cost_mode)
+        override = get_assigned_model(role, mode)
         if override and override in CATALOG:
             return override
     except Exception:
         pass
-    return resolve_role_default(role, cost_mode)
+    return resolve_role_default(role, mode)
 
 
 def get_candidates(task_type: str) -> list[tuple[str, float]]:
@@ -637,16 +770,26 @@ def format_catalog() -> str:
     return "\n".join(lines)
 
 
-def format_role_assignments(cost_mode: str = "balanced") -> str:
-    """Show the resolver's current pick for every role under a cost_mode."""
+def format_role_assignments(
+    mode: str = "balanced",
+    *,
+    cost_mode: str | None = None,
+) -> str:
+    """Show the resolver's current pick for every role at a given mode.
+
+    ``cost_mode=`` accepted as a legacy alias for ``mode=``.
+    """
+    if cost_mode is not None:
+        mode = cost_mode
+    mode = _normalize_mode(mode)
     roles_to_show = [
         "commander", "coding", "research", "writing", "media", "critic",
         "introspector", "self_improve", "vetting", "synthesis", "planner",
         "evo_critic", "default",
     ]
-    lines = [f"Role Assignments [{cost_mode}] (resolved):\n"]
+    lines = [f"Role Assignments [{mode}] (resolved):\n"]
     for role in roles_to_show:
-        picked = get_default_for_role(role, cost_mode)
+        picked = get_default_for_role(role, mode)
         entry = CATALOG.get(picked, {})
         cost = entry.get("cost_output_per_m", 0)
         cost_str = "free" if cost == 0 else f"${cost:.2f}/Mo"
@@ -661,48 +804,64 @@ def format_role_assignments(cost_mode: str = "balanced") -> str:
 # ``resolve_role_default``. Always reflects the live CATALOG.
 
 class _ResolvedRoleMap:
-    """Dict-like view: ``m[role]`` → resolve_role_default(role, cost_mode)."""
+    """Dict-like view: ``m[role]`` → ``resolve_role_default(role, mode)``."""
 
-    __slots__ = ("_cost_mode",)
+    __slots__ = ("_mode",)
 
-    def __init__(self, cost_mode: str) -> None:
-        self._cost_mode = cost_mode
+    def __init__(self, mode: str) -> None:
+        self._mode = _normalize_mode(mode)
 
     def __contains__(self, role: object) -> bool:
         return isinstance(role, str)
 
     def __getitem__(self, role: str) -> str:
-        return resolve_role_default(role, self._cost_mode)
+        return resolve_role_default(role, self._mode)
 
     def get(self, role: str, default=None):
         try:
-            return resolve_role_default(role, self._cost_mode)
+            return resolve_role_default(role, self._mode)
         except Exception:
             return default
 
     def items(self):
         for role in _ROLE_TO_TASK:
-            yield role, resolve_role_default(role, self._cost_mode)
+            yield role, resolve_role_default(role, self._mode)
 
     def keys(self):
         return list(_ROLE_TO_TASK.keys())
 
 
 class _RoleDefaultsView:
-    """Back-compat shim for the ``ROLE_DEFAULTS[mode][role]`` idiom."""
+    """Back-compat shim for the ``ROLE_DEFAULTS[mode][role]`` idiom.
+
+    Accepts any mode name the resolver understands (the 6 canonical
+    values plus the legacy ``hybrid``/``local``/``cloud`` aliases via
+    ``_normalize_mode``).
+    """
 
     __slots__ = ()
 
+    def _accept(self, mode: object) -> bool:
+        if not isinstance(mode, str):
+            return False
+        # Accept both canonical and alias names. Normalisation maps aliases
+        # onto canonical names inside _ResolvedRoleMap.
+        if mode in _MODE_WEIGHT:
+            return True
+        if mode.strip().lower() in _MODE_ALIASES:
+            return True
+        return False
+
     def __contains__(self, mode: object) -> bool:
-        return isinstance(mode, str) and mode in _COST_MODE_WEIGHT
+        return self._accept(mode)
 
     def __getitem__(self, mode: str) -> _ResolvedRoleMap:
-        if mode not in _COST_MODE_WEIGHT:
+        if not self._accept(mode):
             raise KeyError(mode)
         return _ResolvedRoleMap(mode)
 
     def get(self, mode: str, default=None):
-        if mode in _COST_MODE_WEIGHT:
+        if self._accept(mode):
             return _ResolvedRoleMap(mode)
         return default
 

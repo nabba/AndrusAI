@@ -21,10 +21,10 @@ import {
   type LlmMode,
 } from '../api/queries';
 
-// The pin dialog's role + cost_mode dropdowns pull their options from
-// the /llms/catalog response (``roles`` and ``cost_modes`` fields —
+// The pin dialog's role + mode dropdowns pull their options from
+// the /llms/catalog response (``roles`` and ``modes`` fields —
 // both derived from the backend's single source of truth,
-// app.llm_catalog.PUBLIC_ROLES and COST_MODES). The constants below
+// app.llm_catalog.PUBLIC_ROLES and RUNTIME_MODES). The constants below
 // are pure fallbacks used only if the API response doesn't include
 // them yet (e.g. during a rolling deploy where the server is older
 // than the client).
@@ -34,7 +34,12 @@ const FALLBACK_ROLES = [
   'critic', 'vetting', 'synthesis', 'introspector', 'self_improve',
   'planner', 'evo_critic', 'default',
 ] as const;
-const FALLBACK_COST_MODES = ['budget', 'balanced', 'quality'] as const;
+// Fallback list of unified runtime modes. Keep in sync with
+// app.llm_catalog.RUNTIME_MODES. Used only if the /llms/catalog
+// response is missing the ``modes`` field (older server).
+const FALLBACK_MODES = [
+  'free', 'budget', 'balanced', 'quality', 'insane', 'anthropic',
+] as const;
 
 type LlmsTab = 'catalog' | 'discovery' | 'radar';
 
@@ -85,7 +90,7 @@ function CatalogTab() {
   const unpin = useUnpinRole();
   const [pinDialog, setPinDialog] = useState<
     | null
-    | { model: string; role: string; cost_mode: string; reason: string }
+    | { model: string; role: string; mode: string; reason: string }
   >(null);
 
   if (catQ.isLoading) return <Skeleton className="h-64" />;
@@ -93,24 +98,27 @@ function CatalogTab() {
 
   const models = catQ.data?.models ?? [];
   const roleAssignments = catQ.data?.role_assignments ?? {};
-  const costMode = catQ.data?.cost_mode ?? 'balanced';
-  // API-driven role + cost_mode lists; fall back to the compile-time
+  // Unified runtime mode. Prefer ``mode`` (new canonical field) and
+  // fall back to ``cost_mode`` (legacy) for older server responses.
+  const mode = catQ.data?.mode ?? catQ.data?.cost_mode ?? 'balanced';
+  // API-driven role + mode lists; fall back to the compile-time
   // constants only if the server is older than the client.
   const pinnableRoles =
     catQ.data?.roles && catQ.data.roles.length > 0
       ? catQ.data.roles
       : [...FALLBACK_ROLES];
-  const pinnableCostModes =
-    catQ.data?.cost_modes && catQ.data.cost_modes.length > 0
-      ? catQ.data.cost_modes
-      : [...FALLBACK_COST_MODES];
+  const pinnableModes =
+    (catQ.data?.modes && catQ.data.modes.length > 0 && catQ.data.modes) ||
+    (catQ.data?.cost_modes && catQ.data.cost_modes.length > 0 && catQ.data.cost_modes) ||
+    [...FALLBACK_MODES];
   const overrides = rolesQ.data?.assignments ?? [];
   const promotedSet = new Set(
     (promotionsQ.data?.promotions ?? []).map((p) => p.model),
   );
-  const pinsByModel: Record<string, { role: string; cost_mode: string }[]> = {};
+  const pinsByModel: Record<string, { role: string; mode: string }[]> = {};
   for (const p of pinsQ.data?.pins ?? []) {
-    (pinsByModel[p.model] ||= []).push({ role: p.role, cost_mode: p.cost_mode });
+    const pinMode = p.mode ?? p.cost_mode ?? 'balanced';
+    (pinsByModel[p.model] ||= []).push({ role: p.role, mode: pinMode });
   }
 
   // Group models by tier.
@@ -130,12 +138,12 @@ function CatalogTab() {
       {catQ.data?.error && <div className="text-xs text-[#fbbf24]">{catQ.data.error}</div>}
 
       {/* Role assignments — one card per role. A hand-pin on this
-          (role, cost_mode) gets a 📌 badge + inline "unpin" action so
+          (role, mode) gets a 📌 badge + inline "unpin" action so
           the user never has to scroll past 360 model cards to find the
           unpin button. */}
       <section>
         <h3 className="text-xs font-medium text-[#7a8599] uppercase tracking-wider mb-2">
-          Role Assignments — cost mode: <span className="text-[#60a5fa]">{costMode}</span>
+          Role Assignments — mode: <span className="text-[#60a5fa]">{mode}</span>
         </h3>
         {Object.keys(roleAssignments).length === 0 ? (
           <p className="text-sm text-[#7a8599] italic">No role assignments resolved.</p>
@@ -143,9 +151,11 @@ function CatalogTab() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {Object.entries(roleAssignments).map(([role, model]) => {
               const activePin = (pinsQ.data?.pins ?? []).find(
-                (p) => p.role === role && p.cost_mode === costMode,
+                (p) => p.role === role && (p.mode ?? p.cost_mode) === mode,
               );
-              const override = overrides.find((o) => o.role === role && o.cost_mode === costMode);
+              const override = overrides.find(
+                (o) => o.role === role && (o.mode ?? o.cost_mode) === mode,
+              );
               return (
                 <div
                   key={role}
@@ -172,7 +182,10 @@ function CatalogTab() {
                     <div className="flex justify-end mt-1">
                       <button
                         onClick={() =>
-                          unpin.mutate({ role: activePin.role, cost_mode: activePin.cost_mode })
+                          unpin.mutate({
+                            role: activePin.role,
+                            mode: activePin.mode ?? activePin.cost_mode ?? mode,
+                          })
                         }
                         disabled={unpin.isPending}
                         className="text-[10px] text-[#f87171] hover:underline disabled:opacity-50"
@@ -250,7 +263,7 @@ function CatalogTab() {
                         setPinDialog({
                           model,
                           role: pinnableRoles[0] ?? 'default',
-                          cost_mode: costMode,
+                          mode,
                           reason: '',
                         })
                       }
@@ -278,7 +291,7 @@ function CatalogTab() {
               Pin <span className="text-[#a78bfa]">{pinDialog.model}</span>
             </h4>
             <p className="text-[11px] text-[#7a8599]">
-              Hand-pin overrides the resolver for the chosen role + cost_mode.
+              Hand-pin overrides the resolver for the chosen role + runtime mode.
               Remove the pin to let scoring take over again.
             </p>
 
@@ -293,13 +306,13 @@ function CatalogTab() {
               ))}
             </select>
 
-            <label className="block text-[10px] uppercase tracking-wider text-[#7a8599]">Cost mode</label>
+            <label className="block text-[10px] uppercase tracking-wider text-[#7a8599]">Runtime mode</label>
             <select
-              value={pinDialog.cost_mode}
-              onChange={(e) => setPinDialog({ ...pinDialog, cost_mode: e.target.value })}
+              value={pinDialog.mode}
+              onChange={(e) => setPinDialog({ ...pinDialog, mode: e.target.value })}
               className="w-full bg-[#0a0e14] border border-[#1e2738] rounded px-2 py-1.5 text-sm text-[#e2e8f0]"
             >
-              {pinnableCostModes.map((m) => (
+              {pinnableModes.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
@@ -323,7 +336,7 @@ function CatalogTab() {
                 onClick={() => {
                   pin.mutate({
                     role: pinDialog.role,
-                    cost_mode: pinDialog.cost_mode,
+                    mode: pinDialog.mode,
                     model: pinDialog.model,
                     reason: pinDialog.reason || undefined,
                   });
@@ -350,30 +363,33 @@ function CatalogTab() {
               <thead>
                 <tr className="border-b border-[#1e2738]">
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Role</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Cost Mode</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Mode</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Model</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Reason</th>
                   <th className="text-right px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1e2738]">
-                {(pinsQ.data?.pins ?? []).map((p) => (
-                  <tr key={`${p.role}-${p.cost_mode}-${p.model}`}>
-                    <td className="px-3 py-2 text-[#a78bfa]">{p.role}</td>
-                    <td className="px-3 py-2 text-[#7a8599]">{p.cost_mode}</td>
-                    <td className="px-3 py-2 text-[#e2e8f0]">{p.model}</td>
-                    <td className="px-3 py-2 text-[#7a8599] truncate max-w-xs">{p.reason ?? '—'}</td>
-                    <td className="px-3 py-2 text-right">
-                      <button
-                        onClick={() => unpin.mutate({ role: p.role, cost_mode: p.cost_mode })}
-                        disabled={unpin.isPending}
-                        className="text-xs text-[#f87171] hover:underline disabled:opacity-50"
-                      >
-                        unpin
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {(pinsQ.data?.pins ?? []).map((p) => {
+                  const pinMode = p.mode ?? p.cost_mode ?? 'balanced';
+                  return (
+                    <tr key={`${p.role}-${pinMode}-${p.model}`}>
+                      <td className="px-3 py-2 text-[#a78bfa]">{p.role}</td>
+                      <td className="px-3 py-2 text-[#7a8599]">{pinMode}</td>
+                      <td className="px-3 py-2 text-[#e2e8f0]">{p.model}</td>
+                      <td className="px-3 py-2 text-[#7a8599] truncate max-w-xs">{p.reason ?? '—'}</td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          onClick={() => unpin.mutate({ role: p.role, mode: pinMode })}
+                          disabled={unpin.isPending}
+                          className="text-xs text-[#f87171] hover:underline disabled:opacity-50"
+                        >
+                          unpin
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -391,7 +407,7 @@ function CatalogTab() {
               <thead>
                 <tr className="border-b border-[#1e2738]">
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Role</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Cost Mode</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Mode</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Model</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Source</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#7a8599] uppercase">Assigned by</th>
@@ -402,7 +418,7 @@ function CatalogTab() {
                 {overrides.map((o, i) => (
                   <tr key={i}>
                     <td className="px-3 py-2 text-[#a78bfa]">{o.role}</td>
-                    <td className="px-3 py-2 text-[#7a8599]">{o.cost_mode}</td>
+                    <td className="px-3 py-2 text-[#7a8599]">{o.mode ?? o.cost_mode ?? '—'}</td>
                     <td className="px-3 py-2 text-[#e2e8f0]">{o.model}</td>
                     <td className="px-3 py-2 text-[#7a8599]">{o.source ?? '—'}</td>
                     <td className="px-3 py-2 text-[#7a8599]">{o.assigned_by ?? '—'}</td>
@@ -430,7 +446,7 @@ function ModelCard({
   model: LlmModel;
   assignedRoles: string[];
   promoted: boolean;
-  pins: { role: string; cost_mode: string }[];
+  pins: { role: string; mode: string }[];
   onTogglePromote: (model: string) => void;
   onOpenPin: (model: string) => void;
   promoteBusy: boolean;
@@ -476,7 +492,7 @@ function ModelCard({
         <div className="flex flex-wrap gap-1 mt-1">
           {pins.map((p, i) => (
             <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-[#fbbf24]/10 text-[#fbbf24] border border-[#fbbf24]/30 uppercase tracking-wider">
-              📌 {p.role}·{p.cost_mode}
+              📌 {p.role}·{p.mode}
             </span>
           ))}
         </div>
@@ -501,7 +517,7 @@ function ModelCard({
         <button
           onClick={() => onOpenPin(model.name)}
           className="text-[10px] px-2 py-1 rounded bg-[#0a0e14] border border-[#1e2738] text-[#7a8599] hover:border-[#fbbf24]/40 hover:text-[#fbbf24]"
-          title="Pin to a specific role + cost_mode — hard resolver override"
+          title="Pin to a specific role + runtime mode — hard resolver override"
         >
           📌 pin to role
         </button>
@@ -716,8 +732,10 @@ interface ModePreset {
 
 const MODE_PRESETS: ModePreset[] = [
   { key: 'free',      label: 'Free',      icon: '🆓', desc: 'Zero-cost only — local Ollama + OpenRouter free tier. Chooser picks per role within that pool.' },
-  { key: 'hybrid',    label: 'Hybrid',    icon: '⚖️', desc: 'Default. LLM chooser picks the best model using its full algorithm. Cascades local → API → Claude.' },
-  { key: 'insane',    label: 'Insane',    icon: '🚀', desc: 'Premium-only. Chooser picks the strongest model for each role (Opus / Gemini 3.1 Pro / ...).' },
+  { key: 'budget',    label: 'Budget',    icon: '💵', desc: 'Cascade local → cheap cloud APIs (~$1.5/M output ceiling). Strong cost preference.' },
+  { key: 'balanced',  label: 'Balanced',  icon: '⚖️', desc: 'Default. Cascade every tier. Mild cost preference, resolver picks best within each role.' },
+  { key: 'quality',   label: 'Quality',   icon: '💎', desc: 'Cascade every tier, strong preference for premium. Ceiling ~$30/M.' },
+  { key: 'insane',    label: 'Insane',    icon: '🚀', desc: 'Premium-only. Chooser picks the strongest model for each role, no cost ceiling, no local.' },
   { key: 'anthropic', label: 'Anthropic', icon: '🅰️', desc: 'Anthropic provider only. Chooser picks the best Anthropic model per role from strengths map.' },
 ];
 
@@ -727,8 +745,9 @@ function ModeSwitch() {
   const current = modeQ.data?.mode;
   const validModes = modeQ.data?.valid_modes ?? [];
 
-  // Some modes (local, cloud) aren't exposed in the preset grid but can still
-  // be active (e.g. set from Signal). Show them as a read-only chip when active.
+  // Legacy aliases (hybrid/local/cloud) normalize at server-side set_mode, so
+  // they should never become the active ``current`` value. But if someone
+  // POSTs a typo, display a read-only chip rather than silently hiding it.
   const activePreset = MODE_PRESETS.find((p) => p.key === current);
   const activeLegacy = current && !activePreset ? current : null;
 
@@ -759,7 +778,7 @@ function ModeSwitch() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
         {MODE_PRESETS.map((p) => {
           const active = current === p.key;
           const disabled = validModes.length > 0 && !validModes.includes(p.key);
