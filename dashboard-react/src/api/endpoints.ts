@@ -34,6 +34,10 @@ export const endpoints = {
       : `${CP}/costs/daily?days=${days}`,
   costsByAgent: (projectId?: string) =>
     projectId ? `${CP}/costs/by-agent?project_id=${encodeURIComponent(projectId)}` : `${CP}/costs/by-agent`,
+  costsByCrew: (projectId?: string) =>
+    projectId ? `${CP}/costs/by-crew?project_id=${encodeURIComponent(projectId)}` : `${CP}/costs/by-crew`,
+  costsByInternalAgent: (projectId?: string) =>
+    projectId ? `${CP}/costs/by-internal-agent?project_id=${encodeURIComponent(projectId)}` : `${CP}/costs/by-internal-agent`,
   health: () => `${CP}/health`,
   consciousness: (historyLimit = 30) => `${CP}/consciousness?history_limit=${historyLimit}`,
   tokens: (projectId?: string) =>

@@ -316,24 +316,9 @@ def control_plane_health():
 
 # ── Costs ────────────────────────────────────────────────────────────────────
 
-@router.get("/costs/by-agent")
-def costs_by_agent(project_id: str = Query(None)):
-    """Per-agent / per-crew cost breakdown.
-
-    Combines two sources so every crew and every agent role shows up:
-      * ``llm_benchmarks.request_costs`` (SQLite) grouped by ``crew_name``
-        — has the broader historical picture with real per-crew tagging
-        from the crew tracker.
-      * ``control_plane.budgets`` (Postgres) grouped by ``agent_role``
-        — adds agent roles that crews haven't touched yet (coder,
-        commander, critic, writer, …) so idle slots still render.
-
-    Rows are merged on ``actor`` and returned in total-cost-descending
-    order. The legacy ``audit_log.cost_summary`` path collapsed every
-    LLM cost into a single ``actor='system'`` row because the
-    cost-bearing audit event (``ticket.completed``) is always written
-    by the system — useless for a breakdown chart.
-    """
+def _costs_by_actor_merged(project_id: str | None) -> dict[str, dict]:
+    """Merge per-crew request_costs + per-agent_role budgets into one dict
+    keyed on actor name. Used by every /costs/by-* variant below."""
     by_actor: dict[str, dict] = {}
 
     # Source 1 — per-crew from the SQLite tracker (year-long window).
@@ -346,13 +331,13 @@ def costs_by_agent(project_id: str = Query(None)):
             )
             entry["calls"] += int(row.get("requests") or 0)
             entry["total_cost"] += float(row.get("total_cost_usd") or 0.0)
-            # avg_tokens * requests is the best reconstruction available
             avg_tokens = float(row.get("avg_tokens") or 0.0)
             entry["total_tokens"] += int(avg_tokens * (row.get("requests") or 0))
     except Exception as exc:
-        logger.debug("costs_by_agent: crew stats read failed: %s", exc)
+        logger.debug("costs merge: crew stats read failed: %s", exc)
 
-    # Source 2 — per-agent from the budgets table.
+    # Source 2 — per-agent_role from the budgets table. Don't double-count
+    # names that already came from the per-call SQLite source.
     try:
         from app.control_plane.db import execute
         sql = (
@@ -373,20 +358,95 @@ def costs_by_agent(project_id: str = Query(None)):
             entry = by_actor.setdefault(
                 name, {"actor": name, "calls": 0, "total_cost": 0.0, "total_tokens": 0}
             )
-            # Don't double-count if the same name already came from crew
-            # stats; the SQLite source is more granular (per-call), so
-            # treat budgets as the fallback only.
             if entry["total_cost"] == 0.0:
                 entry["total_cost"] = float(r["total_cost"] or 0)
                 entry["total_tokens"] = int(r["total_tokens"] or 0)
     except Exception as exc:
-        logger.debug("costs_by_agent: budgets read failed: %s", exc)
+        logger.debug("costs merge: budgets read failed: %s", exc)
 
-    items = sorted(by_actor.values(), key=lambda x: x["total_cost"], reverse=True)
+    return by_actor
+
+
+# Canonical crew roster — defined here (early) so the
+# ``_INTERNAL_AGENT_NAMES`` derivation below can reference it without a
+# forward-reference NameError.  The "kind" tag distinguishes
+# user-addressable crews (natural-language dispatch) from internal
+# crews (orchestration, quality review, reflection, self-learning).
+# This is the single source of truth used to backfill the ``/tasks``
+# response so every crew stays visible in the dashboard even when
+# Firestore hasn't seen it yet.
+_KNOWN_CREWS: tuple[tuple[str, str], ...] = (
+    # User-addressable (11)
+    ("research",       "user"),
+    ("coding",         "user"),
+    ("writing",        "user"),
+    ("media",          "user"),
+    ("creative",       "user"),
+    ("pim",            "user"),
+    ("financial",      "user"),
+    ("desktop",        "user"),
+    ("repo_analysis",  "user"),
+    ("devops",         "user"),
+    ("tech_radar",     "user"),
+    # Internal (4)
+    ("commander",        "internal"),
+    ("critic",           "internal"),
+    ("retrospective",    "internal"),
+    ("self_improvement", "internal"),
+)
+
+# Classify actor names by CREW_REGISTRY kind without making the frontend
+# the source of truth.  Some rows come from tracker.crew_name
+# (e.g. "research+coding", "tom_research") — treat anything that isn't
+# explicitly internal as user-level so ad-hoc compound names surface in
+# "Cost by Crew" rather than the internal bucket.  Evaluated lazily so
+# this helper stays valid even though _KNOWN_CREWS is defined later in
+# this module.
+def _is_internal_agent(name: str) -> bool:
+    internal = {n for n, kind in _KNOWN_CREWS if kind == "internal"}
+    internal |= {"self_improver", "meta_evolver", "observer"}
+    return name in internal
+
+
+def _shape_response(items: list[dict]) -> dict:
+    items = sorted(items, key=lambda x: x["total_cost"], reverse=True)
     return {
         "by_actor": items,
         "total_cost": round(sum(i["total_cost"] for i in items), 6),
     }
+
+
+@router.get("/costs/by-agent")
+def costs_by_agent(project_id: str = Query(None)):
+    """Unified per-actor cost breakdown (crews + internal agents).
+
+    Kept as a superset for any caller that wants the mixed view; the
+    Cost tab now uses /costs/by-crew + /costs/by-internal-agent for
+    side-by-side panels instead.
+    """
+    return _shape_response(list(_costs_by_actor_merged(project_id).values()))
+
+
+@router.get("/costs/by-crew")
+def costs_by_crew(project_id: str = Query(None)):
+    """Cost per user-addressable crew. Anything not explicitly classified
+    as an internal orchestration agent counts as a crew, so compound
+    labels like 'research+coding' still show up here."""
+    merged = _costs_by_actor_merged(project_id)
+    items = [v for k, v in merged.items() if not _is_internal_agent(k)]
+    return _shape_response(items)
+
+
+@router.get("/costs/by-internal-agent")
+def costs_by_internal_agent(project_id: str = Query(None)):
+    """Cost per internal orchestration agent (commander, critic,
+    retrospective, self_improvement / self_improver). Data
+    accumulates from budgets.agent_role — internal crews now set an
+    agent_scope around their work so reconcile_actual_spend tags
+    their LLM calls with the right role."""
+    merged = _costs_by_actor_merged(project_id)
+    items = [v for k, v in merged.items() if _is_internal_agent(k)]
+    return _shape_response(items)
 
 @router.get("/costs/daily")
 def costs_daily(project_id: str = Query(None), days: int = Query(30)):
@@ -779,30 +839,9 @@ def llm_unpin_endpoint(body: UnpinRequest):
 
 # ── Crew tasks (live execution + roster) ─────────────────────────────────────
 
-# Canonical crew roster. "kind" distinguishes user-addressable crews (routed
-# via natural-language dispatch) from internal crews (orchestration, quality
-# review, reflection, self-learning). This list is the single source of truth
-# used to backfill the /tasks response so every crew is always visible in the
-# dashboard even when Firestore hasn't seen it yet.
-_KNOWN_CREWS: tuple[tuple[str, str], ...] = (
-    # User-addressable (11)
-    ("research",       "user"),
-    ("coding",         "user"),
-    ("writing",        "user"),
-    ("media",          "user"),
-    ("creative",       "user"),
-    ("pim",            "user"),
-    ("financial",      "user"),
-    ("desktop",        "user"),
-    ("repo_analysis",  "user"),
-    ("devops",         "user"),
-    ("tech_radar",     "user"),
-    # Internal (4)
-    ("commander",        "internal"),
-    ("critic",           "internal"),
-    ("retrospective",    "internal"),
-    ("self_improvement", "internal"),
-)
+# (``_KNOWN_CREWS`` is defined higher up in the module so
+# ``_INTERNAL_AGENT_NAMES`` can derive from it without a forward-ref
+# NameError.)
 
 @router.get("/tasks")
 def get_crew_tasks(limit: int = Query(20, ge=1, le=200), project_id: str | None = Query(None)):

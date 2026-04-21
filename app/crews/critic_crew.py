@@ -88,7 +88,9 @@ class CriticCrew:
                 verbose=False,
             )
 
-            result = str(crew.kickoff()).strip()
+            from app.project_context import agent_scope
+            with agent_scope("critic"):
+                result = str(crew.kickoff()).strip()
             duration = time.monotonic() - _start
 
             tracker = stop_request_tracking()

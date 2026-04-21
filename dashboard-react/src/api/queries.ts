@@ -35,6 +35,8 @@ export const keys = {
   orgChart: ['org-chart'] as const,
   costsDaily: (days: number) => ['costs', 'daily', days] as const,
   costsByAgent: ['costs', 'by-agent'] as const,
+  costsByCrew: ['costs', 'by-crew'] as const,
+  costsByInternalAgent: ['costs', 'by-internal-agent'] as const,
   health: ['health'] as const,
   evolutionSummary: ['evolution', 'summary'] as const,
   evolutionResults: (engine: string, status: string) => ['evolution', 'results', engine, status] as const,
@@ -233,6 +235,22 @@ export function useAgentCostsQuery(projectId?: string) {
   return useQuery({
     queryKey: [...keys.costsByAgent, projectId ?? 'all'],
     queryFn: () => api<{ by_actor: AgentCost[]; total_cost: number }>(endpoints.costsByAgent(projectId)),
+    refetchInterval: POLL.oneMin,
+  });
+}
+
+export function useCrewCostsQuery(projectId?: string) {
+  return useQuery({
+    queryKey: [...keys.costsByCrew, projectId ?? 'all'],
+    queryFn: () => api<{ by_actor: AgentCost[]; total_cost: number }>(endpoints.costsByCrew(projectId)),
+    refetchInterval: POLL.oneMin,
+  });
+}
+
+export function useInternalAgentCostsQuery(projectId?: string) {
+  return useQuery({
+    queryKey: [...keys.costsByInternalAgent, projectId ?? 'all'],
+    queryFn: () => api<{ by_actor: AgentCost[]; total_cost: number }>(endpoints.costsByInternalAgent(projectId)),
     refetchInterval: POLL.oneMin,
   });
 }

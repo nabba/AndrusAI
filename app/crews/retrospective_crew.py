@@ -69,7 +69,9 @@ class RetrospectiveCrew:
                 process=Process.sequential,
                 verbose=False,
             )
-            raw = str(crew.kickoff()).strip()
+            from app.project_context import agent_scope
+            with agent_scope("retrospective"):
+                raw = str(crew.kickoff()).strip()
 
             # Parse and store policies
             policies_stored = self._parse_and_store_policies(raw)

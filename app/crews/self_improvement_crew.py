@@ -75,9 +75,11 @@ class SelfImprovementCrew:
         if not QUEUE_FILE.exists():
             logger.info("Self-improvement: no topics in queue, skipping")
             return
+        from app.project_context import agent_scope
         with open(QUEUE_FILE, "r+") as _lock_fh:
             fcntl.flock(_lock_fh, fcntl.LOCK_EX)
-            self._run_locked(_lock_fh)
+            with agent_scope("self_improver"):
+                self._run_locked(_lock_fh)
 
     def _run_locked(self, queue_fh):
         raw = queue_fh.read()
@@ -255,8 +257,10 @@ class SelfImprovementCrew:
 
     def learn_from_youtube(self, url: str) -> str:
         """Extract a YouTube transcript, distill into a skill file and team memory."""
+        from app.project_context import set_current_agent_role, reset_current_agent_role
         task_id = crew_started("self_improvement", f"YouTube: {url[:60]}", eta_seconds=estimate_eta("self_improvement"))
         start_request_tracking(task_id)
+        _tok = set_current_agent_role("self_improver")
 
         try:
             # Step 1: Extract transcript
@@ -327,6 +331,8 @@ class SelfImprovementCrew:
             crew_failed("self_improvement", task_id, str(exc)[:200])
             logger.error(f"YouTube learning failed: {exc}")
             return f"Failed to learn from video: {str(exc)[:200]}"
+        finally:
+            reset_current_agent_role(_tok)
 
     # ── Mode 4: Trajectory-sourced tips (arXiv:2603.10600) ───────────────
     #
@@ -350,6 +356,12 @@ class SelfImprovementCrew:
                 return 0
         except Exception:
             return 0
+
+        from app.project_context import agent_scope
+        with agent_scope("self_improver"):
+            return self._run_trajectory_tips_inner(max_tips)
+
+    def _run_trajectory_tips_inner(self, max_tips: int) -> int:
 
         try:
             from app.self_improvement.store import list_open_gaps, update_gap_status
@@ -482,8 +494,10 @@ class SelfImprovementCrew:
 
     def run_improvement_scan(self):
         """Analyze system capabilities and create improvement proposals."""
+        from app.project_context import set_current_agent_role, reset_current_agent_role
         task_id = crew_started("self_improvement", "Improvement scan", eta_seconds=estimate_eta("self_improvement"))
         start_request_tracking(task_id)
+        _tok = set_current_agent_role("self_improver")
 
         try:
             proposals = self._analyze_and_propose()
@@ -499,6 +513,8 @@ class SelfImprovementCrew:
             stop_request_tracking()
             crew_failed("self_improvement", task_id, str(exc)[:200])
             logger.error(f"Improvement scan failed: {exc}")
+        finally:
+            reset_current_agent_role(_tok)
 
     def _analyze_and_propose(self) -> list[int]:
         """Use an agent to analyze the system and generate improvement proposals."""

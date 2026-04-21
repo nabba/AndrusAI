@@ -1885,6 +1885,12 @@ class Commander:
     def handle(self, user_input: str, sender: str = "",
                attachments: list = None) -> str:
         """Decompose input, dispatch to the right crew(s), return the answer."""
+        from app.project_context import agent_scope
+        with agent_scope("commander"):
+            return self._handle_locked(user_input, sender, attachments)
+
+    def _handle_locked(self, user_input: str, sender: str = "",
+                       attachments: list = None) -> str:
         lower = user_input.lower().strip()
 
         # Pre-process attachments into a text context block
