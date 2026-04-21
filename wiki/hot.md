@@ -1,11 +1,11 @@
 ---
 title: Hot Cache
-updated_at: "2026-04-21T20:38:35Z"
+updated_at: "2026-04-21T21:21:49Z"
 ---
 
 # Wiki Hot Cache
 
-*Auto-generated 2026-04-21T20:38:35Z. Read this for quick context.*
+*Auto-generated 2026-04-21T21:21:49Z. Read this for quick context.*
 
 ## Recent Wiki Changes
   | 2026-04-21T16:22:03Z | idle_scheduler.wiki_synthesis | CREATE | meta/response-synthesis-optimization | Created: Response Synthesis Optimization |
@@ -23,8 +23,8 @@ updated_at: "2026-04-21T20:38:35Z"
   None.
 
 ## Knowledge Gaps
-  - self: no pages yet
   - plg: no pages yet
-  - philosophy: no pages yet
   - archibal: no pages yet
   - kaicart: no pages yet
+  - self: no pages yet
+  - philosophy: no pages yet

@@ -1,6 +1,6 @@
 {
   "version": "v0.1.10",
-  "timestamp": "2026-04-21T20:38:32.055720+00:00",
+  "timestamp": "2026-04-21T21:21:46.389297+00:00",
   "components": {
     "agent_code": {
       "git_sha": "bb4d610c0b96b804ed23fa434fc27f4b48adbcbb",
@@ -8,9 +8,9 @@
       "dirty": true
     },
     "prompts": {
-      "commander": 32,
-      "researcher": 29,
-      "coder": 29,
+      "commander": 33,
+      "researcher": 30,
+      "coder": 30,
       "writer": 28,
       "critic": 1,
       "self_improver": 1,
@@ -40,37 +40,38 @@
       "writer.md": "e50e1cddffebdf3b700956507bd17408534b74bb1bc09e076ceee6ea9fd1a6ec"
     },
     "mem0_state": {
-      "snapshot_id": "20260421T203832Z",
+      "snapshot_id": "20260421T212146Z",
       "method": "row_counts",
-      "total_tables": 56,
-      "total_rows": 15105,
+      "total_tables": 58,
+      "total_rows": 15310,
       "tables": {
         "atlas.api_knowledge": 0,
         "atlas.audit_log": 55,
         "atlas.learning_sessions": 0,
         "atlas.skill_usage": 0,
-        "control_plane.audit_log": 1245,
-        "control_plane.budgets": 41,
+        "control_plane.audit_log": 1249,
+        "control_plane.budgets": 42,
+        "control_plane.crew_tasks": 9,
         "control_plane.discovered_models": 346,
         "control_plane.external_ranks": 33,
         "control_plane.governance_requests": 16,
-        "control_plane.heartbeats": 1891,
+        "control_plane.heartbeats": 1916,
         "control_plane.model_promotions": 0,
         "control_plane.org_chart": 8,
         "control_plane.projects": 5,
         "control_plane.role_assignments": 19,
         "control_plane.ticket_comments": 3,
-        "control_plane.tickets": 232,
+        "control_plane.tickets": 233,
         "evolution.artifacts": 0,
         "evolution.eval_sets": 3,
         "evolution.lineage": 0,
         "evolution.map_elites": 0,
         "evolution.promotions": 0,
-        "evolution.runs": 152,
+        "evolution.runs": 156,
         "evolution.variants": 31,
         "feedback.events": 5,
         "feedback.patterns": 3,
-        "feedback.response_metadata": 276,
+        "feedback.response_metadata": 277,
         "modification.attempts": 0,
         "modification.log": 0,
         "modification.strategy_stats": 0,
@@ -79,16 +80,16 @@
         "personality.proto_sentience_markers": 0,
         "personality.trait_history": 0,
         "public.action_selection_records": 84,
-        "public.agent_experiences": 8727,
+        "public.agent_experiences": 8877,
         "public.attention_predictions": 0,
         "public.attention_shifts": 0,
         "public.attention_states": 163,
-        "public.behavioral_scorecards": 159,
+        "public.behavioral_scorecards": 163,
         "public.beliefs": 6,
         "public.broadcast_events": 152,
         "public.broadcast_reactions": 608,
         "public.crewai_memories": 0,
-        "public.internal_states": 249,
+        "public.internal_states": 253,
         "public.mem0migrations": 0,
         "public.metacognitive_updates": 82,
         "public.prediction_errors": 170,
@@ -96,6 +97,7 @@
         "public.prosocial_game_outcomes": 0,
         "public.prosocial_profiles": 4,
         "public.reality_model_snapshots": 0,
+        "public.subia_broadcasts": 2,
         "public.tool_proposals": 2,
         "public.workspace_items": 0,
         "public.workspace_transitions": 160,
@@ -130,8 +132,8 @@
           "hash": "ac662889d72cf145"
         },
         "scope_beliefs": {
-          "count": 542,
-          "hash": "ceb37e5717c2dfee"
+          "count": 350,
+          "hash": "42b26de5a06717af"
         },
         "episteme_research": {
           "count": 0,
@@ -202,8 +204,8 @@
           "hash": "b6666fa2d8e63c29"
         },
         "self_knowledge": {
-          "count": 1130,
-          "hash": "86795f8f40daf3a2"
+          "count": 1154,
+          "hash": "3652657826c2f9d1"
         },
         "evo_failures": {
           "count": 23,
@@ -345,7 +347,7 @@
       "total_collections": 59
     },
     "neo4j_graph": {
-      "snapshot_id": "20260421T203832Z",
+      "snapshot_id": "20260421T212146Z",
       "error": "{neo4j_code: Neo.ClientError.Security.Unauthorized} {message: The client is unauthorized due to authentication failure.} {gql_status: 50N42} {gql_status_description: error: general processing exceptio"
     },
     "config": {

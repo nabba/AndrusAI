@@ -1,12 +1,12 @@
 {
   "role": "researcher",
-  "epoch": 4,
+  "epoch": 0,
   "islands": [
     {
       "island_id": 0,
-      "generation": 5,
+      "generation": 1,
       "best_fitness": 1.0,
-      "stagnation_count": 5,
+      "stagnation_count": 6,
       "population": [
         {
           "prompt_id": "d056e08c5be2",
@@ -91,9 +91,9 @@
     },
     {
       "island_id": 1,
-      "generation": 5,
+      "generation": 1,
       "best_fitness": 0.975,
-      "stagnation_count": 26,
+      "stagnation_count": 27,
       "population": [
         {
           "prompt_id": "da0a134510c3",
@@ -175,9 +175,9 @@
     },
     {
       "island_id": 2,
-      "generation": 5,
+      "generation": 1,
       "best_fitness": 1.0,
-      "stagnation_count": 14,
+      "stagnation_count": 15,
       "population": [
         {
           "prompt_id": "30933d8f999c",

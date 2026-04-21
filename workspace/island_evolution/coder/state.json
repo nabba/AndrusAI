@@ -6,7 +6,7 @@
       "island_id": 0,
       "generation": 1,
       "best_fitness": 1.0,
-      "stagnation_count": 20,
+      "stagnation_count": 21,
       "population": [
         {
           "prompt_id": "86873935365b",
@@ -104,7 +104,7 @@
       "island_id": 1,
       "generation": 1,
       "best_fitness": 1.0,
-      "stagnation_count": 19,
+      "stagnation_count": 20,
       "population": [
         {
           "prompt_id": "48b952fd859e",
@@ -196,7 +196,7 @@
       "island_id": 2,
       "generation": 1,
       "best_fitness": 1.0,
-      "stagnation_count": 22,
+      "stagnation_count": 23,
       "population": [
         {
           "prompt_id": "ed2aa4a87850",
