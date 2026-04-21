@@ -371,6 +371,73 @@ def _per_agent_role_costs(project_id: str | None) -> list[dict]:
         return []
 
 
+# Crew-name → agent-role mapping.  Matches the argument pairs passed to
+# run_single_agent_crew in each crew module (e.g. coding_crew.py passes
+# crew_name="coding", agent_role="coder").  Used to derive per-agent
+# costs from the long-lived SQLite request_costs history so the Cost
+# by Agent chart has real data from day one instead of waiting for the
+# budgets reconcile to accumulate.
+_CREW_TO_AGENT: dict[str, str] = {
+    "research":      "researcher",
+    "coding":        "coder",
+    "writing":       "writer",
+    "pim":           "pim",
+    "financial":     "financial_analyst",
+    "media":         "media_analyst",
+    "creative":      "creative_crew",
+    "desktop":       "desktop",
+    "devops":        "devops",
+    "repo_analysis": "repo_analyst",
+    "tech_radar":    "researcher",
+}
+
+
+def _per_agent_costs_derived(project_id: str | None) -> list[dict]:
+    """Per-agent-role cost, derived from two sources so the view has
+    useful data even when the budgets reconcile is still catching up:
+
+    1. ``llm_benchmarks.request_costs`` — mapped through _CREW_TO_AGENT.
+       Compound crew labels like 'research+coding' split their cost
+       equally across the component agents.  Unknown crew names pass
+       through unchanged.
+    2. ``control_plane.budgets`` — merged in for any agent_role that
+       didn't appear from the crew mapping (e.g. internal agents,
+       'unknown' fallback).
+    """
+    by_actor: dict[str, dict] = {}
+
+    def _acc(name: str, calls: int, cost: float, tokens: int) -> None:
+        e = by_actor.setdefault(
+            name, {"actor": name, "calls": 0, "total_cost": 0.0, "total_tokens": 0}
+        )
+        e["calls"] += calls
+        e["total_cost"] += cost
+        e["total_tokens"] += tokens
+
+    # Source 1 — SQLite crew-level stats, fanned out to agent roles.
+    for row in _per_crew_costs(project_id):
+        crew = row["actor"]
+        components = crew.split("+") if "+" in crew else [crew]
+        n = max(len(components), 1)
+        for c in components:
+            role = _CREW_TO_AGENT.get(c.strip(), c.strip() or "unknown")
+            _acc(
+                role,
+                row["calls"] // n if n else 0,
+                row["total_cost"] / n,
+                row["total_tokens"] // n if n else 0,
+            )
+
+    # Source 2 — budgets rows not already covered by the mapping.
+    for row in _per_agent_role_costs(project_id):
+        name = row["actor"]
+        if name in by_actor:
+            continue
+        _acc(name, row["calls"], row["total_cost"], row["total_tokens"])
+
+    return list(by_actor.values())
+
+
 # Canonical crew roster — defined here (early) so the
 # ``_INTERNAL_AGENT_NAMES`` derivation below can reference it without a
 # forward-reference NameError.  The "kind" tag distinguishes
@@ -423,11 +490,11 @@ def _shape_response(items: list[dict]) -> dict:
 @router.get("/costs/by-agent")
 def costs_by_agent(project_id: str = Query(None)):
     """Cost per individual agent role (coder, researcher, writer, critic,
-    commander, self_improver, …). Source: control_plane.budgets
-    grouped by agent_role. Answers "who did the LLM work" — distinct
-    from /costs/by-crew which answers "which workload routed it
-    there"."""
-    return _shape_response(_per_agent_role_costs(project_id))
+    commander, self_improver, …).  Derived from the SQLite per-crew
+    tracker via _CREW_TO_AGENT plus any budgets rows not covered by the
+    mapping. Answers "who did the LLM work" — distinct from
+    /costs/by-crew which answers "which workload routed it there"."""
+    return _shape_response(_per_agent_costs_derived(project_id))
 
 
 @router.get("/costs/by-crew")
