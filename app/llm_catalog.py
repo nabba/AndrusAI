@@ -51,6 +51,57 @@ TASK_ALIASES: dict[str, str] = {
     "reason": "reasoning", "analyze": "reasoning", "think": "reasoning",
 }
 
+# ── Canonical role registry ──────────────────────────────────────────────
+# Single source of truth for every *pinnable* role the system exposes —
+# the union of:
+#   (a) dispatched crew names (from app.crews.registry.install_defaults),
+#   (b) specialist LLM roles (argument to llm_factory.create_specialist_llm),
+#   (c) the "default" fallback role.
+#
+# Publishers (firebase.publish.report_catalog, dashboard_api.llm_catalog)
+# and the React pin dialog all derive their role lists from here so
+# adding a new crew or specialist only requires updating this tuple.
+
+CREW_ROLES: tuple[str, ...] = (
+    # Dispatched via app.crews.registry.install_defaults
+    "research",
+    "coding",
+    "writing",
+    "media",
+    "creative",
+    "pim",
+    "financial",
+    "desktop",
+    "repo_analysis",
+    "devops",
+    # No registered crew — the commander answers directly without dispatch.
+    # Kept here because it's a legitimate routing target the resolver can pin.
+    "direct",
+)
+
+SPECIALIST_ROLES: tuple[str, ...] = (
+    # Distinct LLM personas used inside crews / orchestrator gates,
+    # none of which correspond to a dispatched crew. Each is an
+    # acceptable ``role=`` argument to create_specialist_llm() and a
+    # pin target.
+    "commander",
+    "critic",
+    "vetting",
+    "synthesis",
+    "introspector",
+    "self_improve",
+    "planner",
+    "evo_critic",
+)
+
+# All roles the resolver knows how to pick for + the user can pin.
+PUBLIC_ROLES: tuple[str, ...] = CREW_ROLES + SPECIALIST_ROLES + ("default",)
+
+# Valid cost-mode keys. Dashboard pin dialog and any cost-sensitive
+# caller should consume this tuple instead of hardcoding.
+COST_MODES: tuple[str, ...] = ("budget", "balanced", "quality")
+
+
 # Crew/role → canonical task type.
 _ROLE_TO_TASK: dict[str, str] = {
     # Crew names (from orchestrator._run_crew)

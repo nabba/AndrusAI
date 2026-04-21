@@ -220,3 +220,46 @@ class TestPinUnpin:
         params = captured_params[0][1]
         assert "priority >= %s" in sql
         assert HAND_PIN_PRIORITY in params
+
+
+# ── Canonical role list consistency ─────────────────────────────────────
+
+class TestPublicRoleRegistry:
+    """The PUBLIC_ROLES tuple is the single source of truth for
+    pinnable roles. These tests lock in the invariants that protect it
+    from drifting out of sync with the actual crew registry and
+    _ROLE_TO_TASK map."""
+
+    def test_public_roles_no_duplicates(self):
+        from app.llm_catalog import PUBLIC_ROLES
+        assert len(PUBLIC_ROLES) == len(set(PUBLIC_ROLES))
+
+    def test_crew_registry_entries_are_in_public_roles(self):
+        """Every registered crew must appear in CREW_ROLES (and thus
+        PUBLIC_ROLES). Prevents a new crew being added to the registry
+        but forgotten in the pin dialog's dropdown."""
+        from app.llm_catalog import CREW_ROLES
+        from app.crews import registry
+        registry.install_defaults()
+        registered = set(registry._registry.keys())
+        missing = registered - set(CREW_ROLES)
+        assert not missing, (
+            f"crews registered but not in llm_catalog.CREW_ROLES: {missing}. "
+            "Add them so the dashboard pin dialog exposes them."
+        )
+
+    def test_public_roles_are_valid_role_to_task_entries(self):
+        """Every public role must have a canonical task_type so the
+        resolver's scoring has something to key on."""
+        from app.llm_catalog import PUBLIC_ROLES, _ROLE_TO_TASK
+        missing = [r for r in PUBLIC_ROLES if r not in _ROLE_TO_TASK]
+        assert not missing, (
+            f"PUBLIC_ROLES has {missing} but _ROLE_TO_TASK doesn't. "
+            "Add entries so canonical_task_type() resolves them."
+        )
+
+    def test_cost_modes_match_weight_keys(self):
+        """COST_MODES tuple must match the soft-penalty weight table
+        the resolver actually uses."""
+        from app.llm_catalog import COST_MODES, _COST_MODE_WEIGHT
+        assert set(COST_MODES) == set(_COST_MODE_WEIGHT.keys())

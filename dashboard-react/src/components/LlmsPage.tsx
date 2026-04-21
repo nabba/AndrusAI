@@ -21,13 +21,20 @@ import {
   type LlmMode,
 } from '../api/queries';
 
-// Roles the resolver knows about — used by the pin dialog.
-const PINNABLE_ROLES = [
-  'commander', 'coding', 'research', 'writing', 'media', 'critic',
-  'vetting', 'synthesis', 'introspector', 'self_improve',
+// The pin dialog's role + cost_mode dropdowns pull their options from
+// the /llms/catalog response (``roles`` and ``cost_modes`` fields —
+// both derived from the backend's single source of truth,
+// app.llm_catalog.PUBLIC_ROLES and COST_MODES). The constants below
+// are pure fallbacks used only if the API response doesn't include
+// them yet (e.g. during a rolling deploy where the server is older
+// than the client).
+const FALLBACK_ROLES = [
+  'commander', 'research', 'coding', 'writing', 'media', 'creative',
+  'pim', 'financial', 'desktop', 'repo_analysis', 'devops', 'direct',
+  'critic', 'vetting', 'synthesis', 'introspector', 'self_improve',
   'planner', 'evo_critic', 'default',
 ] as const;
-const COST_MODES = ['budget', 'balanced', 'quality'] as const;
+const FALLBACK_COST_MODES = ['budget', 'balanced', 'quality'] as const;
 
 type LlmsTab = 'catalog' | 'discovery' | 'radar';
 
@@ -87,6 +94,16 @@ function CatalogTab() {
   const models = catQ.data?.models ?? [];
   const roleAssignments = catQ.data?.role_assignments ?? {};
   const costMode = catQ.data?.cost_mode ?? 'balanced';
+  // API-driven role + cost_mode lists; fall back to the compile-time
+  // constants only if the server is older than the client.
+  const pinnableRoles =
+    catQ.data?.roles && catQ.data.roles.length > 0
+      ? catQ.data.roles
+      : [...FALLBACK_ROLES];
+  const pinnableCostModes =
+    catQ.data?.cost_modes && catQ.data.cost_modes.length > 0
+      ? catQ.data.cost_modes
+      : [...FALLBACK_COST_MODES];
   const overrides = rolesQ.data?.assignments ?? [];
   const promotedSet = new Set(
     (promotionsQ.data?.promotions ?? []).map((p) => p.model),
@@ -232,7 +249,7 @@ function CatalogTab() {
                       onOpenPin={(model) =>
                         setPinDialog({
                           model,
-                          role: PINNABLE_ROLES[0],
+                          role: pinnableRoles[0] ?? 'default',
                           cost_mode: costMode,
                           reason: '',
                         })
@@ -271,7 +288,7 @@ function CatalogTab() {
               onChange={(e) => setPinDialog({ ...pinDialog, role: e.target.value })}
               className="w-full bg-[#0a0e14] border border-[#1e2738] rounded px-2 py-1.5 text-sm text-[#e2e8f0]"
             >
-              {PINNABLE_ROLES.map((r) => (
+              {pinnableRoles.map((r) => (
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
@@ -282,7 +299,7 @@ function CatalogTab() {
               onChange={(e) => setPinDialog({ ...pinDialog, cost_mode: e.target.value })}
               className="w-full bg-[#0a0e14] border border-[#1e2738] rounded px-2 py-1.5 text-sm text-[#e2e8f0]"
             >
-              {COST_MODES.map((m) => (
+              {pinnableCostModes.map((m) => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>
