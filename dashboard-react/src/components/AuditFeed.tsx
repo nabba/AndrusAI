@@ -7,18 +7,20 @@ import { useProject } from '../context/useProject';
 export function AuditFeed() {
   const [actorFilter, setActorFilter] = useState('');
   const [actionFilter, setActionFilter] = useState('');
+  const [onlyWithCost, setOnlyWithCost] = useState(false);
   const { activeProject, isAllProjects } = useProject();
 
-  const { data: entries, isLoading, error, refetch } = useAuditQuery(100, activeProject?.id);
+  const { data: entries, isLoading, error, refetch } = useAuditQuery(300, activeProject?.id);
 
   const filtered = useMemo(() => {
     if (!entries) return [];
     return entries.filter((e) => {
       const actorOk = !actorFilter || e.actor.toLowerCase().includes(actorFilter.toLowerCase());
       const actionOk = !actionFilter || e.action.toLowerCase().startsWith(actionFilter.toLowerCase());
-      return actorOk && actionOk;
+      const costOk = !onlyWithCost || (e.cost_usd != null && e.cost_usd > 0);
+      return actorOk && actionOk && costOk;
     });
-  }, [entries, actorFilter, actionFilter]);
+  }, [entries, actorFilter, actionFilter, onlyWithCost]);
 
   const actors = useMemo(() => {
     if (!entries) return [];
@@ -76,11 +78,21 @@ export function AuditFeed() {
             ))}
           </datalist>
         </div>
-        {(actorFilter || actionFilter) && (
+        <label className="flex items-center gap-2 text-xs text-[#7a8599] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={onlyWithCost}
+            onChange={(e) => setOnlyWithCost(e.target.checked)}
+            className="accent-[#60a5fa]"
+          />
+          Only rows with cost
+        </label>
+        {(actorFilter || actionFilter || onlyWithCost) && (
           <button
             onClick={() => {
               setActorFilter('');
               setActionFilter('');
+              setOnlyWithCost(false);
             }}
             className="text-xs px-3 py-2 border border-[#1e2738] text-[#7a8599] rounded-lg hover:border-[#f87171] hover:text-[#f87171] transition-colors"
           >

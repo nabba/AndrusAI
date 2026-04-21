@@ -189,3 +189,39 @@ def get_budget_enforcer() -> BudgetEnforcer:
             if _enforcer is None:
                 _enforcer = BudgetEnforcer()
     return _enforcer
+
+
+def reconcile_actual_spend(
+    project_id: str | None,
+    agent_role: str | None,
+    cost_usd: float,
+    tokens: int = 0,
+) -> None:
+    """Post-hoc UPDATE of budgets.spent_usd after an actual LLM call.
+
+    Distinct from BudgetEnforcer.check_and_record (which is a PRE-call atomic
+    enforcement gate using estimated costs). Called from record_tokens() so
+    every observed LLM call rolls up into the Postgres budgets table, not just
+    the ones that went through the commander orchestrator's PRE_LLM_CALL hook.
+
+    Fire-and-forget. A missing budget row is auto-created with limit_usd=0 so
+    the UI still shows the accumulated spend; the user can set a real limit
+    later from the Budgets page.
+    """
+    if not project_id or cost_usd <= 0:
+        return
+    role = agent_role or "unknown"
+    period = _current_period()
+    try:
+        execute(
+            """INSERT INTO control_plane.budgets
+               (project_id, agent_role, period, limit_usd, spent_usd, spent_tokens)
+               VALUES (%s, %s, %s, 0, %s, %s)
+               ON CONFLICT (project_id, agent_role, period) DO UPDATE
+               SET spent_usd = control_plane.budgets.spent_usd + EXCLUDED.spent_usd,
+                   spent_tokens = control_plane.budgets.spent_tokens + EXCLUDED.spent_tokens,
+                   updated_at = NOW()""",
+            (project_id, role, period, cost_usd, tokens),
+        )
+    except Exception as exc:
+        logger.debug(f"budgets reconcile failed (non-fatal): {exc}")

@@ -146,8 +146,11 @@ def crew_lifecycle(
 
     ctx = CrewContext(_event_ctx=event_ctx)
 
+    from app.project_context import agent_scope
+
     try:
-        yield ctx
+        with agent_scope(agent_role):
+            yield ctx
     except BaseException as exc:
         # Failure path — exceptions propagate after the handlers run.
         event_ctx.duration_s = time.monotonic() - start

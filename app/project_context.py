@@ -19,6 +19,7 @@ from contextvars import ContextVar
 logger = logging.getLogger(__name__)
 
 _project_id: ContextVar[str | None] = ContextVar("project_id", default=None)
+_agent_role: ContextVar[str | None] = ContextVar("agent_role", default=None)
 
 
 def set_current_project_id(project_id: str | None):
@@ -55,6 +56,36 @@ def resolve_current_project_id() -> str | None:
     except Exception as exc:
         logger.debug("resolve_current_project_id: fallback failed: %s", exc)
         return None
+
+
+def set_current_agent_role(agent_role: str | None):
+    """Mark the current crew/agent so telemetry rolls up under the right role."""
+    return _agent_role.set(agent_role)
+
+
+def reset_current_agent_role(token) -> None:
+    try:
+        _agent_role.reset(token)
+    except ValueError:
+        pass
+
+
+def resolve_current_agent_role() -> str | None:
+    """Return the current agent role, or None."""
+    return _agent_role.get()
+
+
+@contextlib.contextmanager
+def agent_scope(agent_role: str | None):
+    """Context manager scoping subsequent telemetry to a crew/agent role."""
+    token = _agent_role.set(agent_role)
+    try:
+        yield
+    finally:
+        try:
+            _agent_role.reset(token)
+        except ValueError:
+            pass
 
 
 @contextlib.contextmanager

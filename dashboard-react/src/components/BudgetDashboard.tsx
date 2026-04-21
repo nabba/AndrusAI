@@ -167,10 +167,11 @@ export function BudgetDashboard() {
             const pct = budget.limit_usd > 0 ? Math.min((budget.spent_usd / budget.limit_usd) * 100, 100) : 0;
             const barColor =
               pct > 85 ? 'bg-[#f87171]' : pct > 60 ? 'bg-[#fbbf24]' : 'bg-[#34d399]';
+            const rowKey = `${budget.project_name ?? 'default'}:${budget.agent_role}:${budget.period}`;
 
             return (
               <div
-                key={budget.agent_role}
+                key={rowKey}
                 className="bg-[#111820] border border-[#1e2738] rounded-lg p-4 space-y-3"
               >
                 <div className="flex items-center justify-between">
@@ -181,6 +182,11 @@ export function BudgetDashboard() {
                       </span>
                     )}
                     <span className="text-sm font-medium text-[#e2e8f0]">{budget.agent_role}</span>
+                    {budget.project_name && (
+                      <span className="text-[10px] text-[#7a8599] uppercase tracking-wider">
+                        · {budget.project_name}
+                      </span>
+                    )}
                   </div>
                   <button
                     onClick={() => setOverrideBudget(budget)}

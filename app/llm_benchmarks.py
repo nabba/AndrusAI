@@ -325,6 +325,24 @@ def record_tokens(
             (model, prompt_tokens, completion_tokens, total,
              cost_usd, datetime.now(timezone.utc).isoformat(), project_id),
         )
+        if cost_usd and cost_usd > 0 and project_id:
+            try:
+                from app.control_plane.budgets import reconcile_actual_spend
+                from app.project_context import resolve_current_agent_role
+
+                agent_role = None
+                try:
+                    agent_role = resolve_current_agent_role()
+                except Exception:
+                    agent_role = None
+                reconcile_actual_spend(
+                    project_id=project_id,
+                    agent_role=agent_role,
+                    cost_usd=float(cost_usd),
+                    tokens=int(total),
+                )
+            except Exception:
+                logger.debug("llm_benchmarks: budget reconcile failed", exc_info=True)
     except Exception:
         logger.debug("llm_benchmarks: failed to record tokens", exc_info=True)
 
