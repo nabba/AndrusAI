@@ -92,6 +92,11 @@ function CatalogTab() {
     | null
     | { model: string; role: string; mode: string; reason: string }
   >(null);
+  // Model-catalog free-text search. Matches against name, provider,
+  // description, and strengths-map keys (so users can find all
+  // multimodal / reasoning / coding-strong models by typing the
+  // task type).
+  const [search, setSearch] = useState('');
 
   if (catQ.isLoading) return <Skeleton className="h-64" />;
   if (catQ.error) return <ErrorPanel error={catQ.error} onRetry={catQ.refetch} />;
@@ -121,9 +126,32 @@ function CatalogTab() {
     (pinsByModel[p.model] ||= []).push({ role: p.role, mode: pinMode });
   }
 
-  // Group models by tier.
+  // Apply search filter. Empty search = show every model. The haystack
+  // concatenates model name + provider + description + strengths keys,
+  // so a query like "multimodal" or "reasoning" surfaces every model
+  // with that task type in its strengths map.
+  const q = search.trim().toLowerCase();
+  const filteredModels = q
+    ? models.filter((m) => {
+        const strengthsKeys = m.strengths
+          ? Object.keys(m.strengths).join(' ')
+          : '';
+        const haystack = [
+          m.name,
+          m.provider,
+          m.description,
+          strengthsKeys,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(q);
+      })
+    : models;
+
+  // Group filtered models by tier.
   const byTier = new Map<string, LlmModel[]>();
-  for (const m of models) {
+  for (const m of filteredModels) {
     const tier = (m.tier as string) ?? 'unknown';
     const arr = byTier.get(tier) ?? [];
     arr.push(m);
@@ -233,9 +261,47 @@ function CatalogTab() {
 
       {/* Model catalog grouped by tier */}
       <section>
-        <h3 className="text-xs font-medium text-[#7a8599] uppercase tracking-wider mb-2">
-          Model Catalog ({models.length})
-        </h3>
+        <div className="flex items-baseline justify-between gap-3 flex-wrap mb-2">
+          <h3 className="text-xs font-medium text-[#7a8599] uppercase tracking-wider">
+            Model Catalog (
+            <span className="text-[#e2e8f0]">{filteredModels.length}</span>
+            {q && (
+              <span className="text-[#7a8599]"> / {models.length}</span>
+            )}
+            )
+          </h3>
+          <div className="relative max-w-xs w-full sm:w-auto sm:min-w-[18rem]">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name · provider · task · description…"
+              aria-label="Search model catalog"
+              className="w-full bg-[#0a0e14] border border-[#1e2738] rounded pl-7 pr-7 py-1.5 text-xs text-[#e2e8f0] placeholder-[#7a8599]/60 focus:border-[#60a5fa]/40 focus:outline-none"
+            />
+            <span
+              className="absolute left-2 top-1/2 -translate-y-1/2 text-[#7a8599] pointer-events-none"
+              aria-hidden="true"
+            >
+              🔍
+            </span>
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-[#7a8599] hover:text-[#e2e8f0]"
+                title="Clear search"
+                aria-label="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+        {q && filteredModels.length === 0 ? (
+          <p className="text-sm text-[#7a8599] italic">
+            No models match <span className="text-[#e2e8f0]">{JSON.stringify(search)}</span>.
+          </p>
+        ) : null}
         <div className="space-y-4">
           {tiers.map((tier) => {
             const rows = byTier.get(tier) ?? [];
