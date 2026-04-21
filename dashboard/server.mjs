@@ -13,7 +13,28 @@ const STATIC_ROOT = path.join(__dirname, 'serve-root');
 const GATEWAY_HOST = '127.0.0.1';
 const GATEWAY_PORT = 8765;
 const PORT = parseInt(process.env.PORT || '3100');
-const GATEWAY_SECRET = process.env.GATEWAY_SECRET || '';
+
+// Load GATEWAY_SECRET from the sibling .env if the LaunchAgent / shell
+// didn't set it in the process environment. Without it every write to
+// /config/* and /budgets/override fails with 401 because the gateway
+// expects `Authorization: Bearer <secret>`.
+function loadGatewaySecret() {
+  if (process.env.GATEWAY_SECRET) return process.env.GATEWAY_SECRET;
+  const envPath = path.join(__dirname, '..', '.env');
+  try {
+    const text = fs.readFileSync(envPath, 'utf8');
+    const match = text.match(/^\s*GATEWAY_SECRET\s*=\s*(.+?)\s*$/m);
+    if (match) {
+      // Strip surrounding quotes if any.
+      return match[1].replace(/^(['"])(.*)\1$/, '$2');
+    }
+  } catch {
+    // .env missing or unreadable — fall through to empty string.
+  }
+  return '';
+}
+
+const GATEWAY_SECRET = loadGatewaySecret();
 
 const BACKEND_PATH_PREFIXES = [
   '/api/',
