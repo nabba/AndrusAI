@@ -56,8 +56,20 @@ def should_inhibit_completion(kernel: SubjectivityKernel) -> bool:
 
     Returns True iff the homeostatic wonder variable is above threshold
     OR any focal scene item has individual wonder above threshold.
+
+    The threshold is density-and-circadian-adjusted when the kernel
+    carries a temporal context (Phase 14 bridge): dense windows lower
+    the threshold so wonder is easier to enter; deep-work windows
+    raise it so the system respects the operator's focus.
     """
     threshold = float(SUBIA_CONFIG.get("WONDER_INHIBIT_THRESHOLD", 0.3))
+    try:
+        from app.subia.connections.temporal_subia_bridge import (
+            effective_wonder_threshold,
+        )
+        threshold = float(effective_wonder_threshold(kernel))
+    except Exception:
+        pass
     if kernel.homeostasis.variables.get("wonder", 0.0) > threshold:
         return True
     for item in kernel.focal_scene():

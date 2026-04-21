@@ -23,4 +23,11 @@ be migrated here in phased subpackages:
 No behavior is wired yet. See PROGRAM.md for the phased migration plan.
 """
 
-__all__ = ["config", "kernel"]
+from app.subia.kernel import get_active_kernel, set_active_kernel
+
+__all__ = [
+    "config",
+    "kernel",
+    "get_active_kernel",
+    "set_active_kernel",
+]

@@ -129,6 +129,10 @@ SUBIA_CONFIG: dict = {
     ],
     "COMPRESSED_LOOP_OPERATIONS": [
         "wiki_read", "wiki_search", "routine_query",
+        # Phase 16a bind-in: crew-boundary stubs in app/crews/lifecycle
+        # run a compressed pass so direct-run crews feed the kernel
+        # without re-doing the full loop already run by the orchestrator.
+        "crew_kickoff",
     ],
 
     # ── Cascade tier modulation ──────────────────────────────────────

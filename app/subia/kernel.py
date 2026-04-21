@@ -16,6 +16,7 @@ References:
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -222,3 +223,35 @@ class SubjectivityKernel:
     def peripheral_scene(self) -> list:
         """Return only peripheral-tier scene items."""
         return [i for i in self.scene if getattr(i, "tier", "focal") == "peripheral"]
+
+
+# ── Active-kernel accessor ───────────────────────────────────────────
+#
+# Process-local reference to the live kernel, published by
+# app.subia.live_integration.enable_subia_hooks() during startup. Any
+# subsystem that wants to observe current homeostatic / meta state
+# without plumbing a kernel reference through its call chain reads it
+# here.
+#
+# Returns None when SubIA is disabled or not yet booted; callers MUST
+# treat None as "no signal" and fall back to their own defaults.
+
+_active_kernel_lock = threading.Lock()
+_active_kernel: Optional["SubjectivityKernel"] = None
+
+
+def get_active_kernel() -> Optional["SubjectivityKernel"]:
+    """Return the live kernel, or None if SubIA is not active."""
+    with _active_kernel_lock:
+        return _active_kernel
+
+
+def set_active_kernel(kernel: Optional["SubjectivityKernel"]) -> None:
+    """Publish the live kernel for downstream read-only observation.
+
+    Called once by enable_subia_hooks() after the kernel is loaded.
+    Passing None clears the reference (for teardown / tests).
+    """
+    global _active_kernel
+    with _active_kernel_lock:
+        _active_kernel = kernel

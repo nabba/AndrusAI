@@ -53,12 +53,18 @@ def build_compact_context(
     safety_signals: Iterable[str] = (),
     cascade_recommendation: str = "maintain",
     dispatch: Any = None,
+    kernel: Any = None,
 ) -> str:
     """Build a token-efficient context injection block.
 
     Duck-typed on every input so tests can pass dataclasses, dicts,
     or None. None inputs are silently omitted from the block.
     Returns empty string if no content to render.
+
+    When `kernel` is supplied and the kernel carries a SpeciousPresent
+    / TemporalContext, the Phase 14 felt-now paragraph is appended via
+    render_specious_present_block. This closes the fifth Phase 14
+    bridge at the context-injection edge.
     """
     lines: list[str] = ["[SubIA]"]
 
@@ -137,6 +143,21 @@ def build_compact_context(
     # Safety signals
     for signal in (safety_signals or ()):
         lines.append(f"⚠ {str(signal)[:100]}")
+
+    # Phase 14 felt-now paragraph (only when kernel carries populated
+    # SpeciousPresent). Silently omitted when temporal state isn't set
+    # up yet or the specious present is empty.
+    if kernel is not None:
+        try:
+            from app.subia.connections.temporal_subia_bridge import (
+                render_specious_present_block,
+            )
+            block = render_specious_present_block(kernel)
+            if block:
+                lines.extend(block.splitlines())
+        except Exception:
+            logger.debug("compact_context: specious present render failed",
+                         exc_info=True)
 
     lines.append("[/SubIA]")
     return "\n".join(lines)

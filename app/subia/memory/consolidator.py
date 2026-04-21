@@ -185,7 +185,37 @@ def build_enriched_episode(
 
     Only significant experiences get this. Carries the full context
     needed for spontaneous surfacing and retrospective review.
+
+    Phase 12 extension: each scene item in the snapshot carries its
+    `processing_mode` (Boundary Sense) + its consolidator_route_for
+    preference so retrospective inspection can tell introspective
+    from perceptual from imaginative content apart. The per-item
+    route comes from the six_proposals_bridges helper.
     """
+    try:
+        from app.subia.connections.six_proposals_bridges import (
+            boundary_route_for_kernel,
+        )
+        routes = boundary_route_for_kernel(kernel) or {}
+    except Exception:
+        routes = {}
+
+    scene_snapshot = []
+    for i in (getattr(kernel, "scene", []) or [])[:8]:
+        item_id = getattr(i, "id", "")
+        scene_snapshot.append({
+            "summary": str(getattr(i, "content",
+                                   getattr(i, "summary", "")))[:80],
+            "salience": round(float(
+                getattr(i, "salience_score",
+                        getattr(i, "salience", 0.0))
+            ), 2),
+            "affect": str(getattr(i, "dominant_affect", "neutral")),
+            "ownership": str(getattr(i, "ownership", "self")),
+            "processing_mode": getattr(i, "processing_mode", None),
+            "route": routes.get(item_id),
+        })
+
     return {
         "type": "curated_episode",
         "loop_count": int(getattr(kernel, "loop_count", 0)),
@@ -194,19 +224,7 @@ def build_enriched_episode(
         "significance": round(float(significance), 3),
         "timestamp": str(getattr(kernel, "last_loop_at", ""))
                      or datetime.now(timezone.utc).isoformat(),
-        "scene_snapshot": [
-            {
-                "summary": str(getattr(i, "content",
-                                       getattr(i, "summary", "")))[:80],
-                "salience": round(float(
-                    getattr(i, "salience_score",
-                            getattr(i, "salience", 0.0))
-                ), 2),
-                "affect": str(getattr(i, "dominant_affect", "neutral")),
-                "ownership": str(getattr(i, "ownership", "self")),
-            }
-            for i in (getattr(kernel, "scene", []) or [])[:8]
-        ],
+        "scene_snapshot": scene_snapshot,
         "homeostatic_state": _homeostatic_full(kernel),
         "prediction": _prediction_digest(kernel),
         "self_state_snapshot": _self_state_digest(kernel),

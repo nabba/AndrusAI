@@ -82,7 +82,11 @@ class SubIALifecycleHooks:
         """
         agent_role = getattr(agent, "role", "unknown")
         description = self._get_description(task)
-        operation_type = self._classify_operation(description)
+        explicit = getattr(task, "operation_type", None)
+        operation_type = (
+            str(explicit) if isinstance(explicit, str) and explicit
+            else self._classify_operation(description)
+        )
 
         result = self.loop.pre_task(
             agent_role=agent_role,
@@ -101,7 +105,11 @@ class SubIALifecycleHooks:
         """Called after every agent task execution."""
         agent_role = getattr(agent, "role", "unknown")
         description = self._get_description(task)
-        operation_type = self._classify_operation(description)
+        explicit = getattr(task, "operation_type", None)
+        operation_type = (
+            str(explicit) if isinstance(explicit, str) and explicit
+            else self._classify_operation(description)
+        )
 
         # Normalize task_result into a dict the loop expects.
         result_dict: dict
@@ -142,8 +150,16 @@ class SubIALifecycleHooks:
         return str(task)[:200]
 
     def _classify_operation(self, description: str) -> str:
-        """Heuristic classification from SubIA Part I §4.2."""
+        """Heuristic classification from SubIA Part I §4.2.
+
+        The caller may also pass a task object with an explicit
+        `operation_type` attribute — we honour that if present, so the
+        crew-lifecycle stub (which knows it's a `crew_kickoff`) doesn't
+        need to encode that into free-form text.
+        """
         lower = description.lower()
+        if "crew_kickoff" in lower:
+            return "crew_kickoff"
         if "ingest" in lower or "new source" in lower:
             return "ingest"
         if "lint" in lower or "health check" in lower:

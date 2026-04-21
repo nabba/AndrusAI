@@ -73,6 +73,22 @@ def refresh_temporal_state(
     except Exception as exc:
         logger.debug("phase14: temporal_context refresh failed: %s", exc)
 
+    # 4. Close the loop: circadian mode drives homeostatic set-points
+    #    and discovered rhythms populate self_state.capabilities. These
+    #    bridges are the Phase 14 closed-loop payoff — signals computed
+    #    above have to consume some behaviour, or they're dead data.
+    try:
+        from app.subia.connections.temporal_subia_bridge import (
+            circadian_to_setpoints,
+            rhythms_to_self_state,
+        )
+        diff = circadian_to_setpoints(kernel)
+        out["circadian_setpoint_diff"] = diff
+        if rhythms:
+            out["rhythms_ingested"] = rhythms_to_self_state(kernel, rhythms)
+    except Exception as exc:
+        logger.debug("phase14: temporal bridge close failed: %s", exc)
+
     return out
 
 

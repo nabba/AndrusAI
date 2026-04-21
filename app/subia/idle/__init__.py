@@ -13,6 +13,12 @@ its own throttle policy (min interval, token budget, last-ran).
 Design constraint: jobs must be safe to no-op. The scheduler never
 raises — failures are logged and the job's last_attempt is bumped so
 the throttle still applies.
+
+Phase 16a follow-up: `production_adapters.py` assembles live adapters
+for the three idle engines (Reverie / Understanding / Shadow) using
+the existing filesystem / Mem0 / ChromaDB / Neo4j / llm_factory
+plumbing. The production idle_scheduler imports the three build_*
+factories via the convenience re-exports below.
 """
 from .scheduler import (
     IdleJob,
@@ -60,7 +66,28 @@ def adapt_for_production(job: "IdleJob") -> tuple:
     return (job.name, job.fn, weight)
 
 
+def _build_reverie_engine():
+    """Lazy accessor — avoids importing llm_factory / Neo4j / ChromaDB
+    at package import time so the idle package stays cheap to import in
+    tests and cold environments."""
+    from .production_adapters import build_reverie_engine
+    return build_reverie_engine()
+
+
+def _build_understanding_runner():
+    from .production_adapters import build_understanding_runner
+    return build_understanding_runner()
+
+
+def _build_shadow_miner(kernel):
+    from .production_adapters import build_shadow_miner
+    return build_shadow_miner(kernel)
+
+
 __all__ = [
     "IdleJob", "IdleScheduler", "get_default_scheduler",
     "adapt_for_production",
+    "_build_reverie_engine",
+    "_build_understanding_runner",
+    "_build_shadow_miner",
 ]

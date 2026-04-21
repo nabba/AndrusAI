@@ -145,7 +145,7 @@ def _build_prompt(ctx: dict) -> str:
     homeo = ctx.get("homeostasis")
     history = ctx.get("prediction_history") or ()
 
-    return _PROMPT_TEMPLATE.format(
+    prompt = _PROMPT_TEMPLATE.format(
         agent_role=agent_role,
         task_description=description,
         scene_summary=_scene_summary(scene),
@@ -154,6 +154,14 @@ def _build_prompt(ctx: dict) -> str:
         homeostasis_summary=_homeostasis_summary(homeo),
         recent_accuracy=_recent_accuracy(history),
     )
+
+    # Optional context enrichment (Phase 13/14 bridges). Temporal +
+    # technical state reach the predictor here so predictions respect
+    # circadian mode, compute pressure, and cascade-tier availability.
+    extra = ctx.get("extra_prompt_context")
+    if isinstance(extra, str) and extra.strip():
+        prompt = prompt + "\n" + extra.strip() + "\n"
+    return prompt
 
 
 def _scene_summary(scene: Iterable) -> str:

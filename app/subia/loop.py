@@ -319,6 +319,7 @@ class SubIALoop:
             result.within_budget = result.total_elapsed_ms <= budget_ms
             self.kernel.loop_count += 1
             self.kernel.touch()
+            self._persist_kernel()
             return result
 
         # Step 10: CONSOLIDATE (Phase 7 — dual-tier memory)
@@ -347,6 +348,12 @@ class SubIALoop:
                     fn()
                 except Exception:
                     logger.debug("advance_cycle raised", exc_info=True)
+
+        # Persist kernel after each full post_task so restarts resume
+        # from the most recent CIL state. Throttled by loop-count modulo
+        # so we don't write the markdown file on every compressed call —
+        # the compressed path already returned earlier.
+        self._persist_kernel()
 
         result.total_elapsed_ms = (self._now() - t_start) * 1000.0
         result.within_budget = result.total_elapsed_ms <= budget_ms
@@ -724,9 +731,13 @@ class SubIALoop:
     def _step_update(self, task_result: dict) -> dict:
         """Step 9: deterministic kernel updates from the task outcome.
 
-        Two pieces: record agency (append to agency_log with cap),
-        and apply outcome-driven homeostatic deltas via
-        subia.homeostasis.engine.
+        Three pieces:
+          1. Record agency (append to agency_log with cap).
+          2. Apply outcome-driven homeostatic deltas via
+             subia.homeostasis.engine.
+          3. Phronesis bridge: apply any normative events the caller
+             declared in task_result['phronesis_events'] and auto-detect
+             resource_overreach from the post-update overload variable.
         """
         success = bool(task_result.get("success", True))
         summary = str(task_result.get("summary", ""))[:120]
@@ -745,10 +756,40 @@ class SubIALoop:
         from app.subia.homeostasis.engine import update_homeostasis
         homeo = update_homeostasis(self.kernel, task_result=task_result)
 
-        return {
+        # Phronesis bridge (SIA #2). Normative events feed bounded
+        # homeostatic penalties + append to the immutable narrative
+        # audit. Explicit events come from callers (safety_guardian,
+        # observer, dispatch gate). Auto-detection handles the
+        # resource_overreach case because it's directly visible in
+        # the homeostatic state we just recomputed.
+        events_applied: list = []
+        try:
+            from app.subia.connections.phronesis_bridge import (
+                apply_phronesis_event,
+                registered_events,
+            )
+            explicit = task_result.get("phronesis_events") or ()
+            known = set(registered_events())
+            for event in explicit:
+                if isinstance(event, str) and event in known:
+                    res = apply_phronesis_event(self.kernel, event)
+                    events_applied.append(res.to_dict())
+            overload = float(
+                self.kernel.homeostasis.variables.get("overload", 0.0)
+            )
+            if overload >= 0.85 and "resource_overreach" not in explicit:
+                res = apply_phronesis_event(self.kernel, "resource_overreach")
+                events_applied.append(res.to_dict())
+        except Exception:
+            logger.debug("phronesis event dispatch failed", exc_info=True)
+
+        details = {
             "agency_log_len": len(self.kernel.self_state.agency_log),
             **{f"homeo_{k}": v for k, v in homeo.items()},
         }
+        if events_applied:
+            details["phronesis_events"] = events_applied
+        return details
 
     def _step_consolidate(
         self, task_result: dict,
@@ -977,9 +1018,22 @@ class SubIALoop:
                 self, "_cascade_recommendation", "maintain",
             ),
             dispatch=getattr(self, "_dispatch_decision", None),
+            kernel=self.kernel,
         )
 
-    # ── Plumbing: step runner with error containment ─────────────
+    # ── Plumbing: persistence + step runner with error containment ─
+
+    def _persist_kernel(self) -> None:
+        """Write the kernel to disk. Never raises — persistence failure
+        must not fail a task. Callers that want to test the loop in
+        isolation pass a stub gate and no on-disk paths; save is
+        idempotent and cheap (~1-2 ms for a typical kernel).
+        """
+        try:
+            from app.subia.persistence import save_kernel_state
+            save_kernel_state(self.kernel)
+        except Exception:
+            logger.debug("subia.loop: save_kernel_state failed", exc_info=True)
 
     def _run(self, result: CILResult, name: str, fn: Callable[[], dict]) -> None:
         """Execute one step; errors never propagate to the agent."""
