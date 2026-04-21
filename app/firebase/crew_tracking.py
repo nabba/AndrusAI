@@ -46,6 +46,17 @@ def crew_started(crew: str, task_summary: str, eta_seconds: int | None = None,
         except Exception:
             project_id = None
 
+    # Control Plane mirror — authoritative for the dashboard read path.
+    try:
+        from app.control_plane.crew_tasks import start_task as _pg_start
+        _pg_start(
+            task_id=task_id, crew=crew, summary=task_summary,
+            project_id=project_id, parent_task_id=parent_task_id,
+            model=model, eta_seconds=eta_seconds,
+        )
+    except Exception:
+        logger.debug("crew_tracking: PG start_task failed", exc_info=True)
+
     def _write():
         db = _get_db()
         if not db:
@@ -160,6 +171,16 @@ def crew_completed(crew: str, task_id: str, result_preview: str = "",
                     parts.add(clean)
         model = ", ".join(sorted(parts)) if parts else model
 
+    # Control Plane mirror.
+    try:
+        from app.control_plane.crew_tasks import complete_task as _pg_complete
+        _pg_complete(
+            task_id=task_id, result_preview=result_preview,
+            tokens_used=tokens_used, model=model, cost_usd=cost_usd,
+        )
+    except Exception:
+        logger.debug("crew_tracking: PG complete_task failed", exc_info=True)
+
     def _write():
         db = _get_db()
         if not db:
@@ -195,6 +216,13 @@ def crew_failed(crew: str, task_id: str, error: str = "") -> None:
     # Clean up start time tracking on failure
     with _task_start_lock:
         _task_start_times.pop(task_id, None)
+
+    try:
+        from app.control_plane.crew_tasks import fail_task as _pg_fail
+        _pg_fail(task_id=task_id, error=error)
+    except Exception:
+        logger.debug("crew_tracking: PG fail_task failed", exc_info=True)
+
     def _write():
         db = _get_db()
         if not db:
@@ -222,6 +250,12 @@ def update_eta(crew: str, task_id: str, eta_seconds: int) -> None:
     """Revise the ETA estimate for a running task."""
     eta_iso = (datetime.now(timezone.utc) + timedelta(seconds=eta_seconds)).isoformat()
 
+    try:
+        from app.control_plane.crew_tasks import update_eta as _pg_eta
+        _pg_eta(task_id=task_id, eta_seconds=eta_seconds)
+    except Exception:
+        logger.debug("crew_tracking: PG update_eta failed", exc_info=True)
+
     def _write():
         db = _get_db()
         if not db:
@@ -235,6 +269,14 @@ def update_eta(crew: str, task_id: str, eta_seconds: int) -> None:
 
 def task_delegated(task_id: str, from_crew: str, to_crew: str, reason: str = "") -> None:
     """Record that a task was delegated from one crew/agent to another."""
+    try:
+        from app.control_plane.crew_tasks import mark_delegated as _pg_delegated
+        _pg_delegated(
+            task_id=task_id, from_crew=from_crew, to_crew=to_crew, reason=reason,
+        )
+    except Exception:
+        logger.debug("crew_tracking: PG mark_delegated failed", exc_info=True)
+
     def _write():
         db = _get_db()
         if not db:
@@ -256,6 +298,16 @@ def task_delegated(task_id: str, from_crew: str, to_crew: str, reason: str = "")
 def update_sub_agent_progress(crew: str, parent_task_id: str,
                                completed: int, total: int) -> None:
     """Update the parent task with sub-agent completion progress."""
+    try:
+        from app.control_plane.crew_tasks import (
+            update_sub_agent_progress as _pg_progress,
+        )
+        _pg_progress(
+            parent_task_id=parent_task_id, completed=completed, total=total,
+        )
+    except Exception:
+        logger.debug("crew_tracking: PG update_sub_agent_progress failed", exc_info=True)
+
     def _write():
         db = _get_db()
         if not db:
@@ -274,6 +326,14 @@ def cleanup_stale_tasks() -> None:
     On startup: mark any 'running' tasks as failed (they're zombies from a
     previous container that was restarted). Also reset all crews to idle.
     """
+    try:
+        from app.control_plane.crew_tasks import cleanup_zombies as _pg_zombies
+        cleaned = _pg_zombies(max_age_hours=6)
+        if cleaned:
+            logger.info(f"crew_tracking: PG cleanup flipped {cleaned} zombie tasks")
+    except Exception:
+        logger.debug("crew_tracking: PG cleanup_zombies failed", exc_info=True)
+
     def _cleanup():
         db = _get_db()
         if not db:

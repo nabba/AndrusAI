@@ -741,60 +741,32 @@ _KNOWN_CREWS: tuple[tuple[str, str], ...] = (
 def get_crew_tasks(limit: int = Query(20, ge=1, le=200), project_id: str | None = Query(None)):
     """Return recent crew tasks + crew statuses + full agent roster.
 
-    - `tasks`  — last N Firestore task documents (state=running or completed)
-    - `crews`  — every known crew merged with Firestore status (never missing
-                 from the list even if Firebase is unavailable)
-    - `agents` — the complete PostgreSQL org-chart roster so every agent/
+    Reads the Control Plane `crew_tasks` table (Postgres).  The legacy
+    Firestore `tasks` / `crews` collections are still mirrored by
+    `app.firebase.crew_tracking` for backwards-observability but are no
+    longer on the dashboard read path — no more 429 quota banners.
+
+    - `tasks`  — last N tasks from crew_tasks (running or completed)
+    - `crews`  — per-crew latest status derived from crew_tasks, merged
+                 with the canonical registry so idle crews still show up
+    - `agents` — the PostgreSQL org-chart roster so every agent /
                  subagent is represented even when idle
     """
+    err: str | None = None
     tasks: list[dict] = []
     crews: list[dict] = []
-    firebase_error: str | None = None
 
     try:
-        from app.firebase.infra import _get_db
-        db = _get_db()
-        if db:
-            try:
-                from google.cloud import firestore as _fs
-                # When filtering, over-fetch so post-filter page size approaches
-                # the requested limit even if older untagged docs are mixed in.
-                fetch_limit = limit * 4 if project_id else limit
-                for d in (
-                    db.collection("tasks")
-                      .order_by("started_at", direction=_fs.Query.DESCENDING)
-                      .limit(fetch_limit)
-                      .stream()
-                ):
-                    data = d.to_dict() or {}
-                    data["id"] = d.id
-                    if project_id and data.get("project_id") != project_id:
-                        continue
-                    tasks.append(data)
-                    if len(tasks) >= limit:
-                        break
-            except Exception as exc:
-                firebase_error = f"tasks read: {exc}"
-                logger.debug("tasks endpoint: %s", firebase_error)
-
-            try:
-                for d in db.collection("crews").stream():
-                    data = d.to_dict() or {}
-                    data["name"] = d.id
-                    crews.append(data)
-            except Exception as exc:
-                if not firebase_error:
-                    firebase_error = f"crews read: {exc}"
-                logger.debug("tasks endpoint crews: %s", exc)
-        else:
-            firebase_error = "Firestore unavailable"
+        from app.control_plane.crew_tasks import list_recent, crew_statuses
+        tasks = list_recent(limit=limit, project_id=project_id)
+        crews = crew_statuses()
     except Exception as exc:
-        firebase_error = str(exc)
-        logger.debug("tasks endpoint: firebase infra import failed: %s", exc)
+        err = f"tasks read: {exc}"
+        logger.debug("tasks endpoint: %s", err)
 
-    # Ensure every known crew appears in the list even if Firestore missed it.
-    # Each crew carries a "kind" tag so the dashboard can group user-addressable
-    # crews separately from internal orchestration crews.
+    # Ensure every known crew appears in the list even if no tasks yet.
+    # Each crew carries a "kind" tag so the dashboard can group user-
+    # addressable crews separately from internal orchestration crews.
     known_kinds = {name: kind for name, kind in _KNOWN_CREWS}
     seen_crews = {c.get("name") for c in crews}
     for c in crews:
@@ -803,7 +775,7 @@ def get_crew_tasks(limit: int = Query(20, ge=1, le=200), project_id: str | None 
             c["kind"] = known_kinds[name]
     for name, kind in _KNOWN_CREWS:
         if name not in seen_crews:
-            crews.append({"name": name, "state": "unknown", "kind": kind})
+            crews.append({"name": name, "state": "idle", "kind": kind})
 
     agents: list[dict] = []
     try:
@@ -818,7 +790,7 @@ def get_crew_tasks(limit: int = Query(20, ge=1, le=200), project_id: str | None 
         "agents": agents,
         "project_id": project_id,
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "error": firebase_error,
+        "error": err,
     }
 
 # ── Token usage & cost projection ────────────────────────────────────────────

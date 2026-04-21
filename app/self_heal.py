@@ -157,6 +157,13 @@ def _update_task_healing(entry: dict, action: str, detail: str, proposal_id: int
         if not failed_task_id:
             return
 
+        # Control Plane mirror — authoritative for the dashboard.
+        try:
+            from app.control_plane.crew_tasks import mark_healed
+            mark_healed(task_id=failed_task_id, heal_detail=f"{action}: {detail}")
+        except Exception:
+            pass
+
         def _write():
             db = _get_db()
             if not db:
