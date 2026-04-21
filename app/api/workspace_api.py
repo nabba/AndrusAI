@@ -53,9 +53,36 @@ def _project_display_name(pid: str, name_cache: dict[str, str]) -> str:
 
 @router.get("/workspaces")
 def list_workspaces():
-    """List all workspace gates with their current snapshots."""
+    """List all workspace gates with their current snapshots.
+
+    Reconciles against ``control_plane.projects``: every persistent CP
+    project is guaranteed to have a gate in the response, even if nothing
+    has touched it since the gateway restarted (gates are in-memory and
+    wipe on restart, whereas CP projects live in PostgreSQL).
+    """
     try:
-        from app.consciousness.workspace_buffer import list_workspaces as _list_ws
+        from app.consciousness.workspace_buffer import (
+            list_workspaces as _list_ws,
+            get_workspace_gate,
+        )
+    except Exception as e:
+        logger.warning(f"workspace_api: buffer import failed: {e}")
+        return {"workspaces": [], "count": 0}
+
+    # 1. Ensure a gate exists for every CP project (lazy create on first call).
+    try:
+        from app.control_plane.projects import get_projects
+        for proj in get_projects().list_all() or []:
+            pid = proj.get("id")
+            if pid:
+                # get_workspace_gate is the public constructor — it creates
+                # a default-capacity gate if one doesn't exist yet.
+                get_workspace_gate(pid)
+    except Exception as e:
+        logger.debug("workspace_api: CP reconcile skipped: %s", e)
+
+    # 2. Snapshot the registry and enrich with display names.
+    try:
         workspaces = _list_ws()
         name_cache: dict[str, str] = {}
         return {
