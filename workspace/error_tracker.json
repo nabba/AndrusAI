@@ -73,7 +73,7 @@
   },
   "coding:RuntimeError": {
     "attempts": 2,
-    "resolved": false,
+    "resolved": true,
     "last_attempt": "2026-04-20T20:25:17.609156+00:00",
     "fixes_applied": [
       "The 'wiki_write' tool definition has a schema mismatch: the key 'title' is listed in the 'required' array but is missing from the 'properties' dictionary. To fix, locate the tool definition (likely in"

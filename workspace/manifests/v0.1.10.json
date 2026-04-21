@@ -1,6 +1,6 @@
 {
   "version": "v0.1.10",
-  "timestamp": "2026-04-21T20:25:00.207626+00:00",
+  "timestamp": "2026-04-21T20:29:06.260437+00:00",
   "components": {
     "agent_code": {
       "git_sha": "bb4d610c0b96b804ed23fa434fc27f4b48adbcbb",
@@ -40,10 +40,10 @@
       "writer.md": "e50e1cddffebdf3b700956507bd17408534b74bb1bc09e076ceee6ea9fd1a6ec"
     },
     "mem0_state": {
-      "snapshot_id": "20260421T202500Z",
+      "snapshot_id": "20260421T202906Z",
       "method": "row_counts",
       "total_tables": 56,
-      "total_rows": 15170,
+      "total_rows": 15092,
       "tables": {
         "atlas.api_knowledge": 0,
         "atlas.audit_log": 55,
@@ -79,16 +79,16 @@
         "personality.proto_sentience_markers": 0,
         "personality.trait_history": 0,
         "public.action_selection_records": 84,
-        "public.agent_experiences": 8652,
+        "public.agent_experiences": 8727,
         "public.attention_predictions": 0,
         "public.attention_shifts": 0,
         "public.attention_states": 163,
-        "public.behavioral_scorecards": 157,
+        "public.behavioral_scorecards": 159,
         "public.beliefs": 6,
         "public.broadcast_events": 152,
         "public.broadcast_reactions": 608,
         "public.crewai_memories": 0,
-        "public.internal_states": 402,
+        "public.internal_states": 247,
         "public.mem0migrations": 0,
         "public.metacognitive_updates": 82,
         "public.prediction_errors": 170,
@@ -345,7 +345,7 @@
       "total_collections": 59
     },
     "neo4j_graph": {
-      "snapshot_id": "20260421T202500Z",
+      "snapshot_id": "20260421T202906Z",
       "error": "{neo4j_code: Neo.ClientError.Security.Unauthorized} {message: The client is unauthorized due to authentication failure.} {gql_status: 50N42} {gql_status_description: error: general processing exceptio"
     },
     "config": {
