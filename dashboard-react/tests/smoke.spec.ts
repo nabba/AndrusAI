@@ -89,6 +89,7 @@ function fulfill(route: Route, opts: { status: number }) {
   else if (url.includes('/workspaces') && url.includes('/items')) body = { project_id: 'test', active: [], peripheral: [], capacity: 3, cycle: 0 };
   else if (url.includes('/workspaces')) body = { workspaces: [], count: 0 };
   else if (url.includes('/creative_mode')) body = { creative_run_budget_usd: 1, originality_wiki_weight: 0.6, mem0_weight: 0.4 };
+  else if (url.includes('/llm_mode')) body = { mode: 'hybrid', valid_modes: ['local','free','cloud','hybrid','insane','anthropic'] };
   else if (url.includes('/kb/businesses')) body = { businesses: [] };
   else if (url.includes('/kb/status')) body = { collection_name: 'kb', total_chunks: 0 };
   else if (url.includes('/stats') || url.includes('/status')) body = { collection_name: 'x', total_chunks: 0 };

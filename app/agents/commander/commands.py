@@ -180,18 +180,19 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
     # ── LLM mode switching ─────────────────────────────────────────
     if lower.startswith("mode "):
         new_mode = user_input[5:].strip().lower()
-        if new_mode not in ("local", "cloud", "hybrid", "insane"):
-            return "Invalid mode. Use: mode local, mode cloud, mode hybrid, or mode insane"
-        from app.llm_mode import set_mode
+        from app.llm_mode import VALID_MODES, set_mode
+        if new_mode not in VALID_MODES:
+            return f"Invalid mode. Use: {' | '.join('mode ' + m for m in VALID_MODES)}"
         set_mode(new_mode)
         from app.firebase_reporter import report_llm_mode
         report_llm_mode(new_mode)
         return f"LLM mode switched to: {new_mode.upper()}"
 
     if lower == "mode":
-        from app.llm_mode import get_mode
+        from app.llm_mode import VALID_MODES, get_mode
         mode = get_mode()
-        return f"Current LLM mode: {mode.upper()}\n\nUse 'mode local', 'mode cloud', or 'mode hybrid' to switch."
+        options = ", ".join(f"'mode {m}'" for m in VALID_MODES)
+        return f"Current LLM mode: {mode.upper()}\n\nUse {options} to switch."
 
     # ── Token usage ───────────────────────────────────────────────────
     if lower in ("tokens", "token usage"):

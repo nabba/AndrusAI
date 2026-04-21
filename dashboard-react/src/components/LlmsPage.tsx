@@ -7,9 +7,12 @@ import {
   useLlmDiscoveryQuery,
   useRunLlmDiscovery,
   useTechRadarQuery,
+  useLlmModeQuery,
+  useSetLlmMode,
   type LlmModel,
   type DiscoveredModel,
   type TechDiscovery,
+  type LlmMode,
 } from '../api/queries';
 
 type LlmsTab = 'catalog' | 'discovery' | 'radar';
@@ -401,6 +404,102 @@ function TechRadarTab() {
 
 // ── Page ────────────────────────────────────────────────────────────────────
 
+// ── Runtime mode switch ─────────────────────────────────────────────────────
+
+interface ModePreset {
+  key: LlmMode;
+  label: string;
+  icon: string;
+  desc: string;
+}
+
+const MODE_PRESETS: ModePreset[] = [
+  { key: 'free',      label: 'Free',      icon: '🆓', desc: 'Zero-cost only — local Ollama + OpenRouter free tier. Chooser picks per role within that pool.' },
+  { key: 'hybrid',    label: 'Hybrid',    icon: '⚖️', desc: 'Default. LLM chooser picks the best model using its full algorithm. Cascades local → API → Claude.' },
+  { key: 'insane',    label: 'Insane',    icon: '🚀', desc: 'Premium-only. Chooser picks the strongest model for each role (Opus / Gemini 3.1 Pro / ...).' },
+  { key: 'anthropic', label: 'Anthropic', icon: '🅰️', desc: 'Anthropic provider only. Chooser picks the best Anthropic model per role from strengths map.' },
+];
+
+function ModeSwitch() {
+  const modeQ = useLlmModeQuery();
+  const setMode = useSetLlmMode();
+  const current = modeQ.data?.mode;
+  const validModes = modeQ.data?.valid_modes ?? [];
+
+  // Some modes (local, cloud) aren't exposed in the preset grid but can still
+  // be active (e.g. set from Signal). Show them as a read-only chip when active.
+  const activePreset = MODE_PRESETS.find((p) => p.key === current);
+  const activeLegacy = current && !activePreset ? current : null;
+
+  return (
+    <div className="bg-[#111820] border border-[#1e2738] rounded-xl p-4 space-y-3">
+      <div className="flex items-baseline justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-[#e2e8f0]">Runtime Mode</h2>
+          <p className="text-xs text-[#7a8599] mt-0.5">
+            Constrains the candidate pool for every role. The LLM chooser still picks per-role within the mode.
+          </p>
+        </div>
+        {modeQ.isLoading ? (
+          <span className="text-xs text-[#7a8599]">loading…</span>
+        ) : modeQ.error ? (
+          <span className="text-xs text-[#f87171]">{(modeQ.error as Error).message}</span>
+        ) : (
+          <span className="text-xs text-[#7a8599]">
+            active: <span className="text-[#60a5fa] font-medium">{current ?? '?'}</span>
+          </span>
+        )}
+      </div>
+
+      {activeLegacy && (
+        <div className="text-[10px] text-[#fbbf24]">
+          Current mode <code>{activeLegacy}</code> isn't one of the presets below.
+          Switching to a preset will replace it.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+        {MODE_PRESETS.map((p) => {
+          const active = current === p.key;
+          const disabled = validModes.length > 0 && !validModes.includes(p.key);
+          return (
+            <button
+              key={p.key}
+              type="button"
+              disabled={disabled || setMode.isPending}
+              onClick={() => setMode.mutate(p.key)}
+              className={`text-left p-3 rounded-lg border transition-colors ${
+                active
+                  ? 'border-[#60a5fa] bg-[#60a5fa]/10 text-[#e2e8f0]'
+                  : 'border-[#1e2738] bg-[#0a0e14] text-[#7a8599] hover:border-[#60a5fa]/40 hover:text-[#e2e8f0]'
+              } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-base">{p.icon}</span>
+                <span className="text-sm font-semibold">{p.label}</span>
+                {active && (
+                  <span className="ml-auto text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-[#34d399]/15 text-[#34d399]">
+                    active
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-[#7a8599] leading-snug">{p.desc}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      {setMode.isError && (
+        <p className="text-xs text-[#f87171]">Switch failed: {(setMode.error as Error).message}</p>
+      )}
+      <p className="text-[10px] text-[#7a8599]">
+        Writes to <code>POST /config/llm_mode</code>. Requires <code>GATEWAY_SECRET</code> to be
+        injected by the dashboard proxy (already wired in <code>server.mjs</code> / <code>vite.config.ts</code>).
+      </p>
+    </div>
+  );
+}
+
 export function LlmsPage() {
   const [tab, setTab] = useState<LlmsTab>('catalog');
 
@@ -418,6 +517,8 @@ export function LlmsPage() {
           Model catalog, role assignments, automated discovery, and tech-stack radar.
         </p>
       </div>
+
+      <ModeSwitch />
 
       <div className="flex gap-1 bg-[#111820] rounded-lg p-1 border border-[#1e2738] w-fit">
         {tabs.map((t) => (

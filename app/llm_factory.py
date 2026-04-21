@@ -52,18 +52,49 @@ def _get_LLM_class():
     return LLM
 
 
-def _cached_llm(model_id: str, max_tokens: int = 4096, *, sampling_key: str = "", **kwargs) -> "LLM":
-    """Get or create an LLM object, caching by (model_id, max_tokens, base_url, sampling_key).
+def _cached_llm(
+    model_id: str,
+    max_tokens: int = 4096,
+    *,
+    sampling_key: str = "",
+    llm_builder=None,
+    **kwargs,
+) -> "LLM":
+    """Get or create an LLM object, caching by
+    (builder-tag, model_id, max_tokens, base_url, sampling_key).
 
-    LLM objects are stateless wrappers — safe to share across requests.
-    Cache eliminates ~50-100ms of object creation per specialist call.
+    LLM objects are stateless wrappers over (model_id, api_key, params)
+    — safe to share across requests.  Cache eliminates ~50-100ms of
+    object creation per specialist call.
 
-    `sampling_key` is an opaque string (see `app.llm_sampling.sampling_cache_key`)
-    that distinguishes entries differing only in temperature/top_p/min_p etc.
-    Empty string preserves the legacy cache identity for non-creative callers.
+    Parameters
+    ----------
+    model_id, max_tokens, sampling_key, **kwargs
+        Forwarded to the LLM constructor.
+    llm_builder : Callable[[str, int, **kwargs], LLM], optional
+        Factory for non-default LLM subclasses (e.g.
+        ``CreditAwareAnthropicCompletion``).  Called as
+        ``llm_builder(model_id, max_tokens, **kwargs)``.  If omitted,
+        the default ``crewai.LLM`` constructor is used.
+
+        NOTE: cached instances must behave correctly under every call —
+        no sticky per-instance state that would break auto-recovery /
+        shared-state contracts.  Our CreditAware subclass satisfies
+        this because it consults ``circuit_breaker["anthropic_credits"]``
+        on every ``call()``, so a cached instance always routes
+        correctly even after credits are restored.
+
+    Cache isolation
+    ---------------
+    The builder identity is part of the cache key.  Without this, a
+    CreditAware entry under ``model_id=claude-sonnet-4-6`` would
+    collide with a plain-``crewai.LLM`` entry for the same model id,
+    and whichever built first would lock the cache shape.  Tagging by
+    ``builder.__qualname__`` keeps the namespaces independent.
     """
     base_url = kwargs.get("base_url", "")
-    key = (model_id, max_tokens, base_url or "default", sampling_key)
+    builder_tag = llm_builder.__qualname__ if llm_builder is not None else "default"
+    key = (builder_tag, model_id, max_tokens, base_url or "default", sampling_key)
     cached = _llm_cache.get(key)
     if cached is not None:
         return cached
@@ -71,7 +102,6 @@ def _cached_llm(model_id: str, max_tokens: int = 4096, *, sampling_key: str = ""
         cached = _llm_cache.get(key)
         if cached is not None:
             return cached
-        LLM = _get_LLM_class()
 
         # ── Anthropic prompt caching: enable via extra_headers ──
         # Reduces cost by ~90% on cached prefix tokens (system prompt,
@@ -82,9 +112,17 @@ def _cached_llm(model_id: str, max_tokens: int = 4096, *, sampling_key: str = ""
             extra_headers["anthropic-beta"] = "prompt-caching-2024-07-31"
             kwargs["extra_headers"] = extra_headers
 
-        llm = LLM(model=model_id, max_tokens=max_tokens, **kwargs)
+        if llm_builder is not None:
+            llm = llm_builder(model_id, max_tokens, **kwargs)
+        else:
+            LLM = _get_LLM_class()
+            llm = LLM(model=model_id, max_tokens=max_tokens, **kwargs)
+
         _llm_cache[key] = llm
-        logger.debug(f"llm_cache: new entry for {model_id} max={max_tokens} sampling={sampling_key!r} (cache size: {len(_llm_cache)})")
+        logger.debug(
+            "llm_cache: new entry builder=%s model=%s max=%d sampling=%r (cache size: %d)",
+            builder_tag, model_id, max_tokens, sampling_key, len(_llm_cache),
+        )
         return llm
 
 
@@ -123,6 +161,14 @@ class _AdapterLLM:
         self._max_tokens = max_tokens
 
     def call(self, prompt, **kwargs) -> str:
+        # _AdapterLLM is the only LLM call path in this codebase that doesn't
+        # derive from CrewAI's BaseLLM, so CrewAI's event bus never fires
+        # LLMCallCompletedEvent / LLMCallFailedEvent for it.  We emit the
+        # activity heartbeat explicitly here so the progressive-timeout stall
+        # detector in handle_task sees this path as alive.  (The fallback
+        # branch below goes through a real crewai.LLM, which the event bus
+        # DOES cover — so no second record is needed in that branch.)
+        from app.rate_throttle import record_llm_activity
         try:
             from app.bridge_client import get_bridge
             bridge = get_bridge("specialist")
@@ -136,8 +182,12 @@ class _AdapterLLM:
             )
             if "error" in result:
                 raise RuntimeError(result["error"])
+            record_llm_activity()
             return result.get("response", "")
         except Exception:
+            # Record the failure-as-activity BEFORE falling back, so a task
+            # that's legitimately in a retry cycle doesn't look silent.
+            record_llm_activity()
             # Fall back to Ollama base model (no adapter)
             logger.debug("AdapterLLM falling back to Ollama", exc_info=True)
             from app.config import get_settings
@@ -192,7 +242,11 @@ def create_commander_llm() -> LLM:
         anthropic_key = get_anthropic_api_key()
         if anthropic_key:
             logger.info(f"create_commander_llm: resolved {model_name} (anthropic)")
-            return _cached_llm(entry["model_id"], max_tokens=1024, api_key=anthropic_key)
+            return _build_claude_llm(
+                model_name, entry["model_id"], max_tokens=1024, role="commander",
+                tier=entry.get("tier", "premium"),
+                cost_out=entry.get("cost_output_per_m", 15.0),
+            )
         logger.warning(
             "create_commander_llm: resolver picked %s but ANTHROPIC_API_KEY is missing",
             model_name,
@@ -223,7 +277,12 @@ def create_commander_llm() -> LLM:
     if anthropic_key:
         sonnet = get_model("claude-sonnet-4.6")
         if sonnet:
-            return _cached_llm(sonnet["model_id"], max_tokens=1024, api_key=anthropic_key)
+            return _build_claude_llm(
+                "claude-sonnet-4.6", sonnet["model_id"], max_tokens=1024,
+                role="commander",
+                tier=sonnet.get("tier", "premium"),
+                cost_out=sonnet.get("cost_output_per_m", 15.0),
+            )
     or_key = get_openrouter_api_key()
     if or_key:
         deepseek = get_model("deepseek-v3.2")
@@ -269,6 +328,10 @@ def create_specialist_llm(
     if mode == "insane":
         return _insane_mode_select(role, max_tokens, phase=phase)
 
+    # ── ANTHROPIC mode: restrict to Anthropic provider ─────────────────
+    if mode == "anthropic":
+        return _anthropic_mode_select(role, max_tokens, phase=phase)
+
     from app.llm_selector import select_model
     model_name = select_model(role, task_hint, force_tier=force_tier)
     entry = get_model(model_name)
@@ -286,6 +349,46 @@ def create_specialist_llm(
             llm = _try_local(model_name, entry, max_tokens, role, phase=phase)
             if llm:
                 return llm
+        return _claude_fallback(role, max_tokens, phase=phase)
+
+    # ── FREE mode: zero-cost only (local + OpenRouter free tier) ──────
+    # The selector already picked one model; honour it if it's in the
+    # allowed pool, otherwise re-select forcing a free tier.
+    if mode == "free":
+        if tier == "local" and settings.local_llm_enabled:
+            llm = _try_local(model_name, entry, max_tokens, role, phase=phase)
+            if llm:
+                return llm
+        if tier == "free" and settings.api_tier_enabled:
+            llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
+            if llm:
+                return llm
+        # Selector picked a paid tier — force re-selection within free pool.
+        from app.llm_selector import select_model as _select
+        for forced_tier in ("local", "free"):
+            if forced_tier == "local" and not settings.local_llm_enabled:
+                continue
+            if forced_tier == "free" and not settings.api_tier_enabled:
+                continue
+            try:
+                alt_name = _select(role, task_hint, force_tier=forced_tier)
+            except Exception:
+                alt_name = None
+            if not alt_name:
+                continue
+            alt_entry = get_model(alt_name)
+            if not alt_entry:
+                continue
+            if forced_tier == "local":
+                llm = _try_local(alt_name, alt_entry, max_tokens, role, phase=phase)
+            else:
+                llm = _try_api(alt_name, alt_entry, max_tokens, role, phase=phase)
+            if llm:
+                logger.info(f"llm_factory: free-mode fallback → {alt_name} ({forced_tier})")
+                return llm
+        # Nothing free worked — emit a warning and fall back to Claude so
+        # the system remains functional instead of throwing.
+        logger.warning("llm_factory: free mode has no working model for role=%s, falling back to Claude", role)
         return _claude_fallback(role, max_tokens, phase=phase)
 
     # ── CLOUD mode: skip Ollama, use API/Anthropic ───────────────────
@@ -360,7 +463,11 @@ def create_vetting_llm() -> LLM:
         anthropic_key = get_anthropic_api_key()
         if anthropic_key:
             logger.info(f"create_vetting_llm: resolved {model_name} (anthropic)")
-            return _cached_llm(entry["model_id"], max_tokens=4096, api_key=anthropic_key)
+            return _build_claude_llm(
+                model_name, entry["model_id"], max_tokens=4096, role="vetting",
+                tier=entry.get("tier", "premium"),
+                cost_out=entry.get("cost_output_per_m", 15.0),
+            )
     elif provider == "openrouter":
         or_key = get_openrouter_api_key()
         if or_key:
@@ -379,7 +486,10 @@ def create_vetting_llm() -> LLM:
     )
     anthropic_key = get_anthropic_api_key()
     if anthropic_key:
-        return _cached_llm("anthropic/claude-sonnet-4-6", max_tokens=4096, api_key=anthropic_key)
+        return _build_claude_llm(
+            "claude-sonnet-4.6", "anthropic/claude-sonnet-4-6",
+            max_tokens=4096, role="vetting",
+        )
     or_key = get_openrouter_api_key()
     fallback = get_model("deepseek-v3.2") or {}
     model_id = fallback.get("model_id", "openrouter/deepseek/deepseek-chat")
@@ -399,7 +509,10 @@ def create_cheap_vetting_llm() -> LLM:
         if budget_model:
             return _cached_llm(budget_model["model_id"], max_tokens=256,
                                base_url="https://openrouter.ai/api/v1", api_key=or_key)
-    return _cached_llm("anthropic/claude-sonnet-4-6", max_tokens=256, api_key=get_anthropic_api_key())
+    return _build_claude_llm(
+        "claude-sonnet-4.6", "anthropic/claude-sonnet-4-6",
+        max_tokens=256, role="cheap-vetting",
+    )
 
 
 class _RacingLLM:
@@ -507,6 +620,41 @@ def _sampling(phase: str | None, provider: str) -> tuple[dict, str]:
         return {}, ""
     from app.llm_sampling import build_llm_kwargs, sampling_cache_key
     return build_llm_kwargs(phase, provider), sampling_cache_key(phase, provider)
+
+
+def _anthropic_mode_select(role: str, max_tokens: int, phase: str | None = None) -> LLM:
+    """ANTHROPIC mode: pick the best Anthropic model for this role.
+
+    Walks the live catalog, keeps entries where ``provider == "anthropic"``,
+    and scores each by its strengths map (falling back to ``general``). Ties
+    break on context size. Falls back to the built-in Claude default when no
+    Anthropic entry is present (e.g. bootstrap before the catalog builder
+    has run).
+    """
+    from app.llm_catalog import CATALOG
+    anthropic_entries = [
+        (name, dict(entry))
+        for name, entry in CATALOG.items()
+        if entry.get("provider") == "anthropic"
+    ]
+    if not anthropic_entries:
+        logger.warning("llm_factory: [ANTHROPIC] catalog has no Anthropic models, using fallback")
+        return _claude_fallback(role, max_tokens, phase=phase)
+
+    def _score(name_entry: tuple[str, dict]) -> tuple[float, int]:
+        _name, entry = name_entry
+        strengths = entry.get("strengths", {}) or {}
+        role_score = float(strengths.get(role, 0) or 0.0)
+        general = float(strengths.get("general", 0) or 0.0)
+        # Prefer role-specific strength; fall back to general.
+        primary = role_score if role_score > 0 else general
+        return (primary, int(entry.get("context") or 0))
+
+    anthropic_entries.sort(key=_score, reverse=True)
+    model_name, entry = anthropic_entries[0]
+    _set_last(model_name, entry.get("tier", "premium"))
+    logger.info(f"llm_factory: [ANTHROPIC] role={role} → {model_name}")
+    return _create_anthropic(model_name, entry, max_tokens, role, phase=phase)
 
 
 def _insane_mode_select(role: str, max_tokens: int, phase: str | None = None) -> LLM:
@@ -627,102 +775,68 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str, phase: st
     return None
 
 
-# ── Anthropic credit-exhausted failover ─────────────────────────────
+# ── Anthropic-direct LLM factory with credit-exhausted failover ─────────
 #
-# When the Anthropic-direct API returns:
-#     400 {"type":"invalid_request_error",
-#          "message":"Your credit balance is too low to access the Anthropic API..."}
-# every subsequent premium-tier call would repeat the same 400 until the user
-# tops up.  Rather than hard-fail, we transparently fail over to the same
-# Claude model served via OpenRouter (which charges the OpenRouter balance).
-#
-# State is process-global with a 1h TTL so:
-#   • We don't reprobe on every call (costly, same error)
-#   • Recovery after top-up eventually happens without a restart
-#   • All agents + background tasks converge on the same failover decision
-
-import time as _time
-
-_CREDIT_EXHAUSTED_PHRASES = (
-    "credit balance is too low",
-    "credit balance too low",
-)
-_ANTHROPIC_CREDIT_EXHAUSTED_AT: float | None = None
-_ANTHROPIC_RECOVERY_TTL_SECS = 3600  # 1 hour
-
-
-def _is_anthropic_credit_exhausted() -> bool:
-    """True if we've seen a credit-exhausted 400 recently (within TTL)."""
-    global _ANTHROPIC_CREDIT_EXHAUSTED_AT
-    t = _ANTHROPIC_CREDIT_EXHAUSTED_AT
-    if t is None:
-        return False
-    if _time.monotonic() - t > _ANTHROPIC_RECOVERY_TTL_SECS:
-        # TTL elapsed — clear the flag and let the next call probe Anthropic
-        # again.  If credits were topped up, this recovers automatically.
-        _ANTHROPIC_CREDIT_EXHAUSTED_AT = None
-        logger.info(
-            "llm_factory: Anthropic credit-exhausted flag expired (TTL %ds) "
-            "— next call will probe direct Anthropic again",
-            _ANTHROPIC_RECOVERY_TTL_SECS,
-        )
-        return False
-    return True
-
-
-def _mark_anthropic_credit_exhausted() -> None:
-    """Latch the credit-exhausted state; subsequent premium calls failover."""
-    global _ANTHROPIC_CREDIT_EXHAUSTED_AT
-    if _ANTHROPIC_CREDIT_EXHAUSTED_AT is None:
-        logger.warning(
-            "llm_factory: Anthropic credit balance exhausted — "
-            "routing ALL premium-tier Claude requests via OpenRouter "
-            "for the next %ds (will reprobe direct Anthropic after that).",
-            _ANTHROPIC_RECOVERY_TTL_SECS,
-        )
-    _ANTHROPIC_CREDIT_EXHAUSTED_AT = _time.monotonic()
+# When the Anthropic API returns
+#     400 invalid_request_error "Your credit balance is too low..."
+# we fail over to the same Claude model served via OpenRouter.  Authoritative
+# state lives in circuit_breaker["anthropic_credits"] (threshold 1, 3600s
+# cooldown) — tripping is idempotent and visible to every LLM factory in the
+# process; auto-recovery happens when the breaker transitions to HALF_OPEN
+# and the next Anthropic probe succeeds.  No monkey-patching, no global
+# mutable flags: just a typed subclass (CreditAwareAnthropicCompletion) and
+# the existing circuit-breaker infrastructure.
 
 
 def _anthropic_to_openrouter_model_id(anthropic_model_id: str) -> str:
     """Translate an Anthropic-SDK model id (dashes in version) into the
-    OpenRouter model id (dots in version, 'openrouter/' prefix).
+    OpenRouter equivalent.
 
     AA/Anthropic emits  : anthropic/claude-sonnet-4-6
     OpenRouter expects  : openrouter/anthropic/claude-sonnet-4.6
     """
-    # Strip 'anthropic/' prefix if present, then convert version dashes→dots
+    import re as _re
     slug = anthropic_model_id
     if slug.startswith("anthropic/"):
         slug = slug[len("anthropic/"):]
-    # Anthropic slug pattern: claude-<family>-<major>-<minor>
-    # Find the LAST two '-<digit>' groups and convert to '.<digit>'
-    import re as _re
-    # claude-sonnet-4-6 → claude-sonnet-4.6
-    # claude-opus-4-5 → claude-opus-4.5
+    # Claude slug pattern: claude-<family>-<major>-<minor>.  Restore the
+    # single "-<major>-<minor>" tail to dots so it matches OpenRouter's
+    # naming.  e.g. claude-sonnet-4-6 → claude-sonnet-4.6
     slug = _re.sub(r"-(\d+)-(\d+)$", r"-\1.\2", slug)
     return f"openrouter/anthropic/{slug}"
 
 
 def _build_claude_via_openrouter(
     model_name: str,
-    entry: dict,
+    model_id: str,
     max_tokens: int,
+    *,
     role: str,
-    phase: str | None = None,
-) -> LLM:
-    """Build a Claude LLM backed by OpenRouter (uses OR credits, not Anthropic)."""
+    phase: str | None,
+    tier: str = "premium",
+    cost_out: float = 15.0,
+) -> "LLM":
+    """Build a Claude LLM routed through OpenRouter.
+
+    Used in two places:
+      * Direct substitute when the anthropic_credits breaker is OPEN
+      * Lazy fallback target built by CreditAwareAnthropicCompletion
+        on the first mid-call 400 we see
+    """
     from app.config import get_openrouter_api_key
     or_key = get_openrouter_api_key()
     if not or_key:
         raise RuntimeError(
-            "Anthropic credit exhausted AND OpenRouter key missing — "
-            "cannot failover Claude. Add credits or set OPENROUTER_API_KEY."
+            "Anthropic credits exhausted AND OPENROUTER_API_KEY is unset — "
+            "cannot serve Claude requests. Top up Anthropic or set "
+            "OPENROUTER_API_KEY to enable the failover route."
         )
-    or_model_id = _anthropic_to_openrouter_model_id(entry["model_id"])
-    _set_last(f"{model_name} (via OpenRouter)", entry["tier"])
+    or_model_id = _anthropic_to_openrouter_model_id(model_id)
+    _set_last(f"{model_name} (via OpenRouter)", tier)
     logger.info(
-        "llm_factory: role=%s → OPENROUTER %s (credit failover, ~$%.2f/Mo)",
-        role, or_model_id, entry.get("cost_output_per_m", 0),
+        "llm_factory: role=%s → OPENROUTER %s (~$%.2f/Mo; anthropic_credits breaker=%s)",
+        role, or_model_id, cost_out,
+        circuit_breaker.get_breaker("anthropic_credits").state,
     )
     extra, sample_key = _sampling(phase, "openrouter")
     return _cached_llm(
@@ -731,118 +845,141 @@ def _build_claude_via_openrouter(
     )
 
 
-class _CreditFailoverLLM:
-    """Thin wrapper around a direct-Anthropic LLM.
+def _build_claude_llm(
+    model_name: str,
+    model_id: str,
+    max_tokens: int,
+    *,
+    role: str,
+    phase: str | None = None,
+    tier: str = "premium",
+    cost_out: float = 15.0,
+) -> "LLM":
+    """The single, elegant Claude factory for this module.
 
-    Delegates every call to the wrapped LLM.  If any call raises with
-    "credit balance too low", we latch the global flag, lazily build an
-    OpenRouter-backed equivalent, and transparently retry the call
-    through it.  All subsequent calls on THIS instance go straight to
-    the OpenRouter LLM.  (Newly-created instances skip the direct call
-    entirely once the global flag is set — see _create_anthropic.)
+    Routing rule:
+      * ``circuit_breaker["anthropic_credits"]`` OPEN
+          → direct Anthropic is known-unavailable; build via OpenRouter now.
+      * else
+          → build a CreditAwareAnthropicCompletion (proper BaseLLM subclass,
+            passes Agent Pydantic validation) with an injected fallback
+            factory.  If the first call fails with credit-exhausted the
+            subclass trips the breaker, builds the OR equivalent, and
+            retries transparently.  All subsequent calls on that instance
+            use the OR path directly.
+
+    This is the only entry point for Anthropic-direct LLM construction
+    in this module.  Every caller (``_create_anthropic``,
+    ``_claude_fallback``, ``create_commander_llm``, ``create_vetting_llm``,
+    ``create_cheap_vetting_llm``) funnels through here so the failover
+    policy is applied uniformly.
     """
-    __slots__ = ("_direct", "_or_factory", "_or_llm")
+    # Lazy import: CreditAwareAnthropicCompletion depends on crewai.LLM
+    # which we defer per the module's cold-boot discipline (see
+    # `_get_LLM_class`).  Putting the import here keeps the llm_factory
+    # import graph flat.
+    from app.llms.credit_aware_anthropic import CreditAwareAnthropicCompletion
 
-    def __init__(self, direct_llm, or_factory):
-        self._direct = direct_llm
-        self._or_factory = or_factory
-        self._or_llm = None
-
-    def _maybe_failover(self, exc: BaseException) -> bool:
-        msg = str(exc).lower()
-        if any(p in msg for p in _CREDIT_EXHAUSTED_PHRASES):
-            _mark_anthropic_credit_exhausted()
-            self._or_llm = self._or_factory()
-            return True
-        return False
-
-    def call(self, *args, **kwargs):
-        if self._or_llm is not None:
-            return self._or_llm.call(*args, **kwargs)
-        try:
-            return self._direct.call(*args, **kwargs)
-        except Exception as exc:
-            if self._maybe_failover(exc):
-                logger.warning(
-                    "llm_factory: failing over mid-call to OpenRouter Claude "
-                    "(Anthropic credit exhausted)"
-                )
-                return self._or_llm.call(*args, **kwargs)
-            raise
-
-    def __getattr__(self, name: str):
-        # Delegate everything else to the active LLM.  CrewAI / LiteLLM
-        # sometimes poke at attributes other than .call() (.model,
-        # .max_tokens, .stop_sequences, stream helpers, etc.); we must
-        # transparently proxy those.
-        active = self._or_llm if self._or_llm is not None else self._direct
-        return getattr(active, name)
-
-
-def _create_anthropic(model_name: str, entry: dict, max_tokens: int, role: str, phase: str | None = None) -> LLM:
-    # Q7: thread-local last model/tier tracking
-    _set_last(model_name, entry["tier"])
-
-    # Credit-exhausted latch: if we've already seen the 400 in this process,
-    # skip Anthropic direct and go straight to OpenRouter.  Saves a guaranteed
-    # 400-response round-trip per premium call until credits are topped up.
-    if _is_anthropic_credit_exhausted():
-        logger.info(
-            "llm_factory: role=%s → skipping direct Anthropic (credit-exhausted latch set), "
-            "routing to OpenRouter", role,
-        )
-        return _build_claude_via_openrouter(model_name, entry, max_tokens, role, phase)
-
-    logger.info(f"llm_factory: role={role} → ANTHROPIC {model_name} (${entry['cost_output_per_m']:.2f}/Mo)")
-    extra, key = _sampling(phase, "anthropic")
-    direct = _cached_llm(entry["model_id"], max_tokens=max_tokens,
-                         sampling_key=key, api_key=get_anthropic_api_key(), **extra)
-
-    # Wrap so a mid-call 400 credit-exhausted triggers transparent failover.
-    def _or_factory():
-        return _build_claude_via_openrouter(model_name, entry, max_tokens, role, phase)
-    return _CreditFailoverLLM(direct, _or_factory)
-
-
-def _claude_fallback(role: str, max_tokens: int, phase: str | None = None) -> LLM:
-    """Final fallback: Claude Sonnet if Anthropic is available, else best OpenRouter model."""
-    from app.config import get_openrouter_api_key
-    anthropic_key = get_anthropic_api_key()
-
-    # Honor the credit-exhausted latch here too.  Without this, the "fallback"
-    # path just repeats the same 400.
-    if anthropic_key and not _is_anthropic_credit_exhausted():
-        _set_last("claude-sonnet-4.6", "premium")
-        logger.info(f"llm_factory: role={role} → FALLBACK Claude Sonnet 4.6 (direct Anthropic)")
-        extra, key = _sampling(phase, "anthropic")
-        direct = _cached_llm("anthropic/claude-sonnet-4-6", max_tokens=max_tokens,
-                             sampling_key=key, api_key=anthropic_key, **extra)
-        # Same credit-failover wrapper as _create_anthropic.
-        _synthetic_entry = {"model_id": "anthropic/claude-sonnet-4-6",
-                            "tier": "premium",
-                            "cost_output_per_m": 15.0}
-        def _or_factory():
-            return _build_claude_via_openrouter(
-                "claude-sonnet-4.6", _synthetic_entry, max_tokens, role, phase,
-            )
-        return _CreditFailoverLLM(direct, _or_factory)
-
-    # Path A: Anthropic credit-exhausted but we have OpenRouter → use Claude via OR.
-    if _is_anthropic_credit_exhausted() and get_openrouter_api_key():
-        _synthetic_entry = {"model_id": "anthropic/claude-sonnet-4-6",
-                            "tier": "premium",
-                            "cost_output_per_m": 15.0}
-        logger.info(f"llm_factory: role={role} → FALLBACK Claude Sonnet 4.6 via OpenRouter (credit-exhausted)")
+    def _or_fallback():
         return _build_claude_via_openrouter(
-            "claude-sonnet-4.6", _synthetic_entry, max_tokens, role, phase,
+            model_name, model_id, max_tokens,
+            role=role, phase=phase, tier=tier, cost_out=cost_out,
         )
 
-    # Path B: No Anthropic key at all — use a non-Claude OpenRouter model.
+    if not circuit_breaker.is_available("anthropic_credits"):
+        logger.info(
+            "llm_factory: role=%s → OpenRouter Claude (anthropic_credits "
+            "breaker OPEN, %0.0fs to reprobe)",
+            role,
+            circuit_breaker.get_breaker("anthropic_credits").seconds_until_half_open(),
+        )
+        return _or_fallback()
+
+    _set_last(model_name, tier)
+    logger.info(
+        "llm_factory: role=%s → ANTHROPIC %s ($%.2f/Mo) + credit-aware failover",
+        role, model_name, cost_out,
+    )
+    extra, sample_key = _sampling(phase, "anthropic")
+
+    # Go through _cached_llm with a CreditAware builder — entries get
+    # keyed as (builder=CreditAware, model_id, max_tokens, ...) so they
+    # don't collide with default crewai.LLM entries for the same model.
+    # Cache-safe because the subclass consults the credit breaker on
+    # every call (no sticky per-instance failover state that would
+    # break auto-recovery after a shared cached hand-off).
+    def _credit_aware_builder(mid: str, mt: int, **kw) -> CreditAwareAnthropicCompletion:
+        llm = CreditAwareAnthropicCompletion(model=mid, max_tokens=mt, **kw)
+        return llm.set_fallback_factory(_or_fallback)
+
+    return _cached_llm(
+        model_id, max_tokens,
+        sampling_key=sample_key,
+        llm_builder=_credit_aware_builder,
+        api_key=get_anthropic_api_key(),
+        **extra,
+    )
+
+
+def _create_anthropic(
+    model_name: str,
+    entry: dict,
+    max_tokens: int,
+    role: str,
+    phase: str | None = None,
+) -> "LLM":
+    """Build a specialist-tier Anthropic LLM with credit-aware failover."""
+    return _build_claude_llm(
+        model_name, entry["model_id"], max_tokens,
+        role=role, phase=phase,
+        tier=entry.get("tier", "premium"),
+        cost_out=entry.get("cost_output_per_m", 15.0),
+    )
+
+
+def _claude_fallback(
+    role: str,
+    max_tokens: int,
+    phase: str | None = None,
+) -> "LLM":
+    """Final fallback: Claude Sonnet if Anthropic is reachable (including via
+    OpenRouter), else DeepSeek via OpenRouter as the survival bootstrap.
+    """
+    from app.config import get_openrouter_api_key
+
+    anthropic_key = get_anthropic_api_key()
+    or_key = get_openrouter_api_key()
+
+    # Preferred: Claude (direct or via OR — the subclass picks the right
+    # path based on the breaker state).
+    if anthropic_key or (or_key and not circuit_breaker.is_available("anthropic_credits")):
+        return _build_claude_llm(
+            "claude-sonnet-4.6", "anthropic/claude-sonnet-4-6", max_tokens,
+            role=role, phase=phase, tier="premium", cost_out=15.0,
+        )
+    # If OR has Claude-capable routing but we have no Anthropic key, still
+    # go through the Claude factory so the breaker logic applies.
+    if or_key:
+        return _build_claude_llm(
+            "claude-sonnet-4.6", "anthropic/claude-sonnet-4-6", max_tokens,
+            role=role, phase=phase, tier="premium", cost_out=15.0,
+        )
+
+    # Survival bootstrap: no Anthropic key and no OpenRouter key?
+    # Something is misconfigured.  Emit a non-Claude model that might
+    # work if any OR shadow key is configured elsewhere.
     _set_last("deepseek-v3.2", "budget")
-    logger.warning(f"llm_factory: role={role} → FALLBACK deepseek-v3.2 (no premium option available)")
+    logger.warning(
+        "llm_factory: role=%s → FALLBACK deepseek-v3.2 "
+        "(no Claude option available: both ANTHROPIC_API_KEY and "
+        "OPENROUTER_API_KEY are unset).", role,
+    )
     extra, key = _sampling(phase, "openrouter")
-    return _cached_llm("openrouter/deepseek/deepseek-chat", max_tokens=max_tokens,
-                       sampling_key=key, api_key=get_openrouter_api_key(), **extra)
+    return _cached_llm(
+        "openrouter/deepseek/deepseek-chat",
+        max_tokens=max_tokens, sampling_key=key,
+        base_url="https://openrouter.ai/api/v1", api_key=or_key, **extra,
+    )
 
 
 # ── Provider health check for graceful degradation ──────────────────────────

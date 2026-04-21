@@ -51,6 +51,9 @@ export const endpoints = {
   // Tech radar
   techRadar: (limit = 20) => `${CP}/tech-radar?limit=${limit}`,
 
+  // LLM runtime mode (lives on /config, not /api/cp)
+  llmMode: () => '/config/llm_mode',
+
   // LLMs
   llmCatalog: () => `${CP}/llms/catalog`,
   llmRoles: () => `${CP}/llms/roles`,

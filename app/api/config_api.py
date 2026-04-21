@@ -42,18 +42,28 @@ def verify_gateway_secret(request: Request) -> bool:
     return hmac.compare_digest(token, get_gateway_secret())
 
 
+@router.get("/llm_mode")
+async def get_llm_mode_endpoint():
+    """Return the current LLM mode + the list of accepted values."""
+    from app.llm_mode import get_mode, VALID_MODES
+    return {"mode": get_mode(), "valid_modes": list(VALID_MODES)}
+
+
 @router.post("/llm_mode")
 async def set_llm_mode_endpoint(request: Request):
-    """Switch LLM mode (local/cloud/hybrid/insane)."""
+    """Switch LLM mode. See app.llm_mode for semantics."""
     if not verify_gateway_secret(request):
         raise HTTPException(status_code=401, detail="Unauthorized")
     if not _config_rate_check():
         raise HTTPException(status_code=429, detail="Too many config changes. Try again later.")
     payload = await request.json()
     mode = payload.get("mode", "").strip().lower()
-    if mode not in ("local", "cloud", "hybrid", "insane"):
-        raise HTTPException(status_code=400, detail="Invalid mode. Use: local, cloud, hybrid, insane")
-    from app.llm_mode import set_mode
+    from app.llm_mode import VALID_MODES, set_mode
+    if mode not in VALID_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode. Use one of: {', '.join(VALID_MODES)}",
+        )
     from app.firebase_reporter import report_llm_mode
     set_mode(mode)
     report_llm_mode(mode)

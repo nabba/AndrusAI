@@ -52,6 +52,7 @@ export const keys = {
   anomalies: (limit: number) => ['anomalies', limit] as const,
   deploys: (limit: number) => ['deploys', limit] as const,
   techRadar: (limit: number) => ['tech-radar', limit] as const,
+  llmMode: ['llms', 'mode'] as const,
   llmCatalog: ['llms', 'catalog'] as const,
   llmRoles: ['llms', 'roles'] as const,
   llmDiscovery: (limit: number) => ['llms', 'discovery', limit] as const,
@@ -691,6 +692,37 @@ export interface LlmDiscoveryReport {
   discovered: DiscoveredModel[];
   updated_at: string;
   error?: string | null;
+}
+
+// ── LLM runtime mode ────────────────────────────────────────────────────────
+export type LlmMode = 'local' | 'free' | 'cloud' | 'hybrid' | 'insane' | 'anthropic';
+
+export interface LlmModeReport {
+  mode: LlmMode;
+  valid_modes: LlmMode[];
+}
+
+export function useLlmModeQuery() {
+  return useQuery({
+    queryKey: keys.llmMode,
+    queryFn: () => api<LlmModeReport>(endpoints.llmMode()),
+    refetchInterval: POLL.slow,
+  });
+}
+
+export function useSetLlmMode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (mode: LlmMode) =>
+      api<{ status: string; mode: LlmMode }>(endpoints.llmMode(), {
+        method: 'POST',
+        body: JSON.stringify({ mode }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.llmMode });
+      qc.invalidateQueries({ queryKey: keys.llmCatalog });
+    },
+  });
 }
 
 export function useLlmCatalogQuery() {
