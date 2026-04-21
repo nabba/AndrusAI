@@ -24,31 +24,6 @@
     },
     "tool_use_reliability": 0.9
   },
-  "claude-4.5-haiku": {
-    "tier": "mid",
-    "provider": "anthropic",
-    "model_id": "anthropic/claude-4-5-haiku",
-    "context": 1000000,
-    "multimodal": true,
-    "cost_input_per_m": 1.0,
-    "cost_output_per_m": 5.0,
-    "supports_tools": true,
-    "description": "Claude 4.5 Haiku (Reasoning)",
-    "_auto": true,
-    "_source": "aa_anthropic",
-    "strengths": {
-      "coding": 0.615,
-      "debugging": 0.584,
-      "architecture": 0.564,
-      "research": 0.53,
-      "writing": 0.503,
-      "reasoning": 0.761,
-      "multimodal": 1.0,
-      "vetting": 0.561,
-      "general": 0.53
-    },
-    "tool_use_reliability": 0.82
-  },
   "claude-opus-4.6": {
     "tier": "premium",
     "provider": "anthropic",
@@ -98,6 +73,31 @@
       "general": 0.819
     },
     "tool_use_reliability": 0.9
+  },
+  "claude-4.5-haiku": {
+    "tier": "mid",
+    "provider": "anthropic",
+    "model_id": "anthropic/claude-4-5-haiku",
+    "context": 1000000,
+    "multimodal": true,
+    "cost_input_per_m": 1.0,
+    "cost_output_per_m": 5.0,
+    "supports_tools": true,
+    "description": "Claude 4.5 Haiku (Reasoning)",
+    "_auto": true,
+    "_source": "aa_anthropic",
+    "strengths": {
+      "coding": 0.615,
+      "debugging": 0.584,
+      "architecture": 0.564,
+      "research": 0.53,
+      "writing": 0.503,
+      "reasoning": 0.761,
+      "multimodal": 1.0,
+      "vetting": 0.561,
+      "general": 0.53
+    },
+    "tool_use_reliability": 0.82
   },
   "claude-35-sonnet": {
     "tier": "premium",
@@ -274,28 +274,78 @@
     },
     "tool_use_reliability": 0.6
   },
-  "claude-3.7-sonnet": {
+  "claude-opus-4.5": {
     "tier": "premium",
     "provider": "anthropic",
-    "model_id": "anthropic/claude-3-7-sonnet",
+    "model_id": "anthropic/claude-opus-4-5",
+    "context": 1000000,
+    "multimodal": true,
+    "cost_input_per_m": 5.0,
+    "cost_output_per_m": 25.0,
+    "supports_tools": true,
+    "description": "Claude Opus 4.5 (Reasoning)",
+    "_auto": true,
+    "_source": "aa_anthropic",
+    "strengths": {
+      "coding": 0.871,
+      "debugging": 0.827,
+      "architecture": 0.774,
+      "research": 0.71,
+      "writing": 0.674,
+      "reasoning": 0.873,
+      "multimodal": 1.0,
+      "vetting": 0.715,
+      "general": 0.71
+    },
+    "tool_use_reliability": 0.9
+  },
+  "claude-4-opus": {
+    "tier": "premium",
+    "provider": "anthropic",
+    "model_id": "anthropic/claude-4-opus",
+    "context": 1000000,
+    "multimodal": true,
+    "cost_input_per_m": 15.0,
+    "cost_output_per_m": 75.0,
+    "supports_tools": true,
+    "description": "Claude 4 Opus (Reasoning)",
+    "_auto": true,
+    "_source": "aa_anthropic",
+    "strengths": {
+      "coding": 0.636,
+      "debugging": 0.604,
+      "architecture": 0.589,
+      "research": 0.557,
+      "writing": 0.529,
+      "reasoning": 0.806,
+      "multimodal": 1.0,
+      "vetting": 0.601,
+      "general": 0.557
+    },
+    "tool_use_reliability": 0.9
+  },
+  "claude-4.5-sonnet": {
+    "tier": "premium",
+    "provider": "anthropic",
+    "model_id": "anthropic/claude-4-5-sonnet",
     "context": 1000000,
     "multimodal": true,
     "cost_input_per_m": 3.0,
     "cost_output_per_m": 15.0,
     "supports_tools": true,
-    "description": "Claude 3.7 Sonnet (Reasoning)",
+    "description": "Claude 4.5 Sonnet (Reasoning)",
     "_auto": true,
     "_source": "aa_anthropic",
     "strengths": {
-      "coding": 0.473,
-      "debugging": 0.449,
-      "architecture": 0.487,
-      "research": 0.496,
-      "writing": 0.471,
-      "reasoning": 0.702,
+      "coding": 0.714,
+      "debugging": 0.678,
+      "architecture": 0.654,
+      "research": 0.614,
+      "writing": 0.584,
+      "reasoning": 0.834,
       "multimodal": 1.0,
-      "vetting": 0.548,
-      "general": 0.496
+      "vetting": 0.65,
+      "general": 0.614
     },
     "tool_use_reliability": 0.9
   },
@@ -349,78 +399,28 @@
     },
     "tool_use_reliability": 0.9
   },
-  "claude-4.5-sonnet": {
+  "claude-3.7-sonnet": {
     "tier": "premium",
     "provider": "anthropic",
-    "model_id": "anthropic/claude-4-5-sonnet",
+    "model_id": "anthropic/claude-3-7-sonnet",
     "context": 1000000,
     "multimodal": true,
     "cost_input_per_m": 3.0,
     "cost_output_per_m": 15.0,
     "supports_tools": true,
-    "description": "Claude 4.5 Sonnet (Reasoning)",
+    "description": "Claude 3.7 Sonnet (Reasoning)",
     "_auto": true,
     "_source": "aa_anthropic",
     "strengths": {
-      "coding": 0.714,
-      "debugging": 0.678,
-      "architecture": 0.654,
-      "research": 0.614,
-      "writing": 0.584,
-      "reasoning": 0.834,
+      "coding": 0.473,
+      "debugging": 0.449,
+      "architecture": 0.487,
+      "research": 0.496,
+      "writing": 0.471,
+      "reasoning": 0.702,
       "multimodal": 1.0,
-      "vetting": 0.65,
-      "general": 0.614
-    },
-    "tool_use_reliability": 0.9
-  },
-  "claude-opus-4.5": {
-    "tier": "premium",
-    "provider": "anthropic",
-    "model_id": "anthropic/claude-opus-4-5",
-    "context": 1000000,
-    "multimodal": true,
-    "cost_input_per_m": 5.0,
-    "cost_output_per_m": 25.0,
-    "supports_tools": true,
-    "description": "Claude Opus 4.5 (Reasoning)",
-    "_auto": true,
-    "_source": "aa_anthropic",
-    "strengths": {
-      "coding": 0.871,
-      "debugging": 0.827,
-      "architecture": 0.774,
-      "research": 0.71,
-      "writing": 0.674,
-      "reasoning": 0.873,
-      "multimodal": 1.0,
-      "vetting": 0.715,
-      "general": 0.71
-    },
-    "tool_use_reliability": 0.9
-  },
-  "claude-4-opus": {
-    "tier": "premium",
-    "provider": "anthropic",
-    "model_id": "anthropic/claude-4-opus",
-    "context": 1000000,
-    "multimodal": true,
-    "cost_input_per_m": 15.0,
-    "cost_output_per_m": 75.0,
-    "supports_tools": true,
-    "description": "Claude 4 Opus (Reasoning)",
-    "_auto": true,
-    "_source": "aa_anthropic",
-    "strengths": {
-      "coding": 0.636,
-      "debugging": 0.604,
-      "architecture": 0.589,
-      "research": 0.557,
-      "writing": 0.529,
-      "reasoning": 0.806,
-      "multimodal": 1.0,
-      "vetting": 0.601,
-      "general": 0.557
+      "vetting": 0.548,
+      "general": 0.496
     },
     "tool_use_reliability": 0.9
   },
@@ -474,28 +474,53 @@
     },
     "tool_use_reliability": 0.6
   },
+  "ling-2.6-flash:free": {
+    "tier": "free",
+    "provider": "openrouter",
+    "model_id": "openrouter/inclusionai/ling-2.6-flash:free",
+    "context": 262144,
+    "multimodal": false,
+    "cost_input_per_m": 0.0,
+    "cost_output_per_m": 0.0,
+    "supports_tools": true,
+    "description": "inclusionAI: Ling-2.6-flash (free)",
+    "_auto": true,
+    "_source": "openrouter",
+    "strengths": {
+      "coding": 0.527,
+      "debugging": 0.527,
+      "architecture": 0.527,
+      "research": 0.527,
+      "writing": 0.527,
+      "reasoning": 0.527,
+      "vetting": 0.527,
+      "general": 0.527,
+      "multimodal": 0.0
+    },
+    "tool_use_reliability": 0.6
+  },
   "kimi-k2.6": {
     "tier": "mid",
     "provider": "openrouter",
     "model_id": "openrouter/moonshotai/kimi-k2.6",
     "context": 262144,
     "multimodal": true,
-    "cost_input_per_m": 0.95,
-    "cost_output_per_m": 4.0,
+    "cost_input_per_m": 0.6,
+    "cost_output_per_m": 2.8,
     "supports_tools": true,
     "description": "MoonshotAI: Kimi K2.6",
     "_auto": true,
-    "_source": "openrouter",
+    "_source": "openrouter+aa",
     "strengths": {
-      "coding": 0.646,
-      "debugging": 0.646,
-      "architecture": 0.646,
-      "research": 0.646,
-      "writing": 0.646,
-      "reasoning": 0.646,
-      "vetting": 0.646,
-      "general": 0.646,
-      "multimodal": 1.0
+      "coding": 0.673,
+      "debugging": 0.639,
+      "architecture": 0.731,
+      "research": 0.77,
+      "writing": 0.731,
+      "reasoning": 0.841,
+      "multimodal": 1.0,
+      "vetting": 0.796,
+      "general": 0.77
     },
     "tool_use_reliability": 0.82
   },
@@ -605,7 +630,7 @@
     "model_id": "openrouter/google/gemma-4-26b-a4b-it",
     "context": 262144,
     "multimodal": true,
-    "cost_input_per_m": 0.08,
+    "cost_input_per_m": 0.07,
     "cost_output_per_m": 0.35,
     "supports_tools": true,
     "description": "Google: Gemma 4 26B A4B ",
@@ -1675,13 +1700,13 @@
     "tool_use_reliability": 0.82
   },
   "glm-5": {
-    "tier": "budget",
+    "tier": "mid",
     "provider": "openrouter",
     "model_id": "openrouter/z-ai/glm-5",
     "context": 202752,
     "multimodal": false,
-    "cost_input_per_m": 0.7,
-    "cost_output_per_m": 0.14,
+    "cost_input_per_m": 0.65,
+    "cost_output_per_m": 2.08,
     "supports_tools": true,
     "description": "Z.ai: GLM 5",
     "_auto": true,
@@ -1697,7 +1722,7 @@
       "vetting": 0.735,
       "general": 0.711
     },
-    "tool_use_reliability": 0.76
+    "tool_use_reliability": 0.82
   },
   "qwen3-max-thinking": {
     "tier": "mid",
@@ -9023,5 +9048,5 @@
     },
     "tool_use_reliability": 0.65
   },
-  "_fetched_at": "2026-04-20T17:57:59.312417+00:00"
+  "_fetched_at": "2026-04-21T18:46:30.271510+00:00"
 }

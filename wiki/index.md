@@ -2,17 +2,17 @@
 sections:
   archibal: 0
   kaicart: 0
-  meta: 22
+  meta: 25
   philosophy: 0
   plg: 0
   self: 0
 title: AndrusAI Wiki — Master Index
-total_pages: 22
-updated_at: '2026-04-21T16:22:03Z'
+total_pages: 25
+updated_at: '2026-04-21T19:55:16Z'
 ---
 # AndrusAI Knowledge Wiki — Master Index
 
-Total pages: 22 | Last updated: 2026-04-21
+Total pages: 25 | Last updated: 2026-04-21
 
 ## Meta (Cross-Venture)
 - [[meta/1-topic-55570dd0]] — **1. Topic**
@@ -26,6 +26,9 @@ Total pages: 22 | Last updated: 2026-04-21
 - [[meta/estonian-document-translation-pipeline-eb7934f9]] — estonian_document_translation_pipeline
 - [[meta/estonian-environmental-movement-nomenclature-analysis-000db5e6]] — Estonian environmental movement nomenclature analysis
 - [[meta/estonian-environmental-policy-research-framework-7bae0331]] — Estonian environmental policy research framework
+- [[meta/estonian-forest-protection-movement-analysis-5fccee21]] — Estonian forest protection movement analysis
+- [[meta/estonian-forestry-statistical-data-sourcing-f13dd107]] — Estonian forestry statistical data sourcing
+- [[meta/estonian-pdf-white-paper-analysis-bfe54d6a]] — Estonian PDF white paper analysis
 - [[meta/estonian-policy-document-critique-15141d9e]] — Estonian policy document critique
 - [[meta/learning-queue]] — Learning Queue
 - [[meta/llm-capability-detection]] — Models known to NOT support tool calling (as of 2026)

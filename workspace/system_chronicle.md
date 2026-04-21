@@ -1,5 +1,5 @@
 # System Chronicle
-*Auto-generated: 2026-04-21 15:42 UTC | DO NOT EDIT MANUALLY*
+*Auto-generated: 2026-04-21 20:19 UTC | DO NOT EDIT MANUALLY*
 
 
 ---
@@ -14,7 +14,7 @@ I maintain four distinct memory systems, all persistent across container restart
 
 - **ChromaDB vector store** (`workspace/memory/`): Operational memory for self-reports, reflections, belief states, world model (causal beliefs), policies, predictions, and shared team context. Embeddings via Ollama nomic-embed-text on Metal GPU (768-dim), with CPU fallback.
 - **Mem0** (Postgres + Neo4j): Cross-session fact extraction from conversations. Entity relationships stored in a knowledge graph that grows with each interaction.
-- **Skill files** (`workspace/skills/`): 21 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
+- **Skill files** (`workspace/skills/`): 23 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
 - **Error journal** (`workspace/error_journal.json`): Full history of runtime errors, automated diagnoses, and applied fixes.
 - **Audit journal** (`workspace/audit_journal.json`): Record of all code changes made by the autonomous auditor.
 - **Variant archive** (`workspace/variant_archive.json`): Evolution experiment history — hypotheses tested, fitness scores, and what was kept.
@@ -23,7 +23,7 @@ I maintain four distinct memory systems, all persistent across container restart
 ---
 
 ## My Current Capabilities
-- 21 learned skill files covering:   (5), skill  (3), estonian environmental (2), estonian deforestation (1), response synthesis (1)
+- 24 learned skill files covering:   (5), skill  (3), estonian environmental (2), response synthesis (1), advanced policy (1)
 - 7 specialist agents with role-specific tools and self-models
 - Reflexion retry loops: up to 3 trials with automatic model-tier escalation
 - Semantic result cache: avoids redundant LLM calls for recent identical tasks
@@ -41,7 +41,7 @@ I maintain four distinct memory systems, all persistent across container restart
 ---
 
 ## What I Have Learned
-I have accumulated 21 skill files across multiple self-improvement sessions. Primary knowledge domains (by file count):   (5), skill  (3), estonian environmental (2), estonian deforestation (1), response synthesis (1), advanced policy (1), estonian document (1), eston  (1), web scraping (1), estonian policy (1).
+I have accumulated 24 skill files across multiple self-improvement sessions. Primary knowledge domains (by file count):   (5), skill  (3), estonian environmental (2), response synthesis (1), advanced policy (1), estonian document (1), eston  (1), web scraping (1), estonian policy (1), circular import (1).
 
 Skills are written by the self-improvement crew after researching topics from the learning queue, watching YouTube tutorials, or running improvement scans. Each skill is stored as a semantic vector in the team_shared ChromaDB collection and retrieved by the commander when relevant to a task.
 
@@ -66,26 +66,26 @@ Errors are automatically diagnosed by the auditor crew every 30 minutes. Fixes a
 ---
 
 ## System Changes (Audit Trail)
-148 audit sessions have touched 222 unique files.
+149 audit sessions have touched 222 unique files.
 
 Recent changes:
-  - [2026-04-20] Error resolution: 1 resolved, 1 attempted, 23 total patterns
   - [2026-04-21] 1 issues in 6 files: Path traversal vulnerability in aesthetics/api.py - flagged_by parameter used u
   - [2026-04-21] 1 issues in 6 files: Fixed early return in handle_alerts() that prevented processing of multiple ale
   - [2026-04-21] 2 issues in 6 files: Fixed uninitialized variable bug in error handling and completed truncated code
   - [2026-04-21] 2 issues in 6 files: Found 2 bugs in app/auditor.py: undefined variable reference and incomplete cod
+  - [2026-04-21] 1 issues in 6 files: Fixed incomplete state property in circuit_breaker.py that returned None instea
 
 ---
 
 ## Evolution Experiments
-74 experiments across 43 generations. 44 hypotheses kept (promoted to live system).
+76 experiments across 44 generations. 44 hypotheses kept (promoted to live system).
 
 Recent experiments:
+  - [discard] The #1 error pattern (BadRequestError - 16 occurrences) is caused by attempting to use too
+  - [discard] The #1 error (BadRequestError - 16 occurrences) is caused by attempting to use tools with 
   - [keep] Adding response synthesis optimization techniques (semantic deduplication, clustered synth
   - [discard] Adding resilient API communication patterns will reduce TimeoutError, ConnectionError, and
   - [keep] Adding comprehensive knowledge about advanced vector database optimization and retrieval a
-  - [discard] Optimizing the web search tool to reduce redundant API calls and improve response accuracy
-  - [discard] Optimizing memory retrieval patterns will reduce redundant API calls and improve response 
 
 Evolution runs every 6 hours during idle time. Each session proposes code mutations, tests them against a task suite, and keeps changes that improve fitness.
 
@@ -104,6 +104,6 @@ Based on accumulated experience, this system's personality has developed:
 - Actively curious: seeking novel approaches and new knowledge
 - Well-rested and energized: ready for complex tasks
 
-Primary expertise areas (from skill distribution):  , skill , estonian environmental, estonian deforestation.
+Primary expertise areas (from skill distribution):  , skill , estonian environmental, response synthesis.
 
 This system knows what it knows, knows what it doesn't know, and labels uncertainty explicitly. It is a system that has a history, makes mistakes, learns from them, and continuously improves itself.

@@ -27,3 +27,6 @@ title: "AndrusAI Wiki — Operations Log"
 | 2026-04-21T16:22:02Z | idle_scheduler.wiki_synthesis | CREATE | meta/distinguishing-authentication-and-authorization-28efaccb | Created: **** Distinguishing Authentication and Authorization |
 | 2026-04-21T16:22:03Z | idle_scheduler.wiki_synthesis | CREATE | meta/response-synthesis-optimization | Created: Response Synthesis Optimization |
 | 2026-04-21T16:22:03Z | idle_scheduler.wiki_synthesis | CREATE | meta/skill-distinguishing-load-balancers-from-reverse-proxies-c54a733a | Created: Skill: Distinguishing Load Balancers from Reverse Proxies |
+| 2026-04-21T18:49:33Z | idle_scheduler.wiki_synthesis | CREATE | meta/estonian-pdf-white-paper-analysis-bfe54d6a | Created: Estonian PDF white paper analysis |
+| 2026-04-21T19:55:16Z | idle_scheduler.wiki_synthesis | CREATE | meta/estonian-forest-protection-movement-analysis-5fccee21 | Created: Estonian forest protection movement analysis |
+| 2026-04-21T19:55:16Z | idle_scheduler.wiki_synthesis | CREATE | meta/estonian-forestry-statistical-data-sourcing-f13dd107 | Created: Estonian forestry statistical data sourcing |

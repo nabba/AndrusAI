@@ -1258,5 +1258,39 @@
     "mutation_summary": "Skill kept (delta=+0.0030, tests=2/2)",
     "timestamp": "2026-04-21T15:24:39.956682+00:00",
     "generation": 43
+  },
+  {
+    "id": "exp_202604211638_00bb",
+    "parent_id": "exp_202604211519_fb68",
+    "hypothesis": "The #1 error (BadRequestError - 16 occurrences) is caused by attempting to use tools with models that don't support them (codestral:22b). Adding a model capability detection layer before tool usage will prevent these errors by dynamically checking if the selected model supports the requested features.",
+    "change_type": "code",
+    "fitness_before": 0.803167,
+    "fitness_after": 0.803167,
+    "delta": 0.0,
+    "test_pass_rate": 0.0,
+    "status": "discard",
+    "files_changed": [
+      "app/llm/base.py"
+    ],
+    "mutation_summary": "No improvement (delta=+0.0000), reverted",
+    "timestamp": "2026-04-21T16:38:32.547207+00:00",
+    "generation": 44
+  },
+  {
+    "id": "exp_202604211737_abc1",
+    "parent_id": "exp_202604211519_fb68",
+    "hypothesis": "The #1 error pattern (BadRequestError - 16 occurrences) is caused by attempting to use tools with models that don't support them. A code-level model capability detection and fallback mechanism will prevent these errors proactively, improving self-heal rate and reducing error rate.",
+    "change_type": "code",
+    "fitness_before": 0.803167,
+    "fitness_after": 0.803167,
+    "delta": 0.0,
+    "test_pass_rate": 0.0,
+    "status": "discard",
+    "files_changed": [
+      "app/tools/model_capability_check.py"
+    ],
+    "mutation_summary": "No improvement (delta=+0.0000), reverted",
+    "timestamp": "2026-04-21T17:37:29.550612+00:00",
+    "generation": 44
   }
 ]

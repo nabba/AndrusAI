@@ -1,68 +1,5 @@
 [
   {
-    "task_hash": "e865e97b4814740e",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
-    "failure_count": 1,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run (TypeError: run() got an unexpected keyword argument 'timeout",
-    "ts": 1776681855.3647244,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "e865e97b4814740e",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
-    "failure_count": 2,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run (TypeError: run() got an unexpected keyword argument 'timeout",
-    "ts": 1776681861.6762414,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "e865e97b4814740e",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
-    "failure_count": 3,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run (TypeError: run() got an unexpected keyword argument 'timeout",
-    "ts": 1776681883.7104359,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "4b89d06ec3720d71",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776682882.2160091,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "4b89d06ec3720d71",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776682889.9971492,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "4b89d06ec3720d71",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 3,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776682890.609549,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "fa695bad3e8ad477",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776683654.4689653,
-    "replan_suggested": false
-  },
-  {
     "task_hash": "fa695bad3e8ad477",
     "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
     "failure_count": 2,
@@ -448,5 +385,68 @@
     "last_error": "Error: Cannot write to 'applied_code/app/circuit_breaker.py'. Writable directories: output, proposal",
     "ts": 1776787253.364817,
     "replan_suggested": false
+  },
+  {
+    "task_hash": "6290544cf77018d7",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: handle_task.py",
+    "ts": 1776798733.715394,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "6290544cf77018d7",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: crew_handle/handle_task.py",
+    "ts": 1776798735.7823744,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "6290544cf77018d7",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1776798761.7179046,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "6290544cf77018d7",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 4,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'vercel/grep'. Check command/URL and credentials.",
+    "ts": 1776798789.8612387,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "6290544cf77018d7",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 5,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'codeinterpreter'. Check command/URL and credentials.",
+    "ts": 1776798800.1201713,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "6290544cf77018d7",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 6,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: orchestrator.py",
+    "ts": 1776798846.9702165,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "6290544cf77018d7",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 7,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'togethercomputer/mcp-server-tci'. Check command/URL and credentials.",
+    "ts": 1776798880.2283788,
+    "replan_suggested": true
   }
 ]
