@@ -37,7 +37,7 @@ RULES:
 
 def create_introspector() -> Agent:
     """Factory to create an Introspector agent for meta-cognitive analysis."""
-    llm = create_specialist_llm(max_tokens=4096, role="architecture")
+    llm = create_specialist_llm(max_tokens=4096, role="introspector")
     memory_tools = create_memory_tools(collection="introspector")
     scoped_tools = create_scoped_memory_tools("introspector")
     awareness_tools = [
