@@ -304,10 +304,18 @@ export function CostCharts() {
 
       <CostBreakdownPanel
         title="Cost by Crew"
-        subtitle="user-addressable crews (research, coding, writing, …)"
+        subtitle="request-routing units — research, coding, writing, pim, …"
         entityLabel="Crew"
         emptyMessage="No crew cost data yet."
         query={crewsQ}
+      />
+
+      <CostBreakdownPanel
+        title="Cost by Agent"
+        subtitle="individual actors — coder, researcher, writer, critic, commander, …"
+        entityLabel="Agent"
+        emptyMessage="No per-agent cost data yet. Populates from control_plane.budgets as crews run."
+        query={agentsQ}
       />
 
       <CostBreakdownPanel

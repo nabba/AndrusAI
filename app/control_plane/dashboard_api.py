@@ -316,28 +316,32 @@ def control_plane_health():
 
 # ── Costs ────────────────────────────────────────────────────────────────────
 
-def _costs_by_actor_merged(project_id: str | None) -> dict[str, dict]:
-    """Merge per-crew request_costs + per-agent_role budgets into one dict
-    keyed on actor name. Used by every /costs/by-* variant below."""
-    by_actor: dict[str, dict] = {}
-
-    # Source 1 — per-crew from the SQLite tracker (year-long window).
+def _per_crew_costs(project_id: str | None) -> list[dict]:
+    """Per-crew (request-routing unit) from the SQLite request_costs
+    tracker. ``crew`` here is what tracker.crew_name was set to at
+    delegation time: 'research', 'coding', 'research+coding', …"""
+    out: list[dict] = []
     try:
         from app.llm_benchmarks import get_crew_cost_stats
         for row in get_crew_cost_stats("year", project_id=project_id) or []:
             name = row.get("crew") or "unknown"
-            entry = by_actor.setdefault(
-                name, {"actor": name, "calls": 0, "total_cost": 0.0, "total_tokens": 0}
-            )
-            entry["calls"] += int(row.get("requests") or 0)
-            entry["total_cost"] += float(row.get("total_cost_usd") or 0.0)
+            requests = int(row.get("requests") or 0)
             avg_tokens = float(row.get("avg_tokens") or 0.0)
-            entry["total_tokens"] += int(avg_tokens * (row.get("requests") or 0))
+            out.append({
+                "actor": name,
+                "calls": requests,
+                "total_cost": float(row.get("total_cost_usd") or 0.0),
+                "total_tokens": int(avg_tokens * requests),
+            })
     except Exception as exc:
-        logger.debug("costs merge: crew stats read failed: %s", exc)
+        logger.debug("_per_crew_costs failed: %s", exc)
+    return out
 
-    # Source 2 — per-agent_role from the budgets table. Don't double-count
-    # names that already came from the per-call SQLite source.
+
+def _per_agent_role_costs(project_id: str | None) -> list[dict]:
+    """Per-agent-role from control_plane.budgets.agent_role. One row per
+    individual actor (coder, researcher, writer, critic, commander,
+    self_improver, …) rather than per routing unit."""
     try:
         from app.control_plane.db import execute
         sql = (
@@ -353,18 +357,18 @@ def _costs_by_actor_merged(project_id: str | None) -> dict[str, dict]:
             sql += " AND project_id::text = %s"
             params = (project_id,)
         sql += " GROUP BY COALESCE(NULLIF(agent_role, ''), 'unknown')"
-        for r in execute(sql, params, fetch=True) or []:
-            name = r["actor"]
-            entry = by_actor.setdefault(
-                name, {"actor": name, "calls": 0, "total_cost": 0.0, "total_tokens": 0}
-            )
-            if entry["total_cost"] == 0.0:
-                entry["total_cost"] = float(r["total_cost"] or 0)
-                entry["total_tokens"] = int(r["total_tokens"] or 0)
+        return [
+            {
+                "actor": r["actor"],
+                "calls": 0,  # budgets table doesn't carry a per-row call count
+                "total_cost": float(r["total_cost"] or 0),
+                "total_tokens": int(r["total_tokens"] or 0),
+            }
+            for r in execute(sql, params, fetch=True) or []
+        ]
     except Exception as exc:
-        logger.debug("costs merge: budgets read failed: %s", exc)
-
-    return by_actor
+        logger.debug("_per_agent_role_costs failed: %s", exc)
+        return []
 
 
 # Canonical crew roster — defined here (early) so the
@@ -404,7 +408,7 @@ _KNOWN_CREWS: tuple[tuple[str, str], ...] = (
 # this module.
 def _is_internal_agent(name: str) -> bool:
     internal = {n for n, kind in _KNOWN_CREWS if kind == "internal"}
-    internal |= {"self_improver", "meta_evolver", "observer"}
+    internal |= {"self_improver", "meta_evolver", "observer", "introspector"}
     return name in internal
 
 
@@ -418,34 +422,30 @@ def _shape_response(items: list[dict]) -> dict:
 
 @router.get("/costs/by-agent")
 def costs_by_agent(project_id: str = Query(None)):
-    """Unified per-actor cost breakdown (crews + internal agents).
-
-    Kept as a superset for any caller that wants the mixed view; the
-    Cost tab now uses /costs/by-crew + /costs/by-internal-agent for
-    side-by-side panels instead.
-    """
-    return _shape_response(list(_costs_by_actor_merged(project_id).values()))
+    """Cost per individual agent role (coder, researcher, writer, critic,
+    commander, self_improver, …). Source: control_plane.budgets
+    grouped by agent_role. Answers "who did the LLM work" — distinct
+    from /costs/by-crew which answers "which workload routed it
+    there"."""
+    return _shape_response(_per_agent_role_costs(project_id))
 
 
 @router.get("/costs/by-crew")
 def costs_by_crew(project_id: str = Query(None)):
-    """Cost per user-addressable crew. Anything not explicitly classified
-    as an internal orchestration agent counts as a crew, so compound
-    labels like 'research+coding' still show up here."""
-    merged = _costs_by_actor_merged(project_id)
-    items = [v for k, v in merged.items() if not _is_internal_agent(k)]
+    """Cost per user-addressable crew (research, coding, writing, …).
+    Anything not classified as an internal orchestration agent counts
+    as a crew, so compound labels like 'research+coding' still show up
+    here."""
+    items = [c for c in _per_crew_costs(project_id) if not _is_internal_agent(c["actor"])]
     return _shape_response(items)
 
 
 @router.get("/costs/by-internal-agent")
 def costs_by_internal_agent(project_id: str = Query(None)):
     """Cost per internal orchestration agent (commander, critic,
-    retrospective, self_improvement / self_improver). Data
-    accumulates from budgets.agent_role — internal crews now set an
-    agent_scope around their work so reconcile_actual_spend tags
-    their LLM calls with the right role."""
-    merged = _costs_by_actor_merged(project_id)
-    items = [v for k, v in merged.items() if _is_internal_agent(k)]
+    retrospective, self_improver). Reads the same budgets table as
+    /costs/by-agent, filtered to the internal set."""
+    items = [c for c in _per_agent_role_costs(project_id) if _is_internal_agent(c["actor"])]
     return _shape_response(items)
 
 @router.get("/costs/daily")
