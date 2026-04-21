@@ -28,15 +28,43 @@ class CreateWorkspaceRequest(BaseModel):
 
 # ── List all workspaces ──────────────────────────────────────────────────────
 
+def _project_display_name(pid: str, name_cache: dict[str, str]) -> str:
+    """Resolve a project_id to a human-friendly label.
+
+    UUIDs are looked up in the Control Plane projects table; legacy
+    name-keyed gates (e.g. "__meta__", "generic", "eesti mets") pass
+    through unchanged. Cached per call to avoid N+1 PG hits.
+    """
+    if pid in name_cache:
+        return name_cache[pid]
+    label = pid
+    try:
+        # Only look up values that look like UUIDs.
+        if len(pid) == 36 and pid.count("-") == 4:
+            from app.control_plane.projects import get_projects
+            row = get_projects().get_by_id(pid)
+            if row and row.get("name"):
+                label = row["name"]
+    except Exception:
+        pass
+    name_cache[pid] = label
+    return label
+
+
 @router.get("/workspaces")
 def list_workspaces():
     """List all workspace gates with their current snapshots."""
     try:
         from app.consciousness.workspace_buffer import list_workspaces as _list_ws
         workspaces = _list_ws()
+        name_cache: dict[str, str] = {}
         return {
             "workspaces": [
-                {"project_id": pid, **snapshot}
+                {
+                    "project_id": pid,
+                    "display_name": _project_display_name(pid, name_cache),
+                    **snapshot,
+                }
                 for pid, snapshot in workspaces.items()
             ],
             "count": len(workspaces),
@@ -115,6 +143,7 @@ def get_workspace_items(project_id: str):
         gate = get_workspace_gate(project_id)
         return {
             "project_id": project_id,
+            "display_name": _project_display_name(project_id, {}),
             "active": [
                 {
                     "item_id": item.item_id[:12],

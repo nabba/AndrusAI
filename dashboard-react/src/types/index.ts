@@ -160,6 +160,7 @@ export interface WorkspaceItem {
 
 export interface WorkspaceSnapshot {
   project_id: string;
+  display_name?: string;
   cycle: number;
   capacity: number;
   active_count: number;
@@ -174,6 +175,7 @@ export interface WorkspaceList {
 
 export interface WorkspaceItems {
   project_id: string;
+  display_name?: string;
   active: WorkspaceItem[];
   peripheral: WorkspaceItem[];
   capacity: number;

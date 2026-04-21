@@ -198,6 +198,8 @@ export function WorkspacesPage() {
 
   const workspaces = data?.workspaces ?? [];
   const activeWs = selected ?? workspaces[0]?.project_id ?? null;
+  const activeWsMeta = workspaces.find((w) => w.project_id === activeWs);
+  const activeWsLabel = activeWsMeta?.display_name || activeWs || '';
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -221,17 +223,19 @@ export function WorkspacesPage() {
             {workspaces.map((ws) => {
               const isActive = ws.project_id === activeWs;
               if (ws.project_id === '__meta__') return null;
+              const label = ws.display_name || ws.project_id;
               return (
                 <button
                   key={ws.project_id}
                   onClick={() => setSelected(ws.project_id)}
+                  title={ws.display_name && ws.display_name !== ws.project_id ? ws.project_id : undefined}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-[#60a5fa] text-[#0a0e14]'
                       : 'bg-[#111820] text-[#7a8599] border border-[#1e2738] hover:border-[#60a5fa]/40 hover:text-[#e2e8f0]'
                   }`}
                 >
-                  <span className="capitalize">{ws.project_id}</span>
+                  <span>{label}</span>
                   <span className="ml-2 text-xs opacity-70">
                     {ws.active_count}/{ws.capacity}
                   </span>
@@ -242,10 +246,17 @@ export function WorkspacesPage() {
 
           {activeWs && (
             <div className="bg-[#111820] border border-[#1e2738] rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-base font-semibold text-[#e2e8f0] capitalize">{activeWs}</h2>
-                <span className="text-xs text-[#7a8599]">
-                  cycle {workspaces.find((w) => w.project_id === activeWs)?.cycle ?? 0}
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold text-[#e2e8f0]">{activeWsLabel}</h2>
+                  {activeWsMeta?.display_name && activeWsMeta.display_name !== activeWs && (
+                    <div className="text-[10px] text-[#7a8599] font-mono truncate mt-0.5">
+                      {activeWs}
+                    </div>
+                  )}
+                </div>
+                <span className="text-xs text-[#7a8599] whitespace-nowrap">
+                  cycle {activeWsMeta?.cycle ?? 0}
                 </span>
               </div>
               <WorkspaceBoard projectId={activeWs} />
