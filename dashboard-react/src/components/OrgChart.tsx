@@ -6,86 +6,174 @@ import {
   useDelegationSettingsQuery,
   useSetDelegationSetting,
 } from '../api/queries';
+import { CREW_REGISTRY, crewMeta, type CrewKind } from '../crews';
 
-const ROLE_ICONS: Record<string, string> = {
-  commander: '👑',
+// Map the canonical crew name to the PostgreSQL org_chart agent role. When
+// the mapping exists, the crew is already represented on the chart via its
+// agent; entries without a match get synthesised as crew-only nodes under
+// commander so every crew the registry knows about is visible.
+const CREW_TO_AGENT_ROLE: Record<string, string> = {
+  commander: 'commander',
+  research: 'researcher',
+  coding: 'coder',
+  writing: 'writer',
+  media: 'media_analyst',
+  critic: 'critic',
+  self_improvement: 'self_improver',
+};
+
+// Per-role fallback icons for the org-chart agents (researcher, coder, ...).
+// The registry supplies icons for crew names (research, coding, ...), but the
+// org_chart rows use agent role names. This table covers the ones that don't
+// share a name with a crew.
+const AGENT_ROLE_ICONS: Record<string, string> = {
+  commander: '🧭',
   researcher: '🔬',
   coder: '💻',
   writer: '✍️',
-  media: '🎨',
+  media_analyst: '📸',
   critic: '🎯',
-  'self-improver': '🔄',
-  introspector: '🧠',
-  default: '🤖',
+  self_improver: '🧠',
+  introspector: '🪞',
 };
 
-function getRoleIcon(role: string): string {
-  const lower = role.toLowerCase();
-  for (const [key, icon] of Object.entries(ROLE_ICONS)) {
-    if (lower.includes(key)) return icon;
+type NodeBadge = { label: string; cls: string };
+
+interface ChartNode extends OrgChartAgent {
+  children: ChartNode[];
+  _kind?: CrewKind | 'agent';
+  _synthetic?: boolean;
+  _icon: string;
+}
+
+function iconFor(role: string): string {
+  const byAgent = AGENT_ROLE_ICONS[role.toLowerCase()];
+  if (byAgent) return byAgent;
+  // The registry handles crew names — falls back to 🤖 on unknown.
+  return crewMeta(role).icon;
+}
+
+function buildMergedTree(agents: OrgChartAgent[]): ChartNode[] {
+  const map = new Map<string, ChartNode>();
+
+  // 1. Real org_chart rows first — they carry the authoritative hierarchy
+  //    and the human-written job_description.
+  for (const a of agents) {
+    map.set(a.agent_role, {
+      ...a,
+      children: [],
+      _icon: iconFor(a.agent_role),
+      _kind: 'agent',
+    });
   }
-  return ROLE_ICONS.default;
-}
 
-type TreeAgent = OrgChartAgent & { children: TreeAgent[] };
+  // 2. Mark which crews are already represented via an agent row.
+  const represented = new Set<string>();
+  for (const [crew, role] of Object.entries(CREW_TO_AGENT_ROLE)) {
+    if (map.has(role)) represented.add(crew);
+  }
 
-function AgentNode({ agent }: { agent: TreeAgent }) {
-  const icon = getRoleIcon(agent.agent_role);
-  const hasChildren = agent.children.length > 0;
+  // 3. Synthesise a node under commander for every crew in the registry that
+  //    doesn't map to an org_chart row. This fills the 7 missing user crews
+  //    (creative, pim, financial, desktop, repo_analysis, devops, tech_radar)
+  //    plus the retrospective internal crew.
+  let synthOrder = 1000;
+  for (const meta of CREW_REGISTRY) {
+    if (represented.has(meta.name)) continue;
+    if (map.has(meta.name)) continue; // already covered, e.g. critic
+    map.set(meta.name, {
+      agent_role: meta.name,
+      display_name: meta.label,
+      reports_to: 'commander',
+      job_description: meta.description,
+      soul_file: '',
+      default_model: '',
+      sort_order: synthOrder++,
+      children: [],
+      _kind: meta.kind,
+      _synthetic: true,
+      _icon: meta.icon,
+    });
+  }
 
-  return (
-    <div className="flex flex-col items-center">
-      <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-3 w-36 text-center hover:border-[#60a5fa]/40 transition-colors relative">
-        <div className="text-2xl mb-1">{icon}</div>
-        <div className="text-xs font-medium text-[#e2e8f0] truncate">{agent.display_name}</div>
-        <div className="text-xs text-[#7a8599] capitalize mt-0.5 truncate">{agent.agent_role}</div>
-        {agent.job_description && (
-          <div className="text-[10px] text-[#7a8599] mt-1 truncate" title={agent.job_description}>
-            {agent.job_description.slice(0, 30)}
-          </div>
-        )}
-      </div>
-
-      {hasChildren && (
-        <>
-          <div className="w-px h-6 bg-[#1e2738]" />
-          {agent.children.length > 1 && (
-            <div
-              className="h-px bg-[#1e2738]"
-              style={{ width: `${Math.min(agent.children.length * 160, 900)}px` }}
-            />
-          )}
-          <div className="flex gap-4 items-start">
-            {agent.children.map((child) => (
-              <div key={child.agent_role} className="flex flex-col items-center">
-                {agent.children.length > 1 && <div className="w-px h-6 bg-[#1e2738]" />}
-                <AgentNode agent={child} />
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function buildTree(agents: OrgChartAgent[]): TreeAgent[] {
-  const map = new Map<string, TreeAgent>();
-  const roots: TreeAgent[] = [];
-
-  agents.forEach((a) => {
-    map.set(a.agent_role, { ...a, children: [] });
-  });
-
-  map.forEach((agent) => {
-    if (agent.reports_to && map.has(agent.reports_to)) {
-      map.get(agent.reports_to)!.children.push(agent);
+  // 4. Wire children. Anything reporting to something we know about becomes
+  //    a child; everything else is a root.
+  const roots: ChartNode[] = [];
+  const sortKey = (n: ChartNode) => n.sort_order ?? 9999;
+  map.forEach((node) => {
+    if (node.reports_to && map.has(node.reports_to)) {
+      map.get(node.reports_to)!.children.push(node);
     } else {
-      roots.push(agent);
+      roots.push(node);
     }
   });
 
+  // Stable order — agent rows first (low sort_order), synthetic crews last.
+  map.forEach((n) => n.children.sort((a, b) => sortKey(a) - sortKey(b)));
+  roots.sort((a, b) => sortKey(a) - sortKey(b));
   return roots;
+}
+
+function NodeBadgeView({ badge }: { badge: NodeBadge }) {
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded border uppercase tracking-wider font-medium ${badge.cls}`}>
+      {badge.label}
+    </span>
+  );
+}
+
+function badgesForNode(node: ChartNode): NodeBadge[] {
+  const out: NodeBadge[] = [];
+  if (node._synthetic) {
+    const color = node._kind === 'internal'
+      ? 'border-[#a78bfa]/30 bg-[#a78bfa]/10 text-[#a78bfa]'
+      : 'border-[#60a5fa]/30 bg-[#60a5fa]/10 text-[#60a5fa]';
+    out.push({ label: node._kind === 'internal' ? 'internal crew' : 'crew', cls: color });
+  } else {
+    out.push({ label: 'agent', cls: 'border-[#7a8599]/30 bg-[#7a8599]/10 text-[#7a8599]' });
+  }
+  return out;
+}
+
+function AgentNode({ node, depth }: { node: ChartNode; depth: number }) {
+  const hasChildren = node.children.length > 0;
+  const badges = badgesForNode(node);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-start gap-3 p-3 bg-[#111820] border border-[#1e2738] rounded-lg hover:border-[#60a5fa]/40 transition-colors">
+        <span className="text-xl sm:text-2xl leading-none flex-shrink-0">{node._icon}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-semibold text-[#e2e8f0]">{node.display_name}</span>
+            {badges.map((b) => <NodeBadgeView key={b.label} badge={b} />)}
+          </div>
+          <div className="text-[11px] text-[#7a8599] mt-0.5 font-mono">
+            {node.agent_role}
+            {node.reports_to && (
+              <span className="text-[#7a8599]/70"> · reports to {node.reports_to}</span>
+            )}
+          </div>
+          {node.job_description && (
+            <p className="text-xs text-[#7a8599] mt-1 leading-snug">{node.job_description}</p>
+          )}
+          {node.default_model && !node._synthetic && (
+            <div className="text-[10px] text-[#7a8599]/80 mt-1 font-mono truncate">
+              default model: {node.default_model}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {hasChildren && (
+        <div className="pl-3 sm:pl-5 border-l-2 border-[#1e2738] space-y-2">
+          {node.children.map((child) => (
+            <AgentNode key={child.agent_role} node={child} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Delegation Mode toggles ─────────────────────────────────────────────────
@@ -181,33 +269,39 @@ function DelegationPanel() {
 
 export function OrgChart() {
   const { data: agents, isLoading, error, refetch } = useOrgChartQuery();
-  const roots = agents ? buildTree(agents) : [];
+  const roots = agents ? buildMergedTree(agents) : [];
+
+  // Flat count for the header.
+  let total = 0;
+  const count = (n: ChartNode) => { total += 1; n.children.forEach(count); };
+  roots.forEach(count);
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold text-[#e2e8f0]">Org Chart</h1>
-        <p className="text-sm text-[#7a8599] mt-1">Agent hierarchy</p>
+        <p className="text-sm text-[#7a8599] mt-1">
+          {total ? `${total} roles · ` : ''}agents from the PostgreSQL org chart plus every crew from the registry.
+          Crews without a dedicated agent row are shown under <code>commander</code> as synthetic nodes.
+        </p>
       </div>
 
-      <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-6 overflow-x-auto">
+      <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-3 sm:p-4">
         {isLoading ? (
-          <div className="flex justify-center">
-            <div className="space-y-4 text-center">
-              <Skeleton className="h-24 w-36 mx-auto" />
-              <div className="flex gap-4 justify-center">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <Skeleton key={i} className="h-20 w-32" />
-                ))}
-              </div>
+          <div className="space-y-3">
+            <Skeleton className="h-14" />
+            <div className="pl-4 border-l-2 border-[#1e2738] space-y-3">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-14" />)}
             </div>
           </div>
         ) : error ? (
           <ErrorPanel error={error} onRetry={refetch} />
+        ) : roots.length === 0 ? (
+          <p className="text-sm text-[#7a8599] italic">No agents or crews registered.</p>
         ) : (
-          <div className="flex flex-col items-center gap-0 min-w-max mx-auto">
+          <div className="space-y-2">
             {roots.map((root) => (
-              <AgentNode key={root.agent_role} agent={root} />
+              <AgentNode key={root.agent_role} node={root} depth={0} />
             ))}
           </div>
         )}
