@@ -44,13 +44,16 @@ function ItemCard({ item }: { item: WorkspaceItem }) {
 
 function CreateWorkspaceModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
-  const [capacity, setCapacity] = useState(3);
   const create = useCreateWorkspace();
 
   const handleCreate = async () => {
     if (!name.trim()) return;
     try {
-      await create.mutateAsync({ project_id: name.trim().toLowerCase(), capacity });
+      // Capacity is auto-tuned per crew run from personality + homeostasis
+      // (see subia/scene/personality_workspace.py). Any seed value is
+      // overwritten the first time a crew touches the workspace, so we let
+      // the backend default (3) stand — no need to ask the user.
+      await create.mutateAsync({ project_id: name.trim().toLowerCase(), capacity: 3 });
       onClose();
     } catch {
       // surfaced via create.error
@@ -60,22 +63,25 @@ function CreateWorkspaceModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-[#111820] border border-[#1e2738] rounded-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-lg font-semibold text-[#e2e8f0] mb-4">Create Workspace</h2>
+        <h2 className="text-lg font-semibold text-[#e2e8f0] mb-2">Create Workspace</h2>
+        <p className="text-xs text-[#7a8599] mb-4">
+          Capacity (how many thoughts compete for attention) is auto-tuned per cycle from the agent's focus,
+          developmental stage, and homeostasis — no need to set it manually. The initial seed is overwritten
+          on the first crew run.
+        </p>
         <label className="block text-sm text-[#7a8599] mb-1">Name</label>
         <input
           className="w-full bg-[#0a0e14] border border-[#1e2738] rounded-lg px-3 py-2 text-[#e2e8f0] text-sm mb-4 focus:outline-none focus:border-[#60a5fa]"
           placeholder="e.g. new-venture"
           value={name}
           onChange={(e) => setName(e.target.value)}
-        />
-        <label className="block text-sm text-[#7a8599] mb-1">Capacity (2-9)</label>
-        <input
-          type="number"
-          min={2}
-          max={9}
-          className="w-full bg-[#0a0e14] border border-[#1e2738] rounded-lg px-3 py-2 text-[#e2e8f0] text-sm mb-4 focus:outline-none focus:border-[#60a5fa]"
-          value={capacity}
-          onChange={(e) => setCapacity(Number(e.target.value))}
+          autoFocus
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && name.trim() && !create.isPending) {
+              e.preventDefault();
+              void handleCreate();
+            }
+          }}
         />
         {create.error && (
           <p className="text-sm text-[#f87171] mb-3">{(create.error as Error).message}</p>
