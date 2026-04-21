@@ -50,17 +50,59 @@ def list_workspaces():
 
 @router.post("/workspaces")
 def create_workspace(req: CreateWorkspaceRequest):
-    """Create a new project workspace (from dashboard)."""
+    """Create a new project workspace (from dashboard).
+
+    Creates both halves of the project at once so the dashboard doesn't
+    end up with split-brain state:
+
+      1. The Control Plane project row (PostgreSQL — drives the project
+         switcher, tickets, budgets, audit).
+      2. The Consciousness gate (in-memory — drives the attention / salience
+         competition for cognitive workspaces).
+
+    If a Control Plane project with the same name already exists the
+    creation is a no-op and the existing project is reused (idempotent).
+    """
+    raw_name = (req.display_name or req.project_id or "").strip()
+    if not raw_name:
+        raise HTTPException(status_code=400, detail="project_id / display_name required")
+
+    # Normalise the id used everywhere downstream (telemetry, gates, etc.)
+    # Prefer the UUID from the PG row once it exists — aligns with
+    # control_plane.projects.get_active_project_id(), which the existing
+    # /api/cp/projects list uses.
+    cp_project: dict | None = None
+    cp_error: str | None = None
+    try:
+        from app.control_plane.projects import get_projects
+        projects = get_projects()
+        # Idempotent lookup by name first so a second submit doesn't bomb.
+        cp_project = projects.get_by_name(raw_name)
+        if not cp_project:
+            cp_project = projects.create(raw_name, mission="", description="")
+    except Exception as exc:
+        cp_error = str(exc)
+        logger.warning("workspace_api: control-plane project create failed: %s", exc)
+
+    project_key = (cp_project or {}).get("id") or req.project_id or raw_name.lower()
+
+    # 2. Consciousness gate — use the CP id when available so both halves
+    #    attribute telemetry to the same project_id. Preserve the legacy
+    #    lowercase-name key as a fallback so pre-existing gates still work.
     try:
         from app.consciousness.workspace_buffer import create_workspace as _create_ws
-        gate = _create_ws(req.project_id, capacity=req.capacity)
-        return {
-            "project_id": req.project_id,
-            "capacity": gate.capacity,
-            "created": True,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        gate = _create_ws(project_key, capacity=req.capacity)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"consciousness gate create failed: {exc}")
+
+    return {
+        "project_id": project_key,
+        "display_name": raw_name,
+        "capacity": gate.capacity,
+        "control_plane_project": cp_project,
+        "control_plane_error": cp_error,
+        "created": True,
+    }
 
 
 # ── Get workspace items ──────────────────────────────────────────────────────
