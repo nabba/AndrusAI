@@ -436,7 +436,22 @@ class ConsciousnessProbeRunner:
     # ── Persistence ──
 
     def _persist(self, report: ConsciousnessReport) -> None:
-        """Store probe results to PostgreSQL."""
+        """Store probe results to PostgreSQL.
+
+        NOTE on ``meta_strategy_assessment``: the probe writes
+        ``"not_assessed"`` here rather than ``f"probes_run={N}"`` because
+        HOT-2 (:func:`_probe_metacognition`) reads back from the same
+        ``internal_states`` table filtering on
+        ``meta_strategy_assessment != 'not_assessed'``.  If the probe's
+        self-writes show up with a non-sentinel value, HOT-2's reader
+        grabs them, can't match the vocabulary (``effective`` /
+        ``uncertain`` / ``failing``), and the metric collapses to 0 —
+        the probe measuring itself.  ``not_assessed`` is the correct
+        sentinel: the probe's execution record does not represent an
+        assessable cognitive step.  ``full_state`` (below) preserves
+        the ``probes_run`` count in the JSON blob for anyone who
+        actually wants it.
+        """
         try:
             from app.control_plane.db import execute
             execute(
@@ -449,10 +464,11 @@ class ConsciousnessProbeRunner:
                 (
                     "consciousness_probe",
                     f"Composite: {report.composite_score:.3f}",
-                    f"probes_run={len(report.probes)}",
+                    "not_assessed",
                     "proceed",
                     1,
-                    json.dumps(report.to_dict()),
+                    json.dumps({**report.to_dict(),
+                                "probes_run": len(report.probes)}),
                 ),
             )
         except Exception:

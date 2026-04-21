@@ -1002,6 +1002,33 @@ def _register_defaults(registry: HookRegistry) -> None:
             if comp:
                 state.competition_result = comp
 
+            # Copy the meta-cognitive assessment the _meta_cognitive_hook
+            # computed into the state we're about to persist.  Without
+            # this hand-off, every logged ``internal_states`` row ends
+            # up with ``meta_strategy_assessment = "not_assessed"`` (the
+            # dataclass default), and the HOT-2 consciousness probe —
+            # which filters exactly on that column — has nothing to
+            # score, so the metric pins at 0.
+            mcs = ctx.metadata.get("_meta_cognitive_state")
+            if mcs is not None:
+                # mcs is a MetaCognitiveState dataclass or a dict; normalise.
+                if hasattr(mcs, "strategy_assessment"):
+                    state.meta = mcs
+                elif isinstance(mcs, dict) and mcs.get("strategy_assessment"):
+                    # Legacy shape (rare) — pull the key into state.meta.
+                    try:
+                        state.meta.strategy_assessment = mcs["strategy_assessment"]
+                        if "modification_proposed" in mcs:
+                            state.meta.modification_proposed = bool(mcs["modification_proposed"])
+                        if "modification_description" in mcs:
+                            state.meta.modification_description = mcs["modification_description"]
+                        if "compute_phase" in mcs:
+                            state.meta.compute_phase = mcs["compute_phase"]
+                        if "reassessment_triggered" in mcs:
+                            state.meta.reassessment_triggered = bool(mcs["reassessment_triggered"])
+                    except Exception:
+                        pass
+
             # Phase 7: Beautiful Loop — hyper-model (predict → compare → error → trajectory)
             hm_state = None
             try:
