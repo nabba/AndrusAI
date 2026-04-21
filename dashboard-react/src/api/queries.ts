@@ -648,6 +648,10 @@ export interface LlmCatalogReport {
   models: LlmModel[];
   role_assignments: Record<string, string>;
   cost_mode: string;
+  /** Authoritative list of pinnable roles from app.llm_catalog.PUBLIC_ROLES. */
+  roles?: string[];
+  /** Authoritative list of cost modes from app.llm_catalog.COST_MODES. */
+  cost_modes?: string[];
   updated_at: string;
   error?: string | null;
 }

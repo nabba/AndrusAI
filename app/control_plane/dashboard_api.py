@@ -479,15 +479,17 @@ def llm_catalog():
     except Exception:
         pass
     role_assignments: dict[str, str] = {}
+    public_roles: list[str] = []
+    cost_modes: list[str] = []
     try:
-        from app.llm_catalog import resolve_role_default
-        # Discover which roles the system resolves; fall back to a broad set.
-        roles = [
-            "commander", "research", "coding", "writing", "media", "critic",
-            "vetting", "synthesis", "introspector", "self_improve",
-            "planner", "evo_critic", "default",
-        ]
-        for role in roles:
+        from app.llm_catalog import (
+            resolve_role_default,
+            PUBLIC_ROLES,
+            COST_MODES,
+        )
+        public_roles = list(PUBLIC_ROLES)
+        cost_modes = list(COST_MODES)
+        for role in public_roles:
             try:
                 resolved = resolve_role_default(role, cost_mode)
                 if resolved:
@@ -500,6 +502,8 @@ def llm_catalog():
         "models": models,
         "role_assignments": role_assignments,
         "cost_mode": cost_mode,
+        "roles": public_roles,     # single source of truth for the UI pin dialog
+        "cost_modes": cost_modes,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "error": err,
     }

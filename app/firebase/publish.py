@@ -396,7 +396,9 @@ def report_catalog() -> None:
     if not db:
         return
     try:
-        from app.llm_catalog import CATALOG, get_default_for_role
+        from app.llm_catalog import (
+            CATALOG, get_default_for_role, PUBLIC_ROLES, COST_MODES,
+        )
         from app.config import get_settings
         settings = get_settings()
 
@@ -417,15 +419,13 @@ def report_catalog() -> None:
 
         # Resolver-computed role assignments — authoritative source of
         # truth for what the selector will actually pick. Serialise as a
-        # plain ``dict[str, str]`` so Firestore accepts it.
+        # plain ``dict[str, str]`` so Firestore accepts it. The role
+        # list is imported from llm_catalog.PUBLIC_ROLES so adding a
+        # new crew/specialist flows through to every consumer without
+        # code edits here.
         cost_mode = settings.cost_mode
-        roles_to_report = [
-            "commander", "coding", "research", "writing", "media", "critic",
-            "vetting", "synthesis", "introspector", "self_improve",
-            "planner", "evo_critic", "default",
-        ]
         assignments: dict[str, str] = {}
-        for role in roles_to_report:
+        for role in PUBLIC_ROLES:
             try:
                 assignments[role] = get_default_for_role(role, cost_mode)
             except Exception:
@@ -436,6 +436,8 @@ def report_catalog() -> None:
             "models": models,
             "role_assignments": assignments,
             "cost_mode": cost_mode,
+            "roles": list(PUBLIC_ROLES),
+            "cost_modes": list(COST_MODES),
             "updated_at": _now_iso(),
         })
     except Exception:
