@@ -160,6 +160,75 @@ class TestPublicAPI(unittest.TestCase):
         assert "research" in text
 
 
+class TestPlannerResolution(unittest.TestCase):
+    """Lock in the ``planner`` specialist role wiring.
+
+    ``planner`` is wired at two call sites (``research_crew._plan_research``
+    and ``LearningPlanner._infer_requirements``). Both expect the resolver
+    to produce a sensible architecture-flavoured pick — local-preferred in
+    budget/balanced modes (planning is structurally simple JSON
+    decomposition), premium in quality mode.
+    """
+
+    def test_planner_is_a_recognised_role(self):
+        from app.llm_catalog import SPECIALIST_ROLES, PUBLIC_ROLES
+        assert "planner" in SPECIALIST_ROLES
+        assert "planner" in PUBLIC_ROLES
+
+    def test_planner_maps_to_architecture_task_type(self):
+        from app.llm_catalog import canonical_task_type
+        assert canonical_task_type(role="planner") == "architecture"
+
+    def test_planner_is_local_preferred(self):
+        from app.llm_catalog import _ROLE_LOCAL_PREFERRED
+        assert "planner" in _ROLE_LOCAL_PREFERRED
+
+    def test_planner_not_in_tool_using_roles(self):
+        """Planner does one-shot JSON decomposition — no tool calls."""
+        from app.llm_catalog import _ROLES_NEEDING_TOOLS
+        assert "planner" not in _ROLES_NEEDING_TOOLS
+
+    def test_resolve_returns_valid_entry_for_all_cost_modes(self):
+        from app.llm_catalog import resolve_role_default
+        for mode in ("budget", "balanced", "quality"):
+            pick = resolve_role_default("planner", mode)
+            assert pick in CATALOG, f"planner/{mode} → {pick!r} not in CATALOG"
+
+    def test_planner_quality_mode_reaches_premium_tier(self):
+        """Quality mode has no local preference; resolver should unlock premium."""
+        from app.llm_catalog import resolve_role_default
+        pick = resolve_role_default("planner", "quality")
+        tier = CATALOG[pick]["tier"]
+        assert tier in ("premium", "mid"), f"planner/quality → {pick} [tier={tier}]"
+
+    def test_planner_wired_in_research_crew(self):
+        """Guard against regressions that revert ``_plan_research`` to role=research."""
+        import pathlib, re
+        source = pathlib.Path("app/crews/research_crew.py").read_text()
+        # Find the _plan_research function body and confirm the role arg.
+        match = re.search(
+            r"def _plan_research\(.*?\).*?create_specialist_llm\([^)]*role=\"(\w+)\"",
+            source, re.DOTALL,
+        )
+        assert match is not None, "_plan_research not found or doesn't call create_specialist_llm"
+        assert match.group(1) == "planner", (
+            f"_plan_research must use role='planner' (got role={match.group(1)!r})"
+        )
+
+    def test_planner_wired_in_learning_planner(self):
+        """Guard against regressions in ``LearningPlanner._infer_requirements``."""
+        import pathlib, re
+        source = pathlib.Path("app/atlas/learning_planner.py").read_text()
+        match = re.search(
+            r"def _infer_requirements\(.*?\).*?create_specialist_llm\([^)]*role=\"(\w+)\"",
+            source, re.DOTALL,
+        )
+        assert match is not None, "_infer_requirements not found or doesn't call create_specialist_llm"
+        assert match.group(1) == "planner", (
+            f"_infer_requirements must use role='planner' (got role={match.group(1)!r})"
+        )
+
+
 class TestTaskAliases(unittest.TestCase):
     """Verify task aliases map to valid task types."""
 

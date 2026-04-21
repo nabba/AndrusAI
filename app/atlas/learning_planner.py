@@ -316,7 +316,7 @@ Only include specific, named capabilities. Return ONLY valid JSON."""
 
         try:
             from app.llm_factory import create_specialist_llm
-            llm = create_specialist_llm(max_tokens=500, role="research")
+            llm = create_specialist_llm(max_tokens=500, role="planner")
             raw = str(llm.call(prompt)).strip()
 
             import re

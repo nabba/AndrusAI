@@ -255,7 +255,7 @@ class ResearchCrew:
     def _plan_research(self, topic: str) -> list[str]:
         """Quick LLM call to split topic into 1-4 parallel subtopics."""
         try:
-            llm = create_specialist_llm(max_tokens=1024, role="research")
+            llm = create_specialist_llm(max_tokens=1024, role="planner")
             # Direct LLM call — no Agent/Task/Crew overhead for JSON classification
             prompt = RESEARCH_PLAN_TEMPLATE.format(topic=topic[:500])
             raw = str(llm.call(prompt)).strip()
