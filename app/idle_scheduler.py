@@ -1252,6 +1252,25 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             pass
     jobs.append(("data-retention", _data_retention, JobWeight.LIGHT))
 
+    # ── Crew-task spans: 7-day retention sweep ───────────────────────
+    # Spans capture fine-grained execution flow (agent/tool/LLM events)
+    # for the task-flow dashboard drawer. ~20 rows per crew run × ~100
+    # runs/day × 7 days ≈ 14k rows — tiny, but unbounded growth is
+    # avoided via this sweep. ON DELETE CASCADE on crew_tasks.id would
+    # also cover cases where the parent task is purged.
+    def _crew_task_spans_retention():
+        try:
+            from app.control_plane.crew_task_spans import purge_old_spans
+            removed = purge_old_spans(days=7)
+            if removed:
+                logger.info(
+                    f"idle_scheduler: purged {removed} crew_task_spans "
+                    f"older than 7 days"
+                )
+        except Exception as exc:
+            logger.debug(f"idle_scheduler: span retention failed: {exc}")
+    jobs.append(("spans-retention", _crew_task_spans_retention, JobWeight.LIGHT))
+
     # ── Ollama memory management: unload idle models to free VRAM ─────
     def _ollama_memory():
         try:

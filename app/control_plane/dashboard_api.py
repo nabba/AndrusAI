@@ -966,6 +966,82 @@ def get_crew_tasks(limit: int = Query(20, ge=1, le=200), project_id: str | None 
         "error": err,
     }
 
+
+@router.get("/tasks/{task_id}/timeline")
+def get_task_timeline(task_id: str):
+    """Return the fine-grained execution flow of a single crew task.
+
+    Response shape:
+        {
+          "task": { ...crew_tasks row... },
+          "spans": [                          # nested tree
+            {
+              "id": 42,
+              "span_type": "agent",
+              "name": "Researcher",
+              "started_at": "...",
+              "completed_at": "...",
+              "state": "running|completed|failed",
+              "detail": {...},
+              "children": [ ...spans... ]
+            },
+            ...
+          ],
+          "updated_at": "..."
+        }
+
+    Spans are populated by ``app.crews.span_events`` as CrewAI emits
+    agent/tool/llm-call lifecycle events. Call this endpoint repeatedly
+    (poll at 2s) while ``task.state == 'running'`` to watch the flow
+    build; stop when state transitions to ``completed`` / ``failed``.
+    """
+    from app.control_plane.db import execute_one
+    from app.control_plane.crew_task_spans import list_spans
+
+    task: dict | None = None
+    try:
+        task = execute_one(
+            """
+            SELECT id, crew, project_id, state, summary, result_preview,
+                   error, model, tokens_used, cost_usd,
+                   parent_task_id, is_sub_agent,
+                   delegated_from, delegated_to, delegation_reason,
+                   started_at, completed_at, last_updated
+              FROM control_plane.crew_tasks
+             WHERE id = %s
+            """,
+            (task_id,),
+        )
+    except Exception as exc:
+        logger.debug("tasks/timeline: crew_tasks lookup failed: %s", exc)
+
+    if not task:
+        raise HTTPException(status_code=404, detail=f"task {task_id!r} not found")
+
+    spans_flat = list_spans(task_id)
+
+    # Build the tree in-Python: group by parent_span_id, attach children
+    # in started_at order. Root spans have parent_span_id IS NULL.
+    by_id: dict[int, dict] = {}
+    for s in spans_flat:
+        s["children"] = []
+        by_id[s["id"]] = s
+    roots: list[dict] = []
+    for s in spans_flat:
+        parent_id = s.get("parent_span_id")
+        if parent_id and parent_id in by_id:
+            by_id[parent_id]["children"].append(s)
+        else:
+            roots.append(s)
+
+    return {
+        "task": task,
+        "spans": roots,
+        "span_count": len(spans_flat),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 # ── Token usage & cost projection ────────────────────────────────────────────
 
 _TOKEN_PERIODS = ("hour", "day", "week", "month", "year")
@@ -1097,6 +1173,57 @@ def consciousness_indicators(history_limit: int = Query(30, ge=1, le=200)):
         "history": history,
         "homeostasis": homeostasis,
         "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── Proposal actions (evolution approve/reject) ─────────────────────
+#
+# Replaces the legacy ``report_proposal_actions`` Firestore polling
+# loop.  Any client (React dashboard, CLI, Signal bot, external script)
+# that wants to act on a pending evolution proposal POSTs here; the
+# gateway applies the action synchronously via the ``app.proposals``
+# module (same functions the Firestore poller used to call).
+
+class ProposalAction(BaseModel):
+    action: str   # "approve" | "reject" | "rollback"
+
+
+@router.post("/proposals/{proposal_id}/action")
+def apply_proposal_action(proposal_id: int, body: ProposalAction):
+    """Apply ``action`` to the identified proposal and return the
+    result text.  Synchronous — unlike the old Firestore-polled path
+    which had a 0–5 minute latency, this applies immediately and the
+    client gets the outcome in the HTTP response.
+
+    Actions:
+      * ``approve``  — calls ``app.proposals.approve_proposal(pid)``
+      * ``reject``   — calls ``app.proposals.reject_proposal(pid)``
+      * ``rollback`` — deferred: rollback still flows through Signal
+        because it involves interactive undo of a deployed change.
+    """
+    action = (body.action or "").strip().lower()
+    if action not in ("approve", "reject", "rollback"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown action: {action!r} (expected approve/reject/rollback)",
+        )
+    try:
+        if action == "approve":
+            from app.proposals import approve_proposal
+            result = approve_proposal(proposal_id)
+        elif action == "reject":
+            from app.proposals import reject_proposal
+            result = reject_proposal(proposal_id)
+        else:
+            # Rollback surface kept intentionally — calls return a
+            # pointer to Signal where rollback interactivity lives.
+            result = f"Rollback #{proposal_id} — use Signal for rollback"
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)[:300])
+    return {
+        "proposal_id": proposal_id,
+        "action": action,
+        "result": str(result)[:4000],
     }
 
 
