@@ -1292,5 +1292,22 @@
     "mutation_summary": "No improvement (delta=+0.0000), reverted",
     "timestamp": "2026-04-21T17:37:29.550612+00:00",
     "generation": 44
+  },
+  {
+    "id": "exp_202604221208_967d",
+    "parent_id": "exp_202604211519_fb68",
+    "hypothesis": "Creating a comprehensive skill for model tool support detection and graceful degradation will reduce the #1 error pattern (BadRequestError - 16x) by enabling agents to select appropriate models or fall back to non-tool modes, improving task success rate and reducing retry cycles.",
+    "change_type": "skill",
+    "fitness_before": 0.800167,
+    "fitness_after": 0.879759,
+    "delta": 0.079592,
+    "test_pass_rate": 0.0,
+    "status": "keep",
+    "files_changed": [
+      "skills/model_tool_support_and_capability_detection.md"
+    ],
+    "mutation_summary": "Skill kept (delta=+0.0796, tests=1/2)",
+    "timestamp": "2026-04-22T12:11:55.778327+00:00",
+    "generation": 44
   }
 ]

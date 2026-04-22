@@ -1682,5 +1682,18 @@
     "event": "error_resolved",
     "detail": "Pattern coding:RuntimeError resolved after 2 attempts (24h clear)",
     "files_changed": []
+  },
+  {
+    "ts": "2026-04-22T08:11:58.155414+00:00",
+    "event": "code_audit",
+    "detail": "6 issues in 6 files: Fixed silent exception handling by adding proper logging in agent factory modules and workspace API to prevent hidden failures during optional tool imports and project name lookups.",
+    "files_changed": [
+      "app/agents/desktop_agent.py",
+      "app/agents/devops_agent.py",
+      "app/agents/financial_analyst.py",
+      "app/agents/pim_agent.py",
+      "app/agents/repo_analyst.py",
+      "app/api/workspace_api.py"
+    ]
   }
 ]

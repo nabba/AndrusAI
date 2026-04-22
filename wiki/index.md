@@ -2,20 +2,21 @@
 sections:
   archibal: 0
   kaicart: 0
-  meta: 25
+  meta: 31
   philosophy: 0
   plg: 0
   self: 0
 title: AndrusAI Wiki — Master Index
-total_pages: 25
-updated_at: '2026-04-21T19:55:16Z'
+total_pages: 31
+updated_at: '2026-04-22T14:16:55Z'
 ---
 # AndrusAI Knowledge Wiki — Master Index
 
-Total pages: 25 | Last updated: 2026-04-21
+Total pages: 31 | Last updated: 2026-04-22
 
 ## Meta (Cross-Venture)
 - [[meta/1-topic-55570dd0]] — **1. Topic**
+- [[meta/462f5f1b]] — ****
 - [[meta/advanced-policy-white-paper-critique-methodology-1a6d7ab0]] — Advanced policy white paper critique methodology
 - [[meta/advanced-vector-database-optimization-retrieval-augmentation-ra-strategies-cd1d8]] — Advanced Vector Database Optimization & Retrieval Augmentation (RAG) Strategies
 - [[meta/circular-import-resolution-patterns]] — Circular Import Resolution Patterns
@@ -28,15 +29,20 @@ Total pages: 25 | Last updated: 2026-04-21
 - [[meta/estonian-environmental-policy-research-framework-7bae0331]] — Estonian environmental policy research framework
 - [[meta/estonian-forest-protection-movement-analysis-5fccee21]] — Estonian forest protection movement analysis
 - [[meta/estonian-forestry-statistical-data-sourcing-f13dd107]] — Estonian forestry statistical data sourcing
+- [[meta/estonian-pdf-improvement-suggestion-workflow-0051d6a2]] — Estonian PDF improvement suggestion workflow
 - [[meta/estonian-pdf-white-paper-analysis-bfe54d6a]] — Estonian PDF white paper analysis
 - [[meta/estonian-policy-document-critique-15141d9e]] — Estonian policy document critique
+- [[meta/handle-task-circular-import-immediate-fix]] — Handling handle_task.py Circular Import Error
+- [[meta/identifying-regional-payment-service-providers-psps-with-direct-sales-con-51bccc]] — **** Identifying Regional Payment Service Providers (PSPs) with Direct Sales Contacts for Product-Le
 - [[meta/learning-queue]] — Learning Queue
 - [[meta/llm-capability-detection]] — Models known to NOT support tool calling (as of 2026)
 - [[meta/rapid-ecological-data-visualization-with-python-6b918e6d]] — **** Rapid Ecological Data Visualization with Python
 - [[meta/response-synthesis-optimization]] — Response Synthesis Optimization
+- [[meta/selecting-payment-service-providers-psps-for-plg-platforms-in-cee-ticketi-5fe6eb]] — **** Selecting Payment Service Providers (PSPs) for PLG platforms in CEE ticketing/live events.
 - [[meta/skill-case-insensitive-lookup-with-original-casing-preservation-03148edd]] — Skill: Case-Insensitive Lookup with Original Casing Preservation
 - [[meta/skill-distinguishing-load-balancers-from-reverse-proxies-c54a733a]] — Skill: Distinguishing Load Balancers from Reverse Proxies
 - [[meta/skill-docker-containerization-basics-aca85774]] — SKILL: Docker Containerization Basics
+- [[meta/skill-selecting-payment-service-providers-psps-for-cee-baltic-ticketing-eb543bc0]] — **Skill: Selecting Payment Service Providers (PSPs) for CEE/Baltic Ticketing**
 - [[meta/skill-two-entity-operational-model-a5f712f8]] — **SKILL: Two-Entity Operational Model**
 - [[meta/time-based-email-counting-precision-e90ecab4]] — Time-based Email Counting Precision
 - [[meta/web-scraping-using-firecrawl-ad705cb6]] — Web scraping using Firecrawl

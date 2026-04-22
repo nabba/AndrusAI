@@ -1,452 +1,452 @@
 [
   {
-    "task_hash": "fa695bad3e8ad477",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776683685.3372064,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "fa695bad3e8ad477",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 3,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776683685.9234562,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "314bb789e09d053b",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776684451.198099,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "314bb789e09d053b",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776684484.3135493,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "1503c4daefe5e0b2",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776689743.952362,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "1503c4daefe5e0b2",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776689744.3267188,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "dd94ef3434bf7629",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776690074.6921797,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "dd94ef3434bf7629",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776690075.1084042,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "f82e70822ea541b5",
+    "task_hash": "772cc7bb2c7578b4",
     "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
     "failure_count": 1,
     "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'github'. Check command/URL and credentials.",
-    "ts": 1776690631.524731,
+    "last_error": "Failed to connect to 'hello-3ubk/docu-scan'. Check command/URL and credentials.",
+    "ts": 1776844652.910748,
     "replan_suggested": false
   },
   {
-    "task_hash": "226c79ca48465e42",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776712824.9040976,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "226c79ca48465e42",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776712825.431674,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "f441eabe9e25f7d0",
-    "task": "Prepare a comprehensive analysis paper with PNG graphics on forest age structure trends over the las",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776714879.5751529,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "f441eabe9e25f7d0",
-    "task": "Prepare a comprehensive analysis paper with PNG graphics on forest age structure trends over the las",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776714880.5448618,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "f441eabe9e25f7d0",
-    "task": "Prepare a comprehensive analysis paper with PNG graphics on forest age structure trends over the las",
-    "failure_count": 3,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776714880.979756,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "f441eabe9e25f7d0",
-    "task": "Prepare a comprehensive analysis paper with PNG graphics on forest age structure trends over the las",
-    "failure_count": 4,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776714881.4314368,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "7a07f263c2f91239",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776715323.1964478,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7a07f263c2f91239",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776715325.7690682,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7a07f263c2f91239",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 3,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776715327.5371153,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7a07f263c2f91239",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 4,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776715965.040379,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "28d4a9cd9a5f1649",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776716327.0902493,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "28d4a9cd9a5f1649",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
-    "failure_count": 2,
-    "last_tool": "execute_code",
-    "last_error": "Execution error: sandbox failed to run (TypeError: run() got an unexpected keyword argument 'timeout",
-    "ts": 1776716563.8833063,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7daccfe6735055cc",
-    "task": "Gather real, citable time-series statistics (2009\u20132024) on (a) total forest area, (b) old-growth / o",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776717439.1614835,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7daccfe6735055cc",
-    "task": "Gather real, citable time-series statistics (2009\u20132024) on (a) total forest area, (b) old-growth / o",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776717439.7747881,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7daccfe6735055cc",
-    "task": "Gather real, citable time-series statistics (2009\u20132024) on (a) total forest area, (b) old-growth / o",
-    "failure_count": 3,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776717441.815709,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "7daccfe6735055cc",
-    "task": "Gather real, citable time-series statistics (2009\u20132024) on (a) total forest area, (b) old-growth / o",
-    "failure_count": 4,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776717442.4021738,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "6e4d2eeae3ee9827",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776717492.892069,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "6e4d2eeae3ee9827",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776717493.5160446,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "56f4bd44cf55ef4b",
-    "task": "Research and compile forest age distribution data for Estonia, Finland, Latvia, and Sweden over the ",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776718438.7973146,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "56f4bd44cf55ef4b",
-    "task": "Research and compile forest age distribution data for Estonia, Finland, Latvia, and Sweden over the ",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776718439.5057936,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "56f4bd44cf55ef4b",
-    "task": "Research and compile forest age distribution data for Estonia, Finland, Latvia, and Sweden over the ",
-    "failure_count": 3,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776718440.3740907,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "56f4bd44cf55ef4b",
-    "task": "Research and compile forest age distribution data for Estonia, Finland, Latvia, and Sweden over the ",
-    "failure_count": 4,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776718441.076197,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "e0d80c2863593e91",
+    "task_hash": "6566ea5acf91c5f3",
     "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
     "failure_count": 1,
     "last_tool": "file_manager",
-    "last_error": "Error: File not found: output/audit_check.md",
-    "ts": 1776729624.1488323,
+    "last_error": "Error: Cannot write to 'applied_code/app/agents/desktop_agent.py'. Writable directories: output, pro",
+    "ts": 1776845031.3768184,
     "replan_suggested": false
   },
   {
-    "task_hash": "c8e12a92fec518ae",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/agents/specialists.py",
-    "ts": 1776744018.4000945,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "374bb9973d170508",
-    "task": "Find the percentage of forests under 30 years of age for Finland, Sweden, and Latvia. Provide the sp",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776745373.4336526,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "374bb9973d170508",
-    "task": "Find the percentage of forests under 30 years of age for Finland, Sweden, and Latvia. Provide the sp",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776745374.1080668,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "374bb9973d170508",
-    "task": "Find the percentage of forests under 30 years of age for Finland, Sweden, and Latvia. Provide the sp",
-    "failure_count": 3,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776745374.4477482,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "80785b387d81cad8",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/atlas/code_forge.py",
-    "ts": 1776758423.4091907,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "09252e440156d3a1",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/auditor.py",
-    "ts": 1776772822.7182417,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "9f36d9159292ce1b",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_data>\nThe following is background ref",
-    "failure_count": 6,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app.py",
-    "ts": 1776778905.892534,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "c93fa42515381798",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776782258.1969893,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "5c4f890e9e8d11f2",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: It looks like you are using Playwright Sync API inside the asyncio loop.\nPlease",
-    "ts": 1776784666.9814703,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "2c55a989afd1c90b",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/circuit_breaker.py",
-    "ts": 1776787220.9707243,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "2c55a989afd1c90b",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: Cannot write to 'applied_code/app/circuit_breaker.py'. Writable directories: output, proposal",
-    "ts": 1776787253.364817,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "6290544cf77018d7",
+    "task_hash": "edd58bf6df5eb9d4",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 1,
     "last_tool": "file_manager",
     "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776798733.715394,
+    "ts": 1776845151.47154,
     "replan_suggested": false
   },
   {
-    "task_hash": "6290544cf77018d7",
+    "task_hash": "edd58bf6df5eb9d4",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 2,
     "last_tool": "file_manager",
-    "last_error": "Error: File not found: crew_handle/handle_task.py",
-    "ts": 1776798735.7823744,
+    "last_error": "Error: File not found: session.py",
+    "ts": 1776845163.0437534,
     "replan_suggested": false
   },
   {
-    "task_hash": "6290544cf77018d7",
+    "task_hash": "edd58bf6df5eb9d4",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 3,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
-    "ts": 1776798761.7179046,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776845177.8407977,
     "replan_suggested": false
   },
   {
-    "task_hash": "6290544cf77018d7",
+    "task_hash": "dc56b80fd26fd496",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: handle_task.py",
+    "ts": 1776847067.0836844,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "dc56b80fd26fd496",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776847198.1084917,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "efaa5b091b1ca25f",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: output/handle_task.py",
+    "ts": 1776859219.812567,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "efaa5b091b1ca25f",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: handle_task.py",
+    "ts": 1776859225.6116145,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7d655ae0521d5dec",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/coder.py",
+    "ts": 1776859227.8345768,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "efaa5b091b1ca25f",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: apps/run_task.py",
+    "ts": 1776859230.9979427,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "efaa5b091b1ca25f",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 4,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'vercel/grep'. Check command/URL and credentials.",
-    "ts": 1776798789.8612387,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: agents/handle_task.py",
+    "ts": 1776859250.0488532,
     "replan_suggested": true
   },
   {
-    "task_hash": "6290544cf77018d7",
+    "task_hash": "efaa5b091b1ca25f",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 5,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'codeinterpreter'. Check command/URL and credentials.",
-    "ts": 1776798800.1201713,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776859255.1739297,
     "replan_suggested": true
   },
   {
-    "task_hash": "6290544cf77018d7",
+    "task_hash": "efaa5b091b1ca25f",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 6,
     "last_tool": "file_manager",
-    "last_error": "Error: File not found: orchestrator.py",
-    "ts": 1776798846.9702165,
+    "last_error": "Error: File not found: core/handle_task.py",
+    "ts": 1776859281.0778697,
     "replan_suggested": true
   },
   {
-    "task_hash": "6290544cf77018d7",
+    "task_hash": "7d655ae0521d5dec",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/coder.py",
+    "ts": 1776859285.6421232,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "efaa5b091b1ca25f",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 7,
     "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'togethercomputer/mcp-server-tci'. Check command/URL and credentials.",
-    "ts": 1776798880.2283788,
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1776859302.923261,
     "replan_suggested": true
+  },
+  {
+    "task_hash": "efaa5b091b1ca25f",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 8,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: crew/handle_task.py",
+    "ts": 1776859330.3294916,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "b8c18aec1b0f2afd",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: handle_task.py",
+    "ts": 1776859576.055151,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "b8c18aec1b0f2afd",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776859583.4605916,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "b8c18aec1b0f2afd",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: README.md",
+    "ts": 1776859584.8913171,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "b8c18aec1b0f2afd",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 4,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: crew.py",
+    "ts": 1776859592.6148171,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "b8c18aec1b0f2afd",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 5,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1776859680.6014097,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "144d7651caaaf2d5",
+    "task": "Please run the code in 'output/two_sum.py' and provide the actual execution output. If the code fail",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'codeinterpreter'. Check command/URL and credentials.",
+    "ts": 1776859835.4346156,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "144d7651caaaf2d5",
+    "task": "Please run the code in 'output/two_sum.py' and provide the actual execution output. If the code fail",
+    "failure_count": 2,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1776859840.7321749,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "8d61175c3559493e",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776860815.6777103,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "8d61175c3559493e",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_context type=\"somatic_bias\" vi",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776860831.979586,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "31423b3d4a268e2c",
+    "task": "Conduct extensive research on Payment Service Providers (PSPs) serving CEE/Baltic markets (Estonia, ",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776861288.4601634,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "31423b3d4a268e2c",
+    "task": "Conduct extensive research on Payment Service Providers (PSPs) serving CEE/Baltic markets (Estonia, ",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776861289.619708,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "31423b3d4a268e2c",
+    "task": "Conduct extensive research on Payment Service Providers (PSPs) serving CEE/Baltic markets (Estonia, ",
+    "failure_count": 3,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1776861290.3219926,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "aa01edaf580bf5bc",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: handle_task.py",
+    "ts": 1776861764.3088546,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "aa01edaf580bf5bc",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: crew_shared.py",
+    "ts": 1776861766.6615016,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "aa01edaf580bf5bc",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: skills/__init__.py",
+    "ts": 1776861781.7783897,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "9aa2e1e290724b2c",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'io.github.Digital-Defiance/mcp-filesystem'. Check command/URL and credentials.",
+    "ts": 1776865025.5090768,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "4d9d38b625fe51aa",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: server/handle_task.py",
+    "ts": 1776865534.9573948,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "4d9d38b625fe51aa",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776865542.3954494,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "4d9d38b625fe51aa",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: README.md",
+    "ts": 1776865548.5936651,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "4d9d38b625fe51aa",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 4,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: sanitize.py",
+    "ts": 1776865607.3226154,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "4d9d38b625fe51aa",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 5,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/workspace/server/handle_task.py",
+    "ts": 1776865686.4511094,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "4d9d38b625fe51aa",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 6,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: server.py",
+    "ts": 1776865691.5322528,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "d578e6a2b7171a14",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: core/model_selector.py",
+    "ts": 1776868369.234343,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "d578e6a2b7171a14",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: config/models.yaml",
+    "ts": 1776868374.0266068,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "d578e6a2b7171a14",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
+    "ts": 1776868445.6439843,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "d578e6a2b7171a14",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 4,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: handle_task.py",
+    "ts": 1776868497.868297,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "d578e6a2b7171a14",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 5,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: agents/handle_task.py",
+    "ts": 1776868501.9635465,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "d578e6a2b7171a14",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 6,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: crew_shared.py",
+    "ts": 1776868503.700594,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "d578e6a2b7171a14",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 7,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: README.md",
+    "ts": 1776868510.293622,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "7ec5bc0924af1d5c",
+    "task": "Analyze this AI agent team and propose 1-3 concrete improvements.\n\nCurrent skills: __1__topic____555",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'Supabase'. Check command/URL and credentials.",
+    "ts": 1776868752.0215297,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "da03338c771bf17c",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: handle_task.py",
+    "ts": 1776869800.4495468,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "da03338c771bf17c",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: agents/handle_task.py",
+    "ts": 1776869805.3400266,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "da03338c771bf17c",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: crew_shared.py",
+    "ts": 1776869838.8339214,
+    "replan_suggested": false
   }
 ]

@@ -1980,5 +1980,77 @@
       "crew": "research",
       "mode": "delegated"
     }
+  },
+  {
+    "ts": "2026-04-21T23:36:10.932981+00:00",
+    "metric": "task_completion_time",
+    "value": 95.57277229300234,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-21T23:42:20.970416+00:00",
+    "metric": "task_completion_time",
+    "value": 98.86054250199231,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-21T23:46:21.564031+00:00",
+    "metric": "task_completion_time",
+    "value": 67.6794982389838,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-22T12:09:33.198083+00:00",
+    "metric": "task_completion_time",
+    "value": 52.20002381497761,
+    "metadata": {
+      "crew": "writing",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-22T12:11:45.494114+00:00",
+    "metric": "task_completion_time",
+    "value": 109.78540525800781,
+    "metadata": {
+      "crew": "coding",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-22T12:20:46.919356+00:00",
+    "metric": "task_completion_time",
+    "value": 121.6479091399815,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-22T12:28:33.921752+00:00",
+    "metric": "task_completion_time",
+    "value": 164.21300607500598,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-22T12:36:44.004882+00:00",
+    "metric": "task_completion_time",
+    "value": 195.204495589016,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
   }
 ]

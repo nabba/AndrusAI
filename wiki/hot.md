@@ -1,22 +1,22 @@
 ---
 title: Hot Cache
-updated_at: "2026-04-21T21:21:49Z"
+updated_at: "2026-04-22T15:12:58Z"
 ---
 
 # Wiki Hot Cache
 
-*Auto-generated 2026-04-21T21:21:49Z. Read this for quick context.*
+*Auto-generated 2026-04-22T15:12:58Z. Read this for quick context.*
 
 ## Recent Wiki Changes
-  | 2026-04-21T16:22:03Z | idle_scheduler.wiki_synthesis | CREATE | meta/response-synthesis-optimization | Created: Response Synthesis Optimization |
-  | 2026-04-21T16:22:03Z | idle_scheduler.wiki_synthesis | CREATE | meta/skill-distinguishing-load-balancers-from-reverse-proxies-c54a733a | Created: Skill: Distinguishing Load Balancers from Reverse Proxies |
-  | 2026-04-21T18:49:33Z | idle_scheduler.wiki_synthesis | CREATE | meta/estonian-pdf-white-paper-analysis-bfe54d6a | Created: Estonian PDF white paper analysis |
-  | 2026-04-21T19:55:16Z | idle_scheduler.wiki_synthesis | CREATE | meta/estonian-forest-protection-movement-analysis-5fccee21 | Created: Estonian forest protection movement analysis |
-  | 2026-04-21T19:55:16Z | idle_scheduler.wiki_synthesis | CREATE | meta/estonian-forestry-statistical-data-sourcing-f13dd107 | Created: Estonian forestry statistical data sourcing |
+  | 2026-04-22T13:30:58Z | idle_scheduler.wiki_synthesis | CREATE | meta/identifying-regional-payment-service-providers-psps-with-direct-sales-con-51bccc | Created: **** Identifying Regional Payment Service Providers (PSPs) with Direct Sales Contacts for Product-Le |
+  | 2026-04-22T13:30:58Z | idle_scheduler.wiki_synthesis | CREATE | meta/selecting-payment-service-providers-psps-for-plg-platforms-in-cee-ticketi-5fe6eb | Created: **** Selecting Payment Service Providers (PSPs) for PLG platforms in CEE ticketing/live events. |
+  | 2026-04-22T14:16:55Z | idle_scheduler.wiki_synthesis | CREATE | meta/skill-selecting-payment-service-providers-psps-for-cee-baltic-ticketing-eb543bc0 | Created: **Skill: Selecting Payment Service Providers (PSPs) for CEE/Baltic Ticketing** |
+  | 2026-04-22T14:16:55Z | idle_scheduler.wiki_synthesis | CREATE | meta/estonian-pdf-improvement-suggestion-workflow-0051d6a2 | Created: Estonian PDF improvement suggestion workflow |
+  | 2026-04-22T14:16:55Z | idle_scheduler.wiki_synthesis | CREATE | meta/handle-task-circular-import-immediate-fix | Created: Handling handle_task.py Circular Import Error |
 
 ## Wiki Stats
-  Total pages: 25
-  - meta: 25
+  Total pages: 31
+  - meta: 31
   Stale (>90 days): 0
 
 ## Active Contradictions
@@ -24,7 +24,7 @@ updated_at: "2026-04-21T21:21:49Z"
 
 ## Knowledge Gaps
   - plg: no pages yet
-  - archibal: no pages yet
   - kaicart: no pages yet
-  - self: no pages yet
   - philosophy: no pages yet
+  - self: no pages yet
+  - archibal: no pages yet
