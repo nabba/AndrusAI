@@ -44,10 +44,14 @@ export function TaskFlowDrawer({
   taskId: string | null;
   onClose: () => void;
 }) {
+  // IMPORTANT: every hook below MUST run on every render, regardless of
+  // ``taskId``. Previously an early ``if (!taskId) return null`` lived
+  // between the first two hooks and the useMemo calls — that caused a
+  // different number of hooks on the initial null-taskId render vs.
+  // after a row was clicked, tripping React's "rules of hooks" check
+  // (minified error #310). The early return now happens AFTER all hooks.
   const [view, setView] = useState<ViewMode>('tree');
   const q = useTaskTimelineQuery(taskId);
-
-  if (!taskId) return null;
 
   const task = q.data?.task;
   const spans = q.data?.spans ?? [];
@@ -64,6 +68,9 @@ export function TaskFlowDrawer({
     }
     return { timelineStartMs: start, timelineEndMs: Math.max(end, start + 1000) };
   }, [task?.started_at, task?.completed_at, flatSpans]);
+
+  // Safe to early-return now — hook order is locked.
+  if (!taskId) return null;
 
   return (
     <div
