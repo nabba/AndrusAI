@@ -147,6 +147,18 @@ def crew_lifecycle(
     ctx = CrewContext(_event_ctx=event_ctx)
 
     from app.project_context import agent_scope
+    # Bind the crew_task_id into the span-events ContextVar so CrewAI
+    # event subscribers (``app/crews/span_events.py``) can correlate
+    # every agent/tool/llm-call event back to this crew's task row.
+    # Restored in the finally block so nested crew dispatches don't
+    # leak the parent's id.
+    from app.crews.span_events import (
+        set_current_crew_task_id, clear_current_crew_task_id,
+    )
+    _span_token = (
+        set_current_crew_task_id(event_ctx.task_id)
+        if event_ctx.task_id else None
+    )
 
     try:
         with agent_scope(agent_role):
@@ -156,6 +168,8 @@ def crew_lifecycle(
         event_ctx.duration_s = time.monotonic() - start
         event_ctx.error = exc
         crew_events.fire_crew_failed(event_ctx)
+        if _span_token is not None:
+            clear_current_crew_task_id(_span_token)
         raise
 
     # Success path — compute duration + auto-capture cost from the
@@ -178,3 +192,5 @@ def crew_lifecycle(
                          exc_info=True)
 
     crew_events.fire_crew_completed(event_ctx)
+    if _span_token is not None:
+        clear_current_crew_task_id(_span_token)

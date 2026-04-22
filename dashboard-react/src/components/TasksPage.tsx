@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Skeleton } from './ui/Skeleton';
 import { ErrorPanel } from './ui/ErrorPanel';
 import { useCrewTasksQuery, type CrewTask, type CrewStatus } from '../api/queries';
 import type { OrgChartAgent } from '../types';
 import { useProject } from '../context/useProject';
 import { CREW_REGISTRY, crewMeta, type CrewKind } from '../crews';
+import { TaskFlowDrawer } from './TaskFlowDrawer';
 
 // Port of the legacy dashboard's "Current & Recent Tasks" section with
 // additional crew + org-chart roster panels so every crew, agent, and
@@ -131,10 +132,22 @@ function AgentRow({ agent, busyCrews }: { agent: OrgChartAgent; busyCrews: Set<s
   );
 }
 
-function TaskRow({ task, childTasks }: { task: CrewTask; childTasks: CrewTask[] }) {
+function TaskRow({
+  task,
+  childTasks,
+  onSelect,
+}: {
+  task: CrewTask;
+  childTasks: CrewTask[];
+  onSelect: (taskId: string) => void;
+}) {
   return (
     <>
-      <tr className="hover:bg-[#1e2738]/50 transition-colors">
+      <tr
+        className="hover:bg-[#1e2738]/50 transition-colors cursor-pointer"
+        onClick={() => onSelect(task.id)}
+        title="Open task-flow drawer"
+      >
         <td className="px-3 py-2 whitespace-nowrap">
           <span className="inline-flex items-center gap-1">
             <span>{crewIcon(task.crew)}</span>
@@ -160,7 +173,12 @@ function TaskRow({ task, childTasks }: { task: CrewTask; childTasks: CrewTask[] 
         <td className="px-3 py-2 text-xs text-[#7a8599] whitespace-nowrap">{fmtEta(task)}</td>
       </tr>
       {childTasks.map((child) => (
-        <tr key={child.id} className="opacity-70 hover:bg-[#1e2738]/30 transition-colors">
+        <tr
+          key={child.id}
+          className="opacity-70 hover:bg-[#1e2738]/30 transition-colors cursor-pointer"
+          onClick={() => onSelect(child.id)}
+          title="Open task-flow drawer"
+        >
           <td className="px-3 py-2 whitespace-nowrap pl-8">
             <span className="inline-flex items-center gap-1 text-[#a78bfa]">
               <span>↳</span>
@@ -194,6 +212,9 @@ function TaskRow({ task, childTasks }: { task: CrewTask; childTasks: CrewTask[] 
 export function TasksPage() {
   const { activeProject, isAllProjects } = useProject();
   const { data, isLoading, error, refetch } = useCrewTasksQuery(20, activeProject?.id);
+  // Task-flow drawer state — clicking any task row opens the nested
+  // timeline/tree view in a right-side drawer. null = drawer closed.
+  const [flowTaskId, setFlowTaskId] = useState<string | null>(null);
 
   const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks]);
   const crews = useMemo(() => data?.crews ?? [], [data?.crews]);
@@ -400,6 +421,7 @@ export function TasksPage() {
                       key={t.id}
                       task={t}
                       childTasks={childrenByParent.get(t.id) ?? []}
+                      onSelect={setFlowTaskId}
                     />
                   ))}
                 </tbody>
@@ -408,6 +430,13 @@ export function TasksPage() {
           )}
         </div>
       </section>
+
+      {/* Task-flow drawer — opens on row click, polls /timeline at 2 s
+          while the task is running, shows Tree + Timeline views. */}
+      <TaskFlowDrawer
+        taskId={flowTaskId}
+        onClose={() => setFlowTaskId(null)}
+      />
     </div>
   );
 }

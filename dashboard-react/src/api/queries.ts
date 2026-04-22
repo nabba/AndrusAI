@@ -54,6 +54,9 @@ export const keys = {
   anomalies: (limit: number) => ['anomalies', limit] as const,
   deploys: (limit: number) => ['deploys', limit] as const,
   techRadar: (limit: number) => ['tech-radar', limit] as const,
+  snapshotKinds: ['snapshots', 'kinds'] as const,
+  snapshotLatest: (kind: string) => ['snapshots', kind, 'latest'] as const,
+  snapshotRecent: (kind: string, limit: number) => ['snapshots', kind, 'recent', limit] as const,
   llmMode: ['llms', 'mode'] as const,
   llmCatalog: ['llms', 'catalog'] as const,
   llmRoles: ['llms', 'roles'] as const,
@@ -1011,6 +1014,56 @@ export function useCrewTasksQuery(limit = 20, projectId?: string) {
   });
 }
 
+// ── Task-flow drawer (fine-grained execution spans) ─────────────────────────
+
+export type TaskSpanType = 'agent' | 'tool' | 'llm_call';
+export type TaskSpanState = 'running' | 'completed' | 'failed';
+
+export interface TaskSpan {
+  id: number;
+  task_id: string;
+  parent_span_id: number | null;
+  span_type: TaskSpanType;
+  name: string;
+  crewai_event_id?: string | null;
+  started_at: string;
+  completed_at?: string | null;
+  state: TaskSpanState;
+  detail?: Record<string, unknown>;
+  error?: string | null;
+  children: TaskSpan[];   // nested by the server-side tree builder
+}
+
+export interface TaskTimelineReport {
+  task: CrewTask;
+  spans: TaskSpan[];      // roots of the tree
+  span_count: number;
+  updated_at: string;
+}
+
+/**
+ * Poll the task-flow timeline for a single crew task.
+ *
+ * Strategy:
+ *   - While task.state === 'running', re-fetch every 2 seconds so the
+ *     drawer reflects new agent / tool / LLM spans as they appear.
+ *   - Once the task hits a terminal state (completed/failed), stop
+ *     polling — the tree is frozen.
+ *   - ``enabled`` toggles the query off when no task is selected (so
+ *     closing the drawer cancels any in-flight poll).
+ */
+export function useTaskTimelineQuery(taskId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['taskTimeline', taskId ?? ''],
+    queryFn: () => api<TaskTimelineReport>(endpoints.taskTimeline(taskId!)),
+    enabled: Boolean(taskId),
+    refetchInterval: (query) => {
+      const state = query.state.data?.task?.state;
+      return state === 'running' ? 2000 : false;
+    },
+  });
+}
+
 // ── Consciousness indicators ────────────────────────────────────────────────
 export interface ProbeResult {
   indicator: string;
@@ -1114,5 +1167,124 @@ export function useKbBusinessesQuery() {
     queryKey: keys.kbBusinesses,
     queryFn: () => api<{ businesses: BusinessKB[] }>(endpoints.kbBusinesses()),
     refetchInterval: POLL.verySlow,
+  });
+}
+
+/* ──────────────────────────────────────────────────────────────────
+ *  Observability snapshots
+ *
+ *  A ``snapshot`` is a typed point-in-time observation served by the
+ *  gateway from Postgres (no Firebase dependency).  Adding a new
+ *  publisher backend-side gives you its data here for free — no
+ *  types to add, no collection to subscribe to, no Firebase config.
+ *
+ *  `useSnapshot("subia_state")`         — one shot of latest payload
+ *  `useSnapshotHistory("heartbeat", n)` — most-recent N snapshots
+ *  `useSnapshotKinds()`                 — registry of what exists
+ *
+ *  Each hook returns a TanStack Query result whose shape is
+ *  `{ data, isLoading, error, refetch, ... }`.  ``data`` is `null`
+ *  (from a 404) when no snapshot has been recorded for that kind yet.
+ * ──────────────────────────────────────────────────────────────── */
+
+export interface SnapshotLatest<TPayload = Record<string, unknown>> {
+  ts: string;
+  kind: string;
+  payload: TPayload;
+}
+
+export interface SnapshotHistory<TPayload = Record<string, unknown>> {
+  kind: string;
+  count: number;
+  items: Array<{ ts: string; payload: TPayload }>;
+}
+
+export interface SnapshotKind {
+  kind: string;
+  latest_ts: string | null;
+  count: number;
+}
+
+/** Latest payload for a given snapshot kind.  Returns `null` when
+ *  no snapshot has been recorded yet (gateway returns HTTP 404,
+ *  which we swallow to avoid noisy error banners for freshly-added
+ *  publishers). */
+export function useSnapshot<TPayload = Record<string, unknown>>(
+  kind: string,
+  opts: { refetchMs?: number } = {},
+) {
+  return useQuery<SnapshotLatest<TPayload> | null>({
+    queryKey: keys.snapshotLatest(kind),
+    queryFn: async () => {
+      try {
+        return await api<SnapshotLatest<TPayload>>(
+          endpoints.snapshotLatest(kind),
+        );
+      } catch (err) {
+        // 404 = no snapshot yet for this kind; return null rather
+        // than propagating into the consumer's isError branch.
+        const status = (err as { status?: number } | undefined)?.status;
+        if (status === 404) return null;
+        throw err;
+      }
+    },
+    refetchInterval: opts.refetchMs ?? POLL.oneMin,
+  });
+}
+
+/** History of the last N snapshots for a given kind, newest first. */
+export function useSnapshotHistory<TPayload = Record<string, unknown>>(
+  kind: string,
+  limit = 50,
+  opts: { refetchMs?: number } = {},
+) {
+  return useQuery<SnapshotHistory<TPayload>>({
+    queryKey: keys.snapshotRecent(kind, limit),
+    queryFn: () => api<SnapshotHistory<TPayload>>(
+      endpoints.snapshotRecent(kind, limit),
+    ),
+    refetchInterval: opts.refetchMs ?? POLL.oneMin,
+  });
+}
+
+/** Catalog of recorded snapshot kinds — useful for debug / admin
+ *  pages that want to discover what's being produced. */
+export function useSnapshotKinds() {
+  return useQuery<{ kinds: SnapshotKind[] }>({
+    queryKey: keys.snapshotKinds,
+    queryFn: () => api<{ kinds: SnapshotKind[] }>(endpoints.snapshotKinds()),
+    refetchInterval: POLL.verySlow,
+  });
+}
+
+
+/* ──────────────────────────────────────────────────────────────────
+ *  Proposal actions (evolution approve / reject / rollback)
+ *
+ *  Replaces the legacy Firestore ``proposal_actions`` polling queue.
+ *  Direct synchronous HTTP — the backend applies immediately and
+ *  returns the result text.  Intended for future React proposal-
+ *  review UI; exported now so the API surface is complete.
+ * ──────────────────────────────────────────────────────────────── */
+
+export type ProposalActionKind = 'approve' | 'reject' | 'rollback';
+
+export interface ProposalActionResult {
+  proposal_id: number;
+  action: ProposalActionKind;
+  result: string;
+}
+
+export function useApplyProposalAction() {
+  return useMutation<
+    ProposalActionResult,
+    Error,
+    { proposalId: number | string; action: ProposalActionKind }
+  >({
+    mutationFn: ({ proposalId, action }) =>
+      api<ProposalActionResult>(endpoints.proposalAction(proposalId), {
+        method: 'POST',
+        body: JSON.stringify({ action }),
+      }),
   });
 }

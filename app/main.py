@@ -55,6 +55,13 @@ _install_crew_registry()
 from app.crews.event_handlers import install_defaults as _install_crew_event_handlers
 _install_crew_event_handlers()
 
+# Subscribe CrewAI event-bus listeners that persist agent/tool/LLM
+# spans into control_plane.crew_task_spans. Powers the dashboard's
+# task-flow drawer. Fail-soft on older CrewAI versions that don't
+# expose the event types; see app/crews/span_events.py.
+from app.crews.span_events import install_listeners as _install_span_listeners
+_install_span_listeners()
+
 from fastapi import FastAPI, Request, HTTPException
 from contextlib import asynccontextmanager
 from app.config import get_settings, get_gateway_secret
@@ -315,22 +322,22 @@ async def lifespan(app: FastAPI):
     )
     # ── Heartbeat publishers (every 60s) ─────────────────────────────────
     # The set of publishers and their cadences live in
-    # app/firebase/publishers.py so that adding a new dashboard report is
-    # a single register() call, not an edit of the heartbeat body here.
-    # Each publisher runs under its own try/except so one failing sink
-    # (e.g. Firestore rate limit on tech_radar) doesn't cancel the rest.
-    from app.firebase.publishers import install_defaults as _install_fb_publishers
-    from app.firebase import publishers as _fb_publishers
-    _install_fb_publishers()
+    # app/observability/publishers.py so that adding a new dashboard
+    # report is a single register() call, not an edit of the heartbeat
+    # body here.  Each publisher runs under its own try/except so one
+    # failing sink doesn't cancel the rest.
+    from app.observability.publishers import install_defaults as _install_publishers
+    from app.observability import publishers as _observability_publishers
+    _install_publishers()
     logger.info(
-        "firebase.publishers: active publishers: %s",
-        ", ".join(_fb_publishers.registered_names()),
+        "observability.publishers: active publishers: %s",
+        ", ".join(_observability_publishers.registered_names()),
     )
 
     _hb_counter = [0]
     def _heartbeat_tick():
         _hb_counter[0] += 1
-        _fb_publishers.run_all(tick=_hb_counter[0])
+        _observability_publishers.run_all(tick=_hb_counter[0])
     scheduler.add_job(_heartbeat_tick, "interval", seconds=60, id="heartbeat")
 
     # ── Stuck-ticket janitor ────────────────────────────────────────────
@@ -1204,22 +1211,68 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         #        longer than this; past the cap the thread is abandoned and
         #        the user gets a "hit hard cap" message.
         #
-        # Progress signal is the process-wide "last LLM call completed"
-        # timestamp in rate_throttle — fires on success AND failure because
-        # a retrying-but-cycling task is still alive, and this is the
-        # cheapest progress signal we have that covers all LLM paths
-        # (CrewAI native Anthropic, LiteLLM OpenRouter, Ollama, etc.).
+        # Progress signal is a two-tier check:
+        #
+        #   (1) Output-progress (PREFERRED, tighter) — "the task produced
+        #       a user-visible partial result in the last N seconds".
+        #       Recorded by tools via
+        #       :func:`app.observability.task_progress.record_output_progress`.
+        #       This is strict: a retry loop that spews LLM calls but
+        #       produces no deliverable does **not** advance it, so we
+        #       kill the task much faster than the LLM-activity signal
+        #       would.  Tasks using the ``research_orchestrator`` tool
+        #       (or any tool that streams partials) get this.
+        #
+        #   (2) LLM-activity fallback — "any LLM call returned
+        #       (success or failure) in the last N seconds".  Used when
+        #       the task isn't instrumented for partial output yet
+        #       (backward compat: every existing tool still works, just
+        #       with the looser stall threshold).
+        #
+        # The context-var ``current_task_id`` is set here so tools can
+        # record progress without having ``sender`` threaded through
+        # every call signature.
         from app.rate_throttle import seconds_since_last_llm_activity
+        from app.observability.task_progress import (
+            current_task_id,
+            reset_task,
+            seconds_since_last_output_progress,
+        )
 
         _SOFT_TIMEOUT_SECS = 900         # 15 min — soft checkpoint
         _HARD_TIMEOUT_SECS = 2700        # 45 min — absolute ceiling
-        _STALL_THRESHOLD_SECS = 240      # 4 min without an LLM return → stalled
+        _STALL_THRESHOLD_SECS = 240      # 4 min w/o LLM return (loose)
+        _OUTPUT_STALL_THRESHOLD_SECS = 300   # 5 min w/o partial result (tight)
         _PROGRESS_CHECK_EVERY = 30       # how often we re-check after soft
 
         _task_started_at = _time.monotonic()
+        _ctx_token = current_task_id.set(str(sender or ""))
         _handle_fut = loop.run_in_executor(
             _commander_pool, commander.handle, text, sender, attachments or [],
         )
+
+        def _stall_check() -> tuple[str, float] | None:
+            """Return (kind, seconds) if the task should be killed, else None.
+
+            kind is "output-stall" (preferred signal triggered) or
+            "llm-stall" (fallback signal triggered).  Output-progress
+            takes precedence when it exists for this task — a task
+            that's emitting rows is alive, period.
+            """
+            out_stall = seconds_since_last_output_progress(str(sender or ""))
+            if out_stall is not None:
+                # Instrumented path: trust the strict signal, ignore
+                # the looser LLM-activity signal entirely — LLM cycling
+                # without deliverable is the exact failure mode we're
+                # trying to catch.
+                if out_stall > _OUTPUT_STALL_THRESHOLD_SECS:
+                    return ("output-stall", out_stall)
+                return None
+            # Un-instrumented path: fall back to the LLM heartbeat.
+            llm_stall = seconds_since_last_llm_activity()
+            if llm_stall is not None and llm_stall > _STALL_THRESHOLD_SECS:
+                return ("llm-stall", llm_stall)
+            return None
 
         try:
             # ── Phase 1: wait up to soft timeout ──
@@ -1230,28 +1283,20 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                 )
             except asyncio.TimeoutError:
                 # Not done in 15 min — is the crew still doing useful work?
-                stall = seconds_since_last_llm_activity()
-                # `stall is None` means the heartbeat has NEVER been recorded
-                # in this process.  That can mean either:
-                #   (a) genuinely no LLM call has completed (very cold start)
-                #   (b) an instrumentation gap — some LLM path bypasses every
-                #       heartbeat hook (e.g. a provider we didn't wire up yet)
-                # Killing the task on (b) is wrong — the crew may be actively
-                # working.  So we only stall-kill on a POSITIVE age that
-                # exceeds the threshold.  If the heartbeat is silent we give
-                # the task the benefit of the doubt and enter extension mode;
-                # the hard cap still bounds the worst case.
-                if stall is not None and stall > _STALL_THRESHOLD_SECS:
+                # Output-progress is preferred when available (strict); LLM
+                # activity is the backstop (loose — catches hung threads).
+                stalled = _stall_check()
+                if stalled is not None:
+                    kind, secs = stalled
                     raise asyncio.TimeoutError(
-                        f"soft-timeout with stall (no LLM activity for {stall:.0f}s)"
+                        f"soft-timeout with {kind} (no progress for {secs:.0f}s)"
                     )
 
-                # Alive (or heartbeat uncertain) — let the user know we're continuing.
-                stall_label = f"{stall:.0f}s ago" if stall is not None else "unknown (no heartbeat)"
+                # Alive — let the user know we're continuing.
                 logger.info(
-                    "handle_task: soft timeout (%ds) reached, last LLM call %s"
-                    " — extending toward hard cap",
-                    _SOFT_TIMEOUT_SECS, stall_label,
+                    "handle_task: soft timeout (%ds) reached, task still"
+                    " making progress — extending toward hard cap",
+                    _SOFT_TIMEOUT_SECS,
                 )
                 try:
                     await signal_client.send(
@@ -1277,16 +1322,15 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                         )
                         break  # task finished within the check window
                     except asyncio.TimeoutError:
-                        # Check-window elapsed — is LLM still cycling?
-                        # Same tolerance rule as Phase 1: stall only on a
-                        # positive threshold breach, never on "heartbeat
-                        # never fired".
-                        stall = seconds_since_last_llm_activity()
-                        if stall is not None and stall > _STALL_THRESHOLD_SECS:
+                        # Check-window elapsed — still making progress?
+                        # Same two-tier rule as Phase 1.
+                        stalled = _stall_check()
+                        if stalled is not None:
+                            kind, secs = stalled
                             raise asyncio.TimeoutError(
-                                f"extension stalled (no LLM activity for {stall:.0f}s)"
+                                f"extension stalled ({kind} for {secs:.0f}s)"
                             )
-                        # Still cycling (or heartbeat uncertain) — wait another window.
+                        # Still cycling — wait another window.
                         continue
         except asyncio.TimeoutError as _to_exc:
             elapsed_min = (_time.monotonic() - _task_started_at) / 60.0
@@ -1295,7 +1339,14 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                 "TIMEOUT (%.1f min elapsed): handle_task for %s: %s (reason: %s)",
                 elapsed_min, _redact_number(sender), text[:80], reason,
             )
-            if "stall" in reason.lower():
+            if "output-stall" in reason.lower():
+                result = (
+                    "Sorry — the task stopped producing partial results (no "
+                    "new rows / findings for several minutes).  I'll deliver "
+                    "what's been streamed so far; please re-send a narrower "
+                    "question to fill the gaps."
+                )
+            elif "stall" in reason.lower():
                 result = (
                     "Sorry — your request stalled (no LLM activity for several "
                     "minutes). This usually means a provider outage or a stuck "
@@ -1513,6 +1564,14 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         with _inflight_lock:
             _inflight_tasks -= 1
         idle_scheduler.notify_task_end()
+        # Drop output-progress counters for this task.  The context-var
+        # token is reset implicitly when the asyncio task completes, but
+        # the per-task dict entry is process-global and needs explicit
+        # cleanup so crashed threads don't leak.
+        try:
+            reset_task(str(sender or ""))
+        except Exception:
+            pass
 
 
 # ── API routers (extracted from main.py to app/api/) ──────────────────────────

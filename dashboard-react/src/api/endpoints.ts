@@ -46,6 +46,7 @@ export const endpoints = {
     projectId
       ? `${CP}/tasks?limit=${limit}&project_id=${encodeURIComponent(projectId)}`
       : `${CP}/tasks?limit=${limit}`,
+  taskTimeline: (taskId: string) => `${CP}/tasks/${encodeURIComponent(taskId)}/timeline`,
 
   // Ops (self-heal / anomaly / self-deploy)
   errors: (limit = 20) => `${CP}/errors?limit=${limit}`,
@@ -85,6 +86,21 @@ export const endpoints = {
   notesSearch: (root: string, q: string, limit = 50) =>
     `${CP}/notes/search?root=${encodeURIComponent(root)}&q=${encodeURIComponent(q)}&limit=${limit}`,
   notesTags: (root: string) => `${CP}/notes/tags?root=${encodeURIComponent(root)}`,
+
+  // Observability snapshots (Postgres-backed; migration target off Firestore).
+  // These three endpoints cover every current + future snapshot kind —
+  // adding a new publisher backend-side requires NO new endpoint entry
+  // here, just pass the kind string to useSnapshot* below.
+  snapshotKinds: () => `${CP}/observability/snapshots`,
+  snapshotLatest: (kind: string) =>
+    `${CP}/observability/snapshots/${encodeURIComponent(kind)}/latest`,
+  snapshotRecent: (kind: string, limit = 50) =>
+    `${CP}/observability/snapshots/${encodeURIComponent(kind)}/recent?limit=${limit}`,
+
+  // Evolution-proposal actions (replaces the legacy Firestore
+  // proposal_actions queue — now synchronous via HTTP).
+  proposalAction: (proposalId: number | string) =>
+    `${CP}/proposals/${encodeURIComponent(String(proposalId))}/action`,
 
   // Evolution (prefix /api/cp/evolution)
   evolutionSummary: () => `${CP}/evolution/summary`,
