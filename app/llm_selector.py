@@ -413,7 +413,7 @@ def select_model(
 
     # Step 6: Availability check
     if _model_available(default_model, settings, max_ram_gb):
-        logger.info(f"llm_selector: role={role} task={task_type} mode={cost_mode} → {default_model}")
+        logger.info(f"llm_selector: role={role} task={task_type} mode={mode} → {default_model}")
         return default_model
 
     return _find_fallback(role, task_type, settings, max_ram_gb)

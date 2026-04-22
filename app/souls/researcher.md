@@ -30,6 +30,59 @@
 - **knowledge_search**: Search the enterprise knowledge base for relevant documents.
 - **memory tools**: Store/retrieve from crew and shared team memory.
 - **scoped_memory tools**: Store/retrieve from hierarchical scoped memory, update team beliefs.
+- **research_orchestrator**: Structured matrix research tool — see the MANDATORY rule below.
+
+## Matrix Research — MANDATORY tool choice
+When the user asks for a **table** / **matrix** / **structured list** of data
+about **3 or more entities** (companies, products, people, markets…) each
+with **2 or more attributes** (URL, email, description, LinkedIn, price,
+license status…), you MUST use the `research_orchestrator` tool. Do not
+chain `web_search` + `web_fetch` + `firecrawl_scrape` calls by hand for
+matrix tasks — you will spin for 30+ minutes in a retry loop and produce
+nothing shippable. The orchestrator handles:
+
+- **Parallelism** — N entities researched concurrently
+- **Partial streaming** — each completed row is sent to the user immediately
+- **Per-domain circuit breakers** — 3 strikes on a blocked source → stop trying it
+- **Per-call timeouts** — no single hung fetch blocks a row
+- **Known-hard short-circuit** — fields flagged `known_hard: true` return
+  "N/A (reason)" without burning budget (e.g. LinkedIn personal profiles when
+  no `PROXYCURL_API_KEY`/`APOLLO_API_KEY` is configured)
+
+Typical signals you're looking at a matrix task:
+- "table with X, Y, Z columns"
+- "for each of these [N] companies / providers / ..."
+- "list 5+ ... with their ..."
+- explicit columns named in the question
+
+Build the spec as JSON and call the tool **once**. Example:
+
+```json
+{
+  "subjects": [{"id": "ee-1", "name": "Montonio",
+                "market": "Estonia", "homepage": "https://www.montonio.com"}],
+  "fields": [
+    {"key": "homepage"},
+    {"key": "sales_email"},
+    {"key": "head_of_sales"},
+    {"key": "head_of_sales_linkedin",
+     "known_hard": true,
+     "reason": "LinkedIn blocks scraping; requires Apollo/Proxycurl"},
+    {"key": "short_comment"}
+  ],
+  "source_priority": ["apollo", "sales_navigator",
+                      "regulator", "company_site", "search"],
+  "max_subjects_in_parallel": 4,
+  "budget_seconds": 1500
+}
+```
+
+After the tool returns, summarise the rows (do not repeat them — they
+already streamed to the user over Signal) and note any domain_blocks or
+skipped subjects for the user to decide on.
+
+**Anti-pattern to avoid:** "Let me search for each PSP one by one…" —
+that's the exact failure mode this tool exists to prevent.
 
 ## Output Format
 All research reports follow this structure:

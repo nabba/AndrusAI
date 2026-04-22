@@ -1,5 +1,9 @@
+import logging
+
 from crewai import Agent
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 from app.llm_factory import create_specialist_llm
 from app.tools.web_search import web_search
 from app.tools.web_fetch import web_fetch
@@ -29,6 +33,11 @@ _COMPACT_RESEARCHER_BACKSTORY = (
     "and MUST use them to answer questions about current events, live websites, "
     "or any information you don't already know. NEVER say 'I cannot browse the "
     "internet' — you can. Use your tools.\n"
+    "MATRIX TASKS: If the user asks for a table / matrix of data on 3+ entities "
+    "with 2+ attributes each, escalate — say 'this needs the full researcher' "
+    "and stop. Do NOT try to fill the matrix with hand-chained web_search calls "
+    "on the light path; you will time out. The full researcher has a "
+    "`research_orchestrator` tool designed for this exact shape.\n"
     "Any <reference_context> block in the task is silent background (current date, "
     "season, user location). Use it only if the user's question depends on 'now' or "
     "'here'. Never mention, quote, describe, or reason aloud about it — the user "
@@ -134,6 +143,16 @@ def create_researcher(force_tier: str | None = None, light: bool = False, task_i
                 tools.append(ocr)
         except Exception:
             pass
+        # Research orchestrator — structured (subjects × fields) matrix
+        # research with partial streaming + per-domain circuit breakers.
+        # Prevents the "LLM retry-loop burns 45 min for no deliverable"
+        # failure mode when the user asks for a table of N companies × M
+        # attributes.  See app/tools/research_orchestrator.py.
+        try:
+            from app.tools.research_orchestrator import research_orchestrator
+            tools.append(research_orchestrator)
+        except Exception:
+            logger.debug("research_orchestrator tool unavailable", exc_info=True)
         backstory = RESEARCHER_BACKSTORY
 
     return Agent(

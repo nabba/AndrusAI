@@ -28,10 +28,31 @@ _PROJECT_ID = "botarmy-ba0c9"
 _executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="firebase")
 
 
+def _firebase_enabled() -> bool:
+    """Firebase is OFF by default — set FIREBASE_ENABLED=1 to re-enable.
+
+    The observability layer has migrated to Postgres (``observability_snapshots``)
+    and the React dashboard reads entirely via ``/api/cp/*`` HTTP endpoints, so
+    Firestore writes are no longer on the hot path. Leaving the code in place
+    behind a flag lets us flip it back on for debugging without resurrecting
+    deleted modules.
+    """
+    return os.environ.get("FIREBASE_ENABLED", "0").lower() in ("1", "true", "yes", "on")
+
+
 def _get_db():
-    """Lazy-initialise the Firestore client once per process."""
+    """Lazy-initialise the Firestore client once per process.
+
+    When ``FIREBASE_ENABLED`` is not set (the default), returns ``False``
+    immediately so every caller's ``if not db: return`` guard short-circuits
+    the write. This is the single chokepoint that disables all Firestore
+    traffic without modifying the 40+ ``report_*`` call-sites.
+    """
     global _db
     if _db is not None:
+        return _db
+    if not _firebase_enabled():
+        _db = False
         return _db
     with _db_lock:
         if _db is not None:

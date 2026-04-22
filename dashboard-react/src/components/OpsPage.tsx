@@ -5,13 +5,15 @@ import {
   useErrorsQuery,
   useAnomaliesQuery,
   useDeploysQuery,
+  useSnapshotKinds,
   type ErrorEntry,
   type AnomalyAlert,
   type DeployEntry,
 } from '../api/queries';
 import { crewIcon, crewLabel } from '../crews';
+import { SnapshotExplorer } from './SnapshotExplorer';
 
-type OpsTab = 'errors' | 'anomalies' | 'deploys';
+type OpsTab = 'errors' | 'anomalies' | 'deploys' | 'observability';
 
 // Port of the old dashboard's "Errors & Self-Healing", "🛡️ Anomaly Detection"
 // and "🏗️ Self-Deploy Pipeline" cards — grouped as tabs on a single page.
@@ -266,17 +268,20 @@ export function OpsPage() {
   const errorsQ = useErrorsQuery();
   const anomaliesQ = useAnomaliesQuery();
   const deploysQ = useDeploysQuery();
+  const snapshotKindsQ = useSnapshotKinds();
 
   const counts = useMemo(() => ({
     errors: errorsQ.data?.recent.length ?? 0,
     anomalies: anomaliesQ.data?.recent_alerts.length ?? 0,
     deploys: deploysQ.data?.recent.length ?? 0,
-  }), [errorsQ.data, anomaliesQ.data, deploysQ.data]);
+    observability: snapshotKindsQ.data?.kinds.length ?? 0,
+  }), [errorsQ.data, anomaliesQ.data, deploysQ.data, snapshotKindsQ.data]);
 
   const tabs: { key: OpsTab; label: string; icon: string; count: number }[] = [
     { key: 'errors', label: 'Errors & Self-Healing', icon: '⚠️', count: counts.errors },
     { key: 'anomalies', label: 'Anomaly Detection', icon: '🛡️', count: counts.anomalies },
     { key: 'deploys', label: 'Self-Deploy Pipeline', icon: '🏗️', count: counts.deploys },
+    { key: 'observability', label: 'Observability Snapshots', icon: '📊', count: counts.observability },
   ];
 
   return (
@@ -310,6 +315,7 @@ export function OpsPage() {
         {tab === 'errors' && <ErrorsTab />}
         {tab === 'anomalies' && <AnomaliesTab />}
         {tab === 'deploys' && <DeploysTab />}
+        {tab === 'observability' && <SnapshotExplorer />}
       </div>
     </div>
   );

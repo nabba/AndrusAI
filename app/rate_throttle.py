@@ -162,6 +162,7 @@ def install_throttle() -> None:
                     latency_ms = int((time.monotonic() - t_start) * 1000)
                     _record_benchmark_failure(model, latency_ms)
                     _check_credit_error(exc, provider)
+                    _capture_upstream_error_body(exc, model, provider, kwargs)
                     raise
                 latency_ms = int((time.monotonic() - t_start) * 1000)
                 # Successful call — resolve any prior credit alert for this provider
@@ -185,9 +186,10 @@ def install_throttle() -> None:
                     t_start = time.monotonic()
                     try:
                         response = await _original_acompletion(*args, **kwargs)
-                    except Exception:
+                    except Exception as exc:
                         latency_ms = int((time.monotonic() - t_start) * 1000)
                         _record_benchmark_failure(model, latency_ms)
+                        _capture_upstream_error_body(exc, model, provider, kwargs)
                         raise
                     latency_ms = int((time.monotonic() - t_start) * 1000)
                     _record_token_usage(response, kwargs, latency_ms=latency_ms)
@@ -625,3 +627,86 @@ def get_active_tracker() -> "RequestCostTracker | None":
 def set_active_tracker(tracker: "RequestCostTracker | None") -> None:
     """Set the request tracker (for thread propagation)."""
     _request_cost.set(tracker)
+
+
+# ── Upstream-error diagnostics ─────────────────────────────────────────
+#
+# LiteLLM wraps the raw provider error in its own Exception subclass
+# and the default ``str(exc)`` truncates the JSON body.  When Claude
+# Opus 4.7 via OpenRouter rejects a request (the 2026-04-22 PSP trace
+# showed "Error code: 400 - {'error': {'message': 'Provider returned
+# error', ...'raw': ...}}" with the actual reason buried inside
+# ``raw``), we need the full body to diagnose whether it was:
+#
+#   * context-window overflow (huge conversation history)
+#   * malformed tool schema (strict validator rejected a pydantic
+#     Field shape)
+#   * content-filter hit
+#   * upstream 5xx passed through as 400
+#
+# This helper pulls every field it can reach on the exception and
+# dumps them as a structured WARNING log line so the next 400 is
+# debuggable from the logs alone.
+
+def _capture_upstream_error_body(
+    exc: Exception, model: str, provider: str, kwargs: dict,
+) -> None:
+    """Log the full upstream response body for a failed LLM call.
+
+    Fail-soft: wrapped in try/except — a logging bug must never hide
+    the original error.  The caller still ``raise``s afterward.
+    """
+    try:
+        # LiteLLM's OpenAI-compat errors expose these attributes; the
+        # field availability varies by SDK version so we probe.
+        parts: list[str] = []
+        status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+        if status_code:
+            parts.append(f"status={status_code}")
+        parts.append(f"model={model!r}")
+        parts.append(f"provider={provider!r}")
+        # Request shape diagnostics — most useful for context-overflow +
+        # tool-schema-reject cases.
+        messages = kwargs.get("messages") or []
+        if messages:
+            # Rough prompt-size estimate without importing tokenizers.
+            # A character / 4 heuristic is within ~30 % of real token
+            # counts for English — good enough to flag "200 K ballpark".
+            total_chars = sum(len(str(m.get("content", ""))) for m in messages)
+            parts.append(f"n_messages={len(messages)}")
+            parts.append(f"~chars={total_chars}")
+        tools = kwargs.get("tools") or []
+        if tools:
+            parts.append(f"n_tools={len(tools)}")
+        # Response body (the goldmine).
+        body = getattr(exc, "body", None) or getattr(exc, "response", None)
+        body_str: str | None = None
+        if body is not None:
+            # Response object → try .text, .json(), .content, or str().
+            for attr in ("text", "content"):
+                val = getattr(body, attr, None)
+                if val:
+                    body_str = str(val)[:2000]
+                    break
+            if body_str is None:
+                try:
+                    body_str = str(body)[:2000]
+                except Exception:
+                    body_str = "<unprintable>"
+        # Some SDKs stash the raw JSON error on the exception itself.
+        raw = getattr(exc, "raw", None)
+        if raw and not body_str:
+            body_str = str(raw)[:2000]
+        if body_str:
+            parts.append(f"body={body_str!r}")
+        # Exception type + message as fallback for anything we missed.
+        parts.append(f"exc_type={type(exc).__name__}")
+        parts.append(f"exc_msg={str(exc)[:1000]!r}")
+
+        logger.warning(
+            "llm_error_captured: %s", " | ".join(parts),
+        )
+    except Exception as log_exc:
+        logger.debug(
+            "llm_error_capture_failed: %s", log_exc,
+        )

@@ -487,26 +487,68 @@ def mark_inbound_failed(queue_id: int, error: str) -> None:
 
 
 def get_pending_inbound(max_attempts: int = 3) -> list[dict]:
-    """Return queued/processing rows from the inbound_queue.
+    """Return inbound-queue rows that need replay at startup.
 
-    Called at startup to find work abandoned by a previous container
-    instance.  Rows with attempts >= max_attempts are excluded so a
-    poison-pill message can't get replayed forever — those stay at
-    'processing' in the DB with last_error populated for inspection.
+    Policy
+    ------
+    * ``'queued'`` rows → always replay (never ran in a prior instance).
+    * ``'processing'`` rows → replay only when ``attempts == 0`` AND the
+      row was picked up within the last 5 minutes.  Older processing
+      rows are assumed handled by a previous instance that shipped
+      partial output before dying; replaying them spawns a parallel
+      handle_task that hits the 15-min soft timeout and emits a
+      duplicate "Still working" heartbeat to the user. That was the
+      observed failure mode when rapid gateway restarts (during
+      development) compounded with a long-running research task.
+
+    Callers who want the ``'failed'`` rows for operator inspection
+    should query ``inbound_queue`` directly.
     """
     try:
         conn = _get_conn()
-        rows = conn.execute(
+        # Queued rows: always replay.
+        queued = conn.execute(
             """
             SELECT id, sender, message, signal_ts, attachments_json,
                    status, attempts, received_at
               FROM inbound_queue
-             WHERE status IN ('queued', 'processing')
+             WHERE status = 'queued'
                AND attempts < ?
              ORDER BY received_at ASC
             """,
             (max_attempts,),
         ).fetchall()
+        # Processing rows: only very recent first-attempt ones.  Older
+        # processing rows get marked 'failed' and skipped — see below.
+        processing_recent = conn.execute(
+            """
+            SELECT id, sender, message, signal_ts, attachments_json,
+                   status, attempts, received_at
+              FROM inbound_queue
+             WHERE status = 'processing'
+               AND attempts = 0
+               AND processing_started_at IS NOT NULL
+               AND processing_started_at > datetime('now', '-5 minutes')
+             ORDER BY received_at ASC
+            """,
+        ).fetchall()
+        # Stuck processing rows: mark failed so they don't keep
+        # matching on future startups either.
+        conn.execute(
+            """
+            UPDATE inbound_queue
+               SET status = 'failed',
+                   last_error = 'abandoned: crossed container restart boundary'
+             WHERE status = 'processing'
+               AND (
+                    attempts >= 1
+                 OR processing_started_at IS NULL
+                 OR processing_started_at <= datetime('now', '-5 minutes')
+               )
+            """,
+        )
+        conn.commit()
+        rows = list(queued) + list(processing_recent)
     except Exception:
         logger.exception("conversation_store: get_pending_inbound failed")
         return []

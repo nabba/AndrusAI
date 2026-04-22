@@ -34,6 +34,14 @@ install_throttle()
 from app.prompt_cache_hook import install_cache_hook
 install_cache_hook()
 
+# Install process-wide wall-clock timeout on every CrewAI BaseTool.run.
+# Must be before agents/tools are constructed so the patched method
+# lands on every tool instance. See app/tools_timeout.py for the
+# motivation (2026-04-22 PSP task had recall_facts hung for 2h 11m
+# because no tool-level timeout existed).
+from app.tools_timeout import install as install_tool_timeouts
+install_tool_timeouts()
+
 # Subscribe the single LLM-activity heartbeat to CrewAI's event bus.  Covers
 # every CrewAI-routed provider (native Anthropic/OpenAI/Gemini/Azure/Bedrock
 # AND the LiteLLM-mediated generic ``crewai.LLM``) through one subscriber
@@ -1235,6 +1243,7 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         from app.rate_throttle import seconds_since_last_llm_activity
         from app.observability.task_progress import (
             current_task_id,
+            output_progress_count,
             reset_task,
             seconds_since_last_output_progress,
         )
@@ -1243,6 +1252,16 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         _HARD_TIMEOUT_SECS = 2700        # 45 min — absolute ceiling
         _STALL_THRESHOLD_SECS = 240      # 4 min w/o LLM return (loose)
         _OUTPUT_STALL_THRESHOLD_SECS = 300   # 5 min w/o partial result (tight)
+        # Past this elapsed wall-clock with ZERO output-progress events
+        # ever recorded, we kill even if the LLM is still cycling. This
+        # is the hallucination-loop catch: the LLM keeps "thinking"
+        # (writing self-reflection skills, meta-memory rows) but ships
+        # nothing the user can see. Before this, the task was allowed
+        # to run to the full hard cap (45 min) on the theory it might
+        # still produce a final blob — and in practice that never
+        # happened; it just ate budget and produced three useless
+        # "Still working" heartbeats.
+        _ZERO_OUTPUT_KILL_SECS = 1200    # 20 min elapsed + zero partials → kill
         _PROGRESS_CHECK_EVERY = 30       # how often we re-check after soft
 
         _task_started_at = _time.monotonic()
@@ -1254,21 +1273,40 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         def _stall_check() -> tuple[str, float] | None:
             """Return (kind, seconds) if the task should be killed, else None.
 
-            kind is "output-stall" (preferred signal triggered) or
-            "llm-stall" (fallback signal triggered).  Output-progress
-            takes precedence when it exists for this task — a task
-            that's emitting rows is alive, period.
+            Tiered check in order of strictness:
+
+              * **output-stall**   — a tool recorded partial output
+                                     recently, then stopped.  Strict
+                                     5-min threshold; kills fast.
+              * **zero-output**    — task has been running > 20 min
+                                     and has NEVER recorded a partial
+                                     result.  Catches hallucination-
+                                     loops (LLM cycling, no deliverable).
+              * **llm-stall**      — loose fallback.  LLM activity
+                                     stopped entirely for 4+ min.
+                                     Catches hung threads / provider
+                                     outages.
             """
-            out_stall = seconds_since_last_output_progress(str(sender or ""))
+            task_id = str(sender or "")
+            elapsed = _time.monotonic() - _task_started_at
+            out_stall = seconds_since_last_output_progress(task_id)
+
             if out_stall is not None:
-                # Instrumented path: trust the strict signal, ignore
-                # the looser LLM-activity signal entirely — LLM cycling
-                # without deliverable is the exact failure mode we're
-                # trying to catch.
+                # Instrumented path: a tool recorded a partial at some
+                # point.  Ignore LLM-activity — it's strictly looser.
                 if out_stall > _OUTPUT_STALL_THRESHOLD_SECS:
                     return ("output-stall", out_stall)
                 return None
-            # Un-instrumented path: fall back to the LLM heartbeat.
+
+            # Zero-output path: task has never emitted a partial.  If
+            # we're past the "any legitimate task would have said
+            # SOMETHING by now" threshold, kill.  Prevents the
+            # "hallucinate for 45 min, ship nothing" failure mode.
+            if elapsed > _ZERO_OUTPUT_KILL_SECS and output_progress_count(task_id) == 0:
+                return ("zero-output", elapsed)
+
+            # Loosest fallback: LLM heartbeat.  Catches hung threads
+            # when the task isn't output-instrumented.
             llm_stall = seconds_since_last_llm_activity()
             if llm_stall is not None and llm_stall > _STALL_THRESHOLD_SECS:
                 return ("llm-stall", llm_stall)
@@ -1339,7 +1377,19 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                 "TIMEOUT (%.1f min elapsed): handle_task for %s: %s (reason: %s)",
                 elapsed_min, _redact_number(sender), text[:80], reason,
             )
-            if "output-stall" in reason.lower():
+            if "zero-output" in reason.lower():
+                result = (
+                    "Sorry — your request ran for 20+ minutes without "
+                    "producing any partial result. This usually means the "
+                    "researcher agent is trying to answer from memory / "
+                    "looping on a blocked source instead of streaming "
+                    "findings. Please re-send with a more specific shape "
+                    "— e.g. for a table of providers, say explicitly "
+                    "'make a table of these N companies with these M "
+                    "columns' so the researcher reaches for its structured "
+                    "research tool."
+                )
+            elif "output-stall" in reason.lower():
                 result = (
                     "Sorry — the task stopped producing partial results (no "
                     "new rows / findings for several minutes).  I'll deliver "

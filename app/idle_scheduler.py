@@ -1271,6 +1271,26 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug(f"idle_scheduler: span retention failed: {exc}")
     jobs.append(("spans-retention", _crew_task_spans_retention, JobWeight.LIGHT))
 
+    # ── Crew-task spans: stale-running watchdog ───────────────────────
+    # CrewAI's event bus sometimes doesn't fire the *Finished event when
+    # a parent agent crashes — the tool's span is left in 'running'
+    # state forever, making the dashboard lie about task state.
+    # Sweep every idle tick; close anything stuck > 10 min as 'failed'.
+    # See app/control_plane/crew_task_spans.py::close_stale_spans for
+    # the failure mode that motivated this.
+    def _crew_task_spans_watchdog():
+        try:
+            from app.control_plane.crew_task_spans import close_stale_spans
+            closed = close_stale_spans(max_age_minutes=10)
+            if closed:
+                logger.info(
+                    f"idle_scheduler: watchdog closed {closed} stale "
+                    f"'running' crew_task_spans (>10 min old)"
+                )
+        except Exception as exc:
+            logger.debug(f"idle_scheduler: spans watchdog failed: {exc}")
+    jobs.append(("spans-watchdog", _crew_task_spans_watchdog, JobWeight.LIGHT))
+
     # ── Ollama memory management: unload idle models to free VRAM ─────
     def _ollama_memory():
         try:

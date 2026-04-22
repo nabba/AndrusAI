@@ -188,3 +188,49 @@ def purge_old_spans(days: int = 7) -> int:
     except Exception as exc:
         logger.debug("crew_task_spans.purge_old_spans failed: %s", exc)
         return 0
+
+
+def close_stale_spans(max_age_minutes: int = 10) -> int:
+    """Watchdog: mark as ``failed`` any span stuck in ``running`` longer
+    than ``max_age_minutes``.
+
+    Why this exists
+    ---------------
+    Spans are completed via CrewAI event-bus callbacks
+    (``ToolUsageFinishedEvent`` / ``*ErrorEvent`` / ``*LLMCall*``). When
+    a parent agent crashes mid-tool (e.g. a 400 from the upstream
+    provider kills the agent's LLM retry loop), CrewAI's bus sometimes
+    never fires the matching ``*Finished`` event — the tool's Python
+    thread is abandoned and the span sits in ``running`` forever.
+
+    Observed in the wild: one 2026-04-22 research task left 7 tool
+    spans stuck ``running`` for 7800+ seconds in the UI, even though
+    the Python threads had died hours earlier. This watchdog catches
+    that class of leak without requiring per-span instrumentation
+    fixes for every possible crash path.
+
+    The 10-minute default is longer than any legitimate tool or LLM
+    call in the system (per-call timeouts are ≤ 180s) but short enough
+    that the dashboard stops lying about task state quickly.
+    """
+    try:
+        rows = execute(
+            """
+            UPDATE control_plane.crew_task_spans
+               SET state        = 'failed',
+                   completed_at = NOW(),
+                   error        = COALESCE(
+                       error,
+                       'watchdog: stale running span closed after '
+                       || %s || ' min — parent likely crashed before '
+                       || 'complete_span event fired'
+                   )
+             WHERE state = 'running'
+               AND started_at < NOW() - (%s || ' minutes')::interval
+            """,
+            (str(int(max_age_minutes)), str(int(max_age_minutes))),
+        )
+        return rows if isinstance(rows, int) else 0
+    except Exception as exc:
+        logger.debug("crew_task_spans.close_stale_spans failed: %s", exc)
+        return 0
