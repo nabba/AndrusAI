@@ -163,6 +163,17 @@ def install_throttle() -> None:
                     _record_benchmark_failure(model, latency_ms)
                     _check_credit_error(exc, provider)
                     _capture_upstream_error_body(exc, model, provider, kwargs)
+                    # Credit-failover: on 402 / "insufficient credits",
+                    # retry ONCE against a local Ollama model before
+                    # propagating the error. Keeps the system usable
+                    # when OpenRouter runs out of balance.
+                    fallback = _try_credit_failover_sync(
+                        exc, model, kwargs, _original_completion,
+                    )
+                    if fallback is not None:
+                        fb_latency_ms = int((time.monotonic() - t_start) * 1000)
+                        _record_token_usage(fallback, kwargs, latency_ms=fb_latency_ms)
+                        return fallback
                     raise
                 latency_ms = int((time.monotonic() - t_start) * 1000)
                 # Successful call — resolve any prior credit alert for this provider
@@ -189,7 +200,17 @@ def install_throttle() -> None:
                     except Exception as exc:
                         latency_ms = int((time.monotonic() - t_start) * 1000)
                         _record_benchmark_failure(model, latency_ms)
+                        _check_credit_error(exc, provider)
                         _capture_upstream_error_body(exc, model, provider, kwargs)
+                        fallback = await _try_credit_failover_async(
+                            exc, model, kwargs, _original_acompletion,
+                        )
+                        if fallback is not None:
+                            fb_latency_ms = int((time.monotonic() - t_start) * 1000)
+                            _record_token_usage(
+                                fallback, kwargs, latency_ms=fb_latency_ms,
+                            )
+                            return fallback
                         raise
                     latency_ms = int((time.monotonic() - t_start) * 1000)
                     _record_token_usage(response, kwargs, latency_ms=latency_ms)
@@ -647,6 +668,175 @@ def set_active_tracker(tracker: "RequestCostTracker | None") -> None:
 # This helper pulls every field it can reach on the exception and
 # dumps them as a structured WARNING log line so the next 400 is
 # debuggable from the logs alone.
+
+# ── Credit-exhaustion failover to local Ollama ───────────────────────
+#
+# When OpenRouter / Anthropic / OpenAI returns a 402 / 429 / insufficient-
+# credits error, re-issue the same request against a local Ollama model
+# once.  Rationale: a hosted-LLM balance hitting zero should degrade the
+# system to "slower but still working" rather than "completely broken" —
+# the UX failure we saw with the 2026-04-23 PSP task was that every LLM
+# call failed, so even the commander couldn't route, and the user got
+# "Sorry, I had trouble understanding".
+#
+# Design
+# ------
+# * **One-shot** — we never failover a failover.  A process-wide
+#   ContextVar guards against recursion.
+# * **Provider-agnostic** — we use :func:`select_model` with
+#   ``force_tier='local'`` to pick a role-appropriate local model,
+#   falling back to a hard-coded default if the selector can't resolve.
+# * **Context-window-aware** — caps ``max_tokens`` at 4096 since local
+#   models typically have smaller context budgets than Opus/Sonnet.
+# * **No re-throttle** — we call ``_original_completion`` directly
+#   (bypassing the wrapper) so the local call doesn't run through the
+#   OpenRouter throttle.
+# * **Token accounting still works** — on success, the caller records
+#   the local-model tokens via ``_record_token_usage`` as if it were a
+#   direct call.
+
+# ContextVar is process-wide but unwinds automatically with the asyncio
+# task / thread that set it.  True = we're inside a failover retry and
+# must not start another one.
+_failover_in_progress: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "credit_failover_in_progress", default=False,
+)
+
+# Last-resort local model when select_model can't pick one.  Updated
+# manually if the local Ollama inventory changes.
+_FAILOVER_DEFAULT_LOCAL_MODEL = "ollama/llama3.1:8b"
+
+# Maximum tokens we'll request from a local model.  Most Ollama models
+# we ship are 8K-context; 4096 output leaves enough for the prompt.
+_FAILOVER_MAX_TOKENS = 4096
+
+
+def _select_local_failover_model(original_model: str) -> str | None:
+    """Pick a local Ollama model to use as the failover target.
+
+    Uses :func:`app.llm_selector.select_model` with ``force_tier='local'``
+    when the caller's role can be inferred; otherwise falls back to a
+    hard-coded default.  Returns ``None`` when no local model is
+    available — caller will propagate the original error.
+    """
+    # Try the selector first.  Role inference is best-effort: the model
+    # string doesn't carry its role back, so we default to 'research'
+    # (the most common credit-hungry path).  The selector respects
+    # local-tier affinities in role_assignments.
+    try:
+        from app.llm_selector import select_model
+        local_model = select_model(role="research", force_tier="local")
+        if local_model and local_model.startswith("ollama/"):
+            return local_model
+    except Exception as exc:
+        logger.debug("failover: select_model(force_tier='local') raised: %s", exc)
+    # Fallback to a known-good default.
+    return _FAILOVER_DEFAULT_LOCAL_MODEL
+
+
+def _prepare_failover_kwargs(
+    original_model: str, kwargs: dict, local_model: str,
+) -> dict:
+    """Clone kwargs, swap the model, cap max_tokens, clear retry count.
+
+    Retries are cleared because LiteLLM's internal retry loop can
+    interact badly with the failover path — we want the local call to
+    fail fast if Ollama is unreachable, not hang on retry backoff.
+    """
+    new_kwargs = dict(kwargs)
+    new_kwargs["model"] = local_model
+    new_kwargs.pop("api_base", None)   # let litellm use OLLAMA_HOST
+    new_kwargs.pop("base_url", None)
+    new_kwargs["num_retries"] = 0
+    mt = new_kwargs.get("max_tokens") or 0
+    if mt > _FAILOVER_MAX_TOKENS:
+        new_kwargs["max_tokens"] = _FAILOVER_MAX_TOKENS
+    return new_kwargs
+
+
+def _try_credit_failover_sync(
+    exc: Exception, model: str, kwargs: dict, original_completion,
+):
+    """Sync-path failover.  Returns the local response on success, or
+    ``None`` if failover isn't applicable (non-credit error, already in
+    failover, no local model available, local call also failed)."""
+    if _failover_in_progress.get():
+        # Already retrying once — don't loop.
+        return None
+    try:
+        from app.firebase.publish import detect_credit_error
+    except Exception:
+        return None
+    if detect_credit_error(exc) is None:
+        return None
+
+    local_model = _select_local_failover_model(model)
+    if not local_model:
+        logger.warning(
+            "failover: credit error on %r but no local model available — "
+            "propagating original error", model,
+        )
+        return None
+
+    new_kwargs = _prepare_failover_kwargs(model, kwargs, local_model)
+    logger.warning(
+        "failover: credit error on %r → retrying once with %r "
+        "(max_tokens=%s)", model, local_model, new_kwargs.get("max_tokens"),
+    )
+    token = _failover_in_progress.set(True)
+    try:
+        return original_completion(**new_kwargs)
+    except Exception as fallback_exc:
+        logger.warning(
+            "failover: local retry on %r also failed (%s: %s) — "
+            "propagating original credit error",
+            local_model, type(fallback_exc).__name__,
+            str(fallback_exc)[:200],
+        )
+        return None
+    finally:
+        _failover_in_progress.reset(token)
+
+
+async def _try_credit_failover_async(
+    exc: Exception, model: str, kwargs: dict, original_acompletion,
+):
+    """Async-path failover — same logic as ``_try_credit_failover_sync``."""
+    if _failover_in_progress.get():
+        return None
+    try:
+        from app.firebase.publish import detect_credit_error
+    except Exception:
+        return None
+    if detect_credit_error(exc) is None:
+        return None
+
+    local_model = _select_local_failover_model(model)
+    if not local_model:
+        logger.warning(
+            "failover: credit error on %r but no local model available — "
+            "propagating", model,
+        )
+        return None
+
+    new_kwargs = _prepare_failover_kwargs(model, kwargs, local_model)
+    logger.warning(
+        "failover: credit error on %r → retrying once with %r async "
+        "(max_tokens=%s)", model, local_model, new_kwargs.get("max_tokens"),
+    )
+    token = _failover_in_progress.set(True)
+    try:
+        return await original_acompletion(**new_kwargs)
+    except Exception as fallback_exc:
+        logger.warning(
+            "failover: async local retry on %r also failed (%s: %s) — "
+            "propagating", local_model, type(fallback_exc).__name__,
+            str(fallback_exc)[:200],
+        )
+        return None
+    finally:
+        _failover_in_progress.reset(token)
+
 
 def _capture_upstream_error_body(
     exc: Exception, model: str, provider: str, kwargs: dict,
