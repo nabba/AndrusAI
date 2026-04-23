@@ -1,5 +1,5 @@
 # System Chronicle
-*Auto-generated: 2026-04-23 21:52 UTC | DO NOT EDIT MANUALLY*
+*Auto-generated: 2026-04-23 22:45 UTC | DO NOT EDIT MANUALLY*
 
 
 ---
@@ -14,7 +14,7 @@ I maintain four distinct memory systems, all persistent across container restart
 
 - **ChromaDB vector store** (`workspace/memory/`): Operational memory for self-reports, reflections, belief states, world model (causal beliefs), policies, predictions, and shared team context. Embeddings via Ollama nomic-embed-text on Metal GPU (768-dim), with CPU fallback.
 - **Mem0** (Postgres + Neo4j): Cross-session fact extraction from conversations. Entity relationships stored in a knowledge graph that grows with each interaction.
-- **Skill files** (`workspace/skills/`): 36 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
+- **Skill files** (`workspace/skills/`): 19 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
 - **Error journal** (`workspace/error_journal.json`): Full history of runtime errors, automated diagnoses, and applied fixes.
 - **Audit journal** (`workspace/audit_journal.json`): Record of all code changes made by the autonomous auditor.
 - **Variant archive** (`workspace/variant_archive.json`): Evolution experiment history — hypotheses tested, fitness scores, and what was kept.
@@ -23,7 +23,7 @@ I maintain four distinct memory systems, all persistent across container restart
 ---
 
 ## My Current Capabilities
-- 36 learned skill files covering:   (11), skill  (3), estonian environmental (2), estonian pdf (2), handle task (1)
+- 20 learned skill files covering:   (4), handle task (1), response synthesis (1), circular import (1), error patterns (1)
 - 7 specialist agents with role-specific tools and self-models
 - Reflexion retry loops: up to 3 trials with automatic model-tier escalation
 - Semantic result cache: avoids redundant LLM calls for recent identical tasks
@@ -35,31 +35,31 @@ I maintain four distinct memory systems, all persistent across container restart
 - Parallel crew dispatch: independent sub-tasks run concurrently
 - Introspective self-description: this chronicle enables accurate self-reporting
 - Philosophy knowledge base: 3026 chunks of humanist philosophical texts for ethical grounding
-- Lifetime performance: 208 tasks completed, 8 failed (96% success rate)
-- Homeostatic state: energy=0.95 confidence=0.98 frustration=0.03 curiosity=0.97
+- Lifetime performance: 209 tasks completed, 8 failed (96% success rate)
+- Homeostatic state: energy=0.97 confidence=0.98 frustration=0.01 curiosity=0.97
 
 ---
 
 ## What I Have Learned
-I have accumulated 36 skill files across multiple self-improvement sessions. Primary knowledge domains (by file count):   (11), skill  (3), estonian environmental (2), estonian pdf (2), handle task (1), estonian deforestation (1), response synthesis (1), advanced policy (1), estonian document (1), eston  (1).
+I have accumulated 20 skill files across multiple self-improvement sessions. Primary knowledge domains (by file count):   (4), handle task (1), response synthesis (1), circular import (1), error patterns (1), estonian forest (1), estonian environmental (1), white paper (1), time based (1), llm capability (1).
 
 Skills are written by the self-improvement crew after researching topics from the learning queue, watching YouTube tutorials, or running improvement scans. Each skill is stored as a semantic vector in the team_shared ChromaDB collection and retrieved by the commander when relevant to a task.
 
 ---
 
 ## My Error History
-Total errors recorded: **63** | Diagnosed: 53 | Fix applied: 0
+Total errors recorded: **64** | Diagnosed: 54 | Fix applied: 0
 
-Most common error types: BadRequestError (18), RuntimeError (13), ImportError (7), ValueError (5)
+Most common error types: BadRequestError (18), RuntimeError (14), ImportError (7), ValueError (5)
 
 Recent errors:
+  - [2026-04-23] research: Task execution failed: Error code: 402 - {'error': {'message': 'This request requires more credits, 
   - [2026-04-21] research: Task execution failed: Failed to connect to OpenAI API: Connection error.
   - [2026-04-20] coding: Task 'Complete the following coding task:
 
 <user_request>
 <reference_data>
 The following is backgrou
-  - [2026-04-20] coding: Task execution failed: Error code: 400 - {'error': {'message': 'Provider returned error', 'code': 40
 
 Errors are automatically diagnosed by the auditor crew every 30 minutes. Fixes are proposed, reviewed, and applied with constitutional safety checks.
 
@@ -104,6 +104,6 @@ Based on accumulated experience, this system's personality has developed:
 - Actively curious: seeking novel approaches and new knowledge
 - Well-rested and energized: ready for complex tasks
 
-Primary expertise areas (from skill distribution):  , skill , estonian environmental, estonian pdf.
+Primary expertise areas (from skill distribution):  , handle task, response synthesis, circular import.
 
 This system knows what it knows, knows what it doesn't know, and labels uncertainty explicitly. It is a system that has a history, makes mistakes, learns from them, and continuously improves itself.

@@ -1,11 +1,11 @@
 ---
 title: Hot Cache
-updated_at: "2026-04-23T21:53:01Z"
+updated_at: "2026-04-23T22:46:02Z"
 ---
 
 # Wiki Hot Cache
 
-*Auto-generated 2026-04-23T21:53:01Z. Read this for quick context.*
+*Auto-generated 2026-04-23T22:46:02Z. Read this for quick context.*
 
 ## Recent Wiki Changes
   | 2026-04-22T16:48:58Z | idle_scheduler.wiki_synthesis | CREATE | meta/white-paper-concise-summary-methodology-134a9a00 | Created: White paper concise summary methodology |
@@ -24,7 +24,7 @@ updated_at: "2026-04-23T21:53:01Z"
 
 ## Knowledge Gaps
   - philosophy: no pages yet
-  - kaicart: no pages yet
-  - self: no pages yet
-  - plg: no pages yet
   - archibal: no pages yet
+  - plg: no pages yet
+  - self: no pages yet
+  - kaicart: no pages yet

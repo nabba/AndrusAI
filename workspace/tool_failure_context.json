@@ -2,15 +2,6 @@
   {
     "task_hash": "c4517dc00b68fa1d",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: crew.py",
-    "ts": 1776873964.9663725,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "c4517dc00b68fa1d",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 3,
     "last_tool": "file_manager",
     "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
@@ -447,6 +438,15 @@
     "last_tool": "file_manager",
     "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
     "ts": 1776945776.3845181,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "327e9dcb11058cc0",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1776981377.9456763,
     "replan_suggested": false
   }
 ]

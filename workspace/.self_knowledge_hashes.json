@@ -147,7 +147,7 @@
   "app/crews/delegation.py": "48007f64315641ae",
   "app/crews/desktop_crew.py": "82c90c073d45ffa5",
   "app/crews/writing_crew.py": "f901124fd79dce62",
-  "app/crews/span_events.py": "ba8352fbde54f7ee",
+  "app/crews/span_events.py": "3b2f47cb2743f518",
   "app/crews/lifecycle.py": "2321a379e576581a",
   "app/crews/creative_prompts.py": "a39c94c78232da2c",
   "app/crews/repo_analysis_crew.py": "333ebbb6167dbf3d",
@@ -261,7 +261,7 @@
   "app/agents/coder.py": "f8ad5b31b0f834a2",
   "app/agents/media_analyst.py": "a17e377768d3316d",
   "app/agents/observer.py": "c1800b58d9e2cd27",
-  "app/agents/specialists.py": "379a51b6658b36fc",
+  "app/agents/specialists.py": "084186d2855242fb",
   "app/agents/critic.py": "ff261d16dedef388",
   "app/agents/writer.py": "17f6d960899cb80d",
   "app/agents/pim_agent.py": "0ac5953702f3c8e4",
@@ -542,5 +542,5 @@
   "app/subia/homeostasis/state.py": "21ff045724be6b2b",
   "app/subia/homeostasis/__init__.py": "09bd8383f16149b2",
   "app/subia/homeostasis/engine.py": "29c788c60ee88570",
-  "workspace/system_chronicle.md": "c7ba6ce9083ace21"
+  "workspace/system_chronicle.md": "1117f4899426f5ad"
 }
