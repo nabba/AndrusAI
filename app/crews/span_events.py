@@ -211,9 +211,13 @@ def install_listeners() -> None:
         def _on_agent_start(_source: Any, event: Any) -> None:
             try:
                 tools = event.tools or []
+                # Cap at 40 (plugin tools alone account for ~10-15; the
+                # real agent tools sit after them in the list and were
+                # hidden by the previous [:10] truncation — the
+                # 2026-04-23 PSP task debugging revealed this).
                 tool_names = [
                     getattr(t, "name", None) or type(t).__name__ for t in tools
-                ][:10]
+                ][:40]
                 _safe_start(
                     span_type="agent",
                     name=getattr(event, "agent_role", "") or "agent",

@@ -65,6 +65,16 @@ def create_web_specialist(force_tier: str | None = None) -> Agent:
     ]:
         tools.extend(_safe(lambda m=mod, f=fn: __import__(m, fromlist=[f]).__dict__[f]()))
 
+    # Research orchestrator — fallback path: if the coordinator delegated a
+    # sub-matrix to this leaf, still use the structured pipeline rather
+    # than individual web_search calls.  The coordinator should have
+    # caught this already (MATRIX MODE), but this keeps the leaf honest.
+    try:
+        from app.tools.research_orchestrator import research_orchestrator
+        tools.append(research_orchestrator)
+    except Exception:
+        pass
+
     return Agent(
         role="Web Research Specialist",
         goal="Fetch authoritative web sources and return verbatim extracts with URLs.",
@@ -196,7 +206,23 @@ def create_synthesis_specialist(force_tier: str | None = None) -> Agent:
 
 _COORD_BACKSTORY = compose_backstory("researcher") + (
     "\n\n"
-    "DELEGATION MODE — You coordinate a team of three specialists:\n"
+    "═══ MATRIX MODE (MANDATORY when task is a table) ═══\n"
+    "If the user asks for a TABLE / MATRIX / STRUCTURED LIST of 3+ entities\n"
+    "(companies, products, people) each with 2+ attributes (name, URL, email,\n"
+    "description, etc.) — you MUST call ``research_orchestrator`` FIRST,\n"
+    "before any delegation.  The orchestrator handles the whole matrix in\n"
+    "one structured pass with partial streaming, per-domain circuit breakers,\n"
+    "known-hard field short-circuits, and a budget.  Do NOT use delegation\n"
+    "for matrix tasks — the per-subject-per-field reasoning burns budget\n"
+    "on work the orchestrator does in parallel.\n"
+    "\n"
+    "Matrix task recognition:\n"
+    "  • \"give me a table of X for Y companies\" → orchestrator\n"
+    "  • \"find email + URL + LinkedIn for N entities\" → orchestrator\n"
+    "  • \"compare features of N products across M criteria\" → orchestrator\n"
+    "\n"
+    "DELEGATION MODE — for single-topic deep research (not matrix tasks):\n"
+    "You coordinate a team of three specialists:\n"
     "  • Web Research Specialist — for live web content and URLs\n"
     "  • Document Research Specialist — for PDFs, KB passages, journal entries\n"
     "  • Synthesis Specialist — for final dialectical integration\n"
@@ -226,6 +252,16 @@ def create_research_coordinator(force_tier: str | None = None) -> Agent:
     # A minimal web_search so simple follow-ups don't need a full delegation
     from app.tools.web_search import web_search
     tools.append(web_search)
+
+    # Research orchestrator — for matrix tasks (N entities × M fields), the
+    # coordinator calls this directly instead of delegating to sub-agents
+    # that each do their own web_search loops.  See the MATRIX MODE section
+    # in _COORD_BACKSTORY for the trigger rule.
+    try:
+        from app.tools.research_orchestrator import research_orchestrator
+        tools.append(research_orchestrator)
+    except Exception:
+        pass  # fail-soft: delegation path still works without the orchestrator
 
     return Agent(
         role="Research Coordinator",
