@@ -36,3 +36,9 @@ title: "AndrusAI Wiki — Operations Log"
 | 2026-04-22T14:16:55Z | idle_scheduler.wiki_synthesis | CREATE | meta/skill-selecting-payment-service-providers-psps-for-cee-baltic-ticketing-eb543bc0 | Created: **Skill: Selecting Payment Service Providers (PSPs) for CEE/Baltic Ticketing** |
 | 2026-04-22T14:16:55Z | idle_scheduler.wiki_synthesis | CREATE | meta/estonian-pdf-improvement-suggestion-workflow-0051d6a2 | Created: Estonian PDF improvement suggestion workflow |
 | 2026-04-22T14:16:55Z | idle_scheduler.wiki_synthesis | CREATE | meta/handle-task-circular-import-immediate-fix | Created: Handling handle_task.py Circular Import Error |
+| 2026-04-22T16:48:56Z | idle_scheduler.wiki_synthesis | CREATE | meta/model-tool-support-and-capability-detection | Created: Model Tool Support and Capability Detection |
+| 2026-04-22T16:48:58Z | idle_scheduler.wiki_synthesis | CREATE | meta/white-paper-concise-summary-methodology-134a9a00 | Created: White paper concise summary methodology |
+| 2026-04-22T21:06:32Z | idle_scheduler.wiki_synthesis | CREATE | meta/1-1ca80e91 | Created: **1. ** |
+| 2026-04-23T00:34:43Z | idle_scheduler.wiki_synthesis | CREATE | meta/error-patterns-resolution | Created: Error Patterns and Resolutions |
+| 2026-04-23T11:49:47Z | idle_scheduler.wiki_synthesis | CREATE | meta/topic-ca68c901 | Created: **Topic** |
+| 2026-04-23T11:49:47Z | idle_scheduler.wiki_synthesis | CREATE | meta/import-error-systematic-resolution | Created: Systematic ImportError Resolution — Domain Skill |

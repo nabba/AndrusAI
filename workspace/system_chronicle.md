@@ -1,5 +1,5 @@
 # System Chronicle
-*Auto-generated: 2026-04-22 14:54 UTC | DO NOT EDIT MANUALLY*
+*Auto-generated: 2026-04-23 21:52 UTC | DO NOT EDIT MANUALLY*
 
 
 ---
@@ -14,7 +14,7 @@ I maintain four distinct memory systems, all persistent across container restart
 
 - **ChromaDB vector store** (`workspace/memory/`): Operational memory for self-reports, reflections, belief states, world model (causal beliefs), policies, predictions, and shared team context. Embeddings via Ollama nomic-embed-text on Metal GPU (768-dim), with CPU fallback.
 - **Mem0** (Postgres + Neo4j): Cross-session fact extraction from conversations. Entity relationships stored in a knowledge graph that grows with each interaction.
-- **Skill files** (`workspace/skills/`): 32 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
+- **Skill files** (`workspace/skills/`): 36 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
 - **Error journal** (`workspace/error_journal.json`): Full history of runtime errors, automated diagnoses, and applied fixes.
 - **Audit journal** (`workspace/audit_journal.json`): Record of all code changes made by the autonomous auditor.
 - **Variant archive** (`workspace/variant_archive.json`): Evolution experiment history — hypotheses tested, fitness scores, and what was kept.
@@ -23,7 +23,7 @@ I maintain four distinct memory systems, all persistent across container restart
 ---
 
 ## My Current Capabilities
-- 32 learned skill files covering:   (9), skill  (3), estonian environmental (2), estonian pdf (2), handle task (1)
+- 36 learned skill files covering:   (11), skill  (3), estonian environmental (2), estonian pdf (2), handle task (1)
 - 7 specialist agents with role-specific tools and self-models
 - Reflexion retry loops: up to 3 trials with automatic model-tier escalation
 - Semantic result cache: avoids redundant LLM calls for recent identical tasks
@@ -35,13 +35,13 @@ I maintain four distinct memory systems, all persistent across container restart
 - Parallel crew dispatch: independent sub-tasks run concurrently
 - Introspective self-description: this chronicle enables accurate self-reporting
 - Philosophy knowledge base: 3026 chunks of humanist philosophical texts for ethical grounding
-- Lifetime performance: 205 tasks completed, 8 failed (96% success rate)
-- Homeostatic state: energy=0.97 confidence=0.98 frustration=0.01 curiosity=0.97
+- Lifetime performance: 208 tasks completed, 8 failed (96% success rate)
+- Homeostatic state: energy=0.95 confidence=0.98 frustration=0.03 curiosity=0.97
 
 ---
 
 ## What I Have Learned
-I have accumulated 32 skill files across multiple self-improvement sessions. Primary knowledge domains (by file count):   (9), skill  (3), estonian environmental (2), estonian pdf (2), handle task (1), estonian deforestation (1), response synthesis (1), advanced policy (1), estonian document (1), eston  (1).
+I have accumulated 36 skill files across multiple self-improvement sessions. Primary knowledge domains (by file count):   (11), skill  (3), estonian environmental (2), estonian pdf (2), handle task (1), estonian deforestation (1), response synthesis (1), advanced policy (1), estonian document (1), eston  (1).
 
 Skills are written by the self-improvement crew after researching topics from the learning queue, watching YouTube tutorials, or running improvement scans. Each skill is stored as a semantic vector in the team_shared ChromaDB collection and retrieved by the commander when relevant to a task.
 
@@ -66,26 +66,26 @@ Errors are automatically diagnosed by the auditor crew every 30 minutes. Fixes a
 ---
 
 ## System Changes (Audit Trail)
-151 audit sessions have touched 222 unique files.
+155 audit sessions have touched 222 unique files.
 
 Recent changes:
-  - [2026-04-21] 2 issues in 6 files: Fixed uninitialized variable bug in error handling and completed truncated code
-  - [2026-04-21] 2 issues in 6 files: Found 2 bugs in app/auditor.py: undefined variable reference and incomplete cod
-  - [2026-04-21] 1 issues in 6 files: Fixed incomplete state property in circuit_breaker.py that returned None instea
-  - [2026-04-21] Pattern coding:RuntimeError resolved after 2 attempts (24h clear)
   - [2026-04-22] 6 issues in 6 files: Fixed silent exception handling by adding proper logging in agent factory modul
+  - [2026-04-22] 3 issues in 6 files: Fixed broad exception catching in agent modules (coder, critic) to only catch I
+  - [2026-04-23] 1 issues in 6 files: Added validation to ConsciousnessConfig to ensure parameters are within safe ra
+  - [2026-04-23] 0 issues in 6 files: No issues found
+  - [2026-04-23] 0 issues in 6 files: No issues found
 
 ---
 
 ## Evolution Experiments
-77 experiments across 44 generations. 45 hypotheses kept (promoted to live system).
+79 experiments across 45 generations. 46 hypotheses kept (promoted to live system).
 
 Recent experiments:
+  - [keep] Equip the team with proven circular import resolution patterns to fix the recurring handle
+  - [discard] Fixing the circular import in handle_task.py will eliminate 7 ImportError occurrences and 
   - [keep] Creating a comprehensive skill for model tool support detection and graceful degradation w
   - [discard] The #1 error pattern (BadRequestError - 16 occurrences) is caused by attempting to use too
   - [discard] The #1 error (BadRequestError - 16 occurrences) is caused by attempting to use tools with 
-  - [keep] Adding response synthesis optimization techniques (semantic deduplication, clustered synth
-  - [discard] Adding resilient API communication patterns will reduce TimeoutError, ConnectionError, and
 
 Evolution runs every 6 hours during idle time. Each session proposes code mutations, tests them against a task suite, and keeps changes that improve fitness.
 

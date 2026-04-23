@@ -1,53 +1,28 @@
 {
-  "claude-sonnet-4.6": {
-    "tier": "premium",
+  "claude-4.5-haiku": {
+    "tier": "mid",
     "provider": "anthropic",
-    "model_id": "anthropic/claude-sonnet-4-6",
+    "model_id": "anthropic/claude-4-5-haiku",
     "context": 1000000,
     "multimodal": true,
-    "cost_input_per_m": 3.0,
-    "cost_output_per_m": 15.0,
+    "cost_input_per_m": 1.0,
+    "cost_output_per_m": 5.0,
     "supports_tools": true,
-    "description": "Claude Sonnet 4.6 (Adaptive Reasoning, Max Effort)",
+    "description": "Claude 4.5 Haiku (Reasoning)",
     "_auto": true,
     "_source": "aa_anthropic",
     "strengths": {
-      "coding": 0.727,
-      "debugging": 0.691,
-      "architecture": 0.734,
-      "research": 0.739,
-      "writing": 0.702,
-      "reasoning": 0.807,
+      "coding": 0.615,
+      "debugging": 0.584,
+      "architecture": 0.564,
+      "research": 0.53,
+      "writing": 0.503,
+      "reasoning": 0.761,
       "multimodal": 1.0,
-      "vetting": 0.731,
-      "general": 0.739
+      "vetting": 0.561,
+      "general": 0.53
     },
-    "tool_use_reliability": 0.9
-  },
-  "claude-opus-4.6": {
-    "tier": "premium",
-    "provider": "anthropic",
-    "model_id": "anthropic/claude-opus-4-6",
-    "context": 1000000,
-    "multimodal": true,
-    "cost_input_per_m": 5.0,
-    "cost_output_per_m": 25.0,
-    "supports_tools": true,
-    "description": "Claude Opus 4.6 (Adaptive Reasoning, Max Effort)",
-    "_auto": true,
-    "_source": "aa_anthropic",
-    "strengths": {
-      "coding": 0.687,
-      "debugging": 0.653,
-      "architecture": 0.729,
-      "research": 0.757,
-      "writing": 0.719,
-      "reasoning": 0.827,
-      "multimodal": 1.0,
-      "vetting": 0.74,
-      "general": 0.757
-    },
-    "tool_use_reliability": 0.9
+    "tool_use_reliability": 0.82
   },
   "claude-opus-4.7": {
     "tier": "premium",
@@ -74,30 +49,55 @@
     },
     "tool_use_reliability": 0.9
   },
-  "claude-4.5-haiku": {
-    "tier": "mid",
+  "claude-sonnet-4.6": {
+    "tier": "premium",
     "provider": "anthropic",
-    "model_id": "anthropic/claude-4-5-haiku",
+    "model_id": "anthropic/claude-sonnet-4-6",
     "context": 1000000,
     "multimodal": true,
-    "cost_input_per_m": 1.0,
-    "cost_output_per_m": 5.0,
+    "cost_input_per_m": 3.0,
+    "cost_output_per_m": 15.0,
     "supports_tools": true,
-    "description": "Claude 4.5 Haiku (Reasoning)",
+    "description": "Claude Sonnet 4.6 (Adaptive Reasoning, Max Effort)",
     "_auto": true,
     "_source": "aa_anthropic",
     "strengths": {
-      "coding": 0.615,
-      "debugging": 0.584,
-      "architecture": 0.564,
-      "research": 0.53,
-      "writing": 0.503,
-      "reasoning": 0.761,
+      "coding": 0.727,
+      "debugging": 0.691,
+      "architecture": 0.734,
+      "research": 0.739,
+      "writing": 0.702,
+      "reasoning": 0.807,
       "multimodal": 1.0,
-      "vetting": 0.561,
-      "general": 0.53
+      "vetting": 0.731,
+      "general": 0.739
     },
-    "tool_use_reliability": 0.82
+    "tool_use_reliability": 0.9
+  },
+  "claude-opus-4.7-non": {
+    "tier": "premium",
+    "provider": "anthropic",
+    "model_id": "anthropic/claude-opus-4-7-non",
+    "context": 1000000,
+    "multimodal": true,
+    "cost_input_per_m": 5.0,
+    "cost_output_per_m": 25.0,
+    "supports_tools": true,
+    "description": "Claude Opus 4.7 (Non-reasoning, High Effort)",
+    "_auto": true,
+    "_source": "aa_anthropic",
+    "strengths": {
+      "coding": 0.759,
+      "debugging": 0.721,
+      "architecture": 0.747,
+      "research": 0.74,
+      "writing": 0.703,
+      "reasoning": 0.812,
+      "multimodal": 1.0,
+      "vetting": 0.708,
+      "general": 0.74
+    },
+    "tool_use_reliability": 0.9
   },
   "claude-35-sonnet": {
     "tier": "premium",
@@ -274,6 +274,31 @@
     },
     "tool_use_reliability": 0.6
   },
+  "claude-4-opus": {
+    "tier": "premium",
+    "provider": "anthropic",
+    "model_id": "anthropic/claude-4-opus",
+    "context": 1000000,
+    "multimodal": true,
+    "cost_input_per_m": 15.0,
+    "cost_output_per_m": 75.0,
+    "supports_tools": true,
+    "description": "Claude 4 Opus (Reasoning)",
+    "_auto": true,
+    "_source": "aa_anthropic",
+    "strengths": {
+      "coding": 0.636,
+      "debugging": 0.604,
+      "architecture": 0.589,
+      "research": 0.557,
+      "writing": 0.529,
+      "reasoning": 0.806,
+      "multimodal": 1.0,
+      "vetting": 0.601,
+      "general": 0.557
+    },
+    "tool_use_reliability": 0.9
+  },
   "claude-opus-4.5": {
     "tier": "premium",
     "provider": "anthropic",
@@ -299,28 +324,28 @@
     },
     "tool_use_reliability": 0.9
   },
-  "claude-4-opus": {
+  "claude-opus-4.6": {
     "tier": "premium",
     "provider": "anthropic",
-    "model_id": "anthropic/claude-4-opus",
+    "model_id": "anthropic/claude-opus-4-6",
     "context": 1000000,
     "multimodal": true,
-    "cost_input_per_m": 15.0,
-    "cost_output_per_m": 75.0,
+    "cost_input_per_m": 5.0,
+    "cost_output_per_m": 25.0,
     "supports_tools": true,
-    "description": "Claude 4 Opus (Reasoning)",
+    "description": "Claude Opus 4.6 (Adaptive Reasoning, Max Effort)",
     "_auto": true,
     "_source": "aa_anthropic",
     "strengths": {
-      "coding": 0.636,
-      "debugging": 0.604,
-      "architecture": 0.589,
-      "research": 0.557,
-      "writing": 0.529,
-      "reasoning": 0.806,
+      "coding": 0.687,
+      "debugging": 0.653,
+      "architecture": 0.729,
+      "research": 0.757,
+      "writing": 0.719,
+      "reasoning": 0.827,
       "multimodal": 1.0,
-      "vetting": 0.601,
-      "general": 0.557
+      "vetting": 0.74,
+      "general": 0.757
     },
     "tool_use_reliability": 0.9
   },
@@ -374,31 +399,6 @@
     },
     "tool_use_reliability": 0.9
   },
-  "claude-4.1-opus": {
-    "tier": "premium",
-    "provider": "anthropic",
-    "model_id": "anthropic/claude-4-1-opus",
-    "context": 1000000,
-    "multimodal": true,
-    "cost_input_per_m": 15.0,
-    "cost_output_per_m": 75.0,
-    "supports_tools": true,
-    "description": "Claude 4.1 Opus (Reasoning)",
-    "_auto": true,
-    "_source": "aa_anthropic",
-    "strengths": {
-      "coding": 0.654,
-      "debugging": 0.621,
-      "architecture": 0.622,
-      "research": 0.6,
-      "writing": 0.57,
-      "reasoning": 0.823,
-      "multimodal": 1.0,
-      "vetting": 0.633,
-      "general": 0.6
-    },
-    "tool_use_reliability": 0.9
-  },
   "claude-3.7-sonnet": {
     "tier": "premium",
     "provider": "anthropic",
@@ -421,6 +421,31 @@
       "multimodal": 1.0,
       "vetting": 0.548,
       "general": 0.496
+    },
+    "tool_use_reliability": 0.9
+  },
+  "claude-4.1-opus": {
+    "tier": "premium",
+    "provider": "anthropic",
+    "model_id": "anthropic/claude-4-1-opus",
+    "context": 1000000,
+    "multimodal": true,
+    "cost_input_per_m": 15.0,
+    "cost_output_per_m": 75.0,
+    "supports_tools": true,
+    "description": "Claude 4.1 Opus (Reasoning)",
+    "_auto": true,
+    "_source": "aa_anthropic",
+    "strengths": {
+      "coding": 0.654,
+      "debugging": 0.621,
+      "architecture": 0.622,
+      "research": 0.6,
+      "writing": 0.57,
+      "reasoning": 0.823,
+      "multimodal": 1.0,
+      "vetting": 0.633,
+      "general": 0.6
     },
     "tool_use_reliability": 0.9
   },
@@ -474,6 +499,131 @@
     },
     "tool_use_reliability": 0.6
   },
+  "ling-2.6.1t:free": {
+    "tier": "free",
+    "provider": "openrouter",
+    "model_id": "openrouter/inclusionai/ling-2.6-1t:free",
+    "context": 262144,
+    "multimodal": false,
+    "cost_input_per_m": 0.0,
+    "cost_output_per_m": 0.0,
+    "supports_tools": true,
+    "description": "inclusionAI: Ling-2.6-1T (free)",
+    "_auto": true,
+    "_source": "openrouter",
+    "strengths": {
+      "coding": 0.527,
+      "debugging": 0.527,
+      "architecture": 0.527,
+      "research": 0.527,
+      "writing": 0.527,
+      "reasoning": 0.527,
+      "vetting": 0.527,
+      "general": 0.527,
+      "multimodal": 0.0
+    },
+    "tool_use_reliability": 0.6
+  },
+  "hy3-preview:free": {
+    "tier": "free",
+    "provider": "openrouter",
+    "model_id": "openrouter/tencent/hy3-preview:free",
+    "context": 262144,
+    "multimodal": false,
+    "cost_input_per_m": 0.0,
+    "cost_output_per_m": 0.0,
+    "supports_tools": true,
+    "description": "Tencent: Hy3 preview (free)",
+    "_auto": true,
+    "_source": "openrouter",
+    "strengths": {
+      "coding": 0.527,
+      "debugging": 0.527,
+      "architecture": 0.527,
+      "research": 0.527,
+      "writing": 0.527,
+      "reasoning": 0.527,
+      "vetting": 0.527,
+      "general": 0.527,
+      "multimodal": 0.0
+    },
+    "tool_use_reliability": 0.6
+  },
+  "mimo-v2.5-pro": {
+    "tier": "mid",
+    "provider": "openrouter",
+    "model_id": "openrouter/xiaomi/mimo-v2.5-pro",
+    "context": 1048576,
+    "multimodal": false,
+    "cost_input_per_m": 1.0,
+    "cost_output_per_m": 3.0,
+    "supports_tools": true,
+    "description": "Xiaomi: MiMo-V2.5-Pro",
+    "_auto": true,
+    "_source": "openrouter+aa",
+    "strengths": {
+      "coding": 0.65,
+      "debugging": 0.617,
+      "architecture": 0.721,
+      "research": 0.769,
+      "writing": 0.73,
+      "reasoning": 0.817,
+      "multimodal": 0.0,
+      "vetting": 0.794,
+      "general": 0.769
+    },
+    "tool_use_reliability": 0.82
+  },
+  "mimo-v2.5": {
+    "tier": "mid",
+    "provider": "openrouter",
+    "model_id": "openrouter/xiaomi/mimo-v2.5",
+    "context": 1048576,
+    "multimodal": true,
+    "cost_input_per_m": 0.4,
+    "cost_output_per_m": 2.0,
+    "supports_tools": true,
+    "description": "Xiaomi: MiMo-V2.5",
+    "_auto": true,
+    "_source": "openrouter",
+    "strengths": {
+      "coding": 0.646,
+      "debugging": 0.646,
+      "architecture": 0.646,
+      "research": 0.646,
+      "writing": 0.646,
+      "reasoning": 0.646,
+      "vetting": 0.646,
+      "general": 0.646,
+      "multimodal": 1.0
+    },
+    "tool_use_reliability": 0.82
+  },
+  "gpt-5.4-image-2": {
+    "tier": "premium",
+    "provider": "openrouter",
+    "model_id": "openrouter/openai/gpt-5.4-image-2",
+    "context": 272000,
+    "multimodal": true,
+    "cost_input_per_m": 8.0,
+    "cost_output_per_m": 15.0,
+    "supports_tools": false,
+    "description": "OpenAI: GPT-5.4 Image 2",
+    "_auto": true,
+    "_source": "openrouter",
+    "strengths": {
+      "coding": 0.697,
+      "debugging": 0.697,
+      "architecture": 0.697,
+      "research": 0.697,
+      "writing": 0.697,
+      "reasoning": 0.697,
+      "vetting": 0.697,
+      "general": 0.697,
+      "multimodal": 1.0
+    },
+    "tool_use_reliability": 0.0
+  },
   "ling-2.6-flash:free": {
     "tier": "free",
     "provider": "openrouter",
@@ -499,14 +649,64 @@
     },
     "tool_use_reliability": 0.6
   },
+  "claude-opus-latest": {
+    "tier": "premium",
+    "provider": "openrouter",
+    "model_id": "openrouter/~anthropic/claude-opus-latest",
+    "context": 1000000,
+    "multimodal": true,
+    "cost_input_per_m": 5.0,
+    "cost_output_per_m": 25.0,
+    "supports_tools": true,
+    "description": "Anthropic: Claude Opus Latest",
+    "_auto": true,
+    "_source": "openrouter",
+    "strengths": {
+      "coding": 0.697,
+      "debugging": 0.697,
+      "architecture": 0.697,
+      "research": 0.697,
+      "writing": 0.697,
+      "reasoning": 0.697,
+      "vetting": 0.697,
+      "general": 0.697,
+      "multimodal": 1.0
+    },
+    "tool_use_reliability": 0.9
+  },
+  "qianfan-ocr-fast:free": {
+    "tier": "free",
+    "provider": "openrouter",
+    "model_id": "openrouter/baidu/qianfan-ocr-fast:free",
+    "context": 65536,
+    "multimodal": true,
+    "cost_input_per_m": 0.0,
+    "cost_output_per_m": 0.0,
+    "supports_tools": false,
+    "description": "Baidu: Qianfan-OCR-Fast (free)",
+    "_auto": true,
+    "_source": "openrouter",
+    "strengths": {
+      "coding": 0.527,
+      "debugging": 0.527,
+      "architecture": 0.527,
+      "research": 0.527,
+      "writing": 0.527,
+      "reasoning": 0.527,
+      "vetting": 0.527,
+      "general": 0.527,
+      "multimodal": 1.0
+    },
+    "tool_use_reliability": 0.0
+  },
   "kimi-k2.6": {
     "tier": "mid",
     "provider": "openrouter",
     "model_id": "openrouter/moonshotai/kimi-k2.6",
-    "context": 262144,
+    "context": 256000,
     "multimodal": true,
-    "cost_input_per_m": 0.6,
-    "cost_output_per_m": 2.8,
+    "cost_input_per_m": 0.7448,
+    "cost_output_per_m": 4.655,
     "supports_tools": true,
     "description": "MoonshotAI: Kimi K2.6",
     "_auto": true,
@@ -523,31 +723,6 @@
       "general": 0.77
     },
     "tool_use_reliability": 0.82
-  },
-  "elephant-alpha": {
-    "tier": "free",
-    "provider": "openrouter",
-    "model_id": "openrouter/elephant-alpha",
-    "context": 262144,
-    "multimodal": false,
-    "cost_input_per_m": 0.0,
-    "cost_output_per_m": 0.0,
-    "supports_tools": true,
-    "description": "Elephant",
-    "_auto": true,
-    "_source": "openrouter",
-    "strengths": {
-      "coding": 0.527,
-      "debugging": 0.527,
-      "architecture": 0.527,
-      "research": 0.527,
-      "writing": 0.527,
-      "reasoning": 0.527,
-      "vetting": 0.527,
-      "general": 0.527,
-      "multimodal": 0.0
-    },
-    "tool_use_reliability": 0.6
   },
   "claude-opus-4.6-fast": {
     "tier": "premium",
@@ -630,8 +805,8 @@
     "model_id": "openrouter/google/gemma-4-26b-a4b-it",
     "context": 262144,
     "multimodal": true,
-    "cost_input_per_m": 0.07,
-    "cost_output_per_m": 0.35,
+    "cost_input_per_m": 0.06,
+    "cost_output_per_m": 0.33,
     "supports_tools": true,
     "description": "Google: Gemma 4 26B A4B ",
     "_auto": true,
@@ -1681,7 +1856,7 @@
     "context": 196608,
     "multimodal": false,
     "cost_input_per_m": 0.15,
-    "cost_output_per_m": 1.2,
+    "cost_output_per_m": 1.15,
     "supports_tools": true,
     "description": "MiniMax: MiniMax M2.5",
     "_auto": true,
@@ -1705,7 +1880,7 @@
     "model_id": "openrouter/z-ai/glm-5",
     "context": 202752,
     "multimodal": false,
-    "cost_input_per_m": 0.65,
+    "cost_input_per_m": 0.6,
     "cost_output_per_m": 2.08,
     "supports_tools": true,
     "description": "Z.ai: GLM 5",
@@ -1824,30 +1999,30 @@
     },
     "tool_use_reliability": 0.76
   },
-  "trinity-large-preview:free": {
-    "tier": "free",
+  "trinity-large-preview": {
+    "tier": "budget",
     "provider": "openrouter",
-    "model_id": "openrouter/arcee-ai/trinity-large-preview:free",
+    "model_id": "openrouter/arcee-ai/trinity-large-preview",
     "context": 131000,
     "multimodal": false,
-    "cost_input_per_m": 0.0,
-    "cost_output_per_m": 0.0,
+    "cost_input_per_m": 0.15,
+    "cost_output_per_m": 0.45,
     "supports_tools": true,
-    "description": "Arcee AI: Trinity Large Preview (free)",
+    "description": "Arcee AI: Trinity Large Preview",
     "_auto": true,
     "_source": "openrouter",
     "strengths": {
-      "coding": 0.527,
-      "debugging": 0.527,
-      "architecture": 0.527,
-      "research": 0.527,
-      "writing": 0.527,
-      "reasoning": 0.527,
-      "vetting": 0.527,
-      "general": 0.527,
+      "coding": 0.595,
+      "debugging": 0.595,
+      "architecture": 0.595,
+      "research": 0.595,
+      "writing": 0.595,
+      "reasoning": 0.595,
+      "vetting": 0.595,
+      "general": 0.595,
       "multimodal": 0.0
     },
-    "tool_use_reliability": 0.6
+    "tool_use_reliability": 0.76
   },
   "kimi-k2.5": {
     "tier": "mid",
@@ -2874,31 +3049,6 @@
     },
     "tool_use_reliability": 0.76
   },
-  "cogito-v2.1.671b": {
-    "tier": "mid",
-    "provider": "openrouter",
-    "model_id": "openrouter/deepcogito/cogito-v2.1-671b",
-    "context": 128000,
-    "multimodal": false,
-    "cost_input_per_m": 1.25,
-    "cost_output_per_m": 1.25,
-    "supports_tools": false,
-    "description": "Deep Cogito: Cogito v2.1 671B",
-    "_auto": true,
-    "_source": "openrouter",
-    "strengths": {
-      "coding": 0.646,
-      "debugging": 0.646,
-      "architecture": 0.646,
-      "research": 0.646,
-      "writing": 0.646,
-      "reasoning": 0.646,
-      "vetting": 0.646,
-      "general": 0.646,
-      "multimodal": 0.0
-    },
-    "tool_use_reliability": 0.0
-  },
   "gpt-5.1": {
     "tier": "premium",
     "provider": "openrouter",
@@ -3257,7 +3407,7 @@
     "multimodal": true,
     "cost_input_per_m": 2.5,
     "cost_output_per_m": 2.0,
-    "supports_tools": true,
+    "supports_tools": false,
     "description": "OpenAI: GPT-5 Image Mini",
     "_auto": true,
     "_source": "openrouter",
@@ -3272,7 +3422,7 @@
       "general": 0.646,
       "multimodal": 1.0
     },
-    "tool_use_reliability": 0.82
+    "tool_use_reliability": 0.0
   },
   "claude-haiku-4.5": {
     "tier": "mid",
@@ -3357,7 +3507,7 @@
     "multimodal": true,
     "cost_input_per_m": 10.0,
     "cost_output_per_m": 10.0,
-    "supports_tools": true,
+    "supports_tools": false,
     "description": "OpenAI: GPT-5 Image",
     "_auto": true,
     "_source": "openrouter",
@@ -3372,7 +3522,7 @@
       "general": 0.697,
       "multimodal": 1.0
     },
-    "tool_use_reliability": 0.9
+    "tool_use_reliability": 0.0
   },
   "o3-deep-research": {
     "tier": "premium",
@@ -4800,29 +4950,29 @@
     "tool_use_reliability": 0.76
   },
   "qwen3.235b-a22b-thinking-2507": {
-    "tier": "budget",
+    "tier": "mid",
     "provider": "openrouter",
     "model_id": "openrouter/qwen/qwen3-235b-a22b-thinking-2507",
-    "context": 262144,
+    "context": 131072,
     "multimodal": false,
-    "cost_input_per_m": 0.13,
-    "cost_output_per_m": 0.6,
+    "cost_input_per_m": 0.1495,
+    "cost_output_per_m": 1.495,
     "supports_tools": true,
     "description": "Qwen: Qwen3 235B A22B Thinking 2507",
     "_auto": true,
     "_source": "openrouter",
     "strengths": {
-      "coding": 0.595,
-      "debugging": 0.595,
-      "architecture": 0.595,
-      "research": 0.595,
-      "writing": 0.595,
-      "reasoning": 0.595,
-      "vetting": 0.595,
-      "general": 0.595,
+      "coding": 0.646,
+      "debugging": 0.646,
+      "architecture": 0.646,
+      "research": 0.646,
+      "writing": 0.646,
+      "reasoning": 0.646,
+      "vetting": 0.646,
+      "general": 0.646,
       "multimodal": 0.0
     },
-    "tool_use_reliability": 0.76
+    "tool_use_reliability": 0.82
   },
   "glm-4.32b": {
     "tier": "budget",
@@ -6753,7 +6903,7 @@
     "tier": "budget",
     "provider": "openrouter",
     "model_id": "openrouter/google/gemini-2.0-flash-001",
-    "context": 1048576,
+    "context": 1000000,
     "multimodal": true,
     "cost_input_per_m": 0.1,
     "cost_output_per_m": 0.4,
@@ -7355,8 +7505,8 @@
     "model_id": "openrouter/meta-llama/llama-3.3-70b-instruct",
     "context": 131072,
     "multimodal": false,
-    "cost_input_per_m": 0.12,
-    "cost_output_per_m": 0.38,
+    "cost_input_per_m": 0.1,
+    "cost_output_per_m": 0.32,
     "supports_tools": true,
     "description": "Meta: Llama 3.3 70B Instruct",
     "_auto": true,
@@ -8130,8 +8280,8 @@
     "model_id": "openrouter/mistralai/mistral-nemo",
     "context": 131072,
     "multimodal": false,
-    "cost_input_per_m": 0.02,
-    "cost_output_per_m": 0.04,
+    "cost_input_per_m": 0.01,
+    "cost_output_per_m": 0.03,
     "supports_tools": true,
     "description": "Mistral: Mistral Nemo",
     "_auto": true,
@@ -9048,5 +9198,5 @@
     },
     "tool_use_reliability": 0.65
   },
-  "_fetched_at": "2026-04-21T18:46:30.271510+00:00"
+  "_fetched_at": "2026-04-23T21:52:17.453209+00:00"
 }

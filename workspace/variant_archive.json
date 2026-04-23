@@ -1309,5 +1309,39 @@
     "mutation_summary": "Skill kept (delta=+0.0796, tests=1/2)",
     "timestamp": "2026-04-22T12:11:55.778327+00:00",
     "generation": 44
+  },
+  {
+    "id": "exp_202604221700_47a4",
+    "parent_id": "exp_202604221208_967d",
+    "hypothesis": "Fixing the circular import in handle_task.py will eliminate 7 ImportError occurrences and improve system reliability, since this is a concrete code-level issue with clear symptoms and a known solution pattern exists in the research insights (circular_import_resolution_patterns skill).",
+    "change_type": "code",
+    "fitness_before": 0.890064,
+    "fitness_after": 0.890064,
+    "delta": 0.0,
+    "test_pass_rate": 0.0,
+    "status": "discard",
+    "files_changed": [
+      "app/crew/handle_task.py"
+    ],
+    "mutation_summary": "No improvement (delta=+0.0000), reverted",
+    "timestamp": "2026-04-22T17:00:48.473998+00:00",
+    "generation": 45
+  },
+  {
+    "id": "exp_202604222104_f9f6",
+    "parent_id": "exp_202604221208_967d",
+    "hypothesis": "Equip the team with proven circular import resolution patterns to fix the recurring handle_task:ImportError (7 occurrences) and prevent future occurrences. This domain knowledge enables engineers to apply the right pattern (lazy import, dependency inversion, code restructuring) based on context, reducing runtime errors and improving code maintainability.",
+    "change_type": "skill",
+    "fitness_before": 0.890064,
+    "fitness_after": 0.896848,
+    "delta": 0.006784,
+    "test_pass_rate": 0.0,
+    "status": "keep",
+    "files_changed": [
+      "skills/circular_import_resolution_patterns.md"
+    ],
+    "mutation_summary": "Skill kept (delta=+0.0068, tests=1/2)",
+    "timestamp": "2026-04-22T21:05:46.240649+00:00",
+    "generation": 45
   }
 ]

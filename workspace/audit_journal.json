@@ -1695,5 +1695,57 @@
       "app/agents/repo_analyst.py",
       "app/api/workspace_api.py"
     ]
+  },
+  {
+    "ts": "2026-04-22T20:13:22.726022+00:00",
+    "event": "code_audit",
+    "detail": "3 issues in 6 files: Fixed broad exception catching in agent modules (coder, critic) to only catch ImportError with logging, and added path traversal protection in canary_deploy rollback.",
+    "files_changed": [
+      "app/__init__.py",
+      "app/agents/__init__.py",
+      "app/agents/coder.py",
+      "app/agents/critic.py",
+      "app/agents/introspector.py",
+      "app/canary_deploy.py"
+    ]
+  },
+  {
+    "ts": "2026-04-23T00:14:23.328065+00:00",
+    "event": "code_audit",
+    "detail": "1 issues in 6 files: Added validation to ConsciousnessConfig to ensure parameters are within safe ranges and types, preventing incorrect behavior from invalid configuration.",
+    "files_changed": [
+      "app/consciousness/__init__.py",
+      "app/consciousness/adversarial_probes.py",
+      "app/consciousness/attention_schema.py",
+      "app/consciousness/belief_store.py",
+      "app/consciousness/config.py",
+      "app/consciousness/global_broadcast.py"
+    ]
+  },
+  {
+    "ts": "2026-04-23T04:01:21.603966+00:00",
+    "event": "code_audit",
+    "detail": "0 issues in 6 files: No issues found",
+    "files_changed": [
+      "app/consciousness/meta_workspace.py",
+      "app/consciousness/metacognitive_monitor.py",
+      "app/consciousness/personality_workspace.py",
+      "app/consciousness/prediction_hierarchy.py",
+      "app/consciousness/predictive_layer.py",
+      "app/consciousness/workspace_buffer.py"
+    ]
+  },
+  {
+    "ts": "2026-04-23T08:02:34.392317+00:00",
+    "event": "code_audit",
+    "detail": "0 issues in 6 files: No issues found",
+    "files_changed": [
+      "app/contracts/__init__.py",
+      "app/contracts/events.py",
+      "app/contracts/firestore_schema.py",
+      "app/contracts/state.py",
+      "app/control/__init__.py",
+      "app/control_plane/__init__.py"
+    ]
   }
 ]

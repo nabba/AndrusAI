@@ -2,19 +2,20 @@
 sections:
   archibal: 0
   kaicart: 0
-  meta: 31
+  meta: 37
   philosophy: 0
   plg: 0
   self: 0
 title: AndrusAI Wiki — Master Index
-total_pages: 31
-updated_at: '2026-04-22T14:16:55Z'
+total_pages: 37
+updated_at: '2026-04-23T11:49:47Z'
 ---
 # AndrusAI Knowledge Wiki — Master Index
 
-Total pages: 31 | Last updated: 2026-04-22
+Total pages: 37 | Last updated: 2026-04-23
 
 ## Meta (Cross-Venture)
+- [[meta/1-1ca80e91]] — **1. **
 - [[meta/1-topic-55570dd0]] — **1. Topic**
 - [[meta/462f5f1b]] — ****
 - [[meta/advanced-policy-white-paper-critique-methodology-1a6d7ab0]] — Advanced policy white paper critique methodology
@@ -22,6 +23,7 @@ Total pages: 31 | Last updated: 2026-04-22
 - [[meta/circular-import-resolution-patterns]] — Circular Import Resolution Patterns
 - [[meta/creating-a-safe-command-execution-wrapper-in-python-da30cc0c]] — **** Creating a Safe Command-Execution Wrapper in Python
 - [[meta/distinguishing-authentication-and-authorization-28efaccb]] — **** Distinguishing Authentication and Authorization
+- [[meta/error-patterns-resolution]] — Error Patterns and Resolutions
 - [[meta/eston-cc145a47]] — Eston
 - [[meta/estonian-deforestation-policy-research-9116c2f7]] — Estonian deforestation policy research
 - [[meta/estonian-document-translation-pipeline-eb7934f9]] — estonian_document_translation_pipeline
@@ -34,8 +36,10 @@ Total pages: 31 | Last updated: 2026-04-22
 - [[meta/estonian-policy-document-critique-15141d9e]] — Estonian policy document critique
 - [[meta/handle-task-circular-import-immediate-fix]] — Handling handle_task.py Circular Import Error
 - [[meta/identifying-regional-payment-service-providers-psps-with-direct-sales-con-51bccc]] — **** Identifying Regional Payment Service Providers (PSPs) with Direct Sales Contacts for Product-Le
+- [[meta/import-error-systematic-resolution]] — Systematic ImportError Resolution — Domain Skill
 - [[meta/learning-queue]] — Learning Queue
 - [[meta/llm-capability-detection]] — Models known to NOT support tool calling (as of 2026)
+- [[meta/model-tool-support-and-capability-detection]] — Model Tool Support and Capability Detection
 - [[meta/rapid-ecological-data-visualization-with-python-6b918e6d]] — **** Rapid Ecological Data Visualization with Python
 - [[meta/response-synthesis-optimization]] — Response Synthesis Optimization
 - [[meta/selecting-payment-service-providers-psps-for-plg-platforms-in-cee-ticketi-5fe6eb]] — **** Selecting Payment Service Providers (PSPs) for PLG platforms in CEE ticketing/live events.
@@ -45,7 +49,9 @@ Total pages: 31 | Last updated: 2026-04-22
 - [[meta/skill-selecting-payment-service-providers-psps-for-cee-baltic-ticketing-eb543bc0]] — **Skill: Selecting Payment Service Providers (PSPs) for CEE/Baltic Ticketing**
 - [[meta/skill-two-entity-operational-model-a5f712f8]] — **SKILL: Two-Entity Operational Model**
 - [[meta/time-based-email-counting-precision-e90ecab4]] — Time-based Email Counting Precision
+- [[meta/topic-ca68c901]] — **Topic**
 - [[meta/web-scraping-using-firecrawl-ad705cb6]] — Web scraping using Firecrawl
+- [[meta/white-paper-concise-summary-methodology-134a9a00]] — White paper concise summary methodology
 
 ## Self (Agent Self-Knowledge)
 (No pages yet.)

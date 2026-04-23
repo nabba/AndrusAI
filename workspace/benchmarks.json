@@ -2052,5 +2052,32 @@
       "crew": "research",
       "mode": "delegated"
     }
+  },
+  {
+    "ts": "2026-04-22T21:04:25.735773+00:00",
+    "metric": "task_completion_time",
+    "value": 1.840176416999384,
+    "metadata": {
+      "crew": "writing",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-22T21:05:35.406009+00:00",
+    "metric": "task_completion_time",
+    "value": 53.08081848199981,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-23T10:54:46.861832+00:00",
+    "metric": "task_completion_time",
+    "value": 339.43860790500185,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
   }
 ]
