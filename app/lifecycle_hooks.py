@@ -277,21 +277,57 @@ def create_humanist_safety_hook() -> HookFn:
 def create_dangerous_action_hook() -> HookFn:
     """PRE_TOOL_USE at priority=1, immutable=True.
 
-    Blocks destructive operations at infrastructure level.
+    Blocks destructive operations at infrastructure level.  Uses
+    regex patterns with word-boundary matching + required command
+    context so plain JSON / natural language tool inputs don't false-
+    positive.  The 2026-04-24 task #73 fired this hook on a
+    ``research_orchestrator`` call because its ``spec_json`` contained
+    ``"output_format": "markdown"`` — the old frozen-set substring
+    check hit "FORMAT" inside "output_format".
+
+    Each entry is ``(compiled_regex, human_label)``.  The regex must
+    match something that actually looks like a shell/SQL command, not
+    a word appearing in normal JSON / English text.
     """
-    BLOCKED_ACTIONS = frozenset({
-        "rm -rf", "DROP TABLE", "DROP DATABASE", "DELETE FROM",
-        "TRUNCATE", "FORMAT", "fdisk", "mkfs", "dd if=",
-        "chmod 777", "shutdown", "reboot",
-    })
+    import re as _re
+    BLOCKED_PATTERNS: list[tuple[_re.Pattern, str]] = [
+        # Unix destructive
+        (_re.compile(r"\brm\s+-rf\b", _re.IGNORECASE), "rm -rf"),
+        (_re.compile(r"\bchmod\s+777\b", _re.IGNORECASE), "chmod 777"),
+        (_re.compile(r"\bdd\s+if\s*=", _re.IGNORECASE), "dd if="),
+        (_re.compile(r"\bmkfs(\.\w+)?\b", _re.IGNORECASE), "mkfs"),
+        (_re.compile(r"\bfdisk\b", _re.IGNORECASE), "fdisk"),
+        (_re.compile(r"\bshutdown\s+-", _re.IGNORECASE), "shutdown -"),
+        (_re.compile(r"\breboot\b(?!\s*:|\s*\")", _re.IGNORECASE), "reboot"),
+        # SQL destructive — require SQL-shape context so "truncate this
+        # message" and JSON strings like "drop_table_if_exists: false"
+        # don't trigger.
+        (_re.compile(r"\bDROP\s+(?:TABLE|DATABASE|SCHEMA)\b", _re.IGNORECASE),
+         "DROP TABLE/DATABASE/SCHEMA"),
+        (_re.compile(r"\bDELETE\s+FROM\s+\w", _re.IGNORECASE), "DELETE FROM"),
+        (_re.compile(r"\bTRUNCATE\s+TABLE\b", _re.IGNORECASE), "TRUNCATE TABLE"),
+        # Windows disk format — require a drive-letter or switch so
+        # "output_format", "table format", "formatting" etc. don't
+        # match.  ``FORMAT C:``, ``format /q``, ``format /p`` hit.
+        # No trailing \b after ``:`` — word-boundary doesn't exist
+        # between two non-word chars at end-of-string.
+        (_re.compile(r"\bFORMAT\s+[a-z]:", _re.IGNORECASE), "FORMAT drive"),
+        (_re.compile(r"\bFORMAT\s+/[qpfsxu]", _re.IGNORECASE), "FORMAT /switch"),
+    ]
 
     def block_dangerous_ops(ctx: HookContext) -> HookContext:
         action = str(ctx.get("action", "") or ctx.get("tool_input", ""))
-        for pattern in BLOCKED_ACTIONS:
-            if pattern.lower() in action.lower():
+        if not action:
+            return ctx
+        for regex, label in BLOCKED_PATTERNS:
+            if regex.search(action):
                 ctx.abort = True
-                ctx.abort_reason = f"Dangerous operation blocked: '{pattern}'"
-                logger.warning(f"SAFETY: blocked dangerous action from {ctx.agent_id}: {pattern}")
+                ctx.abort_reason = f"Dangerous operation blocked: '{label}'"
+                logger.warning(
+                    "SAFETY: blocked dangerous action from %s: %s "
+                    "(matched %r in %r)",
+                    ctx.agent_id, label, regex.pattern, action[:200],
+                )
                 break
         return ctx
     return block_dangerous_ops

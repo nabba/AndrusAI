@@ -119,7 +119,12 @@ EXAMPLE_SPEC = {
         },
         {"key": "short_comment", "hint": "one-sentence summary"},
     ],
-    "max_subjects_in_parallel": 4,
+    "max_subjects_in_parallel": 2,   # reduced from 4 (2026-04-24) —
+                                     # heavier parallelism was correlating
+                                     # with external SIGKILL (docker-level)
+                                     # under a Docker Desktop + host-load
+                                     # combination we couldn't identify.
+                                     # Bump back to 4 when infra is stable.
     "budget_seconds": 1500,
     # Highest-trust sources first.  Adapters not in source_priority are
     # skipped.  This is both a whitelist and an ordering hint.
@@ -496,7 +501,7 @@ def orchestrate_research(spec: dict) -> dict:
     source_priority: list[str] = list(
         spec.get("source_priority") or ["regulator", "company_site", "search"]
     )
-    parallelism = int(spec.get("max_subjects_in_parallel", 4))
+    parallelism = int(spec.get("max_subjects_in_parallel", 2))
     budget = float(spec.get("budget_seconds", 1500))
     per_call_timeout = float(spec.get("per_call_timeout_seconds", 20))
 

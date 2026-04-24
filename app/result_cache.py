@@ -150,3 +150,59 @@ def invalidate(crew_name: str = None):
             get_client().delete_collection(_COLLECTION_NAME)
     except Exception:
         logger.debug("result_cache invalidate failed", exc_info=True)
+
+
+def invalidate_by_task(task: str, *, crew_name: str | None = None) -> int:
+    """Invalidate any cache entry whose stored task closely matches ``task``.
+
+    Called from abort / timeout / stall-kill paths in ``handle_task`` so
+    that a task which got partially-cached mid-flight but never produced
+    a real deliverable cannot resurface as a cache HIT on the user's
+    next identical request.
+
+    Matches by semantic similarity (same ChromaDB distance used for
+    ``lookup``) with a STRICT threshold (0.98+) so we never evict
+    legitimate entries for unrelated tasks.  When ``crew_name`` is
+    provided, only entries for that crew are considered.
+
+    Returns the number of entries deleted.  Never raises.
+    """
+    if not task or len(task.strip()) < 10:
+        return 0
+    try:
+        col = _get_collection()
+        if col.count() == 0:
+            return 0
+
+        where = {"crew": crew_name} if crew_name else None
+        results = col.query(
+            query_embeddings=[_embed(task)],
+            n_results=5,
+            where=where,
+            include=["metadatas", "distances"],
+        )
+        ids_out = results.get("ids") or [[]]
+        dists = results.get("distances") or [[]]
+        if not ids_out or not ids_out[0]:
+            return 0
+
+        # Stricter-than-lookup threshold — we only want to evict
+        # exact-or-near-exact matches so a noisy but related request
+        # doesn't nuke legitimate cached answers.
+        _INVALIDATE_SIMILARITY = 0.98
+        to_delete: list[str] = []
+        for id_, dist in zip(ids_out[0], dists[0]):
+            similarity = 1.0 - dist
+            if similarity >= _INVALIDATE_SIMILARITY:
+                to_delete.append(id_)
+
+        if to_delete:
+            col.delete(ids=to_delete)
+            logger.info(
+                "result_cache: INVALIDATE_BY_TASK crew=%s n=%d "
+                "(task=%r)", crew_name or "*", len(to_delete), task[:80],
+            )
+        return len(to_delete)
+    except Exception:
+        logger.debug("result_cache invalidate_by_task failed", exc_info=True)
+        return 0

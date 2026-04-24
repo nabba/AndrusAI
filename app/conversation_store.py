@@ -533,7 +533,24 @@ def get_pending_inbound(max_attempts: int = 3) -> list[dict]:
             """,
         ).fetchall()
         # Stuck processing rows: mark failed so they don't keep
-        # matching on future startups either.
+        # matching on future startups either.  BEFORE marking them
+        # failed, collect their message text so we can invalidate any
+        # cache entries that were stored mid-flight.  This prevents a
+        # partially-cached (and possibly broken) result from resurfacing
+        # as a similarity=1.0 HIT on the user's next identical request.
+        _abandoned_messages = [
+            row[0] for row in conn.execute(
+                """
+                SELECT message FROM inbound_queue
+                 WHERE status = 'processing'
+                   AND (
+                        attempts >= 1
+                     OR processing_started_at IS NULL
+                     OR processing_started_at <= datetime('now', '-5 minutes')
+                   )
+                """,
+            ).fetchall()
+        ]
         conn.execute(
             """
             UPDATE inbound_queue
@@ -548,6 +565,39 @@ def get_pending_inbound(max_attempts: int = 3) -> list[dict]:
             """,
         )
         conn.commit()
+
+        # Fire-and-forget cache invalidation for each abandoned task.
+        # Runs in a DAEMON THREAD so a slow/unreachable Ollama embedder
+        # (ChromaDB → embed → Ollama call) can't block startup replay.
+        # If invalidation itself fails, the worst case is that a stale
+        # cache entry survives until the next identical task — then
+        # its own cache_store gate catches the failure-shape.
+        if _abandoned_messages:
+            import threading as _th
+            _msgs_to_invalidate = list(_abandoned_messages)
+            def _bg_invalidate_many():
+                try:
+                    from app.result_cache import invalidate_by_task as _inv
+                    for msg in _msgs_to_invalidate:
+                        if msg:
+                            _inv(msg)
+                    logger.info(
+                        "conversation_store: invalidated cache for %d "
+                        "abandoned task(s) on startup replay "
+                        "(background thread)",
+                        len(_msgs_to_invalidate),
+                    )
+                except Exception:
+                    logger.debug(
+                        "conversation_store: post-replay cache invalidation "
+                        "failed in background thread",
+                        exc_info=True,
+                    )
+            _th.Thread(
+                target=_bg_invalidate_many, daemon=True,
+                name="startup-cache-invalidate",
+            ).start()
+
         rows = list(queued) + list(processing_recent)
     except Exception:
         logger.exception("conversation_store: get_pending_inbound failed")

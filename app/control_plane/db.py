@@ -27,11 +27,29 @@ def get_pool() -> pg_pool.ThreadedConnectionPool | None:
             if not s.mem0_postgres_url:
                 logger.warning("control_plane: no postgres URL configured")
                 return None
+            # Pool sizing notes (2026-04-24):
+            # The original maxconn=4 was sized for a serial commander
+            # → crew → tool flow.  The research_orchestrator fires up
+            # to ``max_subjects_in_parallel`` worker threads, and each
+            # worker's tool calls trigger span_events writes (start_span
+            # + complete_span) + memory/mem0/mem0-team writes + budget
+            # updates + ticket updates — easily 8–15 concurrent conn
+            # requests during a 30-subject enrichment task.  We saw the
+            # PSP tender task (76 & 77) exhaust maxconn=4 and crash the
+            # gateway TWICE in 5 minutes, each time killing the user's
+            # research mid-delivery.  Bumping to 24 gives headroom for
+            # 3× orchestrator fan-out depths simultaneously; well under
+            # Postgres's default ``max_connections=100`` ceiling.
+            import os as _os
+            _maxconn = int(_os.environ.get("CONTROL_PLANE_POOL_MAX", "24"))
             _pool = pg_pool.ThreadedConnectionPool(
-                minconn=1, maxconn=4,
+                minconn=2, maxconn=_maxconn,
                 dsn=s.mem0_postgres_url,
             )
-            logger.info("control_plane: connection pool created")
+            logger.info(
+                "control_plane: connection pool created "
+                "(minconn=2, maxconn=%d)", _maxconn,
+            )
             return _pool
         except Exception as e:
             logger.warning(f"control_plane: pool creation failed: {e}")

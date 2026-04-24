@@ -1377,6 +1377,30 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                 "TIMEOUT (%.1f min elapsed): handle_task for %s: %s (reason: %s)",
                 elapsed_min, _redact_number(sender), text[:80], reason,
             )
+            # Purge any cache entries that may have been stored mid-flight
+            # for this task.  Run in a DAEMON THREAD with a 3s timeout so
+            # a slow/unreachable Ollama embedder (the call path goes
+            # ``invalidate_by_task`` → ChromaDB query → embed via Ollama)
+            # can NEVER block the asyncio event loop or extend a
+            # timeout-error handler.  The 2026-04-24 hypothesis: in-loop
+            # ChromaDB calls during Ollama wobbles may have been part of
+            # the restart cascade on tasks 76/77/78.
+            try:
+                import threading as _th
+                _text_for_invalidate = text
+                def _bg_invalidate():
+                    try:
+                        from app.result_cache import invalidate_by_task
+                        invalidate_by_task(_text_for_invalidate)
+                    except Exception:
+                        pass  # daemon — dying is fine
+                _th.Thread(
+                    target=_bg_invalidate, daemon=True,
+                    name="cache-invalidate-timeout",
+                ).start()
+            except Exception:
+                logger.debug("result_cache.invalidate_by_task on TIMEOUT failed",
+                             exc_info=True)
             if "zero-output" in reason.lower():
                 result = (
                     "Sorry — your request ran for 20+ minutes without "
@@ -1415,6 +1439,25 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                 f"for {_redact_number(sender)}: {text[:80]}",
                 exc_info=True,
             )
+            # Mirror the timeout path's cache purge — also moved to a
+            # daemon thread so a slow Ollama embedder can't cascade into
+            # blocking the error handler itself.
+            try:
+                import threading as _th
+                _text_for_invalidate = text
+                def _bg_invalidate():
+                    try:
+                        from app.result_cache import invalidate_by_task
+                        invalidate_by_task(_text_for_invalidate)
+                    except Exception:
+                        pass
+                _th.Thread(
+                    target=_bg_invalidate, daemon=True,
+                    name="cache-invalidate-error",
+                ).start()
+            except Exception:
+                logger.debug("result_cache.invalidate_by_task on HANDLE_ERROR failed",
+                             exc_info=True)
             # Safety net: if handle() raised before it finalized its ticket,
             # mark the ticket as failed so it doesn't hang in_progress
             # forever.  Commander stashes the ticket id on self before any
