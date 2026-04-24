@@ -241,6 +241,20 @@ def create_research_coordinator(force_tier: str | None = None) -> Agent:
     llm = create_specialist_llm(max_tokens=8192, role="research", force_tier=force_tier)
     tools: list = []
 
+    # ── Research orchestrator — FIRST in the tool list ────────────────
+    # LLMs bias toward earlier-listed tools; we want matrix tasks to
+    # pick this instantly instead of reaching for delegation or MCP
+    # search.  The 2026-04-24 task #75 (coordinator on a weaker-tier
+    # model after credit failover) ignored the MATRIX MODE backstory
+    # rule and spent 15 min on MCP-server installation before the
+    # orchestrator ever got considered.  Tool-order priority is the
+    # simplest forcing function.
+    try:
+        from app.tools.research_orchestrator import research_orchestrator
+        tools.append(research_orchestrator)
+    except Exception:
+        pass  # fail-soft: delegation path still works without the orchestrator
+
     # Coordinator needs memory access to remember context across delegations
     from app.tools.memory_tool import create_memory_tools
     from app.tools.scoped_memory_tool import create_scoped_memory_tools
@@ -253,15 +267,15 @@ def create_research_coordinator(force_tier: str | None = None) -> Agent:
     from app.tools.web_search import web_search
     tools.append(web_search)
 
-    # Research orchestrator — for matrix tasks (N entities × M fields), the
-    # coordinator calls this directly instead of delegating to sub-agents
-    # that each do their own web_search loops.  See the MATRIX MODE section
-    # in _COORD_BACKSTORY for the trigger rule.
+    # read_attachment + file_manager so the coordinator can directly
+    # read uploaded PDFs/CSVs and previous .md reports without needing
+    # to delegate to a leaf specialist for basic file I/O.
     try:
-        from app.tools.research_orchestrator import research_orchestrator
-        tools.append(research_orchestrator)
+        from app.tools.file_manager import file_manager
+        from app.tools.attachment_reader import read_attachment
+        tools.extend([file_manager, read_attachment])
     except Exception:
-        pass  # fail-soft: delegation path still works without the orchestrator
+        pass
 
     return Agent(
         role="Research Coordinator",
@@ -341,6 +355,15 @@ def create_debug_specialist(force_tier: str | None = None) -> Agent:
     tools: list = []
     from app.knowledge_base.tools import KnowledgeSearchTool
     tools.append(KnowledgeSearchTool())
+
+    # File + attachment access — the coordinator and execution specialist
+    # both have these; the debug specialist historically did not, so when
+    # the coding crew was (mis-)routed a file-heavy task and delegated to
+    # Debug for "what's going wrong", Debug had no way to actually look
+    # at the input file.  Same pattern as the 2026-04-24 desktop-agent fix.
+    from app.tools.file_manager import file_manager
+    from app.tools.attachment_reader import read_attachment
+    tools.extend([file_manager, read_attachment])
 
     # Experiential, tensions, team decisions
     for mod, fn, args in [

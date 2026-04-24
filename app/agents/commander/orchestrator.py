@@ -107,18 +107,159 @@ def _extract_chronicle_section(chronicle: str, header: str) -> str:
     return chronicle[idx:end].strip()
 
 
+# ── Attachment-shape routing helper ────────────────────────────────────
+#
+# When a user attaches a structured data file (PDF, CSV, XLSX, DOCX,
+# JSON) and asks to *enrich* / *merge* / *populate* / *dedupe* the
+# contents, the task is research regardless of what verbs the routing
+# LLM picks on.  This helper detects the shape and returns a forced
+# routing decision.
+#
+# Historically (see 2026-04-24 task #72), "please take your PSP list
+# and add non-duplicate PSPs from the attached PDF and populate sales
+# leader fields + LinkedIn links" routed to the ``coding`` crew.  The
+# coding crew had ``read_attachment`` but wasn't primed for it by the
+# "coding task" prompt framing — 24 min elapsed, zero deliverable.
+
+_ATTACHMENT_ENRICH_VERBS = (
+    "add", "merge", "dedup", "deduplicate", "combine", "consolidate",
+    "populate", "fill", "complete", "enrich", "augment", "supplement",
+    "extend", "update", "append", "integrate", "cross-reference",
+    "cross reference", "match against", "reconcile",
+)
+
+_ATTACHMENT_LIST_NOUNS = (
+    "list", "table", "matrix", "report", "file", "document",
+    "spreadsheet", "dataset", "entries", "rows", "records",
+    "contacts", "directory",
+)
+
+_RESEARCH_ATTACHMENT_TYPES = frozenset({
+    "application/pdf",
+    "text/csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # xlsx
+    "application/vnd.ms-excel",  # xls
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
+    "application/msword",
+    "application/json",
+    "text/plain",
+    "text/markdown",
+})
+
+
+def _try_attachment_hint_route(user_input: str, attachments: list) -> list[dict] | None:
+    """Return a forced ``research`` routing decision when the
+    attachment shape clearly indicates an enrichment task.
+
+    Fires when:
+      * At least one attachment has a content type in
+        ``_RESEARCH_ATTACHMENT_TYPES`` (or filename extension implies
+        one), AND
+      * The user's text mentions BOTH an enrichment verb AND a
+        list/table noun.
+
+    Returns ``None`` otherwise, letting the LLM router decide.
+
+    Not a catch-all: "analyze this PDF" (no list noun) falls through
+    to the LLM router, which can still pick research/media/etc.  This
+    helper only catches the specific misroute-prone pattern.
+    """
+    if not attachments or not user_input.strip():
+        return None
+
+    # 1. At least one attachment must be a structured doc.
+    def _looks_structured(att: dict) -> bool:
+        ctype = (att.get("contentType") or "").lower()
+        if ctype in _RESEARCH_ATTACHMENT_TYPES:
+            return True
+        # Fallback: match on filename extension.
+        name = (att.get("filename") or att.get("id") or "").lower()
+        for ext in (".pdf", ".csv", ".xlsx", ".xls", ".docx", ".doc",
+                    ".json", ".md", ".txt"):
+            if name.endswith(ext):
+                return True
+        return False
+
+    if not any(_looks_structured(a) for a in attachments):
+        return None
+
+    # 2. Text must mention both an enrich verb AND a list noun.
+    lower = user_input.lower()
+    has_verb = any(v in lower for v in _ATTACHMENT_ENRICH_VERBS)
+    has_noun = any(n in lower for n in _ATTACHMENT_LIST_NOUNS)
+    if not (has_verb and has_noun):
+        return None
+
+    # 3. Compose the research task with an UNAMBIGUOUS imperative
+    # prefix.  A polite "router note" gets ignored by weaker-tier
+    # fallback models — so we now prepend a numbered STEP list that
+    # the coordinator's LLM is much less likely to skip.  Still a
+    # hint, not a forcing function (that's option B's fallback in
+    # ``_try_run_matrix_direct`` elsewhere in this file), but far
+    # stronger than the previous parenthetical note.
+    return [{
+        "crew": "research",
+        "task": (
+            "═══ MATRIX ENRICHMENT TASK — STRICT PROTOCOL ═══\n"
+            "\n"
+            "STEP 1 (MANDATORY FIRST ACTION):\n"
+            "  Call the ``research_orchestrator`` tool NOW with a\n"
+            "  ``spec_json`` constructed from:\n"
+            "    - subjects: entities named in the attached file +\n"
+            "      entities from any prior conversation/report in context\n"
+            "    - fields: the columns the user is asking to populate\n"
+            "  Do NOT call ``delegate_work_to_coworker`` first.\n"
+            "  Do NOT call ``mcp_search_servers`` or ``mcp_add_server``.\n"
+            "  Do NOT call ``web_search`` first.\n"
+            "  The orchestrator handles the whole matrix in one pass.\n"
+            "\n"
+            "STEP 2 (AFTER orchestrator returns):\n"
+            "  Read ``read_attachment`` if you need more subjects from\n"
+            "  the file.  Add any missing ones, re-run orchestrator if\n"
+            "  needed.\n"
+            "\n"
+            "STEP 3 (FINAL ANSWER):\n"
+            "  Assemble the orchestrator's rows into the markdown table\n"
+            "  the user asked for.  Do not narrate your process.\n"
+            "\n"
+            "═══ USER REQUEST ═══\n"
+            + user_input.strip()
+        ),
+        "difficulty": 7,
+    }]
+
+
 class Commander:
     def __init__(self):
         self.llm = create_commander_llm()
         self.memory_tools = create_memory_tools(collection="commander")
 
     def _route(self, user_input: str, sender: str,
-               attachment_context: str = "") -> list[dict]:
+               attachment_context: str = "",
+               attachments: list | None = None) -> list[dict]:
         """Classify the request and return a list of {crew, task, difficulty} dicts.
 
         Tries fast keyword-based routing first (free, instant).
         Falls back to Opus LLM routing for complex/ambiguous requests.
         """
+        # ── Attachment-shape routing (CRITICAL HINT) ────────────────────
+        # A PDF / spreadsheet / CSV attachment combined with "merge /
+        # enrich / populate / dedupe / add to list" verbs is near-
+        # unambiguously a RESEARCH task, not coding.  The LLM router
+        # has historically misclassified these as "coding" because
+        # "populate fields" reads as data-processing — the 2026-04-24
+        # task #72 spent 24 min in the coding crew failing to read a
+        # PDF with no read_attachment in its active toolset.
+        hinted = _try_attachment_hint_route(user_input, attachments or [])
+        if hinted is not None:
+            logger.info(
+                "attachment_hint_route: forcing crew=%s (text=%r, "
+                "attachment_types=%s)",
+                hinted[0].get("crew"), user_input[:80],
+                [a.get("contentType", "?") for a in (attachments or [])],
+            )
+            return hinted
+
         # ── Fast-path: skip Opus call for obvious request types ──────────
         fast = _try_fast_route(user_input, bool(attachment_context))
         if fast is not None:
@@ -1053,7 +1194,29 @@ class Commander:
         # (no LLM needed), keeping the proactive scanner and retrospective crew fed.
         def _post_crew_telemetry():
             try:
-                cache_store(crew_name, crew_task, result, ttl=1800 if difficulty <= 3 else 3600)
+                # Gate cache store on crew success AND non-failure output.
+                # The 2026-04-24 task #72 ("I will review the attached
+                # document...") cached its plan-only reply, which task #74
+                # then hit as a similarity=1.000 match and served back
+                # instead of actually running research.  Only cache real
+                # deliverables.
+                _result_stripped = (result or "").strip()
+                _is_failure_shape = (
+                    not _result_stripped or len(_result_stripped) < 100
+                    or any(p.match(_result_stripped) for p in _QUALITY_FAILURE_PATTERNS)
+                )
+                if success and not _is_failure_shape:
+                    cache_store(
+                        crew_name, crew_task, result,
+                        ttl=1800 if difficulty <= 3 else 3600,
+                    )
+                else:
+                    logger.info(
+                        "result_cache: SKIP store (success=%s, "
+                        "len=%d, failure_shape=%s) crew=%s",
+                        success, len(_result_stripped),
+                        _is_failure_shape, crew_name,
+                    )
                 _store_ecological_report(crew_name, difficulty, duration_s)
                 if difficulty >= 6:
                     _store_world_model_prediction(crew_name, difficulty, result, duration_s)
@@ -1518,6 +1681,167 @@ class Commander:
         logger.debug("Grounded response detected ungrounded phrases, falling back")
         return None
 
+    def _try_answer_file_request(self, user_input: str) -> str | None:
+        """Fast-route "send me the <report|file|md>" requests by invoking
+        ``file_manager`` directly, bypassing crew dispatch entirely.
+
+        Motivation
+        ----------
+        The desktop crew's LLM spent 15+ min reasoning about how to get a
+        .md file off disk (2026-04-24 task #70: budget-blocked, vetting
+        rejected), when the commander itself could call
+        ``file_manager(action='list', path='output/responses/')`` →
+        ``file_manager(action='read', ...)`` in <1s with zero LLM tokens.
+
+        Handle_task's outbound pipeline automatically writes long
+        responses to a ``.md`` file and sends that as an attachment
+        (see app/main.py — the ``len(result) > _MAX_RESPONSE_LENGTH``
+        branch).  So this shortcut only needs to return the file's
+        content as a string; the attachment flow is automatic.
+
+        Triggers on short messages (≤120 chars) with clear
+        fetch-a-file intent: "send me the report", "get me the latest
+        .md", "share the psp report", "show me the file".  Skips
+        anything that mentions "research" or "analyze" or other verbs
+        that imply new work.
+
+        Returns the file content on a hit; ``None`` otherwise (falls
+        through to normal routing).
+        """
+        import re as _re
+        text = user_input.strip()
+        if not text or len(text) > 120:
+            return None
+        lower = text.lower()
+
+        # Negative guards — if the user is asking for NEW work, don't
+        # shortcut to a cached file.
+        if _re.search(
+            r"\b(?:research|analyze|analyse|investigate|find out|look up"
+            r"|compile|generate|create|build|write|produce|make me)\b",
+            lower,
+        ):
+            return None
+
+        # Positive pattern: an imperative verb of DELIVERY followed by
+        # a file-like noun.  Must match early in the message (intent is
+        # the first thing stated).
+        delivery_verbs = (
+            r"send(?: me)?|give(?: me)?|share|show(?: me)?|get(?: me)?"
+            r"|fetch|attach|deliver|bring(?: me)?|resend|re-send|forward"
+        )
+        file_nouns = (
+            r"report|file|document|\.md\b|md\s+file|markdown"
+            r"|response|output|result|latest|last"
+        )
+        pattern = _re.compile(
+            rf"\b(?:{delivery_verbs})\b(?:\s+\w+){{0,4}}?"
+            rf"\s+(?:the\s+|that\s+|it\s*|my\s+|your\s+|latest\s+)?"
+            rf"(?:{file_nouns})",
+            _re.IGNORECASE,
+        )
+        if not pattern.search(lower):
+            return None
+
+        # Pull the file.  Defaults to the latest .md under
+        # output/responses/ — the common response-report location.
+        try:
+            from app.tools.file_manager import WORKSPACE
+            responses_dir = (WORKSPACE / "output" / "responses").resolve()
+        except Exception:
+            return None
+        if not responses_dir.exists() or not responses_dir.is_dir():
+            return None
+
+        # Find .md files, newest first.  Optional keyword filter when
+        # the user named the report ("send me the PSP report").
+        try:
+            candidates = sorted(
+                (p for p in responses_dir.iterdir()
+                 if p.is_file() and p.suffix.lower() == ".md"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+        except Exception:
+            return None
+        if not candidates:
+            return None
+
+        # Keyword filter — grab terms > 3 chars that aren't stop words.
+        _STOP = {
+            "send", "the", "me", "my", "latest", "last", "file", "report",
+            "document", "share", "show", "get", "fetch", "give", "latest",
+            "attach", "deliver", "that", "it", "md", "markdown", "response",
+            "output", "result", "bring", "please", "can", "you", "resend",
+        }
+        # >=3 chars so common acronyms (PSP, CEE, API, IoT) still count.
+        kw = [w for w in _re.findall(r"\w+", lower)
+              if len(w) >= 3 and w not in _STOP]
+
+        # Skip "non-deliverables" — files whose body is an agent's
+        # apology / refusal rather than a substantive answer.  These
+        # accumulate in output/responses/ because the response-writer
+        # wraps every reply into an .md, including "I can't do that"
+        # surrender messages.  The 2026-04-24 PSP-file fast-action
+        # otherwise kept picking the desktop crew's 3 KB surrender
+        # message over the 9.6 KB real research.
+        _NON_DELIVERABLE_MARKERS = (
+            "unable to complete",
+            "cannot complete this task",
+            "i am unable",
+            "i cannot access",
+            "i was unable",
+            "lack a functional tool",
+        )
+
+        def _is_non_deliverable(content_lower: str) -> bool:
+            return any(m in content_lower for m in _NON_DELIVERABLE_MARKERS)
+
+        chosen = None
+        if kw:
+            # Prefer a file whose content contains ALL named keywords
+            # AND isn't a non-deliverable.
+            for p in candidates[:20]:  # scan 20 newest at most
+                try:
+                    content = p.read_text(errors="ignore").lower()
+                    if _is_non_deliverable(content):
+                        continue
+                    if all(k in content for k in kw):
+                        chosen = p
+                        break
+                except Exception:
+                    continue
+        if chosen is None:
+            # No keyword match — take the newest SUBSTANTIVE file
+            # (skip surrenders).  Plain "send me the report" should
+            # mean "the latest real report", not "the biggest file
+            # from days ago".
+            for p in candidates[:10]:
+                try:
+                    content = p.read_text(errors="ignore").lower()
+                    if _is_non_deliverable(content):
+                        continue
+                    chosen = p
+                    break
+                except Exception:
+                    continue
+            if chosen is None:  # every candidate was a surrender
+                chosen = candidates[0]
+
+        try:
+            body = chosen.read_text(errors="ignore")
+        except Exception as exc:
+            logger.debug("fast_file_action: read failed for %s: %s", chosen, exc)
+            return None
+
+        logger.info(
+            "fast_file_action: matched %r → %s (%d bytes; handle_task "
+            "will auto-attach if > _MAX_RESPONSE_LENGTH)",
+            text[:80], chosen.name, len(body),
+        )
+        # Return the body.  handle_task handles chunking + auto-attachment.
+        return body
+
     def _try_answer_model_question(self, user_input: str) -> str | None:
         """If the user is asking which LLM/model handled the previous response,
         answer from actual telemetry in `request_costs` SQLite table.  Returns
@@ -1909,6 +2233,16 @@ class Commander:
         if _model_q is not None:
             return _model_q
 
+        # ── "Send me the <report|file|md>" — read from disk directly ──
+        # Bypasses crew dispatch entirely.  Zero LLM tokens, <1s latency
+        # vs. 15+ min for a crew that has to reason about which tool to
+        # call.  handle_task's outbound pipeline automatically writes
+        # long results to a .md file and attaches it to the Signal
+        # reply (see app/main.py), so we just return the body.
+        _file_q = self._try_answer_file_request(user_input)
+        if _file_q is not None:
+            return _file_q
+
         # ── Calendar fast-route — bypass PIM crew for simple "what events" ──
         # A PIM crew dispatch costs 5+ LLM calls and ~30K tokens just to reformat
         # events the Swift helper already returned structured.  For simple
@@ -1981,7 +2315,10 @@ class Commander:
         tracker = start_request_tracking(task_id)
         _route_t0 = time.monotonic()
         try:
-            decisions = self._route(user_input, sender, attachment_context)
+            decisions = self._route(
+                user_input, sender, attachment_context,
+                attachments=attachments,
+            )
         except Exception as exc:
             crew_failed("commander", task_id, str(exc)[:200])
             return "Sorry, I had trouble understanding that request. Please try again."

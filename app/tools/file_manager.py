@@ -39,16 +39,36 @@ def _is_writable(target: pathlib.Path) -> bool:
 
 
 @tool("file_manager")
-def file_manager(action: str, path: str, content: str = "") -> str:
+def file_manager(action: str, path: str = "", content: str = "") -> str:
     """
-    Read and write files in the workspace.
-    action: 'read' or 'write'
-    path: relative path within workspace/ (e.g., 'output/report.md' or 'skills/python.md')
-    content: text to write (only for 'write' action)
+    Read, write, or list files in the workspace.
 
-    Writable directories: output/, skills/, proposals/
+    actions:
+      - 'read'  : return file contents (up to 32 KB, path required)
+      - 'write' : create/overwrite a file (path + content required)
+      - 'list'  : enumerate files in a directory, sorted newest first
+                  (path is the directory; defaults to 'output/responses/'
+                  when empty — the common case for "find the latest
+                  response report")
+
+    path: relative path within workspace/ (e.g., 'output/report.md' or
+          'output/responses/' for listing).
+
+    Writable directories: output/, skills/, proposals/.
+
+    Example usage to find the latest response file then read it::
+
+        file_manager(action='list',  path='output/responses/')
+        # → "Found 3 file(s) in output/responses/ (newest first):
+        #       - response_20260424_074649.md  (9633 bytes, 2026-04-24 10:46)
+        #       - ..."
+        file_manager(action='read',  path='output/responses/response_20260424_074649.md')
     """
     WORKSPACE.mkdir(parents=True, exist_ok=True)
+
+    # Default list path — the most common discovery target.
+    if action == "list" and not path:
+        path = "output/responses/"
 
     target = (WORKSPACE / path).resolve()
 
@@ -61,7 +81,10 @@ def file_manager(action: str, path: str, content: str = "") -> str:
 
     if action == "read":
         if not target.exists():
-            return f"Error: File not found: {path}"
+            return (
+                f"Error: File not found: {path}.  Tip: use "
+                f"action='list' to enumerate available files first."
+            )
         # Block reading sensitive files
         for part in target.relative_to(WORKSPACE).parts:
             if part in _READ_BLOCKED_NAMES:
@@ -86,5 +109,53 @@ def file_manager(action: str, path: str, content: str = "") -> str:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
         return f"Written to {path} ({len(content)} chars)"
+    elif action == "list":
+        if not target.exists():
+            return f"Directory not found: {path}"
+        if not target.is_dir():
+            return (
+                f"Path {path!r} is not a directory.  Use action='read' "
+                f"to read a file."
+            )
+        # Skip any part of the path in the sensitive-names blocklist.
+        for part in target.relative_to(WORKSPACE).parts:
+            if part in _READ_BLOCKED_NAMES:
+                log_tool_blocked("file_manager", "unknown",
+                                 f"list of sensitive path: {path[:100]!r}")
+                return f"Error: Access denied to '{path}'. Sensitive directory."
+        from datetime import datetime, timezone
+        entries = []
+        for p in target.iterdir():
+            if p.name.startswith("."):
+                continue  # skip dotfiles
+            if p.name in _READ_BLOCKED_NAMES:
+                continue
+            try:
+                st = p.stat()
+                entries.append((
+                    p.name,
+                    st.st_size,
+                    st.st_mtime,
+                    "dir" if p.is_dir() else "file",
+                ))
+            except Exception:
+                continue
+        # Newest first — matches the common "find the latest" use case.
+        entries.sort(key=lambda e: -e[2])
+        if not entries:
+            return f"{path}: (empty)"
+        lines = [f"Found {len(entries)} entries in {path} (newest first):"]
+        for name, size, mtime, kind in entries[:50]:
+            ts = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime(
+                "%Y-%m-%d %H:%M"
+            )
+            suffix = "/" if kind == "dir" else ""
+            lines.append(f"  - {name}{suffix}  ({size:,} bytes, {ts})")
+        if len(entries) > 50:
+            lines.append(f"  ... and {len(entries) - 50} more (showing 50 newest)")
+        return "\n".join(lines)
     else:
-        return f"Error: Unknown action '{action}'. Use 'read' or 'write'."
+        return (
+            f"Error: Unknown action {action!r}. "
+            f"Use 'read', 'write', or 'list'."
+        )
