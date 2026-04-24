@@ -188,6 +188,16 @@ def _select_local_resource_aware(
     return None
 
 
+# Minimum INTERNAL benchmark samples required before a model is
+# eligible as a pareto-demotion target.  2026-04-24 outage: the
+# selector demoted to ``stepfun/step-3.5-flash`` — zero internal
+# observations, only a scraped external rank — and that model
+# network-stalled mid-task for 262 s, breaking handle_task.  Below
+# this floor, the model is "unknown quality" (which is NOT the
+# same as "low quality"), so we refuse to pareto-demote to it.
+_MIN_SAMPLES_FOR_DEMOTION = 5
+
+
 def _pareto_cheaper_alternative(
     default_model: str,
     default_entry: dict,
@@ -196,6 +206,7 @@ def _pareto_cheaper_alternative(
     get_model_fn,
     *,
     quality_gap: float = 0.05,
+    task_type: str | None = None,
 ) -> str | None:
     """Return a catalog key that Pareto-dominates ``default_model`` on
     (cost, quality) — cheaper AND close-or-better in benchmark score.
@@ -205,17 +216,67 @@ def _pareto_cheaper_alternative(
     least ``default_score - quality_gap`` and ``cost_output_per_m``
     strictly less than the default. Ties go to whichever is cheapest.
     Returns None when nothing dominates.
+
+    Reliability gates (added 2026-04-25):
+
+    * **Sample count** — the candidate must have at least
+      ``_MIN_SAMPLES_FOR_DEMOTION`` internal benchmark records for
+      this task type.  Stops the selector from demoting to a model
+      we've never actually tried, just because its scraped external
+      rank is slightly higher than the default's unknown one.
+    * **Circuit breaker** — the candidate's per-model breaker
+      (``circuit_breaker["model:<name>"]``) must not be OPEN.  A
+      model that has repeatedly network-failed in this session is
+      ineligible until its cooldown elapses.
     """
     if not bench_scores:
         return None
     default_cost = float(default_entry.get("cost_output_per_m", 0) or 0)
     floor = default_score - quality_gap
+
+    # Pull sample counts + breaker-open set up front so we make one
+    # fast pass through the candidate list instead of N DB hits.
+    # ``task_type=None`` means the caller can't feed the sample gate;
+    # in that case we preserve legacy behaviour (no sample check) —
+    # the breaker gate still applies.
+    apply_sample_gate = task_type is not None
+    sample_counts: dict[str, int] = {}
+    if apply_sample_gate:
+        try:
+            from app.llm_benchmarks import get_sample_counts
+            sample_counts = get_sample_counts(task_type)
+        except Exception:
+            sample_counts = {}
+    try:
+        from app.circuit_breaker import get_breaker
+    except Exception:
+        get_breaker = None
+
     best: tuple[str, float] | None = None  # (name, cost)
     for name, score in bench_scores.items():
         if name == default_model:
             continue
         if score < floor:
             continue
+        # Reliability gate 1: require minimum internal observations
+        # when a task type is provided.
+        if apply_sample_gate and sample_counts.get(name, 0) < _MIN_SAMPLES_FOR_DEMOTION:
+            logger.debug(
+                "pareto: skip %r — only %d internal samples (need %d)",
+                name, sample_counts.get(name, 0), _MIN_SAMPLES_FOR_DEMOTION,
+            )
+            continue
+        # Reliability gate 2: skip if a per-model circuit breaker is open.
+        if get_breaker is not None:
+            try:
+                if get_breaker(f"model:{name}").is_open():
+                    logger.info(
+                        "pareto: skip %r — per-model circuit breaker OPEN",
+                        name,
+                    )
+                    continue
+            except Exception:
+                pass  # breaker lookup failure = fail-open
         entry = get_model_fn(name)
         if not entry:
             continue
@@ -354,6 +415,7 @@ def select_model(
             alt = _pareto_cheaper_alternative(
                 default_model, default_entry, default_bench,
                 bench_scores, _cached_get_model,
+                task_type=task_type,
             )
             if alt:
                 alt_entry = _cached_get_model(alt)

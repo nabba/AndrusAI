@@ -163,6 +163,7 @@ def install_throttle() -> None:
                     _record_benchmark_failure(model, latency_ms)
                     _check_credit_error(exc, provider)
                     _capture_upstream_error_body(exc, model, provider, kwargs)
+                    _record_model_reliability(model, exc, success=False)
                     # Credit-failover: on 402 / "insufficient credits",
                     # retry ONCE against a local Ollama model before
                     # propagating the error. Keeps the system usable
@@ -178,6 +179,7 @@ def install_throttle() -> None:
                 latency_ms = int((time.monotonic() - t_start) * 1000)
                 # Successful call — resolve any prior credit alert for this provider
                 _resolve_credit_if_needed(provider)
+                _record_model_reliability(model, None, success=True)
                 _record_token_usage(response, kwargs, latency_ms=latency_ms)
                 return response
 
@@ -202,6 +204,7 @@ def install_throttle() -> None:
                         _record_benchmark_failure(model, latency_ms)
                         _check_credit_error(exc, provider)
                         _capture_upstream_error_body(exc, model, provider, kwargs)
+                        _record_model_reliability(model, exc, success=False)
                         fallback = await _try_credit_failover_async(
                             exc, model, kwargs, _original_acompletion,
                         )
@@ -213,6 +216,7 @@ def install_throttle() -> None:
                             return fallback
                         raise
                     latency_ms = int((time.monotonic() - t_start) * 1000)
+                    _record_model_reliability(model, None, success=True)
                     _record_token_usage(response, kwargs, latency_ms=latency_ms)
                     return response
 
@@ -836,6 +840,102 @@ async def _try_credit_failover_async(
         return None
     finally:
         _failover_in_progress.reset(token)
+
+
+# ── Per-model reliability circuit breaker ─────────────────────────────
+#
+# The provider-level breakers (``openrouter``, ``anthropic``) are too
+# coarse — a single flaky model behind OpenRouter (e.g. stepfun/
+# step-3.5-flash going silent for 4+ min on 2026-04-25) shouldn't
+# blackhole every other OpenRouter model.  This feeds a finer
+# per-model breaker so the selector's pareto-demotion path can skip
+# a model that keeps network-failing in-session.
+#
+# Trips on CONNECTION-shape failures only: TCP connect errors, read
+# timeouts, "Connection error" strings from litellm's retry layer,
+# service-unavailable responses.  Does NOT trip on 400 (malformed
+# request) or 402 (credit-exhausted) — those are already handled by
+# their own specific paths and don't reflect model reliability.
+
+_CONNECTION_ERROR_MARKERS = (
+    "connection error",
+    "connection refused",
+    "connection reset",
+    "failed to connect",
+    "timeout",
+    "timed out",
+    "read timed out",
+    "service unavailable",
+    "temporarily unavailable",
+    "gateway timeout",
+    "apiconnectionerror",
+    "serviceunavailableerror",
+    "readtimeouterror",
+    "remote end closed connection",
+)
+
+
+def _is_connection_shaped_error(exc: Exception) -> bool:
+    """Return True when the exception looks like a transient network /
+    upstream-unavailable failure worth tripping the breaker on.
+
+    Conservative: prefers false-negative (don't trip) over false-positive
+    (don't blackhole a working model) since a single missed signal just
+    means one more bad call; a wrong trip blacklists a good model for
+    the session."""
+    msg = str(exc).lower()
+    if any(m in msg for m in _CONNECTION_ERROR_MARKERS):
+        return True
+    # HTTP status codes that indicate upstream trouble (not client error).
+    status = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if isinstance(status, int) and status in (502, 503, 504):
+        return True
+    return False
+
+
+def _normalize_model_name(model: str) -> str:
+    """Strip common litellm provider prefixes so the breaker key is
+    consistent across provider routes (``openrouter/stepfun/X`` and
+    ``stepfun/X`` both map to ``stepfun/X``)."""
+    if not model:
+        return ""
+    m = model.strip()
+    for prefix in ("openrouter/", "openai/", "anthropic/", "litellm/"):
+        if m.lower().startswith(prefix):
+            m = m[len(prefix):]
+            break
+    return m
+
+
+def _record_model_reliability(
+    model: str, exc: Exception | None, *, success: bool,
+) -> None:
+    """Feed the per-model circuit breaker.  Silent no-op on any
+    failure of the breaker module itself — reliability telemetry
+    must never break the actual LLM call path."""
+    try:
+        from app.circuit_breaker import get_breaker
+    except Exception:
+        return
+    key = f"model:{_normalize_model_name(model)}"
+    if not key.endswith(":"):  # i.e. we had a non-empty model name
+        try:
+            breaker = get_breaker(key)
+            # Use a shorter threshold + cooldown than provider-level
+            # breakers.  A model that fails 3 times in a row has lost
+            # its chance for this session; 5 min is long enough that
+            # stepfun-style multi-minute outages don't pull a good
+            # model back too eagerly.
+            breaker.failure_threshold = 3
+            breaker.cooldown_seconds = 300
+            if success:
+                breaker.record_success()
+            elif exc is not None and _is_connection_shaped_error(exc):
+                breaker.record_failure()
+            # Non-connection errors (400s, 402s, malformed tool schema)
+            # don't count toward the model's reliability score.
+        except Exception:
+            pass
 
 
 def _capture_upstream_error_body(

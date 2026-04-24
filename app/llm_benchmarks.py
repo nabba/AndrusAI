@@ -198,6 +198,43 @@ def _internal_scores(task_type: str) -> dict[str, float]:
     return scores
 
 
+def get_sample_counts(task_type: str) -> dict[str, int]:
+    """Return ``{model: n_runs}`` for models with ≥1 benchmark record
+    of the given task type in the last 200 runs.
+
+    Used by the selector's pareto-demotion path to distinguish
+    "unreliable model we've measured" from "unknown model with only
+    an external rank" — the 2026-04-24 PSP task 85 silently
+    pareto-demoted to ``stepfun/step-3.5-flash`` (0 internal samples,
+    only a scraped external rank) which then stalled mid-request.
+
+    We count raw rows even below the ``HAVING runs >= 2`` floor used
+    by ``_internal_scores`` because the caller may want a richer
+    sample-count threshold (e.g. ``MIN_SAMPLES_FOR_DEMOTION = 5``).
+    """
+    _flush_writes()
+    try:
+        conn = _get_conn()
+        rows = conn.execute(
+            """
+            SELECT model, COUNT(*) as runs
+            FROM (
+                SELECT model
+                FROM benchmarks
+                WHERE task_type = ?
+                ORDER BY ts DESC
+                LIMIT 200
+            )
+            GROUP BY model
+            """,
+            (task_type,),
+        ).fetchall()
+        return {row[0]: int(row[1]) for row in rows}
+    except Exception:
+        logger.debug("llm_benchmarks.get_sample_counts failed", exc_info=True)
+        return {}
+
+
 def get_scores(task_type: str, blend_external: bool = True) -> dict[str, float]:
     """Return model→score for a task type.
 
