@@ -2079,5 +2079,182 @@
       "crew": "research",
       "mode": "delegated"
     }
+  },
+  {
+    "ts": "2026-04-23T22:59:21.046926+00:00",
+    "metric": "task_completion_time",
+    "value": 119.58417797100265,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T07:39:01.895972+00:00",
+    "metric": "task_completion_time",
+    "value": 146.20446823300153,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T07:41:43.862824+00:00",
+    "metric": "task_completion_time",
+    "value": 118.30762530399079,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T07:52:44.040379+00:00",
+    "metric": "task_completion_time",
+    "value": 93.43843225200544,
+    "metadata": {
+      "crew": "desktop"
+    }
+  },
+  {
+    "ts": "2026-04-24T08:04:50.627888+00:00",
+    "metric": "refusal_retry_failed",
+    "value": 1.0,
+    "metadata": {
+      "crew": "desktop"
+    }
+  },
+  {
+    "ts": "2026-04-24T08:04:50.802753+00:00",
+    "metric": "task_completion_time",
+    "value": 64.29619302900392,
+    "metadata": {
+      "crew": "desktop"
+    }
+  },
+  {
+    "ts": "2026-04-24T11:33:48.607761+00:00",
+    "metric": "task_completion_time",
+    "value": 730.8668596239877,
+    "metadata": {
+      "crew": "coding",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T12:22:44.617447+00:00",
+    "metric": "task_completion_time",
+    "value": 91.45928475000255,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T12:42:44.596838+00:00",
+    "metric": "task_completion_time",
+    "value": 191.67702971301333,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T12:52:33.710397+00:00",
+    "metric": "task_completion_time",
+    "value": 100.77948883699719,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T12:58:32.385318+00:00",
+    "metric": "task_completion_time",
+    "value": 79.08957649300282,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T13:13:46.647514+00:00",
+    "metric": "task_completion_time",
+    "value": 81.819933871986,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T13:21:50.928916+00:00",
+    "metric": "task_completion_time",
+    "value": 38.30468480900163,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T13:23:38.416737+00:00",
+    "metric": "task_completion_time",
+    "value": 97.20060567000473,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T13:33:17.647147+00:00",
+    "metric": "task_completion_time",
+    "value": 252.64938873999927,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T14:25:15.673049+00:00",
+    "metric": "task_completion_time",
+    "value": 56.409746358999996,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T14:36:06.941270+00:00",
+    "metric": "task_completion_time",
+    "value": 151.41889369499995,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T21:33:54.922078+00:00",
+    "metric": "task_completion_time",
+    "value": 127.79650068299998,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T21:50:54.267417+00:00",
+    "metric": "task_completion_time",
+    "value": 416.9299562739998,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T22:16:32.173486+00:00",
+    "metric": "task_completion_time",
+    "value": 82.02059625000402,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
   }
 ]

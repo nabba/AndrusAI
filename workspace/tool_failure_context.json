@@ -1,452 +1,452 @@
 [
   {
-    "task_hash": "c4517dc00b68fa1d",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776873967.7698812,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "c4517dc00b68fa1d",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 4,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: main.py",
-    "ts": 1776873975.2255182,
+    "task_hash": "5784968e61dd7071",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 7,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'lite/iterm-mcp'. Check command/URL and credentials.",
+    "ts": 1777015665.387239,
     "replan_suggested": true
   },
   {
-    "task_hash": "d6e1ad2e2c4a1bee",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776879858.979947,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "d6e1ad2e2c4a1bee",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: crew/",
-    "ts": 1776879881.5303001,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "d6e1ad2e2c4a1bee",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776879915.7022405,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "d6e1ad2e2c4a1bee",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 4,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/workspace",
-    "ts": 1776879918.7391798,
+    "task_hash": "5784968e61dd7071",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 8,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'cloudflare/containers'. Check command/URL and credentials.",
+    "ts": 1777015696.3908508,
     "replan_suggested": true
   },
   {
-    "task_hash": "25c6f77b395ba64b",
+    "task_hash": "d43f3b8a34cb3504",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_data>\nThe following is backgro",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1777016259.529939,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "d43f3b8a34cb3504",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_data>\nThe following is backgro",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1777016259.8159711,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "3243471c78e49454",
+    "task": "Complete this macOS desktop automation task:\n\n<user_request>\n<reference_data>\nThe following is backg",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1777017101.1958618,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "3243471c78e49454",
+    "task": "Complete this macOS desktop automation task:\n\n<user_request>\n<reference_data>\nThe following is backg",
+    "failure_count": 2,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'pungggi/smart-terminal'. Check command/URL and credentials.",
+    "ts": 1777017109.2291217,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "3243471c78e49454",
+    "task": "Complete this macOS desktop automation task:\n\n<user_request>\n<reference_data>\nThe following is backg",
+    "failure_count": 3,
+    "last_tool": "wiki_read",
+    "last_error": "Error: page not found \u2014 kb_andrusai-llm-wiki-implementation_lbib0g4_",
+    "ts": 1777017125.500701,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "9c291c44d701a3be",
+    "task": "Complete this macOS desktop automation task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" ",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: output/psp_report.md",
+    "ts": 1777017858.3037765,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "9c291c44d701a3be",
+    "task": "Complete this macOS desktop automation task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" ",
+    "failure_count": 3,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1777017868.0206196,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "191560beb2ac4f0e",
+    "task": "Your previous response refused to act, but you DO have tools that can help. Retry the task \u2014 this ti",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: skills/psp_report.md",
+    "ts": 1777017881.6420498,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "191560beb2ac4f0e",
+    "task": "Your previous response refused to act, but you DO have tools that can help. Retry the task \u2014 this ti",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: proposals/psp_report.md",
+    "ts": 1777017883.598555,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "afcaab63ba2976ad",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/commander/routing.py",
+    "ts": 1777017977.399079,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "193c90a6b3378f41",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 1,
     "last_tool": "file_manager",
     "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776880923.480857,
+    "ts": 1777017981.5793588,
     "replan_suggested": false
   },
   {
-    "task_hash": "25c6f77b395ba64b",
+    "task_hash": "e5f21de4b663b1e0",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/knowledge_base/__init__.py.  Tip: use action='list' to enumerate availabl",
+    "ts": 1777019430.490653,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "e5f21de4b663b1e0",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 2,
     "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/handle_task.py",
-    "ts": 1776880925.009544,
+    "last_error": "Error: Path traversal detected. Access denied.",
+    "ts": 1777019438.7984314,
     "replan_suggested": false
   },
   {
-    "task_hash": "25c6f77b395ba64b",
+    "task_hash": "e5f21de4b663b1e0",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 3,
     "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776880926.388232,
+    "last_error": "Error: Path traversal detected. Access denied.",
+    "ts": 1777019460.271636,
     "replan_suggested": false
   },
   {
-    "task_hash": "d462e107a027f31e",
+    "task_hash": "e5f21de4b663b1e0",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 4,
+    "last_tool": "file_manager",
+    "last_error": "Error: Path traversal detected. Access denied.",
+    "ts": 1777019480.1364763,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "34e5a0a082bb3891",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 1,
     "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776883541.305919,
+    "last_error": "Error: File not found: app/main.py.  Tip: use action='list' to enumerate available files first.",
+    "ts": 1777027719.9680765,
     "replan_suggested": false
   },
   {
-    "task_hash": "d462e107a027f31e",
+    "task_hash": "7c67e7e899d4b7bc",
+    "task": "Run the script output/psp_merge_enrich.py with python3, capture stdout and also read the generated o",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1777030313.3855472,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7c67e7e899d4b7bc",
+    "task": "Run the script output/psp_merge_enrich.py with python3, capture stdout and also read the generated o",
+    "failure_count": 2,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'codeinterpreter'. Check command/URL and credentials.",
+    "ts": 1777030319.2070787,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7c67e7e899d4b7bc",
+    "task": "Run the script output/psp_merge_enrich.py with python3, capture stdout and also read the generated o",
+    "failure_count": 3,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'pungggi/smart-terminal'. Check command/URL and credentials.",
+    "ts": 1777030322.149303,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "7c67e7e899d4b7bc",
+    "task": "Run the script output/psp_merge_enrich.py with python3, capture stdout and also read the generated o",
+    "failure_count": 4,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'STUzhy/py_execute_mcp'. Check command/URL and credentials.",
+    "ts": 1777030333.1575024,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "7c67e7e899d4b7bc",
+    "task": "Run the script output/psp_merge_enrich.py with python3, capture stdout and also read the generated o",
+    "failure_count": 5,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'kernel'. Check command/URL and credentials.",
+    "ts": 1777030346.6143262,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "d04dbc387ece4548",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'STUzhy/py_execute_mcp'. Check command/URL and credentials.",
+    "ts": 1777030383.4253538,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "d04dbc387ece4548",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 2,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'codeinterpreter'. Check command/URL and credentials.",
+    "ts": 1777030386.6382594,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "d04dbc387ece4548",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 3,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1777030389.3886352,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "d04dbc387ece4548",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 4,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'pungggi/smart-terminal'. Check command/URL and credentials.",
+    "ts": 1777030391.742684,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "d04dbc387ece4548",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 5,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'jrm-fusional/fusional'. Check command/URL and credentials.",
+    "ts": 1777030394.489389,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "d04dbc387ece4548",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 6,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'togethercomputer/mcp-server-tci'. Check command/URL and credentials.",
+    "ts": 1777030405.8057384,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "d04dbc387ece4548",
+    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
+    "failure_count": 7,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'Gorav22/terminusai'. Check command/URL and credentials.",
+    "ts": 1777030409.3652296,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "c04791705802dc41",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/commander/postprocess.py.  Tip: use action='list' to enumerate ava",
+    "ts": 1777032004.9459283,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "c04791705802dc41",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 4,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/researcher.py.  Tip: use action='list' to enumerate available file",
+    "ts": 1777032231.3603246,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "46ef29975cb01b4c",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_data>\nThe following is backgro",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1777033328.292084,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "f5cd027a6a4a7d3a",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/main.py.  Tip: use action='list' to enumerate available files first.",
+    "ts": 1777034106.628233,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "286d420e9a7439d4",
+    "task": "Read the attached PSP document from disk, merge/deduplicate against existing CEE/Baltic PSP list, an",
+    "failure_count": 1,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
+    "ts": 1777034499.721029,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "c70df914e6b7ee9e",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/main.py.  Tip: use action='list' to enumerate available files first.",
+    "ts": 1777035022.6763816,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "c70df914e6b7ee9e",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 2,
     "last_tool": "file_manager",
-    "last_error": "Error: File not found: crew.py",
-    "ts": 1776883542.7304764,
+    "last_error": "Error: Path traversal detected. Access denied.",
+    "ts": 1777035037.3743267,
     "replan_suggested": false
   },
   {
-    "task_hash": "d462e107a027f31e",
+    "task_hash": "c70df914e6b7ee9e",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 3,
     "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776883544.4059737,
+    "last_error": "Error: File not found: output/app/agents/commander.py.  Tip: use action='list' to enumerate availabl",
+    "ts": 1777035081.5892644,
     "replan_suggested": false
   },
   {
-    "task_hash": "8d571c0087a4cf04",
+    "task_hash": "ac62d77c7fa24a3a",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776891798.1794453,
+    "last_tool": "web_search",
+    "last_error": "**backoff \u00b7 PyPI**\nhttps://pypi.org/project/backoff/\n<strong>The on_exception decorator is used to r",
+    "ts": 1777035492.2325308,
     "replan_suggested": false
   },
   {
-    "task_hash": "8d571c0087a4cf04",
+    "task_hash": "ac62d77c7fa24a3a",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776891812.500654,
+    "last_tool": "web_search",
+    "last_error": "**backoff \u00b7 PyPI**\nhttps://pypi.org/project/backoff/\n<strong>The on_exception decorator is used to r",
+    "ts": 1777035498.8612168,
     "replan_suggested": false
   },
   {
-    "task_hash": "8d571c0087a4cf04",
+    "task_hash": "ac62d77c7fa24a3a",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 3,
+    "last_tool": "file_manager",
+    "last_error": "Error: Path traversal detected. Access denied.",
+    "ts": 1777035551.8295457,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "17a1c922d6dba737",
+    "task": "Extract sales leader names, emails, and LinkedIn profiles for the following 30 PSPs: Montonio, Makse",
+    "failure_count": 1,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1777037498.812601,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "17a1c922d6dba737",
+    "task": "Extract sales leader names, emails, and LinkedIn profiles for the following 30 PSPs: Montonio, Makse",
+    "failure_count": 2,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1777037499.1337786,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "17a1c922d6dba737",
+    "task": "Extract sales leader names, emails, and LinkedIn profiles for the following 30 PSPs: Montonio, Makse",
     "failure_count": 3,
     "last_tool": "browser_fetch",
     "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1776891822.790834,
+    "ts": 1777037499.4871712,
     "replan_suggested": false
   },
   {
-    "task_hash": "08f4506726e6d809",
+    "task_hash": "d4d8fb6ea27c4d69",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 1,
     "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776895092.7904613,
+    "last_error": "Error: Unknown action 'search'. Use 'read', 'write', or 'list'.",
+    "ts": 1777038000.9419444,
     "replan_suggested": false
   },
   {
-    "task_hash": "08f4506726e6d809",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: crew_shared.py",
-    "ts": 1776895117.1220214,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "bd91dd34f54d395d",
+    "task_hash": "4a260fe3223f267e",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 1,
     "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776899109.6572068,
+    "last_error": "Error: Unknown action 'find'. Use 'read', 'write', or 'list'.",
+    "ts": 1777041234.020597,
     "replan_suggested": false
   },
   {
-    "task_hash": "a80991647e93d46d",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "task_hash": "edd4158bfe6f4638",
+    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_data>\nThe following is backgro",
     "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776902535.7475765,
+    "last_tool": "browser_fetch",
+    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
+    "ts": 1777067399.1974761,
     "replan_suggested": false
   },
   {
-    "task_hash": "51b98449bc2a72e9",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: skills/__init__.py",
-    "ts": 1776902638.5114212,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "51b98449bc2a72e9",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776902661.707644,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "51b98449bc2a72e9",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 5,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776902666.9614363,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "8ca7ee7fc8f23bbb",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: Cannot write to 'app/consciousness/config.py'. Writable directories: output, proposals, skill",
-    "ts": 1776902785.583342,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "8ca7ee7fc8f23bbb",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: Cannot write to 'applied_code/app/consciousness/config.py'. Writable directories: output, pro",
-    "ts": 1776902801.5063334,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "078539b42ffea212",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776902856.477983,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "078539b42ffea212",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: Cannot write to 'test.txt'. Writable directories: output, proposals, skills",
-    "ts": 1776902861.1629665,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "078539b42ffea212",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: crew.py",
-    "ts": 1776902903.7470634,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "8ca7ee7fc8f23bbb",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: Cannot write to 'applied_code/app/consciousness/config.py'. Writable directories: output, pro",
-    "ts": 1776902946.8488846,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "078539b42ffea212",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 4,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: core/handle_task.py",
-    "ts": 1776902951.8348088,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "8070d637655dd9b0",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776905889.6063719,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "8070d637655dd9b0",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: crew_shared.py",
-    "ts": 1776905897.0285532,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "476925a012c160e6",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776924176.207972,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "476925a012c160e6",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: coding.py",
-    "ts": 1776924183.1273987,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "476925a012c160e6",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776924200.3600166,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "476925a012c160e6",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 4,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776924214.1356423,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "aca3f3e208abd45c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776924342.8099566,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "aca3f3e208abd45c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
-    "ts": 1776924393.4145665,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "aca3f3e208abd45c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 3,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'local-mcp/local-mcp'. Check command/URL and credentials.",
-    "ts": 1776924444.4641783,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "ae70eafd4d161d56",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/security.py",
-    "ts": 1776931241.7898386,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "ae70eafd4d161d56",
-    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/contracts/events.py",
-    "ts": 1776931259.982104,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "f3753662b019049c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: app/handle_task.py",
-    "ts": 1776942266.6192427,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "f3753662b019049c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 2,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: handle_task.py",
-    "ts": 1776942273.6385067,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "f3753662b019049c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 3,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776942375.2667005,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "f3753662b019049c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 5,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: task_handling.py",
-    "ts": 1776942426.3241725,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "f3753662b019049c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 9,
-    "last_tool": "file_manager",
-    "last_error": "Error: File not found: tools/handle_task.py",
-    "ts": 1776942455.156429,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "f3753662b019049c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 10,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'prompt_thin/token-optimizer'. Check command/URL and credentials.",
-    "ts": 1776942474.1264637,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "f3753662b019049c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 11,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'found402/token-squeezer'. Check command/URL and credentials.",
-    "ts": 1776942507.1264908,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "f3753662b019049c",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 12,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'getkin/agent-infrastructure'. Check command/URL and credentials.",
-    "ts": 1776942518.546539,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "6744a262b4d0dbe4",
-    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
-    "failure_count": 1,
-    "last_tool": "file_manager",
-    "last_error": "Error: Unknown action 'list'. Use 'read' or 'write'.",
-    "ts": 1776945776.3845181,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "327e9dcb11058cc0",
+    "task_hash": "90a947e625485d3a",
     "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
     "failure_count": 1,
     "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
-    "ts": 1776981377.9456763,
+    "last_error": "Failed to connect to 'STUzhy/py_execute_mcp'. Check command/URL and credentials.",
+    "ts": 1777067857.1262798,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "90a947e625485d3a",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 2,
+    "last_tool": "mcp_add_server",
+    "last_error": "Failed to connect to 'togethercomputer/mcp-server-tci'. Check command/URL and credentials.",
+    "ts": 1777067862.4551897,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "1edac29b7974bfa9",
+    "task": "You are running one evolution cycle. Analyze the system state and propose ONE improvement.\n\n## Resea",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/main.py.  Tip: use action='list' to enumerate available files first.",
+    "ts": 1777069995.790783,
     "replan_suggested": false
   }
 ]

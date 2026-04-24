@@ -1,30 +1,30 @@
 ---
 title: Hot Cache
-updated_at: "2026-04-23T22:46:02Z"
+updated_at: "2026-04-24T22:35:51Z"
 ---
 
 # Wiki Hot Cache
 
-*Auto-generated 2026-04-23T22:46:02Z. Read this for quick context.*
+*Auto-generated 2026-04-24T22:35:51Z. Read this for quick context.*
 
 ## Recent Wiki Changes
-  | 2026-04-22T16:48:58Z | idle_scheduler.wiki_synthesis | CREATE | meta/white-paper-concise-summary-methodology-134a9a00 | Created: White paper concise summary methodology |
-  | 2026-04-22T21:06:32Z | idle_scheduler.wiki_synthesis | CREATE | meta/1-1ca80e91 | Created: **1. ** |
-  | 2026-04-23T00:34:43Z | idle_scheduler.wiki_synthesis | CREATE | meta/error-patterns-resolution | Created: Error Patterns and Resolutions |
-  | 2026-04-23T11:49:47Z | idle_scheduler.wiki_synthesis | CREATE | meta/topic-ca68c901 | Created: **Topic** |
-  | 2026-04-23T11:49:47Z | idle_scheduler.wiki_synthesis | CREATE | meta/import-error-systematic-resolution | Created: Systematic ImportError Resolution — Domain Skill |
+  | 2026-04-23T23:56:36Z | idle_scheduler.wiki_synthesis | CREATE | meta/structured-research-to-identify-verified-sales-contacts-individuals-email-a92038 | Created: **** Structured research to identify verified sales contacts (individuals, emails, LinkedIn) for reg |
+  | 2026-04-24T10:28:05Z | idle_scheduler.wiki_synthesis | CREATE | meta/structured-research-to-identify-verified-sales-contacts-for-regional-paymen-a3ed | Created: **** Structured research to identify verified sales contacts for regional payment service providers. |
+  | 2026-04-24T10:28:05Z | idle_scheduler.wiki_synthesis | CREATE | meta/openrouter-credit-management-and-cost-optimization | Created: OpenRouter Credit Management & Cost Optimization |
+  | 2026-04-24T12:00:58Z | idle_scheduler.wiki_synthesis | CREATE | meta/missing-import-detection-and-resolution | Created: Missing Import Detection and Resolution |
+  | 2026-04-24T14:14:12Z | idle_scheduler.wiki_synthesis | CREATE | meta/api-credit-management-and-quota-error-handling | Created: API Credit Management and Quota Error Handling |
 
 ## Wiki Stats
-  Total pages: 37
-  - meta: 37
+  Total pages: 42
+  - meta: 42
   Stale (>90 days): 0
 
 ## Active Contradictions
   None.
 
 ## Knowledge Gaps
-  - philosophy: no pages yet
-  - archibal: no pages yet
   - plg: no pages yet
-  - self: no pages yet
   - kaicart: no pages yet
+  - philosophy: no pages yet
+  - self: no pages yet
+  - archibal: no pages yet

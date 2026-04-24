@@ -1,0 +1,19 @@
+{
+  "servers": {
+    "postgresql": {
+      "name": "@modelcontextprotocol/server-postgres",
+      "env_vars": "DB_HOST=localhost;DB_PORT=5432;DB_USER=agent;DB_PASSWORD=securepass;DB_NAME=app",
+      "query": "postgresql database"
+    },
+    "mysql": {
+      "name": "@modelcontextprotocol/server-mysql",
+      "env_vars": "MYSQL_HOST=localhost;MYSQL_PORT=3306;MYSQL_USER=agent;MYSQL_PASSWORD=securepass;MYSQL_DATABASE=app",
+      "query": "mysql mariadb database"
+    },
+    "sqlite": {
+      "name": "@modelcontextprotocol/server-sqlite",
+      "env_vars": "SQLITE_DB_PATH=/app/workspace/data/app.db",
+      "query": "sqlite database file"
+    }
+  }
+}

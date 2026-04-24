@@ -1,0 +1,16 @@
+{
+  "id": 778,
+  "title": "Database Integration MCP Server Stack",
+  "type": "code",
+  "status": "pending",
+  "created_at": "2026-04-24T13:10:45.866200+00:00",
+  "applied_at": null,
+  "dirname": "778_Database_Integration_MCP_Server_Stack",
+  "resolution_target": "",
+  "pretest": {
+    "passed": 0,
+    "failed": 0,
+    "total": 0,
+    "details": []
+  }
+}

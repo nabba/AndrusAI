@@ -1,8 +1,8 @@
 ---
-page_count: 37
+page_count: 42
 section: meta
 title: Meta — Section Index
-updated_at: '2026-04-23T11:49:47Z'
+updated_at: '2026-04-24T14:14:12Z'
 ---
 # Meta Knowledge Wiki
 ## Pages
@@ -11,6 +11,7 @@ updated_at: '2026-04-23T11:49:47Z'
 - [[meta/462f5f1b]] — ****
 - [[meta/advanced-policy-white-paper-critique-methodology-1a6d7ab0]] — Advanced policy white paper critique methodology
 - [[meta/advanced-vector-database-optimization-retrieval-augmentation-ra-strategies-cd1d8]] — Advanced Vector Database Optimization & Retrieval Augmentation (RAG) Strategies
+- [[meta/api-credit-management-and-quota-error-handling]] — API Credit Management and Quota Error Handling
 - [[meta/circular-import-resolution-patterns]] — Circular Import Resolution Patterns
 - [[meta/creating-a-safe-command-execution-wrapper-in-python-da30cc0c]] — **** Creating a Safe Command-Execution Wrapper in Python
 - [[meta/distinguishing-authentication-and-authorization-28efaccb]] — **** Distinguishing Authentication and Authorization
@@ -30,7 +31,9 @@ updated_at: '2026-04-23T11:49:47Z'
 - [[meta/import-error-systematic-resolution]] — Systematic ImportError Resolution — Domain Skill
 - [[meta/learning-queue]] — Learning Queue
 - [[meta/llm-capability-detection]] — Models known to NOT support tool calling (as of 2026)
+- [[meta/missing-import-detection-and-resolution]] — Missing Import Detection and Resolution
 - [[meta/model-tool-support-and-capability-detection]] — Model Tool Support and Capability Detection
+- [[meta/openrouter-credit-management-and-cost-optimization]] — OpenRouter Credit Management & Cost Optimization
 - [[meta/rapid-ecological-data-visualization-with-python-6b918e6d]] — **** Rapid Ecological Data Visualization with Python
 - [[meta/response-synthesis-optimization]] — Response Synthesis Optimization
 - [[meta/selecting-payment-service-providers-psps-for-plg-platforms-in-cee-ticketi-5fe6eb]] — **** Selecting Payment Service Providers (PSPs) for PLG platforms in CEE ticketing/live events.
@@ -39,6 +42,8 @@ updated_at: '2026-04-23T11:49:47Z'
 - [[meta/skill-docker-containerization-basics-aca85774]] — SKILL: Docker Containerization Basics
 - [[meta/skill-selecting-payment-service-providers-psps-for-cee-baltic-ticketing-eb543bc0]] — **Skill: Selecting Payment Service Providers (PSPs) for CEE/Baltic Ticketing**
 - [[meta/skill-two-entity-operational-model-a5f712f8]] — **SKILL: Two-Entity Operational Model**
+- [[meta/structured-research-to-identify-verified-sales-contacts-for-regional-paymen-a3ed]] — **** Structured research to identify verified sales contacts for regional payment service providers.
+- [[meta/structured-research-to-identify-verified-sales-contacts-individuals-email-a92038]] — **** Structured research to identify verified sales contacts (individuals, emails, LinkedIn) for reg
 - [[meta/time-based-email-counting-precision-e90ecab4]] — Time-based Email Counting Precision
 - [[meta/topic-ca68c901]] — **Topic**
 - [[meta/web-scraping-using-firecrawl-ad705cb6]] — Web scraping using Firecrawl

@@ -1,0 +1,60 @@
+# Add to existing error handling section
+
+def handle_api_error(response, crew_type, retry_count):
+    """Enhanced error handling with specific 402 credit exhaustion support."""
+    status_code = response.get('error', {}).get('code')
+    
+    if status_code == 402:
+        # Credit exhaustion detected
+        log_credit_exhaustion(crew_type, response)
+        
+        # Throttle the crew
+        throttle_crew(crew_type, reduce_workers=True)
+        
+        # Alert team memory
+        alert_credit_exhaustion(crew_type)
+        
+        # Exponential backoff with jitter
+        base_delay = [30, 60, 120, 300][min(retry_count, 3)]
+        jitter = random.uniform(0.8, 1.2)
+        delay = base_delay * jitter
+        
+        if retry_count < 3:
+            return {"retry": True, "delay": delay, "use_cheapest_model": True}
+        else:
+            return {"retry": False, "error": "CREDITS_EXHAUSTED", 
+                    "message": "OpenRouter credits exhausted. Please replenish at https://openrouter.ai/settings/credits"}
+    
+    # Existing error handling for other cases...
+    return handle_generic_error(response, crew_type, retry_count)
+
+
+def log_credit_exhaustion(crew_type, response):
+    """Log credit exhaustion event for monitoring."""
+    logger.warning(f"Credit exhaustion detected for crew '{crew_type}': {response.get('error', {}).get('message')}")
+    # Also store in team memory for aggregate tracking
+    team_memory_store(
+        text=f"402 credit exhaustion: crew={crew_type} time={datetime.now()}",
+        metadata="type=credit_exhaustion, crew=" + crew_type
+    )
+
+
+def throttle_crew(crew_type, reduce_workers=True):
+    """Temporarily reduce parallel workers for affected crew."""
+    # This interfaces with crew configuration
+    # Set max_workers = 1 until credits replenished
+    pass
+
+
+def alert_credit_exhaustion(crew_type):
+    """Store alert in team memory visible to all crews."""
+    team_memory_store(
+        text=f"CRITICAL: OpenRouter credits exhausted for crew '{crew_type}'. Tasks queued. Replenish at https://openrouter.ai/settings/credits",
+        metadata=f"type=alert, severity=critical, crew={crew_type}"
+    )
+
+
+def check_and_clear_credit_alert():
+    """Check if credits have been replenished and clear alerts."""
+    # Would need a cheap API call to verify - optional enhancement
+    pass
