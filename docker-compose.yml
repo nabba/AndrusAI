@@ -46,9 +46,10 @@ services:
       # container's view of /proc/meminfo and Docker /info both return
       # the VM's slice (e.g. 23.4 GB for a 48 GB host), which would
       # mis-budget Ollama (Ollama runs on the host, not inside the VM).
-      # Set HOST_TOTAL_RAM_GB in .env to your Mac's true RAM (e.g. 48,
-      # 64, 96, 128). Linux bare-metal can leave this unset.
+      # Run `python3 scripts/sync_host_capacity.py` to auto-detect and
+      # write these into .env (idempotent, runs once at install too).
       HOST_TOTAL_RAM_GB: ${HOST_TOTAL_RAM_GB:-}
+      HOST_OS_BASELINE_GB: ${HOST_OS_BASELINE_GB:-}
       # Git safe.directory for workspace backup (volume has different ownership)
       GIT_CONFIG_COUNT: '1'
       GIT_CONFIG_KEY_0: safe.directory

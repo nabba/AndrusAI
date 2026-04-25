@@ -30,6 +30,14 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
+# 3.5 Auto-detect host capacity and write into .env so the LLM
+# registry scanner sizes local-model proposals correctly. Idempotent —
+# safe to re-run after RAM upgrades. Has zero deps so it works before
+# the venv is activated.
+echo 'Detecting host hardware capacity...'
+python3 scripts/sync_host_capacity.py || \
+    echo 'Warning: capacity probe failed; the registry scanner will use a conservative fallback.'
+
 # 4. Build the sandbox Docker image
 echo 'Building sandbox Docker image...'
 docker build -t crewai-sandbox:latest sandbox/
