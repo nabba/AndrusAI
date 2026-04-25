@@ -1396,6 +1396,23 @@ def run_discovery_cycle(max_benchmarks: int = 3) -> dict:
                 else:
                     result["proposals"] += 1
 
+    # Step 6: Scan the upstream Ollama registry for available-but-not-pulled
+    # variants of tracked families. Surfaces models like the qwen3.5 release
+    # that scan_ollama() can't see (it only lists already-pulled tags).
+    # Generates governance proposals — never auto-pulls (pulls are 5-50 GB).
+    try:
+        registry_proposals = _scan_registry_and_propose(raw_ollama)
+        result["registry_proposals"] = registry_proposals
+        if registry_proposals:
+            result["proposals"] += registry_proposals
+            logger.info(
+                f"llm_discovery: registry scan surfaced {registry_proposals} "
+                f"pull candidates"
+            )
+    except Exception as exc:
+        logger.debug(f"llm_discovery: registry scan failed: {exc}", exc_info=True)
+        result.setdefault("errors", []).append(f"registry_scan: {exc}")
+
     # Audit trail
     try:
         from app.control_plane.audit import get_audit
@@ -1409,6 +1426,123 @@ def run_discovery_cycle(max_benchmarks: int = 3) -> dict:
 
     logger.info(f"llm_discovery: cycle complete — {result}")
     return result
+
+
+def _scan_registry_and_propose(local_ollama_raw: list[dict]) -> int:
+    """Scan ollama.com for new variants and emit pull proposals.
+
+    Returns the number of governance requests created. Local-tag dedupe
+    uses the same name field that scan_ollama() pulls from /api/tags so
+    a candidate already on disk is never re-proposed.
+
+    Idempotent: skips candidates that already have an open governance
+    request of type ``local_model_pull`` for the same model.
+    """
+    from app.llm_registry_scanner import (
+        scan_ollama_registry,
+        diff_against_local,
+    )
+    candidates = scan_ollama_registry()
+    if not candidates:
+        return 0
+
+    local_names = [m.get("name", "") for m in local_ollama_raw]
+    new_candidates = diff_against_local(candidates, local_names)
+    if not new_candidates:
+        logger.debug("registry_scan: no new candidates beyond local /api/tags")
+        return 0
+
+    # Dedupe against existing open proposals so an idle cycle that runs
+    # every few minutes doesn't flood the governance queue.
+    pending_models = _existing_pull_proposal_models()
+
+    proposals_made = 0
+    # Cap at top 3 per cycle so a fresh-install scan doesn't dump 50
+    # proposals at once. The user can re-run discovery to see more.
+    for cand in new_candidates[:3]:
+        if cand.full_name in pending_models:
+            continue
+        if _create_pull_proposal(cand):
+            proposals_made += 1
+    return proposals_made
+
+
+def _existing_pull_proposal_models() -> set[str]:
+    """Set of model names that already have an open ``local_model_pull``
+    governance request — used to dedupe across cycles."""
+    try:
+        from app.control_plane.db import execute
+        rows = execute(
+            """SELECT detail_json FROM control_plane.governance_requests
+               WHERE request_type = %s AND status = 'pending'""",
+            ("local_model_pull",),
+        ) or []
+        seen: set[str] = set()
+        for r in rows:
+            detail = r.get("detail_json") or {}
+            if isinstance(detail, str):
+                import json as _j
+                try:
+                    detail = _j.loads(detail)
+                except Exception:
+                    detail = {}
+            name = detail.get("model") or detail.get("model_id") or ""
+            if name:
+                seen.add(name)
+        return seen
+    except Exception:
+        return set()
+
+
+def _create_pull_proposal(cand) -> bool:
+    """File a governance approval request for one registry candidate.
+
+    Returns True on success. Errors are logged but not raised — registry
+    scan is a best-effort enhancer, not a gate.
+
+    The proposal detail includes a host-capacity probe result so the
+    user sees the safety budget that was used to decide this model
+    fits — relevant context after the 2026-04-25 SIGKILL spiral that
+    was triggered by exactly this kind of "is it safe to load this?"
+    question being answered with a hardcoded constant.
+    """
+    try:
+        from app.control_plane.governance import get_governance
+        from app.control_plane.projects import get_projects
+        from app.llm_registry_scanner import probe_host_capacity
+        gate = get_governance()
+        pid = get_projects().get_active_project_id()
+        capacity = probe_host_capacity()
+
+        feature_summary = ", ".join(cand.features) if cand.features else "standard"
+        # Annotate title with fit verdict so users can scan the queue
+        # at a glance ("comfortable" vs "marginal").
+        fit_marker = ""
+        if capacity:
+            cap = capacity.max_model_size_gb
+            if cand.size_gb <= cap * 0.75:
+                fit_marker = " ✓"
+            elif cand.size_gb <= cap:
+                fit_marker = " ~"
+        title = (
+            f"Pull local model: {cand.full_name} "
+            f"({cand.size_gb:.1f} GB, {feature_summary}){fit_marker}"
+        )
+        gate.request_approval(
+            project_id=pid,
+            request_type="local_model_pull",
+            requested_by="llm_discovery",
+            title=title,
+            detail=cand.to_proposal_detail(capacity),
+        )
+        logger.info(f"registry_scan: filed pull proposal for {cand.full_name}")
+        return True
+    except Exception as exc:
+        logger.debug(
+            f"registry_scan: proposal for {cand.full_name} failed: {exc}",
+            exc_info=True,
+        )
+        return False
 
 
 # ── Governance consumer ──────────────────────────────────────────────────────

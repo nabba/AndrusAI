@@ -10,6 +10,9 @@ services:
       IMAGES: 1            # Allow pulling ollama/ollama image for fleet
       NETWORKS: 0
       VOLUMES: 0           # H5: Disabled — prevents host filesystem escape via volume creation
+      INFO: 1              # 2026-04-25: enable /info so the LLM registry scanner can read
+                           # the HOST's total RAM (vs the container's cgroup limit) when
+                           # auto-detecting safe-to-pull model sizes. Read-only endpoint.
       POST: 1              # Allow POST (create/run)
       AUTH: 0
       SECRETS: 0
@@ -38,6 +41,14 @@ services:
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY}
       # Smithery MCP server registry (for auto-discovery of remote MCP servers)
       SMITHERY_API_KEY: ${SMITHERY_API_KEY:-}
+      # Host RAM in GB — used by app/llm_registry_scanner to compute the
+      # safe-to-pull model size cap. On Docker-Desktop-for-Mac the
+      # container's view of /proc/meminfo and Docker /info both return
+      # the VM's slice (e.g. 23.4 GB for a 48 GB host), which would
+      # mis-budget Ollama (Ollama runs on the host, not inside the VM).
+      # Set HOST_TOTAL_RAM_GB in .env to your Mac's true RAM (e.g. 48,
+      # 64, 96, 128). Linux bare-metal can leave this unset.
+      HOST_TOTAL_RAM_GB: ${HOST_TOTAL_RAM_GB:-}
       # Git safe.directory for workspace backup (volume has different ownership)
       GIT_CONFIG_COUNT: '1'
       GIT_CONFIG_KEY_0: safe.directory
