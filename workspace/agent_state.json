@@ -1,9 +1,9 @@
 {
   "research": {
-    "tasks_completed": 166,
+    "tasks_completed": 168,
     "tasks_failed": 4,
-    "success_rate": 0.9765,
-    "avg_confidence": 0.6136,
+    "success_rate": 0.9767,
+    "avg_confidence": 0.611,
     "by_difficulty": {
       "2": {
         "completed": 49,
@@ -22,7 +22,7 @@
         "failed": 0
       },
       "7": {
-        "completed": 14,
+        "completed": 16,
         "failed": 1
       },
       "4": {
@@ -38,8 +38,8 @@
         "failed": 0
       }
     },
-    "streak": 7,
-    "last_task_at": "2026-04-24T22:16:32.836919+00:00"
+    "streak": 9,
+    "last_task_at": "2026-04-24T23:08:41.210504+00:00"
   },
   "writing": {
     "tasks_completed": 23,

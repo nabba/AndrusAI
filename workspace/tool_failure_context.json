@@ -1,50 +1,5 @@
 [
   {
-    "task_hash": "5784968e61dd7071",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 7,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'lite/iterm-mcp'. Check command/URL and credentials.",
-    "ts": 1777015665.387239,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "5784968e61dd7071",
-    "task": "Complete the following coding task:\n\n<user_request>\n<reference_context type=\"somatic_bias\" visibilit",
-    "failure_count": 8,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'cloudflare/containers'. Check command/URL and credentials.",
-    "ts": 1777015696.3908508,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "d43f3b8a34cb3504",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_data>\nThe following is backgro",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1777016259.529939,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "d43f3b8a34cb3504",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_data>\nThe following is backgro",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1777016259.8159711,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "3243471c78e49454",
-    "task": "Complete this macOS desktop automation task:\n\n<user_request>\n<reference_data>\nThe following is backg",
-    "failure_count": 1,
-    "last_tool": "mcp_add_server",
-    "last_error": "Failed to connect to 'wonderwhy-er/desktop-commander'. Check command/URL and credentials.",
-    "ts": 1777017101.1958618,
-    "replan_suggested": false
-  },
-  {
     "task_hash": "3243471c78e49454",
     "task": "Complete this macOS desktop automation task:\n\n<user_request>\n<reference_data>\nThe following is backg",
     "failure_count": 2,
@@ -447,6 +402,51 @@
     "last_tool": "file_manager",
     "last_error": "Error: File not found: app/main.py.  Tip: use action='list' to enumerate available files first.",
     "ts": 1777069995.790783,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "91e4f9884620a144",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 2,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/commander/routing.py.  Tip: use action='list' to enumerate availab",
+    "ts": 1777075208.0478601,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "fdc0a967f75a6b4b",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 4,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/agents/observer.py.  Tip: use action='list' to enumerate available files ",
+    "ts": 1777089609.7503557,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "fdc0a967f75a6b4b",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 8,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/atlas/api_scout.py.  Tip: use action='list' to enumerate available files ",
+    "ts": 1777089625.8944352,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "fdc0a967f75a6b4b",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 9,
+    "last_tool": "file_manager",
+    "last_error": "Error: Cannot write to 'app/adaptive_ensemble.py'. Writable directories: output, proposals, skills",
+    "ts": 1777089823.5194302,
+    "replan_suggested": true
+  },
+  {
+    "task_hash": "4148808ff70532e3",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: Cannot write to 'app/control_plane/audit.py'. Writable directories: output, proposals, skills",
+    "ts": 1777118491.5465157,
     "replan_suggested": false
   }
 ]

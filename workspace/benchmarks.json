@@ -2256,5 +2256,32 @@
       "crew": "research",
       "mode": "delegated"
     }
+  },
+  {
+    "ts": "2026-04-24T22:43:57.684636+00:00",
+    "metric": "task_completion_time",
+    "value": 93.50604037499943,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-24T23:08:40.465278+00:00",
+    "metric": "task_completion_time",
+    "value": 85.73589095600002,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
+  },
+  {
+    "ts": "2026-04-25T06:19:12.351690+00:00",
+    "metric": "task_completion_time",
+    "value": 113.71115134400009,
+    "metadata": {
+      "crew": "research",
+      "mode": "delegated"
+    }
   }
 ]

@@ -1343,5 +1343,22 @@
     "mutation_summary": "Skill kept (delta=+0.0068, tests=1/2)",
     "timestamp": "2026-04-22T21:05:46.240649+00:00",
     "generation": 45
+  },
+  {
+    "id": "exp_202604251203_4662",
+    "parent_id": "exp_202604222104_f9f6",
+    "hypothesis": "The system is experiencing recurring 'RuntimeError: Task execution failed: Error code: 402' (Insufficient credits) from the OpenRouter API. Implementing a graceful fallback mechanism that detects 402 errors and automatically switches to a secondary provider or a lower-cost backup model will prevent task failures and improve the self-heal rate.",
+    "change_type": "code",
+    "fitness_before": 0.8215,
+    "fitness_after": 0.8215,
+    "delta": 0.0,
+    "test_pass_rate": 0.0,
+    "status": "discard",
+    "files_changed": [
+      "app/core/llm_client.py"
+    ],
+    "mutation_summary": "No improvement (delta=+0.0000), reverted",
+    "timestamp": "2026-04-25T12:03:35.966166+00:00",
+    "generation": 46
   }
 ]

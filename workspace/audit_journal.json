@@ -1760,5 +1760,44 @@
       "app/agents/commander/execution.py",
       "app/agents/commander/orchestrator.py"
     ]
+  },
+  {
+    "ts": "2026-04-25T00:00:25.353602+00:00",
+    "event": "code_audit",
+    "detail": "1 issues in 6 files: Fixed a potential crash in `app/agents/commander/postprocess.py` caused by improper handling of `re.DOTALL` in specific regex patterns.",
+    "files_changed": [
+      "app/agents/commander/postprocess.py",
+      "app/agents/commander/routing.py",
+      "app/agents/researcher.py",
+      "app/agents/writer.py",
+      "app/api/notes_api.py",
+      "app/audit.py"
+    ]
+  },
+  {
+    "ts": "2026-04-25T04:03:57.830417+00:00",
+    "event": "code_audit",
+    "detail": "1 issues in 6 files: Fixed potential KeyError and ZeroDivisionError in WeightedEnsemble",
+    "files_changed": [
+      "app/adaptive_ensemble.py",
+      "app/agents/observer.py",
+      "app/api/evolution_api.py",
+      "app/atlas/__init__.py",
+      "app/atlas/api_scout.py",
+      "app/atlas/audit_log.py"
+    ]
+  },
+  {
+    "ts": "2026-04-25T12:01:40.332244+00:00",
+    "event": "code_audit",
+    "detail": "1 issues in 6 files: Fixed a logic error in the audit query parameter handling that would lead to database driver errors.",
+    "files_changed": [
+      "app/control_plane/audit.py",
+      "app/control_plane/budgets.py",
+      "app/control_plane/cost_tracker.py",
+      "app/control_plane/crew_task_spans.py",
+      "app/control_plane/crew_tasks.py",
+      "app/control_plane/dashboard_api.py"
+    ]
   }
 ]
