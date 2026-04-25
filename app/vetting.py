@@ -11,13 +11,57 @@ Risk level is derived from: crew_type + difficulty_score + model_tier.
 All local model output still gets full vetting. Code always gets full vetting.
 """
 
+import concurrent.futures as _cf
 import logging
+import os
 import re
 import threading
 import time
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+# ── Bounded LLM call (2026-04-25) ─────────────────────────────────────────
+# Vetting must NEVER hang the request lifecycle.  Task 88 stalled for 17.7
+# minutes because gpt-5.5 (openrouter) didn't return for the vetting call,
+# and `llm.call()` had no timeout — the LiteLLM HTTP-read default is far
+# longer than the soft-timeout that ultimately killed the task, and the
+# orchestrator's `_vet_future.result(timeout=30)` couldn't fire because the
+# proactive_scan path on the same thread was also blocked on an LLM.
+#
+# This pool serializes vetting LLM calls behind a hard wall-clock ceiling.
+# When the ceiling fires we abandon the worker (it keeps spinning until
+# the upstream connection drops / retries exhaust — that's fine, we don't
+# need its output) and the caller falls back to the unvetted response.
+_VET_LLM_TIMEOUT_S = float(os.getenv("VETTING_LLM_TIMEOUT_S", "90"))
+_vet_call_pool = _cf.ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="vet-llm-call",
+)
+
+
+class VettingTimeout(Exception):
+    """Raised when a vetting LLM call exceeds its wall-clock budget."""
+
+
+def _call_llm_bounded(llm, prompt: str, timeout_s: float | None = None) -> str:
+    """Run ``llm.call(prompt)`` with a hard wall-clock ceiling.
+
+    Returns the stripped string output.  Raises ``VettingTimeout`` if the
+    call doesn't complete in time — callers must catch this and fall back
+    to returning the unvetted response.
+    """
+    deadline = float(timeout_s if timeout_s is not None else _VET_LLM_TIMEOUT_S)
+    fut = _vet_call_pool.submit(lambda: str(llm.call(prompt)).strip())
+    try:
+        return fut.result(timeout=deadline)
+    except _cf.TimeoutError as exc:
+        # Don't cancel the future — concurrent.futures can't actually kill
+        # a thread, so cancellation here would be a lie.  The worker
+        # eventually unwinds when LiteLLM gives up; we just stop waiting.
+        raise VettingTimeout(
+            f"vetting LLM call exceeded {deadline:.0f}s"
+        ) from exc
 
 
 # ── Phase 4: vetting outcomes feed llm_benchmarks ────────────────────────────
@@ -293,8 +337,20 @@ def _verify_cheap(
             request=user_request[:400],
             response=response[:3000],
         )
-        # Direct LLM call — no Agent/Task/Crew overhead
-        result = str(llm.call(prompt)).strip().upper()
+        # Direct LLM call — no Agent/Task/Crew overhead.
+        # Bounded so a hung budget model can't gate delivery.
+        try:
+            result = _call_llm_bounded(llm, prompt).upper()
+        except VettingTimeout as _tmo:
+            logger.warning(
+                f"vetting[cheap]: {crew_name} LLM call timed out ({_tmo}); "
+                f"escalating to full"
+            )
+            _record_vetting_outcome(
+                generating_model, crew_name, False,
+                int((time.monotonic() - t_start) * 1000),
+            )
+            return False, response
 
         passed = result.startswith("PASS")
         if passed:
@@ -361,8 +417,23 @@ def _verify_full(
             request=user_request[:800],
             response=response[:6000],
         )
-        # Direct LLM call — no Agent/Task/Crew overhead
-        raw = str(llm.call(prompt)).strip()
+        # Direct LLM call — no Agent/Task/Crew overhead.
+        # Hard wall-clock ceiling: vetting MUST NOT hang the request
+        # lifecycle.  See _call_llm_bounded docstring for the 2026-04-25
+        # task-88 outage that motivated this guard.
+        try:
+            raw = _call_llm_bounded(llm, prompt)
+        except VettingTimeout as _tmo:
+            logger.warning(
+                f"vetting[full]: {crew_name} LLM call timed out ({_tmo}); "
+                f"returning unvetted response"
+            )
+            _set_last_verdict(True)  # treat as PASS to skip retry path
+            _record_vetting_outcome(
+                generating_model, crew_name, False,
+                int((time.monotonic() - t_start) * 1000),
+            )
+            return response
 
         # Parse structured verdict
         from app.utils import safe_json_parse

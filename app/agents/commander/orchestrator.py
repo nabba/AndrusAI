@@ -2484,21 +2484,64 @@ class Commander:
 
             # S10: Run vetting + proactive scan in parallel (independent operations)
             # Skip proactive scan for easy tasks — saves 5-10s of LLM latency
+            #
+            # 2026-04-25: vetting + proactive_scan + critic are ENHANCERS, not
+            # gates.  If any of them hang or fail, the user MUST still receive
+            # the synthesis result.  Task 88 stalled 17.7 min in the vetting
+            # LLM call (gpt-5.5/openrouter) and the soft-timeout killed the
+            # whole task — so the synthesis output that the crew had already
+            # produced was lost.  Patch: snapshot final_result before any
+            # enhancer runs, run each under a hard wall-clock budget, and on
+            # ANY exception fall back to the snapshot.
             _vet_t0 = time.monotonic()
-            # Use the _detailed variant so we get a pass/fail verdict alongside
-            # the (possibly corrected) response text.  For high-difficulty
-            # tasks a FAIL verdict triggers one more crew retry instead of
-            # silently delivering a flagged answer.
+            _synthesis_result = final_result  # canonical deliverable
             from app.vetting import vet_response_detailed
             _vet_future = _ctx_pool.submit(
-                vet_response_detailed, user_input, final_result, crew_name,
+                vet_response_detailed, user_input, _synthesis_result, crew_name,
                 difficulty, get_last_tier() or "unknown",
             )
+            # Run proactive scan under its own budget — never let it block the
+            # main thread for more than ~30s.  It's a best-effort enhancer.
+            _proactive_notes = ""
             if difficulty >= 4:
-                _proactive_notes = _run_proactive_scan(final_result, crew_name, user_input)
-            else:
-                _proactive_notes = ""
-            final_result, _vet_passed = _vet_future.result(timeout=30)
+                _proactive_future = _ctx_pool.submit(
+                    _run_proactive_scan, _synthesis_result, crew_name, user_input,
+                )
+                try:
+                    _proactive_notes = _proactive_future.result(timeout=30)
+                except Exception as _proactive_exc:
+                    logger.warning(
+                        f"proactive_scan timed out / failed "
+                        f"({_proactive_exc.__class__.__name__}: {_proactive_exc}); "
+                        f"continuing without proactive notes"
+                    )
+                    _proactive_notes = ""
+
+            # Vetting hard ceiling: 90s.  Vetting LLM internally has its own
+            # _VET_LLM_TIMEOUT_S guard, but the future-level timeout here is
+            # the belt-and-braces fallback in case anything else in the
+            # vetting wrapper (DB writes, conscience check, etc.) gets slow.
+            try:
+                _vet_text, _vet_passed = _vet_future.result(timeout=90)
+                # Sanity: only accept the vetted result if it's substantive.
+                # An empty / vanishingly small return means vetting collapsed
+                # the synthesis — keep the original instead.
+                if _vet_text and len(_vet_text.strip()) >= 10:
+                    final_result = _vet_text
+                else:
+                    logger.warning(
+                        "vetting returned empty/tiny output; keeping synthesis"
+                    )
+                    final_result = _synthesis_result
+                    _vet_passed = True  # don't trigger retry on empty-vet
+            except Exception as _vet_exc:
+                logger.warning(
+                    f"vetting did not complete in time / failed "
+                    f"({_vet_exc.__class__.__name__}: {_vet_exc}); "
+                    f"delivering unvetted synthesis"
+                )
+                final_result = _synthesis_result
+                _vet_passed = True  # treat as pass so we skip the retry path
             _phase_log(
                 "vetting", _vet_t0, crew=crew_name,
                 difficulty=difficulty, passed=_vet_passed,
@@ -2551,18 +2594,37 @@ class Commander:
                 finally:
                     self._vetting_retry_attempted = False
 
-            # Critic review for high-difficulty tasks (≥7) — adversarial quality gate
+            # Critic review for high-difficulty tasks (≥7) — adversarial quality gate.
+            # Bounded under a hard wall-clock budget so a hung critic LLM
+            # can't stall delivery (same root cause as the 2026-04-25 vetting
+            # outage).  On timeout/failure: keep the pre-critic result.
             if difficulty >= 7:
-                try:
+                _pre_critic_result = final_result
+
+                def _run_critic():
                     from app.crews.critic_crew import CriticCrew
-                    final_result = CriticCrew().review(
+                    return CriticCrew().review(
                         original_task=user_input,
-                        crew_output=final_result,
+                        crew_output=_pre_critic_result,
                         crew_used=crew_name,
                         difficulty=difficulty,
                     )
-                except Exception:
-                    logger.debug("Critic review failed (non-blocking)", exc_info=True)
+                _critic_future = _ctx_pool.submit(_run_critic)
+                try:
+                    _critic_out = _critic_future.result(timeout=120)
+                    if _critic_out and len(str(_critic_out).strip()) >= 10:
+                        final_result = _critic_out
+                    else:
+                        logger.warning(
+                            "Critic returned empty output; keeping pre-critic result"
+                        )
+                except Exception as _critic_exc:
+                    logger.warning(
+                        f"Critic review did not complete in time / failed "
+                        f"({_critic_exc.__class__.__name__}: {_critic_exc}); "
+                        f"keeping pre-critic result"
+                    )
+                    final_result = _pre_critic_result
 
             if _proactive_notes:
                 final_result += "\n\n---\n" + _proactive_notes
