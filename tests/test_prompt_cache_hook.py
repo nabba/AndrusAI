@@ -22,7 +22,7 @@ class TestIsAnthropic:
 
     @pytest.mark.parametrize("model", [
         "openrouter/deepseek/deepseek-chat",
-        "ollama/qwen3:30b-a3b",
+        "ollama/qwen3.5:35b-a3b-q4_K_M",
         "gpt-4",
         "",
         None,

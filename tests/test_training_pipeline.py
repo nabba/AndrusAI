@@ -154,7 +154,7 @@ class TestTrainingCollector:
         assert tier == "T4_premium"
         assert prov == "api_anthropic"
 
-        tier, prov = _classify_model("ollama_chat/qwen3:30b-a3b")
+        tier, prov = _classify_model("ollama_chat/qwen3.5:35b-a3b-q4_K_M")
         assert tier == "T1_local"
         assert prov == "local_ollama"
 

@@ -103,14 +103,14 @@ class TestPublicAPI(unittest.TestCase):
             get_model_id("nonexistent")
 
     def test_get_tier(self):
-        assert get_tier("qwen3:30b-a3b") == "local"
+        assert get_tier("qwen3.5:35b-a3b-q4_K_M") == "local"
         assert get_tier("deepseek-v3.2") == "budget"
         assert get_tier("nonexistent") == "unknown"
 
     def test_get_provider(self):
         assert get_provider("claude-sonnet-4.6") == "anthropic"
         assert get_provider("deepseek-v3.2") == "openrouter"
-        assert get_provider("qwen3:30b-a3b") == "ollama"
+        assert get_provider("qwen3.5:35b-a3b-q4_K_M") == "ollama"
 
     def test_is_multimodal(self):
         assert is_multimodal("kimi-k2.5") is True
@@ -137,12 +137,12 @@ class TestPublicAPI(unittest.TestCase):
         assert smallest in CATALOG
 
     def test_get_ram_requirement(self):
-        ram = get_ram_requirement("qwen3:30b-a3b")
+        ram = get_ram_requirement("qwen3.5:35b-a3b-q4_K_M")
         assert ram > 0
         assert get_ram_requirement("nonexistent") == 20.0
 
     def test_estimate_task_cost_local_is_free(self):
-        cost = estimate_task_cost("qwen3:30b-a3b", 1000, 1000)
+        cost = estimate_task_cost("qwen3.5:35b-a3b-q4_K_M", 1000, 1000)
         assert cost == 0.0
 
     def test_estimate_task_cost_api_positive(self):

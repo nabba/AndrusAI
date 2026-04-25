@@ -110,11 +110,11 @@ def install_settings_shim(**overrides) -> None:
         local_llm_base_url = "http://localhost:11434"
         ollama_base_url = "http://localhost:11434"
         ollama_max_concurrent_crews = 2
-        local_model_coding = "qwen3:30b-a3b"
-        local_model_architecture = "qwen3:30b-a3b"
-        local_model_research = "qwen3:30b-a3b"
-        local_model_writing = "qwen3:30b-a3b"
-        local_model_default = "qwen3:30b-a3b"
+        local_model_coding = "qwen3.5:35b-a3b-q4_K_M"
+        local_model_architecture = "qwen3.5:35b-a3b-q4_K_M"
+        local_model_research = "qwen3.5:35b-a3b-q4_K_M"
+        local_model_writing = "qwen3.5:35b-a3b-q4_K_M"
+        local_model_default = "qwen3.5:35b-a3b-q4_K_M"
         vetting_enabled = False
         vetting_model = "claude-sonnet-4.6"
         mem0_enabled = False

@@ -35,7 +35,7 @@ class TestProviderFamily:
         ("openrouter/stepfun/step-3.5-flash:free", "stepfun"),
         ("openrouter/mistralai/mistral-medium", "mistral"),
         ("ollama_chat/llama3.1:8b", "meta"),
-        ("ollama_chat/qwen3:30b-a3b", "alibaba"),
+        ("ollama_chat/qwen3.5:35b-a3b-q4_K_M", "alibaba"),
         ("new/unknown-model", "unknown"),
     ])
     def test_classify(self, model_id, expected):

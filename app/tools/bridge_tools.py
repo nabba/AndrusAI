@@ -137,7 +137,7 @@ def create_bridge_tools(agent_id: str) -> list:
 
     class _InferenceInput(BaseModel):
         prompt: str = Field(description="Prompt to send to local LLM")
-        model: str = Field(default="qwen3:30b-a3b", description="Ollama model name")
+        model: str = Field(default="qwen3.5:35b-a3b-q4_K_M", description="Ollama model name")
 
     class LocalInferenceTool(BaseTool):
         name: str = "local_inference"
@@ -147,7 +147,7 @@ def create_bridge_tools(agent_id: str) -> list:
         )
         args_schema: Type[BaseModel] = _InferenceInput
 
-        def _run(self, prompt: str, model: str = "qwen3:30b-a3b") -> str:
+        def _run(self, prompt: str, model: str = "qwen3.5:35b-a3b-q4_K_M") -> str:
             result = bridge.inference(prompt, model)
             if "error" in result:
                 return f"Error: {result.get('detail', result['error'])}"

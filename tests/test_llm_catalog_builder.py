@@ -352,7 +352,7 @@ class TestGracefulDegradation:
         # Bootstrap entries remain
         assert "claude-sonnet-4.6" in fresh_catalog
         assert "deepseek-v3.2" in fresh_catalog
-        assert "qwen3:30b-a3b" in fresh_catalog
+        assert "qwen3.5:35b-a3b-q4_K_M" in fresh_catalog
 
 
 class TestProviderFamilyStillStable:

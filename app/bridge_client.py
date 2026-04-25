@@ -113,7 +113,7 @@ class BridgeClient:
 
     # ── GPU / Ollama ──────────────────────────────────────────────
 
-    def inference(self, prompt: str, model: str = "qwen3:30b-a3b",
+    def inference(self, prompt: str, model: str = "qwen3.5:35b-a3b-q4_K_M",
                   system: str = "", temperature: float = 0.7) -> dict:
         return self._request("POST", "/gpu/inference", json={
             "model": model, "prompt": prompt,

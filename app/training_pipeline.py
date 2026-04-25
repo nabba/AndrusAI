@@ -411,7 +411,7 @@ class TrainingOrchestrator:
                 logger.debug(f"MLX generate failed: {result.get('detail', '')[:100]}, trying Ollama")
                 result = bridge.inference(
                     prompt=prompt,
-                    model="qwen3:30b-a3b",
+                    model="qwen3.5:35b-a3b-q4_K_M",
                     temperature=temperature,
                 )
                 if "error" not in result:

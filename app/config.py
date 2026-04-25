@@ -194,18 +194,22 @@ class Settings(BaseSettings):
 
     # ── Local LLM (Native Ollama + Metal GPU) ─────────────────────────────
     # Uses native Ollama installation for Metal GPU acceleration.
-    # All roles default to qwen3:30b-a3b (MoE, ~20GB, 15-22 tok/s on M4 Max).
+    # All roles default to qwen3.5:35b-a3b-q4_K_M (MoE, ~20GB on disk,
+    # 35B total / 3B active per token — speed of 30B-A3B with stronger
+    # tools support that fixes the mem0 function-calling gap).
     local_llm_enabled: bool = True
     local_llm_base_url: str = "http://host.docker.internal:11434"
     ollama_base_url: str = "http://localhost:11434"  # native Ollama on host
     ollama_max_concurrent_crews: int = 2  # max crews hitting Ollama at once (semaphore)
 
-    # Role → model mapping (Ollama model names, auto-pulled on first use)
-    local_model_coding: str = "qwen3:30b-a3b"         # MoE — fast, excellent coding
-    local_model_architecture: str = "qwen3:30b-a3b"   # MoE — strong reasoning
-    local_model_research: str = "qwen3:30b-a3b"      # web research + synthesis
-    local_model_writing: str = "qwen3:30b-a3b"       # docs, summaries, reports
-    local_model_default: str = "qwen3:30b-a3b"       # fallback for unspecified
+    # Role → model mapping (Ollama model names, auto-pulled on first use).
+    # 2026-04-25: swapped qwen3:30b-a3b → qwen3.5:35b-a3b-q4_K_M for
+    # better tools support + vision + thinking modes.  Same memory class.
+    local_model_coding: str = "qwen3.5:35b-a3b-q4_K_M"         # MoE — fast, excellent coding
+    local_model_architecture: str = "qwen3.5:35b-a3b-q4_K_M"   # MoE — strong reasoning
+    local_model_research: str = "qwen3.5:35b-a3b-q4_K_M"       # web research + synthesis
+    local_model_writing: str = "qwen3.5:35b-a3b-q4_K_M"        # docs, summaries, reports
+    local_model_default: str = "qwen3.5:35b-a3b-q4_K_M"        # fallback for unspecified
 
     # Vetting — Claude reviews local LLM output before sending to user
     vetting_enabled: bool = True
@@ -224,7 +228,7 @@ class Settings(BaseSettings):
     mem0_neo4j_url: str = "bolt://neo4j:7687"
     mem0_neo4j_user: str = "neo4j"
     mem0_neo4j_password: SecretStr = SecretStr("")  # MUST be set via MEM0_NEO4J_PASSWORD env var
-    mem0_llm_model: str = "ollama/qwen3:30b-a3b"  # local model for fact extraction
+    mem0_llm_model: str = "ollama/qwen3.5:35b-a3b-q4_K_M"  # local model for fact extraction (Qwen3.5 has tools support)
     mem0_embedder_model: str = "nomic-ai/nomic-embed-text-v1.5"  # 768-dim, matches ChromaDB
     mem0_user_id: str = "owner"  # single-user system
 

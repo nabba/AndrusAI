@@ -2,7 +2,7 @@
 llm_catalog.py — Runtime-built LLM registry.
 
 Architecture:
-  - ``_BOOTSTRAP_CATALOG``: 3 survival entries (Sonnet, DeepSeek, qwen3:30b-a3b)
+  - ``_BOOTSTRAP_CATALOG``: 3 survival entries (Sonnet, DeepSeek, qwen3.5:35b-a3b-q4_K_M)
     hand-coded so the system can boot with no network and no snapshot cache.
   - ``CATALOG``: the live mutable dict everything else imports. At startup
     it's a copy of ``_BOOTSTRAP_CATALOG``; ``app.llm_catalog_builder.refresh``
@@ -257,19 +257,27 @@ _BOOTSTRAP_CATALOG: dict[str, dict] = {
             "multimodal": 0.0, "vetting": 0.78, "general": 0.85,
         },
     },
-    "qwen3:30b-a3b": {
+    "qwen3.5:35b-a3b-q4_K_M": {
         "tier": "local", "provider": "ollama",
-        "model_id": "ollama_chat/qwen3:30b-a3b",
-        "context": 32_768, "multimodal": False,
+        "model_id": "ollama_chat/qwen3.5:35b-a3b-q4_K_M",
+        # 256k native context window (Qwen3.5 family).  We cap usage via
+        # num_ctx at runtime; the catalog records the model ceiling.
+        "context": 262_144, "multimodal": True,
         "cost_input_per_m": 0.0, "cost_output_per_m": 0.0,
-        "tool_use_reliability": 0.70,
+        # Bumped from 0.70 (qwen3:30b-a3b) — Qwen3.5 has stronger tools
+        # support advertised on the model card; mem0 function-calling
+        # error on the older 30b-a3b is the specific gap this addresses.
+        "tool_use_reliability": 0.82,
         "supports_tools": True,
-        "size_gb": 18, "ram_gb": 20, "speed": "very_fast",
-        "description": "Qwen3 30B MoE — survival bootstrap (fully offline).",
+        "size_gb": 20, "ram_gb": 28, "speed": "very_fast",
+        "description": "Qwen3.5 35B-A3B (MoE Q4_K_M) — local survival "
+                       "bootstrap. 35B total / 3B active per token. Vision "
+                       "+ tools + thinking-mode capable. Replaces "
+                       "qwen3:30b-a3b.",
         "strengths": {
-            "coding": 0.82, "debugging": 0.75, "architecture": 0.75,
-            "research": 0.75, "writing": 0.75, "reasoning": 0.75,
-            "multimodal": 0.0, "vetting": 0.50, "general": 0.78,
+            "coding": 0.85, "debugging": 0.80, "architecture": 0.80,
+            "research": 0.80, "writing": 0.80, "reasoning": 0.82,
+            "multimodal": 0.65, "vetting": 0.62, "general": 0.82,
         },
     },
 }

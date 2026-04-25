@@ -179,8 +179,8 @@ def test_component_discovery_populates_inventory():
     }
     cd = ComponentDiscovery(
         inspect_memory_fn=inspect_memory,
-        ollama_lister=lambda: [{"name": "qwen3:30b-a3b", "size": "20GB"}],
-        ollama_loaded_detector=lambda: "qwen3:30b-a3b",
+        ollama_lister=lambda: [{"name": "qwen3.5:35b-a3b-q4_K_M", "size": "20GB"}],
+        ollama_loaded_detector=lambda: "qwen3.5:35b-a3b-q4_K_M",
         wiki_root="/nonexistent/wiki",
         cascade_tier_config=[{"name": "tier_2", "provider": "deepseek", "model": "v3.2", "api_key": "k"}],
     )
@@ -190,7 +190,7 @@ def test_component_discovery_populates_inventory():
     assert inv.neo4j.available and inv.neo4j.node_count == 1234
     assert inv.mem0.curated_available
     assert inv.ollama.available
-    assert inv.ollama.model_loaded == "qwen3:30b-a3b"
+    assert inv.ollama.model_loaded == "qwen3.5:35b-a3b-q4_K_M"
     assert len(inv.cascade.tiers) == 2
     assert inv.cascade.current_default_tier == "tier_1_local"
 
