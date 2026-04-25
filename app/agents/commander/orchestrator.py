@@ -147,6 +147,63 @@ _RESEARCH_ATTACHMENT_TYPES = frozenset({
 })
 
 
+def _vetting_signals_wrong_crew(response_text: str, crew_name: str) -> bool:
+    """Detect whether a vetting failure points at a CREW MISMATCH (wrong
+    specialist for the job) rather than a DATA QUALITY issue (factual
+    errors, missing sources).
+
+    Used by the post-crew retry path: a wrong-crew failure should
+    re-route via the commander; a data-quality failure should retry
+    the same crew with a reflexion hint.
+
+    Heuristic: scan both the response text AND known wrong-crew
+    indicators. The response itself is the strongest signal — when the
+    coding crew was asked for research and dumped a Python script
+    instead of facts, the response contains code blocks but no
+    structured data answer. We pair that with the failure-shape
+    keyword scan from the vetting verdict's known phrasings.
+
+    Returns True only on high-confidence signals so we don't re-route
+    runaway-incorrectly on every failed retry.
+    """
+    if not response_text:
+        return False
+    text = str(response_text).lower()
+
+    # Strong signal: coding crew produced code-only output for a
+    # research/writing prompt. The 2026-04-25 task 1bf80ebd hit exactly
+    # this — coding crew dumped a 230-line python script with
+    # "<unavailable in this environment>" as the "execution output".
+    if crew_name == "coding":
+        # Dense code blocks dominate the response.
+        code_block_chars = sum(
+            len(m) for m in re.findall(r"```[a-z]*\n.*?\n```", text, re.S)
+        )
+        if code_block_chars > 0 and len(text) > 0:
+            code_ratio = code_block_chars / max(1, len(text))
+            if code_ratio > 0.55:
+                return True
+        # Common stdout-unavailable / not-executed markers.
+        if "unavailable in this environment" in text:
+            return True
+        if "no connected execution tool" in text:
+            return True
+
+    # Generic fall-through markers — vetting verdicts (when included in
+    # the response via correction) often phrase wrong-crew failures
+    # with these keywords. Used cautiously: only fires when the vetting
+    # verdict text is present.
+    wrong_crew_phrases = (
+        "does not fulfill the user",
+        "does not address the request",
+        "wrong type of output",
+        "should be a research",
+        "should be a writing",
+        "produces code instead of",
+    )
+    return any(p in text for p in wrong_crew_phrases)
+
+
 def _try_attachment_hint_route(user_input: str, attachments: list) -> list[dict] | None:
     """Return a forced ``research`` routing decision when the
     attachment shape clearly indicates an enrichment task.
@@ -522,30 +579,55 @@ class Commander:
             logger.warning(f"Homeostasis evaluation failed (routing unaffected): {e}")
 
         # L10: Theory of Mind — prefer crews with proven track records at this difficulty
-        # Guarded twice: (1) get_best_crew_for_difficulty itself only returns
-        # known dispatchable crews; (2) we re-validate here as defense in depth
-        # so a future regression can't silently route to a phantom crew.
-        # Dispatchable crews match the ROUTING_PROMPT's crew list.
+        # Guarded THREE ways:
+        #   1. get_best_crew_for_difficulty itself only returns dispatchable crews
+        #   2. we re-validate the dispatchable set here (defense in depth)
+        #   3. (NEW 2026-04-25) the override is ONLY allowed within the same
+        #      canonical task type as the commander's choice. Without this guard,
+        #      a difficulty-only heuristic was overriding "research" with
+        #      "coding" when coding had the best track record at d=8 — turning
+        #      a research request into a code-generation reply (which the
+        #      vetting LLM correctly flagged as "doesn't fulfill the user's
+        #      request").  The commander already analyzed task content
+        #      semantically; the only valid override is between crews that
+        #      do equivalent work (e.g. writing↔creative↔pim, research↔
+        #      repo_analysis), never across task types.
         _DISPATCHABLE = {
             "research", "coding", "writing", "media", "creative", "pim",
             "financial", "desktop", "repo_analysis", "devops",
         }
         try:
             from app.self_awareness.agent_state import get_best_crew_for_difficulty
+            from app.llm_catalog import canonical_task_type
             for d in decisions:
                 difficulty = d.get("difficulty", 5)
                 crew = d.get("crew", "")
                 # Only suggest alternatives for non-specific routing (research/coding/writing)
                 if crew in ("research", "coding", "writing") and difficulty >= 6:
                     best = get_best_crew_for_difficulty(difficulty)
-                    if best and best != crew and best in _DISPATCHABLE:
-                        logger.info(f"Theory of Mind: {crew} → {best} for d={difficulty} (proven track record)")
-                        d["crew"] = best
-                    elif best and best not in _DISPATCHABLE:
+                    if not best or best == crew:
+                        continue
+                    if best not in _DISPATCHABLE:
                         logger.warning(
                             f"Theory of Mind suggested '{best}' for d={difficulty} "
                             f"but it's not a dispatchable crew — ignoring"
                         )
+                        continue
+                    # NEW: only swap within the same task-type group.
+                    if canonical_task_type(role=crew) != canonical_task_type(role=best):
+                        logger.info(
+                            f"Theory of Mind: would swap {crew} → {best} for "
+                            f"d={difficulty} (track record), but cross-task-type "
+                            f"({canonical_task_type(role=crew)} → "
+                            f"{canonical_task_type(role=best)}) — keeping "
+                            f"commander's semantic choice"
+                        )
+                        continue
+                    logger.info(
+                        f"Theory of Mind: {crew} → {best} for d={difficulty} "
+                        f"(same task type, better track record)"
+                    )
+                    d["crew"] = best
         except Exception:
             pass
 
@@ -2550,19 +2632,37 @@ class Commander:
             # Retry on vetting failure at difficulty >= 7.  The original
             # crew produced something the vetting LLM flagged as
             # insufficient (e.g. task description echoed back, missing
-            # sources, hallucinated data).  Run once more with the failure
-            # context as a reflexion hint — the retry MAY still fail but
-            # at least we give it a chance before delivering garbage.
+            # sources, hallucinated data).  Run once more — but pick
+            # the retry CREW based on the failure shape:
+            #
+            #   * "wrong crew" signals (e.g. coding crew produced code when
+            #     a research answer was expected) → re-run the COMMANDER
+            #     so it can pick a different crew. This catches the case
+            #     where Theory of Mind or the original routing chose the
+            #     wrong specialist for the job.
+            #   * "data quality" signals (factual errors, missing sources,
+            #     placeholder text) → retry the same crew with the
+            #     failure context as a reflexion hint.
+            #
+            # See _vetting_signals_wrong_crew for the heuristic.
             if (
                 not _vet_passed
                 and difficulty >= 7
                 and not getattr(self, "_vetting_retry_attempted", False)
             ):
-                logger.warning(
-                    f"Vetting FAILED for {crew_name} at d={difficulty} — "
-                    f"retrying crew once before delivering"
-                )
                 self._vetting_retry_attempted = True
+                wrong_crew = _vetting_signals_wrong_crew(final_result, crew_name)
+                if wrong_crew:
+                    logger.warning(
+                        f"Vetting FAILED for {crew_name} at d={difficulty} — "
+                        f"verdict signals WRONG CREW (not just bad data); "
+                        f"asking commander to re-route"
+                    )
+                else:
+                    logger.warning(
+                        f"Vetting FAILED for {crew_name} at d={difficulty} — "
+                        f"retrying same crew once with reflexion hint"
+                    )
                 retry_task = (
                     f"{d.get('task', user_input)}\n\n"
                     f"PREVIOUS ATTEMPT WAS REJECTED BY QUALITY REVIEW.\n"
@@ -2573,10 +2673,45 @@ class Commander:
                     f"rephrase the question."
                 )
                 try:
-                    retry_result = self._run_crew(
-                        crew_name, retry_task, difficulty=difficulty,
-                        conversation_history=_crew_history,
-                    )
+                    if wrong_crew:
+                        # Re-route via commander. We don't pass the original
+                        # crew so it'll genuinely re-decide. The user's
+                        # task is preserved verbatim so context is intact.
+                        retry_decisions = self._route(
+                            user_input, sender, attachments=attachments,
+                            attachment_context=attachment_context,
+                        )
+                        retry_decisions = [
+                            rd for rd in (retry_decisions or [])
+                            if rd.get("crew") not in ("direct", crew_name)
+                        ]
+                        if retry_decisions:
+                            new_d = retry_decisions[0]
+                            new_crew = new_d.get("crew", crew_name)
+                            new_diff = new_d.get("difficulty", difficulty)
+                            new_task = new_d.get("task", retry_task)
+                            logger.info(
+                                f"Re-routed: {crew_name} → {new_crew} "
+                                f"(d={new_diff}) after vetting flagged wrong crew"
+                            )
+                            retry_result = self._run_crew(
+                                new_crew, new_task, difficulty=new_diff,
+                                conversation_history=_crew_history,
+                            )
+                            crew_name = new_crew  # update for re-vet bookkeeping
+                            difficulty = new_diff
+                        else:
+                            # Re-route fell through to direct/same-crew —
+                            # fall back to same-crew retry path.
+                            retry_result = self._run_crew(
+                                crew_name, retry_task, difficulty=difficulty,
+                                conversation_history=_crew_history,
+                            )
+                    else:
+                        retry_result = self._run_crew(
+                            crew_name, retry_task, difficulty=difficulty,
+                            conversation_history=_crew_history,
+                        )
                     # Re-vet the retry
                     retry_vet, retry_passed = vet_response_detailed(
                         user_input, retry_result, crew_name,
