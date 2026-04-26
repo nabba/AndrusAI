@@ -727,6 +727,58 @@ def _propose_mutation_legacy(context: str, tried_hashes: set[str]) -> MutationSp
         return None
 
 
+# ── Auto-deploy trigger for kept code mutations ──────────────────────────────
+
+def _trigger_code_auto_deploy(result, mutation) -> None:
+    """Schedule auto-deploy for a kept code mutation.
+
+    Fix 5: Without this, kept code mutations sit in the workspace and
+    never affect production. The auto_deployer enforces TIER protection,
+    AST/safety validation, blocked-import checks, hot-reload, and
+    60-second post-deploy error monitoring with auto-rollback.
+
+    All gating happens inside auto_deployer — this function just hands off
+    the mutation. If any safety check fails, the deploy is blocked and
+    logged to deploy_log.json but the experiment record remains "keep".
+    """
+    try:
+        from app.auto_deployer import (
+            schedule_deploy, validate_proposal_paths,
+            get_protection_tier, ProtectionTier,
+        )
+
+        # Pre-flight: check if any file is IMMUTABLE (would be rejected anyway)
+        files = mutation.files or {}
+        for path in files:
+            tier = get_protection_tier(path)
+            if tier == ProtectionTier.IMMUTABLE:
+                logger.info(
+                    f"Evolution: skipping auto-deploy for {result.experiment_id} — "
+                    f"contains IMMUTABLE file {path}"
+                )
+                return
+
+        # Path validation (catches path traversal, absolute paths, etc.)
+        violations = validate_proposal_paths(files)
+        if violations:
+            logger.info(
+                f"Evolution: skipping auto-deploy for {result.experiment_id} — "
+                f"path violations: {violations[:3]}"
+            )
+            return
+
+        # Schedule deploy — auto_deployer handles the rest:
+        # AST validation → blocked imports → backup → copy → hot-reload →
+        # 60s monitor → auto-rollback on error spike
+        schedule_deploy(reason=f"evolution-keep-{result.experiment_id}")
+        logger.info(
+            f"Evolution: scheduled auto-deploy for {result.experiment_id} "
+            f"(delta={result.delta:+.4f}, files={list(files.keys())[:3]})"
+        )
+    except Exception as exc:
+        logger.warning(f"Evolution: auto-deploy trigger failed: {exc}")
+
+
 # ── Evolution session ────────────────────────────────────────────────────────
 
 def run_evolution_session(max_iterations: int = 5) -> str:
@@ -911,12 +963,21 @@ def run_evolution_session(max_iterations: int = 5) -> str:
                     # Git-commit promoted mutations for rollback safety
                     if result.status == "keep":
                         workspace_commit(f"evolution: {mutation.hypothesis[:80]}")
+                        # Fix 5: Auto-deploy code mutations to production.
+                        # Without this, kept code mutations live only in the
+                        # workspace — never reaching /app/ where they'd take
+                        # effect. The auto_deployer enforces TIER protection,
+                        # canary gating, and post-deploy error monitoring.
+                        if result.change_type == "code":
+                            _trigger_code_auto_deploy(result, mutation)
             except (ImportError, TimeoutError) as _lock_err:
                 logger.warning(f"Evolution: workspace lock unavailable ({_lock_err}), running unlocked")
                 if mutation.change_type == "skill":
                     result = _measure_skill_impact(runner, mutation)
                 else:
                     result = runner.run_experiment(mutation)
+                if result.status == "keep" and result.change_type == "code":
+                    _trigger_code_auto_deploy(result, mutation)
 
             # 5. Track results + store in variant archive (DGM genealogy)
             if result.status == "keep":

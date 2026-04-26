@@ -151,8 +151,13 @@ class TestExperimentRunner:
         assert result.delta > 0
         assert (workspace / "skills" / "good_skill.md").exists()
 
-    def test_keep_skill_on_neutral_change(self, tmp_path, monkeypatch):
-        """Skills with neutral impact (within tolerance) should be kept."""
+    def test_store_skill_on_neutral_change(self, tmp_path, monkeypatch):
+        """Skills with neutral impact get status='stored' (Fix 4: was 'keep' before audit).
+
+        This documents the post-audit behavior change: cosmetic skills with
+        no measurable improvement are stored to disk for RAG/context but no
+        longer count as 'kept' improvements in metrics.
+        """
         from app.experiment_runner import MutationSpec
 
         er, workspace = self._make_runner(tmp_path, monkeypatch, scores=[0.5, 0.4995])
@@ -165,7 +170,10 @@ class TestExperimentRunner:
         )
 
         result = er.run_experiment(mutation)
-        assert result.status == "keep"  # within -0.001 tolerance
+        # Post-Fix-4: neutral skills are "stored" (not "keep" or "discard").
+        # delta of -0.0005 is within tolerance, so not discarded; but it's not
+        # positive, so not "keep" either.
+        assert result.status == "stored"
 
     def test_crash_on_apply_failure(self, tmp_path, monkeypatch):
         """Test that apply failures result in crash status."""

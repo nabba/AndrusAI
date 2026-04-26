@@ -146,6 +146,43 @@ def report_error(
         except Exception:
             pass  # Logging must never crash the caller
 
+    # ── Fix 1: Invoke ON_ERROR lifecycle hook chain ─────────────────────────
+    # Activates failure_classifier (MAST), fault_isolator, healing_knowledge,
+    # checkpoint_error hooks. Without this, all 4 hooks remain dormant for
+    # operationally-logged errors (which is most of them in this system).
+    if not _in_hook_dispatch.value:
+        _in_hook_dispatch.value = True
+        try:
+            from app.lifecycle_hooks import get_registry, HookContext, HookPoint
+            ctx = HookContext(
+                hook_point=HookPoint.ON_ERROR,
+                agent_id=(context or {}).get("agent_id", "") or (context or {}).get("crew", ""),
+                task_description=(context or {}).get("task_description", "")[:200],
+                errors=[message[:500]] + ([f"{type(exc).__name__}: {exc}"] if exc else []),
+                metadata={
+                    "category": category.value,
+                    "trace_id": _tid,
+                    "context": context or {},
+                    **{k: v for k, v in (context or {}).items()
+                       if isinstance(v, (str, int, float, bool))},
+                },
+            )
+            get_registry().execute(HookPoint.ON_ERROR, ctx)
+        except Exception:
+            pass  # Hook chain must never crash the caller
+        finally:
+            _in_hook_dispatch.value = False
+
+
+# Sentinel to prevent re-entrant hook dispatch (a hook reporting an error
+# would cause infinite recursion otherwise).
+class _ReentryGuard(threading.local):
+    def __init__(self):
+        self.value = False
+
+_in_hook_dispatch = _ReentryGuard()
+
+
 # ── Safe Execute Context Manager ────────────────────────────────────────────
 
 @contextmanager

@@ -237,10 +237,35 @@ def run_meta_evolution_cycle() -> dict[str, Any]:
     result["baseline"] = baseline
     logger.info(f"meta_evolution: baseline effectiveness: {baseline}")
 
-    if baseline["sample_size"] < 10:
-        result["reason"] = f"Insufficient data ({baseline['sample_size']} < 10 experiments)"
+    # Fix 6: Lower sample threshold from 10 to 5, and require at least
+    # _MIN_TOTAL_DELTA_MOVEMENT total fitness movement (positive or negative)
+    # across the sample. This filters out the case where 100% of experiments
+    # are cosmetic delta=0 skills (which previously passed the count gate
+    # but provided no signal for meta-learning).
+    _MIN_SAMPLE = 5
+    _MIN_TOTAL_DELTA_MOVEMENT = 0.05
+
+    if baseline["sample_size"] < _MIN_SAMPLE:
+        result["reason"] = (
+            f"Insufficient data ({baseline['sample_size']} < {_MIN_SAMPLE} experiments)"
+        )
         logger.info(f"meta_evolution: {result['reason']}")
         return result
+
+    # Total absolute movement check — protects against pure-cosmetic data
+    try:
+        from app.results_ledger import get_recent_results
+        recent = get_recent_results(50)
+        total_movement = sum(abs(r.get("delta", 0.0)) for r in recent)
+        if total_movement < _MIN_TOTAL_DELTA_MOVEMENT:
+            result["reason"] = (
+                f"Insufficient signal: total |delta| movement {total_movement:.4f} "
+                f"< {_MIN_TOTAL_DELTA_MOVEMENT} — most experiments are cosmetic"
+            )
+            logger.info(f"meta_evolution: {result['reason']}")
+            return result
+    except Exception:
+        pass  # Don't block on ledger read failure
 
     # Step 2: Propose a meta-mutation
     proposal = _propose_meta_mutation(baseline, meta_files)

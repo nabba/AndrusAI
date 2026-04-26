@@ -79,10 +79,40 @@ class ExperimentRunner:
         logger.info(f"Experiment {mutation.experiment_id}: {mutation.hypothesis}")
 
         # 1. Measure baseline (system-level + task-level if eval set available)
+        # Fix 2: Reject 0.5 hardcoded fallback — produces fake huge deltas.
+        # If composite_score() fails, abort the experiment (status="error")
+        # rather than recording a placeholder baseline.
         try:
             baseline = composite_score()
-        except Exception:
-            baseline = 0.5  # fallback if metrics fail
+            if baseline is None or baseline <= 0.0:
+                raise ValueError(f"Invalid baseline measurement: {baseline}")
+        except Exception as exc:
+            logger.warning(
+                f"Experiment {mutation.experiment_id}: baseline measurement failed "
+                f"({exc}) — aborting to avoid fake delta"
+            )
+            result = ExperimentResult(
+                experiment_id=mutation.experiment_id,
+                hypothesis=mutation.hypothesis,
+                change_type=mutation.change_type,
+                metric_before=0.0,
+                metric_after=0.0,
+                delta=0.0,
+                status="crash",
+                detail=f"Baseline measurement unavailable: {exc}",
+                files_changed=list(mutation.files.keys()),
+            )
+            record_experiment(
+                experiment_id=result.experiment_id,
+                hypothesis=result.hypothesis,
+                change_type=result.change_type,
+                metric_before=0.0,
+                metric_after=0.0,
+                status="crash",
+                files_changed=list(mutation.files.keys()),
+                detail=result.detail,
+            )
+            return result
 
         # Eval set baseline for the target agent (if applicable)
         _eval_baseline = -1.0
@@ -161,38 +191,55 @@ class ExperimentRunner:
         validation_ok, validation_msg = self._validate_mutation(mutation, applied_files)
 
         # 5. Measure after (system-level + task-level)
+        # Fix 3: Targeted eval_set_score is the PRIMARY signal for code mutations.
+        # The 24h rolling composite_score is too lagged to detect small code
+        # improvements (it averages mostly-historical data both before and after).
         try:
             after = composite_score()
         except Exception:
             after = baseline  # if metrics fail, treat as no change
 
-        delta = after - baseline
+        system_delta = after - baseline
+        eval_delta = 0.0
+        eval_measured = False
 
-        # Eval set after — blends task-level quality into the delta
+        # Eval set after — runs fresh tasks against the mutated code path
         if _eval_baseline >= 0 and _agent_role:
             try:
-                _eval_after = eval_set_score(_agent_role, sample_size=3)
+                _eval_after = eval_set_score(_agent_role, sample_size=5)
                 if _eval_after >= 0:
-                    # Blend: 70% system metric + 30% eval set
                     eval_delta = _eval_after - _eval_baseline
-                    delta = delta * 0.7 + eval_delta * 0.3
-                    logger.info(f"Experiment: eval_set delta={eval_delta:+.4f} "
-                                f"(baseline={_eval_baseline:.3f}, after={_eval_after:.3f})")
-            except Exception:
-                pass
+                    eval_measured = True
+                    logger.info(
+                        f"Experiment: eval_set delta={eval_delta:+.4f} "
+                        f"(baseline={_eval_baseline:.3f}, after={_eval_after:.3f})"
+                    )
+            except Exception as exc:
+                logger.debug(f"eval_set_score after failed: {exc}")
+
+        # Weight blend: when eval ran, eval is primary (70%); system is secondary (30%).
+        # When eval is unavailable, fall back to system-only.
+        if eval_measured:
+            delta = 0.30 * system_delta + 0.70 * eval_delta
+        else:
+            delta = system_delta
 
         # 6. Keep/discard decision
-        # For skill mutations: keep if score didn't decrease
-        # For code mutations: keep only if score improved
+        # Fix 4: Skills require POSITIVE delta now, not just non-negative.
+        # Cosmetic skills with delta=0.0 get status="stored" (saved to disk
+        # for context/RAG, but NOT counted as improvement in metrics).
         if not validation_ok:
             status = "crash"
             self._restore_backup(backed_up)
             detail = f"Validation failed: {validation_msg}"
         elif mutation.change_type == "skill":
-            # Skills are low-risk — keep if not harmful
-            if delta >= -0.001:
+            if delta > 0.0001:
                 status = "keep"
-                detail = f"Skill applied (delta={delta:+.4f})"
+                detail = f"Skill improvement (delta={delta:+.4f})"
+            elif delta >= -0.001:
+                # Skills with no measurable impact: stored, not "kept"
+                status = "stored"
+                detail = f"Skill stored — no measurable impact (delta={delta:+.4f})"
             else:
                 status = "discard"
                 self._restore_backup(backed_up)
@@ -202,6 +249,8 @@ class ExperimentRunner:
             if delta > 0.0:
                 status = "keep"
                 detail = f"Improvement: {delta:+.4f}"
+                if eval_measured:
+                    detail += f" (eval_delta={eval_delta:+.4f}, system_delta={system_delta:+.4f})"
             else:
                 status = "discard"
                 self._restore_backup(backed_up)
