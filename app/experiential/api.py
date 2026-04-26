@@ -34,6 +34,47 @@ async def recent_entries(n: int = 10):
     return {"entries": results}
 
 
+@experiential_router.get("/documents")
+async def list_documents(limit: int = 100):
+    """Per-entry list normalized to the dashboard's unified shape.
+
+    Each journal entry is its own "document". themes is a small list
+    derived from entry_type + agent so cards can summarize at a glance.
+    """
+    import asyncio as _asyncio
+    from app.experiential.vectorstore import get_store
+    store = await _asyncio.to_thread(get_store)
+    col = store._collection
+    data = await _asyncio.to_thread(
+        col.get, include=["metadatas", "documents"],
+        limit=int(max(1, min(limit, 500))),
+    )
+    ids = data.get("ids") or []
+    metas = data.get("metadatas") or []
+    docs = data.get("documents") or []
+    rows = []
+    for i, eid in enumerate(ids):
+        m = metas[i] if i < len(metas) else {}
+        text = (docs[i] or "") if i < len(docs) else ""
+        snippet = text[:120].replace("\n", " ")
+        themes = [
+            t for t in (m.get("entry_type"), m.get("agent"))
+            if t and t != "unknown"
+        ]
+        rows.append({
+            "id": eid,
+            "title": (m.get("entry_type") or "entry") + ": " + snippet[:60],
+            "author": m.get("agent") or None,
+            "themes": themes,
+            "chunks": 1,
+            "added_at": m.get("created_at"),
+            "snippet": snippet,
+            "emotional_valence": m.get("emotional_valence"),
+        })
+    rows.sort(key=lambda r: r.get("added_at") or "", reverse=True)
+    return {"documents": rows, "total": len(rows)}
+
+
 @experiential_router.post("/upload")
 async def upload_entry(
     text: str = Form(...),

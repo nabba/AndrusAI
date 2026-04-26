@@ -96,6 +96,7 @@ async def kb_upload(
 
 
 @router.get("/status")
+@router.get("/stats")  # alias for symmetry with episteme/aesthetics/tensions
 async def kb_status():
     """Return knowledge base statistics."""
     try:
@@ -104,6 +105,54 @@ async def kb_status():
         return {"status": "ok", **stats}
     except Exception as exc:
         logger.error(f"KB status error: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/documents")
+async def kb_documents():
+    """Return the document list for the main Knowledge Base, normalized
+    to the unified shape the dashboard's DocumentList component expects:
+
+      [
+        {
+          "id":       "<source filename>",
+          "title":    "<source filename or extracted title>",
+          "themes":   ["<category>", "<tag1>", "<tag2>", ...],
+          "chunks":   <int>,
+          "added_at": "<ISO datetime>",
+          "size_bytes": <int>?
+        }, ...
+      ]
+
+    The underlying ``stats()`` already gathers per-document data
+    (source, format, category, tags, total_chunks, ingested_at). We
+    just remap the field names so the React side has one consistent
+    shape across all KBs.
+    """
+    try:
+        store = await asyncio.to_thread(_get_kb_store)
+        stats = await asyncio.to_thread(store.stats)
+        docs = stats.get("documents") or []
+        out = []
+        for d in docs:
+            tags = d.get("tags") or []
+            if isinstance(tags, str):
+                tags = [tags]
+            cat = d.get("category", "")
+            themes = [t for t in [cat, *tags] if t and t not in ("general",)]
+            out.append({
+                "id": d.get("source", ""),
+                "title": d.get("source", ""),
+                "author": None,
+                "themes": themes,
+                "chunks": d.get("total_chunks", 0),
+                "added_at": d.get("ingested_at"),
+                "source": d.get("source"),
+                "format": d.get("format"),
+            })
+        return {"documents": out, "total": len(out)}
+    except Exception as exc:
+        logger.error(f"KB documents error: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

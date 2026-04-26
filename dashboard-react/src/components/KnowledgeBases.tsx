@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { endpoints } from '../api/endpoints';
 import { useKbBusinessesQuery, type BusinessKB, keys } from '../api/queries';
 import { ErrorPanel } from './ui/ErrorPanel';
+import { KBDocumentList } from './KBDocumentList';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -346,6 +347,10 @@ function KBCard({ kbType }: { kbType: KBType }) {
           <TensionUploadForm color={cfg.color} onUploadDone={refetch} />
         )}
       </div>
+
+      {/* Per-document list (collapsed by default). Renders nothing when
+          the KB type has no /documents endpoint yet (aesthetics, tensions). */}
+      <KBDocumentList kbType={kbType} color={cfg.color} />
     </div>
   );
 }

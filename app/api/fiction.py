@@ -95,6 +95,55 @@ async def upload_fiction_text(
     }
 
 
+@fiction_router.get("/documents")
+async def fiction_documents():
+    """Return per-book document list with author, themes, chunks, and
+    added_at — normalized to the dashboard's unified shape.
+
+    Aggregates ChromaDB chunks by ``source_file``; each book contributes
+    one row carrying its title, author, themes (parsed from the JSON
+    string we store), ingestion timestamp, and chunk count.
+    """
+    import asyncio as _asyncio
+    import json as _json
+    from app.fiction_inspiration import _get_collection
+    try:
+        col = await _asyncio.to_thread(_get_collection)
+        # Pull metadatas in one pass; for very large libraries (>50k chunks)
+        # the orchestrator's chunked-paginate path could be plugged in later.
+        data = await _asyncio.to_thread(
+            col.get, include=["metadatas"], limit=20_000,
+        )
+        metas = data.get("metadatas") or []
+        by_source: dict[str, dict] = {}
+        for m in metas:
+            sf = m.get("source_file") or m.get("source") or "unknown"
+            if sf not in by_source:
+                themes_raw = m.get("themes") or "[]"
+                if isinstance(themes_raw, str):
+                    try:
+                        themes = _json.loads(themes_raw)
+                    except Exception:
+                        themes = []
+                else:
+                    themes = list(themes_raw)
+                by_source[sf] = {
+                    "id": sf,
+                    "title": m.get("book_title") or sf,
+                    "author": m.get("author") or "Unknown",
+                    "themes": [str(t) for t in themes][:8],
+                    "genre": m.get("genre"),
+                    "chunks": 0,
+                    "added_at": m.get("ingested_at"),
+                    "source": sf,
+                }
+            by_source[sf]["chunks"] += 1
+        rows = sorted(by_source.values(), key=lambda r: r["title"].lower())
+        return {"documents": rows, "total": len(rows)}
+    except Exception as e:
+        raise HTTPException(500, str(e)[:200])
+
+
 @fiction_router.get("/status")
 @fiction_router.get("/stats")  # alias — frontend symmetry with episteme/aesthetics/tensions
 async def fiction_status():

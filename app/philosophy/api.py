@@ -192,8 +192,15 @@ async def philosophy_status():
 
 
 @philosophy_router.get("/texts")
+@philosophy_router.get("/documents")  # alias — frontend symmetry
 async def list_philosophy_texts():
-    """List all philosophy text files with metadata."""
+    """List all philosophy text files with metadata.
+
+    2026-04-26: response includes ``added_at`` (filesystem mtime) and a
+    normalized ``themes`` list combining tradition + era so the dashboard
+    can render a unified document table across KBs.
+    """
+    from datetime import datetime, timezone
     texts_dir = _texts_dir()
     texts = []
 
@@ -204,13 +211,21 @@ async def list_philosophy_texts():
             content = f.read_text(encoding="utf-8")
             from app.philosophy.ingestion import extract_frontmatter
             meta, _ = extract_frontmatter(content)
+            stat = f.stat()
+            tradition = meta.get("tradition", "")
+            era = meta.get("era", "")
+            themes = [t for t in (tradition, era) if t and t != "Unknown"]
             texts.append({
                 "filename": f.name,
                 "author": meta.get("author", "Unknown"),
-                "tradition": meta.get("tradition", "Unknown"),
-                "era": meta.get("era", "Unknown"),
+                "tradition": tradition or "Unknown",
+                "era": era or "Unknown",
                 "title": meta.get("title", f.stem),
-                "size_bytes": f.stat().st_size,
+                "themes": themes,
+                "size_bytes": stat.st_size,
+                "added_at": datetime.fromtimestamp(
+                    stat.st_mtime, tz=timezone.utc,
+                ).isoformat(),
             })
         except Exception:
             texts.append({"filename": f.name, "error": "Could not read metadata"})

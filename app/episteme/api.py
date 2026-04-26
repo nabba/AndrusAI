@@ -138,9 +138,39 @@ async def get_stats():
 
 
 @episteme_router.get("/texts")
+@episteme_router.get("/documents")  # alias — frontend symmetry
 async def list_texts():
+    """Return per-document metadata for the episteme KB.
+
+    2026-04-26: enriched with ``added_at`` (filesystem mtime) and
+    ``themes`` (paper_type + domain) to support the dashboard's
+    unified document table view.
+    """
+    import asyncio as _asyncio
+    from datetime import datetime, timezone
+    from pathlib import Path
     from app.episteme.vectorstore import get_store
-    return get_store().list_texts()
+    from app.episteme import config as _ep_config
+    rows = await _asyncio.to_thread(get_store().list_texts)
+    texts_dir = Path(_ep_config.TEXTS_DIR)
+    enriched = []
+    for r in rows:
+        fn = r.get("filename") or ""
+        added_at = None
+        if fn:
+            p = texts_dir / fn
+            if p.exists():
+                try:
+                    added_at = datetime.fromtimestamp(
+                        p.stat().st_mtime, tz=timezone.utc,
+                    ).isoformat()
+                except Exception:
+                    pass
+        paper_type = r.get("paper_type", "")
+        domain = r.get("domain", "")
+        themes = [t for t in (paper_type, domain) if t and t != "Unknown"]
+        enriched.append({**r, "themes": themes, "added_at": added_at})
+    return enriched
 
 
 @episteme_router.post("/reingest")
