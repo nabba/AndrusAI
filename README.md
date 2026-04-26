@@ -280,6 +280,14 @@ Regression  ≤ 15%   (no dimension may regress more than 15%)
 Rate limit  ≤ 20 promotions/day (across all systems combined)
 ```
 
+📖 **For the full self-improvement architecture, see
+[`docs/SELF_IMPROVEMENT.md`](./docs/SELF_IMPROVEMENT.md)** — covers the
+3 evolution engines, dynamic engine selection, mutation pipeline (5
+phases), three-tier protection model, code quality enforcement,
+Goodhart prevention, error resilience (6 modules), knowledge
+accumulation, observability, human oversight, the 21-job idle
+scheduler topology, and 308 tests across 14 test files.
+
 ---
 
 ## Multi-venture operation
