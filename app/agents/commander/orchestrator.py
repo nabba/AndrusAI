@@ -147,6 +147,243 @@ _RESEARCH_ATTACHMENT_TYPES = frozenset({
 })
 
 
+# ── Matrix-research route forcing (2026-04-26) ────────────────────────────
+#
+# The research_coordinator backstory tells the LLM "you MUST call
+# research_orchestrator FIRST when the task is a matrix" — but on
+# 2026-04-25 task ddb451f8 the agent ignored the backstory 10 times
+# (CrewAI loaded the orchestrator's tool schema 10× but never invoked
+# it). The agent picked delegate_work_to_coworker + web_search instead
+# and produced incomplete data.
+#
+# This route detects matrix-shaped requests at the *router* layer and
+# pre-builds an orchestrator spec, then injects it into the task body
+# as a literal `research_orchestrator(spec_json=...)` call template.
+# The agent doesn't get a choice — the first thing it sees is its
+# own next required tool call.
+#
+# Heuristic shape:
+#   verb (find / research / lookup / populate / enrich / fill / compile)
+#   AND (an entity-count phrase like "for these 20 PSPs" OR ≥2 field
+#   keyword hits like "linkedin" + "head of sales")
+
+_MATRIX_VERBS: tuple[str, ...] = (
+    "find", "research", "lookup", "look up",
+    "populate", "enrich", "fill in", "fill",
+    "compile", "gather", "collect", "list",
+    "build a list", "build a table", "build a matrix",
+)
+
+_MATRIX_ENTITY_NOUNS: tuple[str, ...] = (
+    "psps", "psp", "companies", "providers", "vendors", "brands",
+    "products", "tools", "platforms", "startups", "merchants",
+    "people", "leaders", "executives", "ceos", "ctos", "cfos",
+    "founders", "names", "contacts", "prospects",
+)
+
+# Field keyword → orchestrator field-spec hint. Order matters because
+# the dict's first-insertion order shapes the source-priority chain.
+_MATRIX_FIELD_HINTS: dict[str, dict] = {
+    "homepage":            {"key": "homepage",
+                            "hint": "official company website URL"},
+    "website":             {"key": "homepage",
+                            "hint": "official company website URL"},
+    "linkedin profile":    {"key": "linkedin_head_of_sales",
+                            "hint": "personal LinkedIn URL of head of sales / CRO / VP Sales",
+                            "known_hard": True,
+                            "reason": ("LinkedIn blocks scraping of personal "
+                                       "profiles; reliable only via Apollo "
+                                       "or Sales Navigator (Proxycurl).")},
+    "linkedin":            {"key": "linkedin_company",
+                            "hint": "public company LinkedIn URL"},
+    "head of sales":       {"key": "head_of_sales_name",
+                            "hint": "name of Head of Sales / VP Sales / CRO / Commercial Director"},
+    "vp sales":            {"key": "head_of_sales_name",
+                            "hint": "name of VP Sales / Head of Sales / CRO"},
+    "cro":                 {"key": "head_of_sales_name",
+                            "hint": "Chief Revenue Officer / Head of Sales / VP Sales"},
+    "ceo":                 {"key": "ceo_name", "hint": "name of CEO / Founder"},
+    "founder":             {"key": "ceo_name", "hint": "name of founder / CEO"},
+    "cto":                 {"key": "cto_name", "hint": "name of CTO / VP Engineering"},
+    "cfo":                 {"key": "cfo_name", "hint": "name of CFO / Head of Finance"},
+    "email":               {"key": "sales_email",
+                            "hint": "sales@ pattern or Contact-Sales page"},
+    "phone":               {"key": "phone",
+                            "hint": "publicly listed phone number"},
+}
+
+
+def _try_matrix_research_route(
+    user_input: str, attachments: list | None = None,
+) -> list[dict] | None:
+    """Detect '[verb] [fields] for [N entities]' and force the research
+    crew with a pre-built orchestrator spec embedded in the task body.
+
+    Returns ``None`` if the heuristic doesn't fire — caller falls
+    through to LLM-based routing as usual. Returns a single-decision
+    routing list when fired.
+
+    The injected task body literally contains the JSON spec the agent
+    should pass to ``research_orchestrator``. The orchestrator will:
+      - run free adapters first (regulator, company_site, search)
+      - short-circuit known-hard fields when paid adapters aren't keyed
+      - emit per-row partial streams
+      - apply per-domain circuit breakers
+      - return structured rows with "filled / not_found / error" markers
+    """
+    if not user_input:
+        return None
+    text = user_input.lower()
+
+    has_verb = any(v in text for v in _MATRIX_VERBS)
+    if not has_verb:
+        return None
+
+    # Field detection — collect the fields actually mentioned in the
+    # prompt, deduped by key. Preserves insertion order so the orchestrator
+    # tries the cheapest fields first.
+    matched_fields: dict[str, dict] = {}
+    for hint_text, field_spec in _MATRIX_FIELD_HINTS.items():
+        if hint_text in text:
+            matched_fields.setdefault(field_spec["key"], dict(field_spec))
+
+    # Entity-count signal — "for these 20 PSPs", "5 companies", etc.
+    count_match = re.search(
+        r"\b(\d{1,3})\s+(?:" + "|".join(_MATRIX_ENTITY_NOUNS) + r")\b",
+        text,
+    )
+    has_entity_list_hint = (
+        count_match is not None
+        or any(noun in text for noun in _MATRIX_ENTITY_NOUNS)
+        or bool(attachments)  # an attached spreadsheet IS the entity list
+    )
+
+    if not has_entity_list_hint or len(matched_fields) < 1:
+        return None
+
+    # Build the spec. ``subjects`` is intentionally left empty — the
+    # agent must populate it from the attachment (or extract names from
+    # the prompt itself if no attachment). The orchestrator will refuse
+    # to run with an empty subjects list, which is the right safety
+    # behavior.
+    spec = {
+        "title": user_input[:120],
+        "subjects": [],   # agent fills from attachment / prompt
+        "fields": list(matched_fields.values()),
+        "max_subjects_in_parallel": 2,
+        "budget_seconds": 1500,
+        "source_priority": ["regulator", "company_site", "search"],
+    }
+    spec_json = json.dumps(spec, indent=2)
+    n_fields = len(matched_fields)
+    n_entities_hint = count_match.group(1) if count_match else "the entity list"
+
+    forced_task = (
+        f"{user_input}\n\n"
+        f"═══ MATRIX TASK — STRICT ROUTER PRE-RESOLUTION ═══\n"
+        f"Detected: {n_entities_hint} entities × {n_fields} fields. This "
+        f"is a matrix-research task. The router has pre-built the "
+        f"orchestrator spec for you.\n\n"
+        f"REQUIRED FIRST TOOL CALL — do this BEFORE delegate_work_to_coworker, "
+        f"BEFORE web_search, BEFORE browser_fetch:\n\n"
+        f"  research_orchestrator(spec_json='''\n{spec_json}\n''')\n\n"
+        f"Steps to populate `subjects`:\n"
+        f"  1. If the user attached a spreadsheet/CSV/document, call "
+        f"     read_attachment first to read the entity list.\n"
+        f"  2. Build the subjects array as "
+        f"     [{{'id': 'r1', 'name': '...', 'domain': '...'}}, ...].\n"
+        f"  3. Pass the COMPLETE spec_json (with subjects filled) to "
+        f"     research_orchestrator in a single tool call.\n\n"
+        f"The orchestrator will run free adapters (regulator, company "
+        f"site, search) for every field; for known-hard fields like "
+        f"personal LinkedIn it will mark rows as 'requires_paid_source' "
+        f"rather than waste budget on dead-end SERP scraping. Honest "
+        f"partial coverage > guessed full coverage.\n"
+        f"═══════════════════════════════════════════════════"
+    )
+    logger.info(
+        f"matrix_route: matched verb + {len(matched_fields)} field(s) — "
+        f"forcing research crew with pre-built spec"
+    )
+    return [{
+        "crew": "research",
+        "task": forced_task,
+        "difficulty": 7,
+    }]
+
+
+# ── Targeted retry-hint builder (2026-04-26) ──────────────────────────────
+#
+# When vetting fails the retry path used to throw the same generic
+# boilerplate at the crew every time:
+#
+#   "PREVIOUS ATTEMPT WAS REJECTED BY QUALITY REVIEW. The previous
+#    answer failed because the response did not contain real data..."
+#
+# But the vetting LLM's verdict almost always includes a structured
+# `issues` list naming the SPECIFIC failures ("rows 7-12 missing
+# Sales Leader names", "row 5 LinkedIn URL is wrong"). Discarding
+# those was a self-inflicted information loss. This helper turns
+# them into a targeted retry hint, preserving the generic boilerplate
+# only as a fallback when the issues list is empty.
+
+_GENERIC_RETRY_HINT = (
+    "PREVIOUS ATTEMPT WAS REJECTED BY QUALITY REVIEW.\n"
+    "The previous answer failed because the response did not "
+    "contain real data/analysis — it echoed the task back or "
+    "provided placeholder text.  Produce a substantive, "
+    "sourced, data-rich answer this time.  Do not just "
+    "rephrase the question."
+)
+
+
+def _build_retry_task(
+    original_task: str, issues: list[str], wrong_crew: bool = False,
+) -> str:
+    """Compose the retry task body, preferring vetting's specific
+    issues over the generic boilerplate when available.
+
+    ``wrong_crew=True`` means the retry will go through commander
+    re-routing — we still include issues so the new crew has the
+    full failure context, but the framing changes.
+    """
+    if not issues:
+        return f"{original_task}\n\n{_GENERIC_RETRY_HINT}"
+
+    # Truncate per-issue to keep the prompt reasonable; cap at 8 issues
+    # (vetting verdicts rarely have more than 4-5 in practice).
+    bullets = "\n".join(f"  - {str(i)[:300]}" for i in issues[:8])
+    extra_count = len(issues) - 8
+    overflow = (
+        f"\n  - … plus {extra_count} more (truncated for prompt size)"
+        if extra_count > 0 else ""
+    )
+
+    if wrong_crew:
+        framing = (
+            "PREVIOUS ATTEMPT FAILED — the vetting reviewer flagged a "
+            "CREW MISMATCH (wrong specialist for this task). The retry "
+            "will run via a fresh routing decision. For the receiving "
+            "crew: the specific complaints from review are:"
+        )
+    else:
+        framing = (
+            "PREVIOUS ATTEMPT WAS REJECTED BY QUALITY REVIEW.\n"
+            "Specifically, address these gaps in the retry:"
+        )
+
+    return (
+        f"{original_task}\n\n"
+        f"{framing}\n{bullets}{overflow}\n\n"
+        f"For each gap, do real research — call research_orchestrator "
+        f"for matrix-shaped lookups, web_search for individual facts, "
+        f"or read_attachment if the user supplied a document. Mark "
+        f"anything you genuinely cannot verify as 'not_found' rather "
+        f"than guessing. Honest partial coverage > confidently-wrong "
+        f"full coverage."
+    )
+
+
 def _vetting_signals_wrong_crew(response_text: str, crew_name: str) -> bool:
     """Detect whether a vetting failure points at a CREW MISMATCH (wrong
     specialist for the job) rather than a DATA QUALITY issue (factual
@@ -316,6 +553,16 @@ class Commander:
                 [a.get("contentType", "?") for a in (attachments or [])],
             )
             return hinted
+
+        # ── Matrix-research forcing (2026-04-26) ───────────────────────────
+        # When the prompt looks like "find/research/populate <fields>
+        # for <N entities>", we don't trust the agent to read its own
+        # MATRIX MODE backstory and pick research_orchestrator. Pre-build
+        # the orchestrator spec at the router and inject the literal
+        # tool-call template into the task body.
+        matrix_route = _try_matrix_research_route(user_input, attachments or [])
+        if matrix_route is not None:
+            return matrix_route
 
         # ── Fast-path: skip Opus call for obvious request types ──────────
         fast = _try_fast_route(user_input, bool(attachment_context))
@@ -648,6 +895,32 @@ class Commander:
         L5 Ecological Awareness: tracks execution time and stores footprint.
         L2 World Model: stores prediction results for difficulty >= 6 tasks.
         """
+        import time as _time
+
+        # ── Difficulty propagation (2026-04-26) ────────────────────────────
+        # Bind the active difficulty into a ContextVar so any LLM
+        # creation during this crew's run (including sub-agents spawned
+        # via delegate_work_to_coworker) can apply the per-role
+        # difficulty tier floor. Without this, sub-agents inherit only
+        # the cost-mode default, and high-d research lands on a
+        # budget-tier model that quits too early on hard lookups.
+        from app.llm_selector import set_active_difficulty, reset_active_difficulty
+        _diff_token = set_active_difficulty(difficulty)
+
+        try:
+            return self._run_crew_inner(
+                crew_name, crew_task, parent_task_id=parent_task_id,
+                difficulty=difficulty, conversation_history=conversation_history,
+                preloaded_context=preloaded_context, _t_outer=_time.monotonic(),
+            )
+        finally:
+            reset_active_difficulty(_diff_token)
+
+    def _run_crew_inner(self, crew_name: str, crew_task: str,
+                  parent_task_id: str = None, difficulty: int = 5,
+                  conversation_history: str = "",
+                  preloaded_context: str = None,
+                  _t_outer: float | None = None) -> str:
         import time as _time
 
         # ── Semantic result cache — skip crew if near-identical task was answered recently
@@ -2603,12 +2876,22 @@ class Commander:
             # _VET_LLM_TIMEOUT_S guard, but the future-level timeout here is
             # the belt-and-braces fallback in case anything else in the
             # vetting wrapper (DB writes, conscience check, etc.) gets slow.
+            _vet_issues: list[str] = []
             try:
-                _vet_text, _vet_passed = _vet_future.result(timeout=90)
+                _vet_result = _vet_future.result(timeout=90)
+                # vet_response_detailed returns (text, passed, issues) since
+                # 2026-04-26. Tolerate the legacy (text, passed) tuple shape
+                # in case a stale module is loaded somewhere.
+                if isinstance(_vet_result, tuple) and len(_vet_result) >= 2:
+                    _vet_text = _vet_result[0]
+                    _vet_passed = _vet_result[1]
+                    _vet_issues = list(_vet_result[2]) if len(_vet_result) >= 3 else []
+                else:
+                    _vet_text, _vet_passed = _vet_result, True
                 # Sanity: only accept the vetted result if it's substantive.
                 # An empty / vanishingly small return means vetting collapsed
                 # the synthesis — keep the original instead.
-                if _vet_text and len(_vet_text.strip()) >= 10:
+                if _vet_text and len(str(_vet_text).strip()) >= 10:
                     final_result = _vet_text
                 else:
                     logger.warning(
@@ -2663,14 +2946,10 @@ class Commander:
                         f"Vetting FAILED for {crew_name} at d={difficulty} — "
                         f"retrying same crew once with reflexion hint"
                     )
-                retry_task = (
-                    f"{d.get('task', user_input)}\n\n"
-                    f"PREVIOUS ATTEMPT WAS REJECTED BY QUALITY REVIEW.\n"
-                    f"The previous answer failed because the response did not "
-                    f"contain real data/analysis — it echoed the task back or "
-                    f"provided placeholder text.  Produce a substantive, "
-                    f"sourced, data-rich answer this time.  Do not just "
-                    f"rephrase the question."
+                retry_task = _build_retry_task(
+                    original_task=d.get("task", user_input),
+                    issues=_vet_issues,
+                    wrong_crew=wrong_crew,
                 )
                 try:
                     if wrong_crew:
@@ -2713,10 +2992,12 @@ class Commander:
                             conversation_history=_crew_history,
                         )
                     # Re-vet the retry
-                    retry_vet, retry_passed = vet_response_detailed(
+                    _retry_vet_tuple = vet_response_detailed(
                         user_input, retry_result, crew_name,
                         difficulty, get_last_tier() or "unknown",
                     )
+                    retry_vet = _retry_vet_tuple[0]
+                    retry_passed = _retry_vet_tuple[1]
                     if retry_passed or len(retry_vet) > len(final_result) * 1.5:
                         # Take the retry if it passed OR is substantially
                         # more content than the original.

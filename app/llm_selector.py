@@ -11,6 +11,7 @@ Selection algorithm:
   7. Return best available model name
 """
 
+import contextvars
 import logging
 import os
 
@@ -23,6 +24,70 @@ from app.llm_catalog import (
 from app.llm_benchmarks import get_scores
 
 logger = logging.getLogger(__name__)
+
+
+# ── Active task-difficulty tracking (2026-04-26) ──────────────────────────
+#
+# The orchestrator's _run_crew sets this at the start of a task run.
+# select_model reads it as a fallback when force_tier isn't passed
+# explicitly — which is exactly the path sub-agents take when CrewAI's
+# delegate_work_to_coworker spawns a "Web Research Specialist" inside
+# the coordinator. The coordinator gets force_tier from
+# difficulty_to_tier; the sub-agents historically did not, and that's
+# how research at d=8 ended up calling gemma-4-31b-it (budget tier).
+#
+# ContextVar instead of threading.local because CrewAI's tool execution
+# can hop coroutines / threads through asyncio.Task copies — ContextVar
+# values are inherited by copy_context() automatically, threading.local
+# isn't.
+
+_active_difficulty: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "_active_difficulty", default=None,
+)
+
+
+def set_active_difficulty(difficulty: int | None) -> object:
+    """Bind the active task difficulty for the duration of one crew
+    dispatch. Returns the reset token — caller MUST pass it to
+    ``reset_active_difficulty`` in a ``finally`` block.
+    """
+    return _active_difficulty.set(difficulty)
+
+
+def reset_active_difficulty(token: object) -> None:
+    try:
+        _active_difficulty.reset(token)  # type: ignore[arg-type]
+    except (LookupError, ValueError):
+        # Token from a different context (rare — defensive cleanup).
+        _active_difficulty.set(None)
+
+
+def get_active_difficulty() -> int | None:
+    return _active_difficulty.get()
+
+
+# Role × difficulty → minimum tier. Empty default means "use whatever
+# the cost mode picks". Tighter thresholds for research because real
+# research requires multi-step persistence that budget-tier models give
+# up on too quickly (the 2026-04-25 gemma-4-31b-it research-at-d8 case).
+_ROLE_DIFFICULTY_TIER_FLOOR: dict[str, list[tuple[int, str]]] = {
+    # Sorted descending by difficulty so the first match wins.
+    "research": [(8, "premium"), (7, "mid")],
+    "writing":  [(9, "premium")],
+    "coding":   [(9, "premium"), (7, "mid")],
+}
+
+
+def _resolve_difficulty_tier_floor(role: str, difficulty: int | None) -> str | None:
+    """Lookup the minimum tier for ``(role, difficulty)`` from the policy
+    table. Returns None when there's no floor (most cases)."""
+    if difficulty is None:
+        return None
+    rules = _ROLE_DIFFICULTY_TIER_FLOOR.get(role, [])
+    for threshold, tier in rules:
+        if difficulty >= threshold:
+            return tier
+    return None
 
 
 def difficulty_to_tier(difficulty: int, mode: str) -> str | None:
@@ -318,6 +383,23 @@ def select_model(
     if env_override and env_override in CATALOG:
         logger.info(f"llm_selector: {env_key}={env_override} (env override)")
         return env_override
+
+    # Step 1b: Apply difficulty-based tier floor (2026-04-26).
+    # When ``force_tier`` isn't passed, but the active task is
+    # high-difficulty research (or another role with a floor in the
+    # _ROLE_DIFFICULTY_TIER_FLOOR table), promote ``force_tier`` to
+    # the minimum required tier so sub-agents inherit the parent's
+    # quality bar even though CrewAI doesn't propagate force_tier
+    # through delegate_work_to_coworker.
+    if not force_tier:
+        active_diff = get_active_difficulty()
+        floor_tier = _resolve_difficulty_tier_floor(role, active_diff)
+        if floor_tier:
+            logger.info(
+                f"llm_selector: difficulty floor — role={role} d={active_diff} "
+                f"→ force_tier={floor_tier} (sub-agent inherited from active context)"
+            )
+            force_tier = floor_tier
 
     # Step 2: Default from catalog (consults role_assignments overlay)
     # Reads the live runtime mode so dashboard/Signal switches take effect

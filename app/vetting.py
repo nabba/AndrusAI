@@ -439,6 +439,7 @@ def _verify_full(
         from app.utils import safe_json_parse
         parsed, err = safe_json_parse(raw)
 
+        captured_issues: list[str] = []
         if parsed and isinstance(parsed, dict):
             verdict = parsed.get("verdict", "").upper()
             if verdict == "PASS":
@@ -449,6 +450,12 @@ def _verify_full(
                 issues = parsed.get("issues", [])
                 corrected = parsed.get("corrected", "")
                 logger.info(f"vetting[full]: {crew_name} FAILED: {issues}")
+                # 2026-04-26: capture the structured issues list so the
+                # orchestrator's retry path can build a targeted hint
+                # ("specifically these rows are missing X, Y") instead of
+                # the generic "produce a substantive answer" boilerplate.
+                if isinstance(issues, list):
+                    captured_issues = [str(i) for i in issues if i]
                 # Use corrected version if provided and substantive
                 if corrected and len(corrected) > len(response) * 0.5:
                     result = corrected
@@ -470,9 +477,11 @@ def _verify_full(
             else:
                 logger.warning(f"vetting[full]: unparseable response, keeping original")
                 result = response
-        # Surface the verdict on the thread-local so vet_response_detailed()
-        # can propagate it to the orchestrator's retry logic.
+        # Surface the verdict + issues list on the thread-local so
+        # vet_response_detailed() can propagate them to the
+        # orchestrator's retry logic.
         _set_last_verdict(passed)
+        _set_last_issues(captured_issues)
 
         # L4: Conscience check — flag irreversible actions
         conscience_ok, conscience_reason = _conscience_check(result)
@@ -529,11 +538,13 @@ def _conscience_check(response: str) -> tuple[bool, str]:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-# Module-level thread-local verdict capture.  vet_response() returns a
-# plain string (back-compat with many callers) but also stores the
-# pass/fail verdict on a per-thread variable so new callers can read it
-# via vet_response_detailed() without changing the primary API.
+# Module-level thread-local verdict + issues capture.  vet_response()
+# returns a plain string (back-compat with many callers) but also stores
+# the pass/fail verdict and the structured issues list on per-thread
+# variables so new callers can read them via vet_response_detailed()
+# without changing the primary API.
 _LAST_VETTING_PASSED = threading.local()
+_LAST_VETTING_ISSUES = threading.local()
 
 
 def _set_last_verdict(passed: bool) -> None:
@@ -544,6 +555,14 @@ def _get_last_verdict() -> bool:
     return getattr(_LAST_VETTING_PASSED, "value", True)
 
 
+def _set_last_issues(issues: list[str]) -> None:
+    _LAST_VETTING_ISSUES.value = list(issues or [])
+
+
+def _get_last_issues() -> list[str]:
+    return list(getattr(_LAST_VETTING_ISSUES, "value", []) or [])
+
+
 def vet_response_detailed(
     user_request: str,
     local_response: str,
@@ -551,20 +570,27 @@ def vet_response_detailed(
     difficulty: int = 5,
     model_tier: str = "unknown",
     generating_model: str | None = None,
-) -> tuple[str, bool]:
-    """Like vet_response but also returns whether the response passed the
-    quality bar.  Callers use this when they want to retry on failure
-    rather than deliver a flagged response.
+) -> tuple[str, bool, list[str]]:
+    """Like vet_response but also returns the verdict + issues list.
 
-    Returns (vetted_text, passed).  passed=True means the response was
-    PASS'd unchanged or mechanically corrected; False means a FAIL
-    verdict fired and the caller should consider a retry.
+    Returns (vetted_text, passed, issues).
+      * passed=True   → response PASSed unchanged or was mechanically
+                        corrected; deliver as-is.
+      * passed=False  → FAIL verdict fired; ``issues`` is the structured
+                        list of complaints from the vetting LLM (e.g.
+                        ["row 5 LinkedIn URL wrong", "rows 7-12 missing
+                        Sales Leader names"]). The orchestrator uses
+                        this to build a targeted retry hint instead of
+                        generic boilerplate.
+
+    Backward-compat: callers that only need (text, passed) can ignore
+    the third element via tuple unpacking with ``*_``.
     """
     text = vet_response(
         user_request, local_response, crew_name,
         difficulty, model_tier, generating_model,
     )
-    return text, _get_last_verdict()
+    return text, _get_last_verdict(), _get_last_issues()
 
 
 def vet_response(
