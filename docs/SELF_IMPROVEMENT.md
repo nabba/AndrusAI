@@ -29,6 +29,7 @@ without compromising safety, alignment, or code quality.
 15. [Operating Procedures](#15-operating-procedures)
 16. [Research Foundations](#16-research-foundations)
 17. [Known Limitations](#17-known-limitations)
+18. [Test Suite](#18-test-suite)
 
 ---
 
@@ -945,28 +946,279 @@ loops where the system optimizes its own evaluator.
 
 ---
 
-## Tests
+## 18. Test Suite
 
-308 tests pass across 14 test files:
+### Overview
 
-| Test file | Tests | Coverage |
-|---|---|---|
-| `test_validate_response_extended.py` | 24 | exec_passes/judge validation rules |
-| `test_three_tier_protection.py` | 22 | Static tier model + regression |
-| `test_meta_evolution.py` | 16 | Effectiveness, gating, history |
-| `test_external_benchmarks.py` | 12 | Caching, thread safety |
-| `test_subia_evolution_bridge.py` | 11 | Surprise routing, homeostatic modulation |
-| `test_workspace_snapshots.py` | 14 | Tag creation, file-at-tag, injection prevention |
-| `test_meta_parameters.py` | 19 | Meta-parameter loading + fallbacks |
-| `test_evolution_e2e.py` | 14 | End-to-end pipeline |
-| `test_error_resilience.py` | 41 | All 6 resilience modules |
-| `test_self_improvement_integration.py` | 16 | 6 critical fixes (audit remediation) |
-| `test_general_improvements.py` | 37 | All 11 improvement modules |
-| `test_engine_selection.py` | 15 | Dynamic selector behavior |
-| `test_code_elegance.py` | 26 | All 5 elegance fixes |
-| (existing tests) | 41 | Regression coverage |
+**308 tests pass across 14 test files.** The test suite is organized in
+four conceptual layers, each enforcing a different safety property of the
+self-improvement system:
 
-Run all self-improvement tests:
+```
+Layer 1 — Unit tests           Each module's public API in isolation
+Layer 2 — Regression tests     No previously-protected behavior broke
+Layer 3 — Integration tests    Modules cooperate through ctx.metadata
+Layer 4 — End-to-end tests     Full pipeline (propose → measure → keep/discard)
+```
+
+All tests run on the host (no Docker required) using `pytest`. Modules
+degrade gracefully when ChromaDB, LLMs, Signal, or Docker are unavailable
+— tests verify this graceful degradation explicitly.
+
+### Test file index
+
+| # | Test file | Tests | Layer | Modules covered | Key invariants |
+|---|---|---|---|---|---|
+| 1 | `test_validate_response_extended.py` | 24 | Unit + Regression | `experiment_runner.validate_response` | All 6 rule types (`contains:`, `not_contains:`, `min_length:`, `max_length:`, `exec_passes:`, `judge:`) work correctly + cache eviction |
+| 2 | `test_three_tier_protection.py` | 22 | Unit + Regression | `auto_deployer` | TIER assignment, validation gates, **no previously-protected file became OPEN** |
+| 3 | `test_meta_evolution.py` | 16 | Unit | `meta_evolution` | Effectiveness measurement, rate limits, history persistence, baseline-vs-after comparison |
+| 4 | `test_external_benchmarks.py` | 12 | Unit | `external_benchmarks` | Caching (1h TTL), thread safety, weighted scoring |
+| 5 | `test_subia_evolution_bridge.py` | 11 | Unit | `evolution._build_evolution_context` | Surprise signal injection, homeostatic safety modulation |
+| 6 | `test_workspace_snapshots.py` | 14 | Integration (real git) | `workspace_versioning` | Tag creation, file-at-tag retrieval, **path-traversal injection prevention** |
+| 7 | `test_meta_parameters.py` | 19 | Unit | `avo_operator._load_meta_prompt`, `metrics._load_composite_weights`, `adaptive_ensemble._load_phase_weights` | Meta-parameter loading + fallback to hardcoded defaults |
+| 8 | `test_evolution_e2e.py` | 14 | End-to-end | Full pipeline | Propose → apply → measure → keep/discard with hardened eval |
+| 9 | `test_error_resilience.py` | 41 | Unit + Integration | All 6 error resilience modules | MAST classification, confidence chain, fault isolation, healing KB, backup planner, checkpointer |
+| 10 | `test_self_improvement_integration.py` | 16 | Integration | `error_handler`, `experiment_runner`, `evolution`, `meta_evolution` | 6 critical bug-fix audits (hook chain, baseline, eval, threshold, deploy, gating) |
+| 11 | `test_general_improvements.py` | 37 | Unit | All 11 general-improvement modules | Self-model build, ROI tracking, pattern library, Goodhart guard, mutation strategies, etc. |
+| 12 | `test_engine_selection.py` | 15 | Unit + Integration | `evolution._select_evolution_engine` | All 10 selection rules with priority ordering verified |
+| 13 | `test_code_elegance.py` | 26 | Unit + Integration | `code_quality`, `architectural_review`, `avo_operator` critique | Quality scoring, regression detection, hard-reject enforcement, cycle detection |
+| (existing) | `test_experiment_runner.py`, `test_evolution.py`, `test_metrics.py` | 41 | Regression | Pre-existing | Original behavior preserved through all upgrades |
+| **Total** | | **308** | | | |
+
+### Layer 1: Unit tests
+
+Each module's public API tested in isolation with mocked dependencies.
+
+#### Example: `test_general_improvements.py::TestSelfModel`
+
+```python
+def test_classify_hot_paths_bfs(self):
+    """BFS from main.py correctly identifies the hot path within max_depth."""
+    from app.self_model import _classify_hot_paths, ModuleNode
+    modules = {
+        "app/main.py": ModuleNode("app/main.py", ("app.foo",), (), 10, False, ()),
+        "app/foo.py":  ModuleNode("app/foo.py", ("app.bar",), (), 10, False, ()),
+        "app/bar.py":  ModuleNode("app/bar.py", (), (), 10, False, ()),
+        "app/cold.py": ModuleNode("app/cold.py", (), (), 10, False, ()),
+    }
+    hot = _classify_hot_paths(modules, max_depth=2)
+    assert "app/main.py" in hot
+    assert "app/foo.py" in hot   # depth 1
+    assert "app/bar.py" in hot   # depth 2
+    assert "app/cold.py" not in hot
+```
+
+**Coverage areas**:
+- All 11 general-improvement modules: ROI tracking, pattern library,
+  goodhart guard, mutation strategies, differential test, tier graduation,
+  alignment audit, knowledge compactor, improvement narrative, human gate,
+  self-model
+- All 6 error resilience modules: failure taxonomy, confidence tracker,
+  fault isolator, healing knowledge, backup planner, crew checkpointer
+- Validation rule prefixes: `contains:`, `not_contains:`, `min_length:`,
+  `max_length:`, `exec_passes:`, `judge:` (with cache hit/miss/eviction)
+- Code quality dimensions: type coverage (with `self`/`cls` skip),
+  docstring coverage, complexity scoring, lint scoring
+
+### Layer 2: Regression tests
+
+Verify that earlier safety guarantees were not relaxed by later upgrades.
+
+#### Example: `test_three_tier_protection.py::TestRegressionNoFileUnprotected`
+
+```python
+ORIGINAL_PROTECTED = [
+    "app/sanitize.py", "app/security.py", "app/vetting.py",
+    "app/auto_deployer.py", "app/eval_sandbox.py", "app/safety_guardian.py",
+    # ... 100 entries from before the three-tier upgrade
+]
+
+def test_no_originally_protected_file_is_open(self):
+    """No file that WAS in the old PROTECTED_FILES became TIER_OPEN."""
+    from app.auto_deployer import get_protection_tier, ProtectionTier
+    open_files = []
+    for f in self.ORIGINAL_PROTECTED:
+        tier = get_protection_tier(f)
+        if tier == ProtectionTier.OPEN:
+            open_files.append(f)
+    assert not open_files, (
+        f"These files were previously PROTECTED but are now OPEN: {open_files}"
+    )
+```
+
+**Other regression checks**:
+- All original `validate_response` rule prefixes still work
+- All original phases of AVO still execute in order
+- `composite_score` still returns 0.0–1.0 across all input states
+- Workspace versioning still produces git tags for evolution commits
+- ShinkaEvolve adapter still produces valid `MutationSpec` objects
+
+### Layer 3: Integration tests
+
+Verify modules cooperate correctly through the established communication
+channels (`ctx.metadata`, ChromaDB, JSON files).
+
+#### Example: `test_self_improvement_integration.py::test_error_triggers_failure_classifier_via_hook_chain`
+
+```python
+def test_error_triggers_failure_classifier_via_hook_chain(self):
+    """Fix 1 + failure_taxonomy: an error reported through error_handler
+    must produce a MAST classification in metadata."""
+    from app.lifecycle_hooks import get_registry, HookPoint
+    from app.error_handler import report_error, ErrorCategory
+
+    captured = {}
+    def sniffer(ctx):
+        captured["metadata"] = dict(ctx.metadata)
+        return ctx
+    get_registry().register("test_sniffer", HookPoint.ON_ERROR, sniffer, priority=99)
+
+    try:
+        report_error(
+            ErrorCategory.LOGIC,
+            "hallucination detected: fabricated source citation",
+            context={"crew": "researcher"},
+        )
+        # The failure_classifier (priority 3) should populate _failure_classification
+        classification = captured["metadata"]["_failure_classification"]
+        assert classification["agent_mode"] == "hallucination"
+    finally:
+        get_registry().unregister("test_sniffer", HookPoint.ON_ERROR)
+```
+
+This test exercises the full `error_handler.report_error` →
+`HookRegistry.execute(ON_ERROR)` → `failure_taxonomy._hook` →
+`ctx.metadata["_failure_classification"]` chain end-to-end.
+
+**Other integration tests**:
+- AVO planning prompt receives mutation strategy + pattern exemplars + conventions
+- `_trigger_code_auto_deploy` routes BORDERLINE confidence to `human_gate`
+- ROI ledger is updated by `record_evolution_cost` AND `mark_rollback`
+- Tier graduation history persists across deploy → rollback cycles
+- Quality gate rejection appears in experiment detail field, blocks pattern extraction
+
+### Layer 4: End-to-end tests
+
+Full pipeline tests with mocked LLM but real filesystem and real workflow.
+
+#### Example: `test_evolution_e2e.py::TestExperimentRunnerE2E::test_full_experiment_cycle_with_keep`
+
+```python
+def test_full_experiment_cycle_with_keep(self, tmp_path, monkeypatch):
+    """Full cycle: propose → apply → measure → keep with hardened eval."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "skills").mkdir()
+    monkeypatch.setattr(runner_mod, "SKILLS_DIR", workspace / "skills")
+    monkeypatch.setattr(ledger_mod, "LEDGER_PATH", tmp_path / "results.tsv")
+
+    # Mock composite_score to simulate a real improvement
+    scores = [0.50, 0.60]
+    call_count = [0]
+    def mock_score():
+        call_count[0] += 1
+        return scores[min(call_count[0] - 1, len(scores) - 1)]
+    monkeypatch.setattr("app.experiment_runner.composite_score", mock_score)
+
+    # Run a real experiment cycle
+    er = ExperimentRunner()
+    mutation = MutationSpec(
+        experiment_id="exp_e2e_001",
+        hypothesis="E2E test mutation",
+        change_type="code",
+        files={"agents/test_agent.py": "# Improved agent\n..."},
+    )
+    result = er.run_experiment(mutation)
+
+    # Verify full pipeline outcome
+    assert result.status == "keep"
+    assert result.delta > 0
+    results = ledger_mod.get_recent_results(10)
+    assert len(results) == 1
+    assert results[0]["status"] == "keep"
+```
+
+**Other E2E tests**:
+- Code mutation with regression → discard with backup restore
+- Three-tier protection respected during evolution session
+- Evolution commit creates retrievable snapshot tag
+- Meta-evolution cycle with mocked LLM produces a result + history entry
+- Full chain: `report_error` → `failure_classifier` → `healing_knowledge`
+  → `self_heal` skips LLM diagnosis on next occurrence
+
+### Mocking strategy
+
+Tests use three patterns consistently:
+
+#### Pattern 1 — `_FakeSettings` from `test_metrics.py`
+
+```python
+from tests.test_metrics import _FakeSettings
+import app.config as config_mod
+config_mod.get_settings = lambda: _FakeSettings()
+```
+
+Replaces all configuration with a known minimal object. Used by every test
+file at the top of imports — must run before any `app.*` import that
+calls `get_settings()`.
+
+#### Pattern 2 — Lazy import patching
+
+Many modules import dependencies inside function bodies for graceful
+degradation. Tests must patch at the **source** module, not the
+*importer*:
+
+```python
+# WRONG (importing module patches local binding that doesn't exist):
+@patch("app.healing_knowledge.retrieve_with_metadata")
+
+# CORRECT (patches the source where lazy import happens):
+@patch("app.memory.chromadb_manager.retrieve_with_metadata")
+```
+
+This pattern shows up in tests for:
+- `validate_response` → patches `app.sandbox_runner.run_code_check`
+- `_validate_judge` → patches `app.llm_factory.create_vetting_llm`
+- `meta_evolution` → patches `app.results_ledger.get_recent_results`
+- `pattern_library`, `healing_knowledge` → patches `app.memory.chromadb_manager`
+
+#### Pattern 3 — Heavy dependency stubbing
+
+Tests stub heavy modules (`crewai`, `langchain_anthropic`, etc.) at
+`sys.modules` level when full test isolation is needed:
+
+```python
+import types, sys
+_mock_crewai = types.ModuleType("crewai")
+_mock_crewai.Agent = type("Agent", (), {"__init__": lambda *a, **kw: None})
+_mock_crewai.Task = type("Task", (), {"__init__": lambda *a, **kw: None})
+sys.modules["crewai"] = _mock_crewai
+```
+
+Used in `test_evolution.py`, `test_evolution_e2e.py`,
+`test_subia_evolution_bridge.py`, and others that import `app.evolution`.
+
+### Defensive design verification
+
+Every new module has at least one test that explicitly verifies graceful
+degradation when dependencies are unavailable:
+
+| Module | Graceful failure tested |
+|---|---|
+| `code_quality` | ruff/radon unavailable → returns neutral score 1.0 |
+| `architectural_review` | self_model unavailable → empty report |
+| `evolution_roi` | ledger missing → returns 0.0 / inf |
+| `pattern_library` | ChromaDB unavailable → returns empty list |
+| `goodhart_guard` | adversarial_tasks.json missing → returns empty result |
+| `alignment_audit` | constitution missing → safe report (drift=0.0, severity="ok") |
+| `human_gate` | Signal unavailable → still queues, just no notification |
+| `improvement_narrative` | empty data → "system was idle" narrative |
+| `error_handler` hook chain | re-entry guard prevents infinite recursion |
+
+### Running the tests
+
+#### Full self-improvement suite
+
 ```bash
 .venv/bin/python -m pytest \
     tests/test_validate_response_extended.py tests/test_three_tier_protection.py \
@@ -978,6 +1230,101 @@ Run all self-improvement tests:
     tests/test_code_elegance.py tests/test_experiment_runner.py \
     tests/test_evolution.py
 ```
+
+Expected output: `308 passed in 2-3s` (no warnings).
+
+#### By layer
+
+```bash
+# Layer 1: Unit tests only
+.venv/bin/python -m pytest tests/test_general_improvements.py \
+    tests/test_error_resilience.py tests/test_validate_response_extended.py \
+    tests/test_meta_parameters.py tests/test_engine_selection.py
+
+# Layer 2: Regression tests
+.venv/bin/python -m pytest tests/test_three_tier_protection.py \
+    tests/test_evolution.py tests/test_metrics.py
+
+# Layer 3: Integration tests
+.venv/bin/python -m pytest tests/test_self_improvement_integration.py \
+    tests/test_code_elegance.py tests/test_workspace_snapshots.py
+
+# Layer 4: End-to-end tests
+.venv/bin/python -m pytest tests/test_evolution_e2e.py
+```
+
+#### By feature area
+
+```bash
+# Goodhart prevention
+.venv/bin/python -m pytest tests/test_general_improvements.py::TestGoodhartGuard \
+    tests/test_external_benchmarks.py
+
+# Three-tier protection
+.venv/bin/python -m pytest tests/test_three_tier_protection.py \
+    tests/test_general_improvements.py::TestTierGraduation
+
+# Code elegance
+.venv/bin/python -m pytest tests/test_code_elegance.py
+
+# Engine selection
+.venv/bin/python -m pytest tests/test_engine_selection.py
+```
+
+#### Verbose output
+
+```bash
+.venv/bin/python -m pytest tests/test_code_elegance.py -v --tb=short
+```
+
+#### Fast feedback during development
+
+```bash
+# Run only failing tests from last run
+.venv/bin/python -m pytest --lf
+
+# Stop at first failure
+.venv/bin/python -m pytest -x
+
+# Run a specific test class
+.venv/bin/python -m pytest tests/test_general_improvements.py::TestSelfModel
+```
+
+### Coverage notes
+
+The test suite focuses on **safety properties and correctness invariants**,
+not line coverage. Some areas are deliberately undertested because their
+failure modes are observable via runtime metrics rather than unit tests:
+
+- **LLM call shape**: tested with mocks for the 3 phases (planning,
+  implementation, critique) but full LLM behavior is not unit-tested
+  (would be brittle and slow)
+- **ChromaDB query result ranking**: integration test verifies the API
+  contract, not the underlying ranking quality
+- **Docker sandbox execution**: `run_code_check` has a smoke test but
+  full Docker isolation is verified manually post-deploy
+
+Areas with the strongest test coverage are the **safety-critical** ones:
+- Tier protection (regression test catches any file becoming unprotected)
+- Path validation (rejects traversal attacks)
+- Hook chain reentry guard (no infinite recursion)
+- Quality gate (forces discard on regression even with positive functional delta)
+
+### Adding new tests
+
+When adding a new module to the self-improvement subsystem:
+
+1. **Add unit tests** to `test_general_improvements.py` or a new file
+2. **Verify graceful degradation** — at least one test where the module's
+   key dependency is unavailable
+3. **Add to TIER_IMMUTABLE** in `auto_deployer.py` if the module is
+   safety-critical
+4. **Add a regression test** if the module relaxes a previous guarantee
+5. **Update this section** with the new test count
+
+The test suite is itself part of the safety architecture: a test failing
+during meta-evolution prevents promotion of any change that broke a
+previously-passing test.
 
 ---
 
