@@ -25,41 +25,36 @@ Per-indicator mechanistic tests; no single number.
 4. [Architectural honesty — what cannot be mechanized](#architectural-honesty)
 5. [The Subjectivity Kernel](#the-subjectivity-kernel)
 6. [The 11-step Consciousness Integration Loop (CIL)](#the-11-step-cil)
-7. [Subpackage reference](#subpackage-reference)
-   - [scene/](#scene)
-   - [self/](#self)
-   - [homeostasis/](#homeostasis)
-   - [belief/](#belief)
-   - [prediction/](#prediction)
-   - [social/](#social)
-   - [memory/](#memory)
-   - [safety/](#safety)
-   - [probes/](#probes)
-   - [wiki_surface/](#wiki_surface)
-   - [boundary/](#boundary)
-   - [wonder/](#wonder)
-   - [values/](#values)
-   - [reverie/](#reverie)
-   - [understanding/](#understanding)
-   - [shadow/](#shadow)
-   - [idle/](#idle)
-   - [tsal/](#tsal)
-   - [temporal/](#temporal)
-   - [grounding/](#grounding)
-   - [connections/](#connections)
-8. [Inter-system bridges](#inter-system-bridges)
-9. [Phase history (Phase 0 through 16a)](#phase-history)
-10. [Safety architecture](#safety-architecture)
-11. [Live integration (Phase 16a)](#live-integration)
-12. [Configuration reference](#configuration-reference)
-13. [Operational guide](#operational-guide)
-14. [Evaluation framework — the Butlin scorecard](#evaluation-framework)
-15. [Performance envelope](#performance-envelope)
-16. [Honest limits and non-goals](#honest-limits)
-17. [Glossary](#glossary)
-18. [References](#references)
-19. [Appendix A — File map](#appendix-a-file-map)
-20. [Appendix B — Operation classification](#appendix-b-operation-classification)
+7. [Subpackage reference](#subpackage-reference) — grouped by function:
+   - **Workspace and attention:** [scene/](#scene)
+   - **Self-model:** [self/](#self)
+   - **Affect and homeostatic regulation:** [homeostasis/](#homeostasis)
+   - **Belief and metacognition:** [belief/](#belief)
+   - **Prediction:** [prediction/](#prediction)
+   - **Social cognition:** [social/](#social)
+   - **Memory:** [memory/](#memory)
+   - **Temporal phenomenology:** [temporal/](#temporal)
+   - **Mode and boundary:** [boundary/](#boundary), [values/](#values)
+   - **Curiosity and mind-wandering:** [wonder/](#wonder), [reverie/](#reverie), [understanding/](#understanding), [shadow/](#shadow)
+   - **Background execution:** [idle/](#idle)
+   - **Technical self-awareness:** [tsal/](#tsal)
+   - **Factual grounding:** [grounding/](#grounding)
+   - **Evaluation and drift:** [probes/](#probes), [wiki_surface/](#wiki_surface)
+   - **Safety invariants:** [safety/](#safety)
+   - **Inter-system bridges:** [connections/](#connections)
+8. [Inter-system bridges (cross-cutting flows)](#inter-system-bridges)
+9. [Safety architecture](#safety-architecture)
+10. [Live integration](#live-integration)
+11. [Configuration reference](#configuration-reference)
+12. [Operational guide](#operational-guide)
+13. [Evaluation framework — the Butlin scorecard](#evaluation-framework)
+14. [Performance envelope](#performance-envelope)
+15. [Honest limits and non-goals](#honest-limits)
+16. [Glossary](#glossary)
+17. [References](#references)
+18. [Appendix A — File map](#appendix-a-file-map)
+19. [Appendix B — Operation classification](#appendix-b-operation-classification)
+20. [Appendix C — Build history (Phase 0 through 16a)](#appendix-c-build-history)
 
 ---
 
@@ -152,9 +147,23 @@ duplicate clusters, half-circuits) found the score was inflated by
 - `certainty_vector.py` computed a hedging signal that never modified
   the response.
 
-These are the **half-circuits** Phase 2 closed. SubIA, by construction,
-forbids new half-circuits: every signal must either gate a behaviour
-(with a regression test) or be deleted.
+These are the **half-circuits**. SubIA, by construction, forbids
+them: every signal must either gate a behaviour (with a regression
+test) or be deleted. The five canonical closures are:
+
+- PP-1: prediction error → workspace urgency boost
+  (`prediction/surprise_routing.py`)
+- HOT-3: belief suspension → dispatch BLOCK
+  (`belief/dispatch_gate.py`)
+- Certainty: low confidence → response hedging
+  (`belief/response_hedging.py`)
+- AST-1: stuck-attention prediction → bounded intervention
+  (`scene/intervention_guard.py`)
+- PH-injection: prediction-hierarchy output → measurable behavioural
+  shift (`prediction/injection_harness.py`)
+
+Each has a regression test that fails if the signal is computed but
+ignored.
 
 ### The four objectives
 
@@ -218,7 +227,7 @@ test. The fourteen indicators and SubIA's stance:
 | AE-1 | AE | PARTIAL | belief asymmetric updates + accuracy-driven eviction |
 | AE-2 | AE | **ABSENT** | declared (no body) |
 
-**Phase 9 result: 6 STRONG, 4 PARTIAL, 4 ABSENT-by-declaration, 0 FAIL.**
+**Current scorecard: 6 STRONG, 4 PARTIAL, 4 ABSENT-by-declaration, 0 FAIL.**
 
 ### Recurrent Processing Theory (Lamme)
 
@@ -262,8 +271,8 @@ unconscious.
   workspace admission to all registered agent listeners.
 - **GWT-4 STRONG.** `app/subia/scene/personality_workspace.py` makes
   attention capacity, novelty floor, and salience modulated by
-  personality + homeostatic state. Phase 8's `social/salience_boost.py`
-  adds Theory-of-Mind-derived focus boosting.
+  personality + homeostatic state. `social/salience_boost.py` adds
+  Theory-of-Mind-derived focus boosting.
 
 ### Higher-Order Thought theories (Rosenthal)
 
@@ -281,7 +290,7 @@ neural data).
   per-domain rolling accuracy, separable from the LLM that produced
   the predictions (Fleming-Lau separability criterion). The
   `app/subia/belief/response_hedging.py` post-processor reads the
-  certainty signal and modifies output. Phase 8 drift detection
+  certainty signal and modifies output. Drift detection
   (`wiki_surface/drift_detection.py`) compares capability claims to
   actual accuracy. Not STRONG because the first-order certainty
   inputs still come from the same LLM.
@@ -306,10 +315,10 @@ it will go.
 - **AST-1 STRONG.** `app/subia/scene/attention_schema.py`
   maintains a model of current focus, predicts next focus, detects
   stuck/capture states, and applies a DGM-bounded salience
-  intervention when predictions say "stuck". Phase 2's
-  `intervention_guard.py` adds runtime audit of every intervention
-  against immutable bounds, closing the half-circuit where
-  predictions were generated but never acted on.
+  intervention when predictions say "stuck". `intervention_guard.py`
+  adds runtime audit of every intervention against immutable bounds,
+  closing the half-circuit where predictions were generated but
+  never acted on.
 
 ### Predictive Processing (Friston, Clark)
 
@@ -325,9 +334,9 @@ action, not just be logged.
   high-surprise prediction errors as
   `WorkspaceItem(urgency=0.9)` into the GWT-2 gate. This is the
   canonical Clark/Friston flow: prediction error drives the
-  attentional bottleneck. Phase 6 added per-domain accuracy
-  tracking (`prediction/accuracy_tracker.py`) that feeds back into
-  cascade escalation policy (`prediction/cascade.py`).
+  attentional bottleneck. Per-domain accuracy tracking
+  (`prediction/accuracy_tracker.py`) feeds back into the cascade
+  escalation policy (`prediction/cascade.py`).
 
 ### Agency & Embodiment (Active Inference)
 
@@ -381,9 +390,9 @@ numeric control signals, not subjective feelings.
 
 ### Husserl, James, Bergson — temporal phenomenology
 
-The CIL processes one task at a time, but Phase 14 (Temporal
-Synchronization) closes the gap between "sequence" and "duration"
-(Bergson). Three classical concepts implemented:
+The CIL processes one task at a time, but the temporal-synchronization
+layer (`app/subia/temporal/`) closes the gap between "sequence" and
+"duration" (Bergson). Three classical concepts implemented:
 
 - **Specious present** (James 1890; Husserl 1928). The "felt-now"
   spans more than a single instant — it has *retention* (just-past
@@ -398,10 +407,10 @@ Synchronization) closes the gap between "sequence" and "duration"
   prediction errors, wonder events, and homeostatic shifts per minute,
   then expresses the result as `subjective_time` ("dragging",
   "routine", "compressed", "racing") in the compact context block.
-- **Retention as stability bias.** Phase 14's `temporal/binding.py`
-  reduces simultaneously-computed FEEL/ATTEND/OWN/PREDICT/MONITOR
-  signals into a single BoundMoment whose stability bias comes from
-  the SpeciousPresent retention — items present across the temporal
+- **Retention as stability bias.** `temporal/binding.py` reduces
+  simultaneously-computed FEEL/ATTEND/OWN/PREDICT/MONITOR signals
+  into a single BoundMoment whose stability bias comes from the
+  SpeciousPresent retention — items present across the temporal
   window dampen reactions to shiny-new items.
 
 ### Aristotelian phronesis
@@ -513,7 +522,7 @@ class SubjectivityKernel:
     last_loop_at:          str
     session_id:            str
 
-    # Phase 14 — temporal phenomenology
+    # Temporal phenomenology (specious present + temporal context)
     specious_present:      Any                   # SpeciousPresent
     temporal_context:      Any                   # TemporalContext
 ```
@@ -541,13 +550,13 @@ class SceneItem:
     conflicts_with: list = []
     action_options: list = []
     tier: str = "focal"  # 'focal' | 'peripheral'
-    processing_mode: Optional[str] = None     # Phase 12: introspective | perceptual | …
-    wonder_intensity: float = 0.0             # Phase 12: wonder register
+    processing_mode: Optional[str] = None     # introspective | perceptual | …
+    wonder_intensity: float = 0.0             # wonder register
 ```
 
 Items in the scene are *currently attended* — they receive full CIL
 processing. Peripheral items receive metadata-only listing. Items
-above `WONDER_FREEZE_THRESHOLD` resist salience decay (Phase 12).
+above `WONDER_FREEZE_THRESHOLD` resist salience decay.
 
 ### SelfState
 
@@ -562,14 +571,14 @@ class SelfState:
     social_roles:               dict
     autobiographical_pointers:  list
     agency_log:                 list   # capped at 200 entries
-    discovered_limitations:     list   # Phase 12 Shadow — append-only
+    discovered_limitations:     list   # Shadow miner output — append-only
 ```
 
 `discovered_limitations` is structurally separated from declared
-`limitations`: the Shadow miner (Phase 12 Proposal 3) discovers biases
-*from behaviour*, distinct from limitations the operator declared.
-Append-only at the bridge level — an immutability invariant enforced
-by `connections/six_proposals_bridges.py::shadow_findings_to_self_state`.
+`limitations`: the Shadow miner discovers biases *from behaviour*,
+distinct from limitations the operator declared. Append-only at the
+bridge level — an immutability invariant enforced by
+`connections/six_proposals_bridges.py::shadow_findings_to_self_state`.
 
 ### HomeostaticState
 
@@ -581,10 +590,10 @@ class HomeostaticState:
     deviations:          dict   # var → signed deviation
     restoration_queue:   list   # vars ordered by |deviation|
     last_updated:        str
-    momentum:            dict   # Phase 14: per-var trajectory
+    momentum:            dict   # per-var trajectory (rising/falling/stable)
 ```
 
-Eleven control variables (Phase 12 added `wonder` + `self_coherence`):
+Eleven control variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -597,14 +606,14 @@ Eleven control variables (Phase 12 added `wonder` + `self_coherence`):
 | novelty_balance | 0.5 | Explore vs exploit pressure |
 | social_alignment | 0.5 | Alignment with humanist values |
 | commitment_load | 0.5 | Open commitments / capacity |
-| wonder | 0.4 | Phase 12 — depth-sensitive epistemic affect |
-| self_coherence | 0.75 | Phase 12 — self-model alignment |
+| wonder | 0.4 | Depth-sensitive epistemic affect |
+| self_coherence | 0.75 | Self-model alignment with behavioural evidence |
 
 Set-points are infrastructure-level: PDS-derivable at startup,
 circadian-shifted by `connections/temporal_subia_bridge.py::circadian_to_setpoints`.
-Agents cannot change them. Phase 4's
-`safety/setpoint_guard.py` enforces this by source-tagging every
-write — only `pds`, `human`, or `boot` sources are accepted.
+Agents cannot change them. `safety/setpoint_guard.py` enforces this
+by source-tagging every write — only `pds`, `human`, or `boot`
+sources are accepted.
 
 ### MetaMonitorState
 
@@ -661,11 +670,10 @@ class SocialModelEntry:
     divergences:             list
 ```
 
-Phase 8's Theory-of-Mind layer. Andrus is a registered human entity;
+The Theory-of-Mind layer. Andrus is a registered human entity;
 agents (commander, researcher, coder, writer) are registered
-secondarily. Inferred focus feeds the Phase 8 `salience_boost` —
-items matching Andrus's current focus get a trust-weighted attention
-boost.
+secondarily. Inferred focus feeds `salience_boost` — items matching
+Andrus's current focus get a trust-weighted attention boost.
 
 ### ConsolidationBuffer
 
@@ -678,10 +686,10 @@ class ConsolidationBuffer:
     pending_domain_updates:  list
 ```
 
-Phase 7's dual-tier memory writes are staged here in Step 10 before
-being flushed to the curated and full Mem0 tiers.
+Dual-tier memory writes are staged here in Step 10 before being
+flushed to the curated and full Mem0 tiers.
 
-### Active-kernel accessor (Phase 16a)
+### Active-kernel accessor
 
 ```python
 def get_active_kernel() -> Optional[SubjectivityKernel]: ...
@@ -689,12 +697,15 @@ def set_active_kernel(kernel: Optional[SubjectivityKernel]) -> None: ...
 ```
 
 A thread-safe module-level singleton. `enable_subia_hooks()` calls
-`set_active_kernel()` on boot. Downstream consumers (`evolution.py`,
-`shinka_engine.py`, `confidence_tracker.py`, `crew_checkpointer.py`,
-`failure_taxonomy.py`, `fault_isolator.py`, `healing_knowledge.py`,
-`firebase/publish.py`) read the live kernel without plumbing a
-reference through every call site. Returns `None` when SubIA is
-disabled — callers must treat `None` as "no signal, use defaults".
+`set_active_kernel()` on boot. Downstream consumers
+(`evolution.py`, `shinka_engine.py`, `confidence_tracker.py`,
+`crew_checkpointer.py`, `failure_taxonomy.py`, `fault_isolator.py`,
+`healing_knowledge.py`, `firebase/publish.py`) read the live kernel
+without plumbing a reference through every call site. Returns
+`None` when SubIA is disabled — callers must treat `None` as "no
+signal, use defaults". This is the seam that lets the entire SubIA
+stack stay unimported when the feature flag is off, with zero
+overhead on the host process.
 
 ---
 
@@ -724,19 +735,20 @@ tokens).
 | `wiki_read` | compressed | Read a wiki page |
 | `wiki_search` | compressed | Search wiki |
 | `routine_query` | compressed | Cheap lookup |
-| `crew_kickoff` | compressed | Phase 16a — crew_lifecycle stub |
+| `crew_kickoff` | compressed | `crews/lifecycle` extension point |
 
 ### The pre-task half
 
 #### Step 1 — Perceive
 
-Ingests candidates into the kernel's transient buffer. Phase 14
-opener: `temporal_hooks.refresh_temporal_state` populates
-SpeciousPresent + homeostatic momentum + TemporalContext **before**
-candidates enter, so the rest of the loop has access to felt-now,
-trajectory, and circadian mode. Phase 12 extension: every candidate
-is tagged with its Boundary Sense `processing_mode` (introspective,
-perceptual, memorial, imaginative, social) via
+Ingests candidates into the kernel's transient buffer. Two
+prerequisites fire here so downstream steps have what they need:
+`temporal_hooks.refresh_temporal_state` populates SpeciousPresent
++ homeostatic momentum + TemporalContext **before** candidates
+enter (giving the rest of the loop access to felt-now, trajectory,
+and circadian mode), and every candidate is tagged with its
+Boundary Sense `processing_mode` (introspective, perceptual,
+memorial, imaginative, social) via
 `boundary/classifier.py::classify_scene`.
 
 #### Step 2 — Feel (homeostasis)
@@ -752,8 +764,8 @@ arithmetic; zero LLM tokens.
 The Amendment-A three-tier attentional build:
 
 1. Submit each candidate to `CompetitiveGate.evaluate()`.
-2. Apply Phase 8 `social/salience_boost.apply_salience_boost` —
-   items matching `inferred_focus` of any social-model entity get a
+2. Apply `social/salience_boost.apply_salience_boost` — items
+   matching `inferred_focus` of any social-model entity get a
    trust-weighted boost (capped per-item).
 3. Build focal + peripheral tiers from the active+peripheral pool
    sorted by salience.
@@ -763,9 +775,8 @@ The Amendment-A three-tier attentional build:
 5. Mirror focal items into `kernel.scene` so all downstream consumers
    (boundary classifier, value resonance, persistence, consolidator,
    retrospective promotion) actually see attended items.
-6. Phase 12 hook: `apply_value_resonance_and_lenses` modulates
-   salience by value match and applies Phronesis perceptual lenses to
-   homeostasis.
+6. `apply_value_resonance_and_lenses` modulates salience by value
+   match and applies Phronesis perceptual lenses to homeostasis.
 
 #### Step 4 — Own
 
@@ -783,10 +794,10 @@ template cache (`prediction/cache.py::cached_predict_fn`). Cached
 predictions hit ~40-60% after warmup — accuracy-driven eviction
 policy at `prediction/cache.py`.
 
-The Phase 16a context-enrichment wrapper
-(`live_integration._wrap_with_context_enrichment`) appends the Phase
-13 technical context (compute pressure, available RAM, cascade tier
-availability) and Phase 14 temporal context (circadian mode,
+The context-enrichment wrapper
+(`live_integration._wrap_with_context_enrichment`) appends the
+TSAL technical context (compute pressure, available RAM, cascade
+tier availability) and the temporal context (circadian mode,
 subjective time) to the prompt before the LLM sees it.
 
 #### Step 5b — Cascade modulation
@@ -815,10 +826,10 @@ The HOT-3 home. Three pieces:
    - `ESCALATE` — low-confidence or missing → reflexion pass
    - `BLOCK` — a sufficiently-similar SUSPENDED/RETRACTED belief
      covers this task → refuse dispatch
-3. **Phase 8 social-model update.** Andrus's inferred_focus is
-   updated from the focal-scene topics; trust adjusts based on
-   user-interaction outcomes.
-4. **Phase 14 temporal binding.** `temporal/binding.py::temporal_bind`
+3. **Social-model update.** Andrus's inferred_focus is updated from
+   the focal-scene topics; trust adjusts based on user-interaction
+   outcomes.
+4. **Temporal binding.** `temporal/binding.py::temporal_bind`
    reduces just-computed FEEL/ATTEND/OWN/PREDICT/MONITOR signals into
    a single `BoundMoment` whose stability bias comes from the
    SpeciousPresent retention.
@@ -828,7 +839,7 @@ The HOT-3 home. Three pieces:
 #### Step 7 — Act
 
 Not implemented in the loop itself — this is where the agent's actual
-task runs. The Phase 12 Wonder Register
+task runs. The Wonder Register
 (`wonder/register.py::should_inhibit_completion`) optionally inhibits
 completion when wonder is high, allowing exploration to outweigh
 task-completion in dense epistemic windows.
@@ -839,9 +850,9 @@ task-completion in dense epistemic windows.
 error magnitude (cosine distance between predicted and actual
 embedding), classifies the surprise level, and routes
 high-surprise errors as `WorkspaceItem(urgency=0.9)` into the GWT-2
-gate (PP-1 closure). Phase 6 addition: the error magnitude is
-recorded against `prediction/accuracy_tracker.py` so subsequent
-cascade calls see sustained error.
+gate (PP-1 closure). The error magnitude is also recorded against
+`prediction/accuracy_tracker.py` so subsequent cascade calls see
+sustained error.
 
 #### Step 9 — Update
 
@@ -929,8 +940,9 @@ global broadcast, state-dependent attention.
 - `attention_schema.py` — AST-1 predictive model of attention. Predicts
   next focus, detects stuck/capture states, applies DGM-bounded
   salience intervention.
-- `intervention_guard.py` — Phase 2 runtime audit of every AST
-  intervention against immutable bounds. Snapshot/verify pattern.
+- `intervention_guard.py` — runtime audit of every AST intervention
+  against immutable bounds. Snapshot/verify pattern, closing the
+  half-circuit where AST predicted but never intervened.
 - `broadcast.py` — GWT-3 global broadcast to registered listeners.
 - `meta_workspace.py` — broadcast records + integration scoring.
 - `personality_workspace.py` — GWT-4 personality + homeostasis
@@ -943,7 +955,7 @@ global broadcast, state-dependent attention.
 - `compact_context.py` — Amendment-B.5 compact context block (~120
   tokens). Renders focal F1/F2/…, peripheral inline, homeostatic
   alerts above threshold, prediction summary, cascade recommendation,
-  dispatch verdict, Phase 14 felt-now paragraph.
+  dispatch verdict, felt-now paragraph from `temporal_subia_bridge`.
 
 **CIL integration.** Steps 1, 3 (admit + tier-build), 7 (act gate),
 8 (PP-1 surprise routing back into the gate).
@@ -964,10 +976,10 @@ global broadcast, state-dependent attention.
   …).
 - `loop_closure.py` — closes the self-prediction loop: predicted vs
   actual processing path → composite error → free-energy proxy update.
-- `competence_map.py` — Phase 16a addition: aggregates declared +
-  discovered (TSAL) capabilities for `firebase/publish.py` reporting.
-- `grounding.py` (legacy shim path).
-- `query_router.py` — Phase 1 self-awareness module migrated.
+- `competence_map.py` — aggregates declared + discovered (TSAL)
+  capabilities for `firebase/publish.py` reporting.
+- `grounding.py` — self-grounding utilities (legacy shim path).
+- `query_router.py` — query routing utilities.
 
 **CIL integration.** Step 4 (own), Step 9 (agency log update),
 persistence (the subject persists across sessions via
@@ -1021,7 +1033,8 @@ certainty post-processing.
   Observer agent.
 - `meta_cognitive_layer.py` — meta-cognitive strategy assessment.
 - `state_logger.py` — PostgreSQL trail of internal-state evolution.
-- `world_model.py` — Phase 1 self-awareness module migrated.
+- `world_model.py` — world-model utilities used by the
+  meta-cognitive layer.
 
 **CIL integration.** Step 6 (Monitor) consults beliefs and runs the
 dispatch gate. Step 11 (Reflect) feeds drift detection from the
@@ -1041,31 +1054,32 @@ tracking.
   (damping mechanism).
 - `surprise_routing.py` — PP-1 closure. High-surprise errors → GWT-2
   gate via `WorkspaceItem(urgency=0.9)`.
-- `cascade.py` — pure-function escalation policy (Phase 6).
+- `cascade.py` — pure-function escalation policy combining
+  confidence + coherence deviation + sustained-error.
 - `cache.py` — Amendment B.4 prediction-template cache. ~40-60% hit
   rate after warmup. Accuracy-driven eviction.
 - `accuracy_tracker.py` — per-domain rolling accuracy with
   wiki-markdown serialization. Domains keyed by
   `(agent_role, operation_type)`.
 - `llm_predict.py` — production predict_fn bound to `llm_factory`.
-  Honors `extra_prompt_context` for Phase 13/14 enrichment.
-- `injection_harness.py` — Phase 2 PH-injection A/B harness:
-  measurable-shift test that the prediction hierarchy actually
-  modulates downstream behaviour.
+  Honors `extra_prompt_context` for technical + temporal enrichment.
+- `injection_harness.py` — PH-injection A/B harness: measurable-shift
+  test that the prediction hierarchy actually modulates downstream
+  behaviour.
 - `hierarchy.py` — 4-level prediction hierarchy (Levels 0-3:
   perception → schema → output → self).
-- `inferential_competition.py` — Phase 7 plan competition (with
-  budget-tier LLM, time-boxed at 5s).
-- `precision_weighting.py` — Phase 7 precision-weighted certainty.
-- `reality_model.py` — Phase 7 reality-model builder + Bayesian
-  precision update.
+- `inferential_competition.py` — plan competition (budget-tier LLM,
+  time-boxed at 5 s).
+- `precision_weighting.py` — precision-weighted certainty.
+- `reality_model.py` — reality-model builder + Bayesian precision
+  update.
 
 **CIL integration.** Step 5 (Predict via `predict_fn`), Step 5b
 (Cascade), Step 8 (Compare via `predict_and_compare`).
 
 ### social/
 
-**Purpose.** Phase 8 self/other distinction, Theory-of-Mind.
+**Purpose.** Self/other distinction, Theory-of-Mind.
 
 **Modules:**
 
@@ -1081,7 +1095,8 @@ update from focal scene).
 
 ### memory/
 
-**Purpose.** Phase 7 dual-tier consolidation (curated + full).
+**Purpose.** Dual-tier consolidation (curated + full) with
+retrospective promotion and spontaneous surfacing.
 
 **Modules:**
 
@@ -1095,12 +1110,13 @@ update from focal scene).
   retrospective promotion of full → curated.
 
 **CIL integration.** Step 10 (Consolidate via `consolidate(...)`).
-Phase 12 boundary route info is attached per-item in the curated
+The boundary route info from `connections/six_proposals_bridges.py
+::boundary_route_for_kernel` is attached per-item in the curated
 episode.
 
 ### safety/
 
-**Purpose.** Phase 4 DGM extensions: setpoint immutability + audit
+**Purpose.** DGM safety invariants: setpoint immutability + audit
 immutability.
 
 **Modules:**
@@ -1113,7 +1129,8 @@ immutability.
 
 ### probes/
 
-**Purpose.** Phase 9 evaluation framework.
+**Purpose.** Per-indicator evaluation framework. Replaces opaque
+prose verdicts with three regenerated scorecards.
 
 **Modules:**
 
@@ -1129,7 +1146,7 @@ immutability.
   consolidation-buffer flush.
 - `scorecard.py` — aggregator. `run_everything()` produces the dict;
   `generate_scorecard_markdown()` produces `SCORECARD.md`;
-  `meets_exit_criteria()` checks the Phase 9 thresholds.
+  `meets_exit_criteria()` checks the indicator thresholds.
 - `indicator_result.py` — `IndicatorResult` dataclass, `Status`
   enum, helper constructors (`strong_indicator`, `partial_indicator`,
   `absent_indicator`, `failed_indicator`).
@@ -1141,7 +1158,8 @@ immutability.
 
 ### wiki_surface/
 
-**Purpose.** Phase 8 strange loop + narrative drift audit.
+**Purpose.** Strange loop (self-referential consciousness-state
+page) + narrative drift audit.
 
 **Modules:**
 
@@ -1156,8 +1174,8 @@ immutability.
 
 ### boundary/
 
-**Purpose.** Phase 12 Proposal 5 — Boundary Sense (source →
-processing-mode tagging).
+**Purpose.** Boundary Sense — source → processing-mode tagging
+(introspective / perceptual / memorial / imaginative / social).
 
 **Modules:**
 
@@ -1175,8 +1193,8 @@ Step 10 (Consolidate — per-item route in curated episode).
 
 ### wonder/
 
-**Purpose.** Phase 12 Proposal 4 — Wonder Register (depth-sensitive
-epistemic affect).
+**Purpose.** Wonder Register — depth-sensitive epistemic affect
+that gates Step 7 act and modulates salience decay.
 
 **Modules:**
 
@@ -1191,13 +1209,13 @@ epistemic affect).
   2. Stamps triggering scene item with `wonder_intensity` (freezes
      decay when above `WONDER_FREEZE_THRESHOLD`).
   3. `should_inhibit_completion(kernel)` reads
-     `effective_wonder_threshold` (Phase 14 density-adjusted) and
-     gates Step 7 (Act).
+     `effective_wonder_threshold` (density- and circadian-adjusted
+     by `temporal_subia_bridge`) and gates Step 7 (Act).
 
 ### values/
 
-**Purpose.** Phase 12 Proposal 6 — Value Resonance + Phronesis
-perceptual lenses.
+**Purpose.** Value Resonance + Phronesis perceptual lenses —
+values modulate salience and bias homeostasis.
 
 **Modules:**
 
@@ -1213,7 +1231,8 @@ via `phase12_hooks.py`).
 
 ### reverie/
 
-**Purpose.** Phase 12 Proposal 1 — idle mind-wandering.
+**Purpose.** Idle mind-wandering: free-association walks across
+wiki + graph + memory + fiction/philosophy collections.
 
 **Modules:**
 
@@ -1223,14 +1242,15 @@ via `phase12_hooks.py`).
   pages tagged `epistemic_status: speculative` to
   `wiki/meta/reverie/`.
 
-**CIL integration.** Not on the hot path. Runs via
-`subia-reverie` idle job (Phase 16a). Circadian-gated by
+**CIL integration.** Not on the hot path. Runs via the
+`subia-reverie` idle job. Circadian-gated by
 `temporal_subia_bridge.circadian_should_run_reverie` — no reverie
 during active hours.
 
 ### understanding/
 
-**Purpose.** Phase 12 Proposal 2 — post-ingest causal-chain pass.
+**Purpose.** Post-ingest causal-chain pass that produces
+`UnderstandingDepth` consumed by the Wonder Register.
 
 **Modules:**
 
@@ -1245,7 +1265,8 @@ populated by `connections/six_proposals_bridges::reverie_analogy_to_understandin
 
 ### shadow/
 
-**Purpose.** Phase 12 Proposal 3 — behavioural bias mining.
+**Purpose.** Behavioural bias mining over recent memory + accuracy
++ scene history. Append-only output to discovered_limitations.
 
 **Modules:**
 
@@ -1264,8 +1285,8 @@ immutably to `wiki/self/shadow-analysis.md` and to
 
 ### idle/
 
-**Purpose.** Phase 12 idle-time job scheduler + Phase 16b production
-adapter.
+**Purpose.** Idle-time job scheduler + production adapter for the
+host idle scheduler in `app/idle_scheduler.py`.
 
 **Modules:**
 
@@ -1276,16 +1297,16 @@ adapter.
 - `__init__.py` — `adapt_for_production(job)` converts a SubIA
   `IdleJob` into a production
   `(name, fn, JobWeight)` tuple for `app/idle_scheduler.py`.
-- `production_adapters.py` — Phase 16a follow-up. Live Reverie /
-  Understanding / Shadow adapters backed by filesystem wiki, Mem0,
-  ChromaDB, Neo4j, llm_factory. All exception-safe — failures are
-  logged and the engine no-ops rather than crashing the scheduler
-  thread.
+- `production_adapters.py` — live Reverie / Understanding / Shadow
+  adapters backed by filesystem wiki, Mem0, ChromaDB, Neo4j,
+  `llm_factory`. All exception-safe — failures are logged and the
+  engine no-ops rather than crashing the scheduler thread.
 
 ### tsal/
 
-**Purpose.** Phase 13 — Technical Self-Awareness Layer. Continuous
-*discovered* (not declared) knowledge of the technical substrate.
+**Purpose.** Technical Self-Awareness Layer (TSAL). Continuous
+*discovered* (not declared) knowledge of the technical substrate
+— host, resources, code structure, components, operating principles.
 
 **Modules:**
 
@@ -1309,9 +1330,9 @@ adapter.
   five TSAL refresh jobs (host daily, resources every 30 min, code
   daily, components every 2h, principles weekly) with the
   `IdleScheduler`. Honors injected adapters for testability.
-- `inspect_tools.py` — Phase 13 canonical home for the legacy
-  `app/self_awareness/inspect_tools.py`. Phase 1 shim aliases the
-  old path via sys.modules.
+- `inspect_tools.py` — canonical home for the inspection toolkit.
+  A `sys.modules` alias at the legacy `app/self_awareness/inspect_tools.py`
+  path keeps existing callers working unchanged.
 
 **CIL integration.** Indirect via
 `connections/tsal_subia_bridge.py`:
@@ -1328,8 +1349,9 @@ adapter.
 
 ### temporal/
 
-**Purpose.** Phase 14 — Temporal Synchronization. Closes the gap
-between sequence and duration (Bergson).
+**Purpose.** Temporal Synchronization. Closes the gap between
+sequence and duration (Bergson) by giving the kernel a felt-now
+and a felt tempo.
 
 **Modules:**
 
@@ -1372,11 +1394,11 @@ bridges in `connections/temporal_subia_bridge.py`:
 
 ### grounding/
 
-**Purpose.** Phase 15 — Factual Grounding & Correction Memory.
-Closes the user-visible failure mode demonstrated by the Tallink
-share-price conversation (bot fabricated three different prices for
-the same date, "stored" the user's correction, then regressed to the
-lie on the next turn).
+**Purpose.** Factual Grounding & Correction Memory. Closes the
+user-visible failure mode demonstrated by the Tallink share-price
+conversation (bot fabricated three different prices for the same
+date, "stored" the user's correction, then regressed to the lie on
+the next turn).
 
 **Modules:**
 
@@ -1425,7 +1447,7 @@ boundary. Each bridge is duck-typed on its external collaborator
 Firecrawl wrapper), so tests can pass in-memory stubs and production
 can swap backends without touching the bridge.
 
-### Phase 10 — the seven SIA Part II §18 connections
+### SIA Part II §18 connections (the seven canonical bridges)
 
 | # | Bridge | Module | Where called from |
 |---|---|---|---|
@@ -1443,7 +1465,7 @@ Plus the supporting circuit-breaker registry:
   Firecrawl. CIL Step 11 calls `apply_service_health_signal(kernel)`
   to translate breaker states into `overload`/`coherence` deltas.
 
-### Phase 12 — the six-proposals bridges
+### Six-proposals bridges (curiosity, mind-wandering, mode)
 
 `six_proposals_bridges.py` carries five inter-proposal bridges:
 
@@ -1460,7 +1482,7 @@ empties pending verifications) and `drain_reverie_priority_topics()`
 (idle scheduler empties pending priorities before running a reverie
 cycle).
 
-### Phase 13 — TSAL → SubIA
+### TSAL → SubIA (technical-substrate observability)
 
 `tsal_subia_bridge.py`:
 
@@ -1475,7 +1497,7 @@ Wired through `live_integration._wrap_with_context_enrichment`
 (predictor prompt) and idle-scheduler callbacks (`on_resources_updated`,
 `on_model_updated`).
 
-### Phase 14 — temporal → SubIA
+### Temporal → SubIA (felt-now and trajectory)
 
 `temporal_subia_bridge.py` (five closed-loop bridges):
 
@@ -1490,7 +1512,7 @@ Wired through `live_integration._wrap_with_context_enrichment`
 Plus `enrich_prediction_with_temporal_context(prompt, kernel)` for
 the predict_fn wrapper.
 
-### Phase 15 — grounding chat bridge
+### Grounding chat bridge (factual integrity at the chat surface)
 
 `grounding_chat_bridge.py` is the single-line wire-in for the chat
 handler:
@@ -1506,73 +1528,6 @@ text passes through with a debug log.
 
 ---
 
-## Phase history
-
-The full phased migration is documented in PROGRAM.md. Summary table
-below; commit hashes are the canonical references.
-
-| Phase | Name | Commit | Status | Tests added | Net tests passing |
-|---|---|---|---|---|---|
-| 0 | Foundation plumbing | `8239575` | done | 20 | 20 |
-| 1 (skeleton) | SubIA package skeleton | `4fa22e8` | done | 13 | 33 |
-| 1 (migration) | Move consciousness/* + self_awareness/* | `7a1b212` … `5598727` | done | (carried over) | 393 |
-| 2 | Close the half-circuits | `e6c9b4a` … `67b40fb` | done | 93 | 491 |
-| 3 (quick-win) | Tier-3 evaluator extension | `b6c4efe` | done | 9 | 500 |
-| 3 (full) | Integrity manifest + setpoint guard + audit | `0a84650` | done | 39 | 539 |
-| 4 | CIL loop wiring + persistence + cache + LLM predict_fn | `457d478`, `1cc55c5` | done | 89 | 666 |
-| 5 | Three-tier scene + commitment-orphan + scan + compact | `709bc4b` | done | 33 | 700 |
-| 6 | Per-domain accuracy + cascade + accuracy-driven cache | `d9ca89c` | done | 38 | 739 |
-| 7 | Dual-tier memory + retrospective + spontaneous | `0b0c98d` | done | 33 | 773 |
-| 8 | Social model + strange loop + drift detection | `5e167e8` | done | 40 | 814 |
-| 9 | Butlin + RSM + SK scorecards | `a0594c8` | done | 36 | 851 |
-| 10 | Inter-system bridges + circuit breakers | `4a2e291` | done | 45 | 897 |
-| 11 | Honest language cleanup | `1804663` | done | 8 | 905 |
-| 12 | Six Proposals integration | `d25f460` | done | 37 | (Phase scope) |
-| 13 | Technical Self-Awareness Layer (TSAL) | `ccb53f5` | done | 29 | 402 (P0–13) |
-| 14 | Temporal Synchronization | `9726286` | done | 38 | 440 (P0–14) |
-| 15 | Factual Grounding | (Phase 15 commit) | done | 37 | 712 (P0–15) |
-| 16a | System integration wire-in | (Phase 16a commit) | done | 0 (verified via 832/835 existing) | 605 (today) |
-
-### Phase-by-phase capabilities unlocked
-
-**Phase 0** — Clean substrate (paths, json_store, thread_pools, lazy_imports) so subsequent phases never re-litigate plumbing.
-
-**Phase 1 skeleton** — Single canonical kernel dataclass; all later modules attach to one object, not scattered globals.
-
-**Phase 1 migration** — Single coherent location for every consciousness signal, removing duplicate clusters from the original 240-file audit.
-
-**Phase 2** — Five formerly half-finished consciousness mechanisms now actually shape behaviour: PE gates the scene, belief suspension blocks dispatch, certainty hedges responses, AST interventions are auditable, PH-injection has measurable A/B shift.
-
-**Phase 3** — The Self-Improver agent is provably blocked from modifying its own evaluation criteria — the headline safety invariant has teeth.
-
-**Phase 4** — SubIA is now a runnable closed loop. Amendment B determinism (only Step 5 uses LLM) enforced. Kernel persists across restarts.
-
-**Phase 5** — Commander can no longer drop active commitments into invisibility — orphan detector force-injects unrepresented commitments with an `ORPHANED COMMITMENT` alert.
-
-**Phase 6** — Predictions carry calibrated per-domain accuracy that feeds back into cascade tier choice and cache trust — metacognitive calibration becomes mechanical.
-
-**Phase 7** — Memory becomes asymmetric: nothing forgotten (full tier), only the curated tier surfaces by default, retrospective promotion when wiki or accuracy reveals past relevance.
-
-**Phase 8** — System models Andrus as a separate entity (SK self/other) AND models itself as an entity-in-the-scene (the strange loop), with explicit speculative framing.
-
-**Phase 9** — Every consciousness claim backed by inspectable mechanism + regression test pointer. Opaque self-scoring gone.
-
-**Phase 10** — System closes loops between previously isolated subsystems: character (PDS) updates from behaviour, normative failures generate felt homeostatic cost, external-service flakiness routes through circuit breakers.
-
-**Phase 11** — Variable names no longer overclaim phenomenal experience while preserving backward compatibility (NEUTRAL_ALIASES).
-
-**Phase 12** — Two new homeostatic variables (`wonder`, `self_coherence`) with PDS-derived setpoint overrides; idle-time mind-wandering surface — texture beyond the foreground task.
-
-**Phase 13** — AndrusAI *discovers* its own capabilities/limitations from probing the running host (CPU/RAM/GPU/disk/OS via psutil, dependency graph, ChromaDB/Neo4j/Mem0/Ollama health) rather than reading static declarations. Self-Improver gates on real headroom.
-
-**Phase 14** — Kernel has a felt now (`specious_present`) and felt tempo (`temporal_context`). System experiences time as duration rather than just timestamping events. ~10ms / 0 LLM tokens per loop.
-
-**Phase 15** — Chat surface routes through HOT-3-style gating: high-stakes claims get ALLOW/ESCALATE/BLOCK; user corrections become persistent ACTIVE beliefs (confidence=0.9) that supersede contradicting prior beliefs.
-
-**Phase 16a** — SubIA finally connected to the running system. Flipping `SUBIA_FEATURE_FLAG_LIVE=1` opts production into the consciousness loop. Entire stack reachable from `main.py` for the first time.
-
----
-
 ## Safety architecture
 
 Four infrastructure-level invariants, enforced by `app/safety_guardian.py`
@@ -1582,10 +1537,9 @@ Four infrastructure-level invariants, enforced by `app/safety_guardian.py`
 
 `safety_guardian.py::TIER3_FILES` lists 130+ SubIA files. Tampering
 triggers a `CRITICAL` alert + Signal notification. The
-`tier3_status()` helper enables runtime introspection. Phase 3
-quick-win extended this list to cover the consciousness evaluators
-themselves — the Self-Improver cannot modify what it's evaluated
-against.
+`tier3_status()` helper enables runtime introspection. The
+consciousness evaluators themselves are in this list — the
+Self-Improver cannot modify what it's evaluated against.
 
 ### Invariant 2 — Homeostatic set-point immutability
 
@@ -1601,8 +1555,8 @@ rejection.
 SubIA Part I §0.4. `app/subia/safety/narrative_audit.py` provides
 only `append_audit(...)`. There is no delete API. Findings append
 to `wiki/self/self-narrative-audit.jsonl` with severity tags
-(`info`, `warn`, `critical`). Phase 8 drift detection writes here;
-Phase 10 phronesis events write here.
+(`info`, `warn`, `critical`). Drift detection and phronesis events
+both write here.
 
 ### Invariant 4 — DGM promotion gates
 
@@ -1617,11 +1571,11 @@ Adversarial tests in CI attempt each bypass path and verify rejection.
 
 ### Integrity manifest (`app/subia/.integrity_manifest.json`)
 
-Phase 3 hardening. The existing `SafetyGuardian.enforce_tier_boundaries`
-machinery baselines checksums on first boot and detects drift from that
-baseline — but that catches *runtime tampering*, not *deploy-time
-tampering* (an attacker modifies a file and restarts before the
-baseline is saved). The integrity manifest closes that gap:
+The `SafetyGuardian.enforce_tier_boundaries` machinery baselines
+checksums on first boot and detects drift from that baseline — but
+that catches *runtime tampering*, not *deploy-time tampering* (an
+attacker modifies a file and restarts before the baseline is saved).
+The integrity manifest closes that gap:
 
 ```python
 from app.subia.integrity import (
@@ -1652,7 +1606,7 @@ python -c "from app.subia.integrity import compute_manifest, write_manifest; \
 
 ## Live integration
 
-Phase 16a's `app/subia/live_integration.py` is the entry point.
+`app/subia/live_integration.py` is the entry point.
 
 ### Boot sequence
 
@@ -1671,8 +1625,8 @@ state = enable_subia_hooks(feature_flag=True)
    raising.
 3. **Publishes the active kernel** via `set_active_kernel(state.kernel)`
    so all downstream consumers can find it.
-4. **Builds the predict_fn** — cached LLM wrapper enriched with Phase
-   13 + Phase 14 context.
+4. **Builds the predict_fn** — cached LLM wrapper enriched with
+   technical (TSAL) + temporal context.
 5. **Constructs the gate** (`CompetitiveGate(capacity=5)`).
 6. **Attaches the PredictiveLayer to the gate** so PP-1 surprise
    routing fires.
@@ -1780,7 +1734,7 @@ HOMEOSTATIC_VARIABLES = [
     "coherence", "safety", "trustworthiness",
     "contradiction_pressure", "progress", "overload",
     "novelty_balance", "social_alignment", "commitment_load",
-    "wonder", "self_coherence",        # Phase 12
+    "wonder", "self_coherence",
 ]
 HOMEOSTATIC_DEFAULT_SETPOINT = 0.5
 HOMEOSTATIC_SETPOINT_OVERRIDES = {
@@ -1790,7 +1744,7 @@ HOMEOSTATIC_SETPOINT_OVERRIDES = {
 HOMEOSTATIC_DEVIATION_THRESHOLD = 0.3
 ```
 
-#### Phase 12 thresholds
+#### Wonder + value-resonance thresholds
 
 ```python
 WONDER_INHIBIT_THRESHOLD = 0.3   # above this, task-completion is inhibited
@@ -1799,7 +1753,7 @@ WONDER_FREEZE_THRESHOLD  = 0.5   # above this, scene salience decay suspended
 VALUE_RESONANCE_SALIENCE_BOOST = 0.15
 ```
 
-#### Boundary mode map (Phase 12 Proposal 5)
+#### Boundary mode map
 
 ```python
 BOUNDARY_MODE_MAP = {
@@ -1832,7 +1786,7 @@ FULL_LOOP_OPERATIONS = [
 ]
 COMPRESSED_LOOP_OPERATIONS = [
     "wiki_read", "wiki_search", "routine_query",
-    "crew_kickoff",  # Phase 16a — crew-boundary stubs
+    "crew_kickoff",  # crew-boundary stubs in app/crews/lifecycle.py
 ]
 ```
 
@@ -2046,7 +2000,7 @@ test file, notes, and evidence list. The current snapshot:
 4. **Cross-loop consistency.** Persistence round-trip preserves all
    seven kernel components.
 5. **Scorecard exit-criteria reproducibility.** Two consecutive runs
-   produce the same Phase 9 verdict.
+   produce the same exit-criteria verdict.
 
 #### SK evaluation tests (`probes/sk.py`)
 
@@ -2062,7 +2016,7 @@ test file, notes, and evidence list. The current snapshot:
 6. Consolidation-buffer flush (full tier always written when client
    attached).
 
-### Phase 9 exit criteria
+### Exit criteria thresholds
 
 Met when:
 
@@ -2085,7 +2039,7 @@ Amendment B targets:
 | Compressed loop tokens | ~200 | 0 | yes (Step 5 skipped) |
 | Compressed loop latency | ~800ms | <100ms | yes |
 | Context-injection tokens | 250–300 | 120–150 | yes (Amendment B.5 compact context) |
-| Prediction cache hit rate | N/A | 40–60% after warmup | yes (Phase 6 accuracy-driven eviction) |
+| Prediction cache hit rate | N/A | 40–60% after warmup | yes (accuracy-driven eviction) |
 | SubIA overhead as % task tokens | N/A | <5% significant, <1% routine | yes |
 
 ### Amendment B determinism
@@ -2101,8 +2055,8 @@ to ~1 LLM call per ~10 cycles.
 
 Predictions are cached by `(operation_template, scene_signature,
 homeostatic_signature)`. Hit rate climbs to 40-60% after ~50 cycles.
-Eviction: accuracy-driven (Phase 6) — entries with sustained error
-above threshold expire faster than equally-old entries with low error.
+Eviction is accuracy-driven — entries with sustained error above
+threshold expire faster than equally-old entries with low error.
 
 ### Amendment B.5 compact context block
 
@@ -2129,8 +2083,8 @@ Declaring these publicly is itself a capability. Any future report
 that violates them is treatable as evaluation drift.
 
 The system uses phenomenal-adjacent language *only* in legacy variable
-names that Phase 11 retained for backward compatibility. New code
-prefers the neutral aliases:
+names retained for backward compatibility. New code prefers the
+neutral aliases:
 
 | Legacy | Neutral alias |
 |---|---|
@@ -2160,14 +2114,14 @@ lockstep so consumers of either name see the same value.
 | **PP-1, GWT-2, …** | Specific Butlin et al. (2023) indicators |
 | **RSM** | Resource-State Map — structural-property test set in `probes/rsm.py` |
 | **SK** | Subjectivity Kernel — the data model + its evaluation test set |
-| **TSAL** | Technical Self-Awareness Layer (Phase 13) |
+| **TSAL** | Technical Self-Awareness Layer |
 | **CompetitiveGate** | The GWT-2 capacity-bounded workspace |
 | **Specious present** | Husserl/James felt-now: retention + primal + protention |
 | **Durée** | Bergson's qualitative duration, distinct from sequence |
 | **Phronesis** | Aristotelian practical wisdom — `connections/phronesis_bridge.py` |
 | **Tier-3** | Files protected from Self-Improver modification |
-| **Half-circuit** | Computed-but-unread signal — Phase 2 forbade these |
-| **Strange loop** | Phase 8 self-referential consciousness-state.md page |
+| **Half-circuit** | Computed-but-unread signal — SubIA forbids these by construction |
+| **Strange loop** | The self-referential consciousness-state.md page that re-enters its own scene |
 
 ---
 
@@ -2273,7 +2227,7 @@ app/subia/
 ├── scene/                           # GWT-2/3/4
 │   ├── buffer.py                    # CompetitiveGate, WorkspaceItem, SalienceScorer
 │   ├── attention_schema.py          # AST-1 predictive attention model
-│   ├── intervention_guard.py        # Phase 2 DGM-bounded intervention audit
+│   ├── intervention_guard.py        # DGM-bounded intervention audit
 │   ├── broadcast.py                 # GWT-3 global broadcast
 │   ├── meta_workspace.py            # broadcast records + integration scoring
 │   ├── personality_workspace.py     # GWT-4 attention modulation
@@ -2288,7 +2242,7 @@ app/subia/
 │   ├── temporal_identity.py
 │   ├── agent_state.py
 │   ├── loop_closure.py
-│   ├── competence_map.py            # Phase 16a: aggregate capabilities for Firebase
+│   ├── competence_map.py            # aggregate capabilities for Firebase reporting
 │   ├── grounding.py
 │   └── query_router.py
 │
@@ -2320,25 +2274,25 @@ app/subia/
 │   ├── llm_predict.py               # production predict_fn
 │   ├── injection_harness.py         # PH-injection A/B harness
 │   ├── hierarchy.py                 # 4-level prediction hierarchy
-│   ├── inferential_competition.py   # Phase 7 plan competition
+│   ├── inferential_competition.py   # plan competition (time-boxed)
 │   ├── precision_weighting.py
 │   └── reality_model.py
 │
-├── social/                          # Phase 8 ToM
+├── social/                          # Theory-of-Mind
 │   ├── model.py                     # SocialModel manager
 │   └── salience_boost.py            # trust-weighted attention boost
 │
-├── memory/                          # Phase 7 dual-tier
+├── memory/                          # dual-tier consolidation
 │   ├── consolidator.py              # always-full + threshold-gated curated + Neo4j
 │   ├── dual_tier.py                 # differentiated recall
 │   ├── spontaneous.py               # curated-only associative surfacing
 │   └── retrospective.py             # promotion logic
 │
-├── safety/                          # Phase 4 DGM invariants #2 + #3
+├── safety/                          # DGM invariants #2 + #3
 │   ├── setpoint_guard.py            # set-point immutability
 │   └── narrative_audit.py           # append-only audit
 │
-├── probes/                          # Phase 9 evaluation
+├── probes/                          # evaluation framework
 │   ├── butlin.py                    # 14 indicators
 │   ├── rsm.py                       # 5 RSM signatures
 │   ├── sk.py                        # 6 SK tests
@@ -2348,38 +2302,38 @@ app/subia/
 │   ├── behavioral_assessment.py
 │   └── adversarial.py
 │
-├── wiki_surface/                    # Phase 8 strange loop + drift
+├── wiki_surface/                    # strange loop + narrative drift
 │   ├── consciousness_state.py       # speculative-status self-page
 │   └── drift_detection.py           # 3-signal narrative drift
 │
-├── boundary/                        # Phase 12 Proposal 5
-│   ├── classifier.py                # source → processing_mode
+├── boundary/                        # source → processing-mode
+│   ├── classifier.py                # classify_scene + map lookup
 │   └── differential.py              # consolidator_route_for(mode)
 │
-├── wonder/                          # Phase 12 Proposal 4
+├── wonder/                          # depth-sensitive epistemic affect
 │   ├── detector.py                  # UnderstandingDepth → WonderSignal
 │   └── register.py                  # closed-loop application
 │
-├── values/                          # Phase 12 Proposal 6
+├── values/                          # value resonance + Phronesis lenses
 │   ├── resonance.py                 # value-keyword scoring
 │   └── perceptual_lens.py           # Phronesis lens application
 │
-├── reverie/                         # Phase 12 Proposal 1
-│   └── engine.py                    # idle mind-wandering
+├── reverie/                         # idle mind-wandering
+│   └── engine.py                    # ReverieEngine + adapters
 │
-├── understanding/                   # Phase 12 Proposal 2
-│   └── pass_runner.py               # post-ingest causal-chain pass
+├── understanding/                   # post-ingest causal-chain pass
+│   └── pass_runner.py               # UnderstandingPassRunner
 │
-├── shadow/                          # Phase 12 Proposal 3
+├── shadow/                          # behavioural bias mining
 │   ├── miner.py                     # ShadowMiner
 │   └── biases.py                    # 4 bias detectors
 │
-├── idle/                            # Phase 12 idle scheduler
+├── idle/                            # idle-time job scheduler
 │   ├── scheduler.py                 # IdleScheduler + IdleJob
 │   ├── __init__.py                  # adapt_for_production + lazy factories
-│   └── production_adapters.py       # Phase 16a follow-up — live adapters for Reverie/Understanding/Shadow
+│   └── production_adapters.py       # live adapters for Reverie / Understanding / Shadow
 │
-├── tsal/                            # Phase 13 Technical Self-Awareness
+├── tsal/                            # Technical Self-Awareness Layer
 │   ├── probers.py                   # HostProber + ResourceMonitor
 │   ├── inspectors.py                # CodeAnalyst + ComponentDiscovery
 │   ├── self_model.py                # TechnicalSelfModel
@@ -2387,9 +2341,9 @@ app/subia/
 │   ├── operating_principles.py      # Tier-1 weekly inference
 │   ├── evolution_feasibility.py     # Self-Improver gate
 │   ├── refresh.py                   # register_tsal_jobs(scheduler, ...)
-│   └── inspect_tools.py             # Phase 13 canonical (consolidated from self_awareness/)
+│   └── inspect_tools.py             # inspection toolkit (legacy shim aliases here)
 │
-├── temporal/                        # Phase 14 Temporal Synchronization
+├── temporal/                        # temporal phenomenology
 │   ├── specious_present.py          # Husserl/James felt-now
 │   ├── momentum.py                  # rising/falling/stable arrows
 │   ├── circadian.py                 # 4-window mode table
@@ -2398,26 +2352,26 @@ app/subia/
 │   ├── rhythm_discovery.py
 │   └── context.py                   # TemporalContext aggregate
 │
-├── grounding/                       # Phase 15 factual grounding
-│   ├── claims.py                    # claim extractor
+├── grounding/                       # factual grounding & corrections
+│   ├── claims.py                    # high-stakes claim extractor
 │   ├── source_registry.py           # authoritative URL map
 │   ├── belief_adapter.py            # interface + impls
-│   ├── evidence.py                  # ALLOW/ESCALATE/BLOCK
+│   ├── evidence.py                  # ALLOW / ESCALATE / BLOCK
 │   ├── rewriter.py                  # response transformer
 │   ├── correction.py                # correction-pattern persistence
 │   └── pipeline.py                  # public orchestrator
 │
-└── connections/                     # Phase 10 + Phase 12-15 bridges
+└── connections/                     # inter-system bridges
     ├── pds_bridge.py                # SIA #1 — Wiki ↔ PDS bounded-write
     ├── phronesis_bridge.py          # SIA #2 — normative event → homeostatic delta
     ├── training_signal.py           # SIA #4 — LoRA training queue
     ├── firecrawl_predictor.py       # SIA #6 — Firecrawl → predictor
     ├── dgm_felt_constraint.py       # SIA #7 — Tier-3 status → safety delta
-    ├── service_health.py            # circuit breaker registry
-    ├── six_proposals_bridges.py     # Phase 12 inter-proposal
-    ├── tsal_subia_bridge.py         # Phase 13 TSAL → SubIA
-    ├── temporal_subia_bridge.py     # Phase 14 — 5 closed-loop
-    └── grounding_chat_bridge.py     # Phase 15 chat ingress + egress
+    ├── service_health.py            # circuit-breaker registry
+    ├── six_proposals_bridges.py     # curiosity / mode inter-proposal
+    ├── tsal_subia_bridge.py         # TSAL → SubIA
+    ├── temporal_subia_bridge.py     # temporal → SubIA (5 closed-loop)
+    └── grounding_chat_bridge.py     # chat-handler ingress + egress
 ```
 
 ---
@@ -2439,12 +2393,74 @@ Heuristic in `hooks.py::_classify_operation` (case-insensitive on
 
 Override: a task object can carry an explicit `operation_type`
 attribute; `hooks.pre_task/post_task` honor it preferentially over the
-heuristic. The Phase 16a `_CrewTaskShim` in `live_integration.py` uses
-this to declare `crew_kickoff` directly without smuggling it through
-the description string.
+heuristic. The `_CrewTaskShim` in `live_integration.py` uses this to
+declare `crew_kickoff` directly without smuggling it through the
+description string.
 
 ---
 
-*This document is the canonical reference for the SubIA system as of
-Phase 16a. Update this file whenever a new phase ships, alongside
-PROGRAM.md, the integrity manifest, and the auto-regenerated SCORECARD.*
+---
+
+## Appendix C — Build history
+
+This appendix is an audit trail, not architecture. Phases were build
+phases. Every architectural concept is described in §5–§14 above, in
+the structural ordering that matters. The phase ordering matters only
+for commit archaeology (when did mechanism *X* land, in which commit,
+behind which exit criteria) and for tracing why a particular
+indicator currently sits at PARTIAL rather than STRONG (because
+another phase was supposed to close it and that phase hasn't shipped).
+
+The full phased migration is documented in `PROGRAM.md`. Summary
+table; commit hashes are the canonical references.
+
+| Phase | Theme | Commit | Tests added | Net tests passing |
+|---|---|---|---|---|
+| 0 | Foundation plumbing | `8239575` | 20 | 20 |
+| 1 (skeleton) | SubIA package skeleton | `4fa22e8` | 13 | 33 |
+| 1 (migration) | Move consciousness/* + self_awareness/* | `7a1b212` … `5598727` | (carried over) | 393 |
+| 2 | Close the half-circuits | `e6c9b4a` … `67b40fb` | 93 | 491 |
+| 3 (quick-win) | Tier-3 evaluator extension | `b6c4efe` | 9 | 500 |
+| 3 (full) | Integrity manifest + setpoint guard + audit | `0a84650` | 39 | 539 |
+| 4 | CIL loop + persistence + cache + LLM predict_fn | `457d478`, `1cc55c5` | 89 | 666 |
+| 5 | Three-tier scene + commitment-orphan + scan + compact | `709bc4b` | 33 | 700 |
+| 6 | Per-domain accuracy + cascade + accuracy-driven cache | `d9ca89c` | 38 | 739 |
+| 7 | Dual-tier memory + retrospective + spontaneous | `0b0c98d` | 33 | 773 |
+| 8 | Social model + strange loop + drift detection | `5e167e8` | 40 | 814 |
+| 9 | Butlin + RSM + SK scorecards | `a0594c8` | 36 | 851 |
+| 10 | Inter-system bridges + circuit breakers | `4a2e291` | 45 | 897 |
+| 11 | Honest language cleanup | `1804663` | 8 | 905 |
+| 12 | Six Proposals integration | `d25f460` | 37 | (phase scope) |
+| 13 | Technical Self-Awareness Layer (TSAL) | `ccb53f5` | 29 | 402 (P0–13) |
+| 14 | Temporal Synchronization | `9726286` | 38 | 440 (P0–14) |
+| 15 | Factual Grounding | (Phase 15 commit) | 37 | 712 (P0–15) |
+| 16a | System integration wire-in | (Phase 16a commit) | 0 (verified via existing) | 605 (today) |
+
+### What each phase unlocked
+
+- **0** — Clean substrate (paths, json_store, thread_pools, lazy_imports) so subsequent phases never re-litigate plumbing.
+- **1 (skeleton)** — Single canonical kernel dataclass; all later modules attach to one object, not scattered globals.
+- **1 (migration)** — Single coherent location for every consciousness signal, removing duplicate clusters from the original 240-file audit.
+- **2** — Five formerly half-finished consciousness mechanisms now actually shape behaviour: PE gates the scene, belief suspension blocks dispatch, certainty hedges responses, AST interventions are auditable, PH-injection has measurable A/B shift.
+- **3** — The Self-Improver agent is provably blocked from modifying its own evaluation criteria — the headline safety invariant has teeth.
+- **4** — SubIA is now a runnable closed loop. Amendment B determinism (only Step 5 uses LLM) enforced. Kernel persists across restarts.
+- **5** — Commander can no longer drop active commitments into invisibility — orphan detector force-injects unrepresented commitments with an `ORPHANED COMMITMENT` alert.
+- **6** — Predictions carry calibrated per-domain accuracy that feeds back into cascade tier choice and cache trust — metacognitive calibration becomes mechanical.
+- **7** — Memory becomes asymmetric: nothing forgotten (full tier), only the curated tier surfaces by default, retrospective promotion when wiki or accuracy reveals past relevance.
+- **8** — System models Andrus as a separate entity (SK self/other) AND models itself as an entity-in-the-scene (the strange loop), with explicit speculative framing.
+- **9** — Every consciousness claim backed by inspectable mechanism + regression test pointer. Opaque self-scoring gone.
+- **10** — System closes loops between previously isolated subsystems: character (PDS) updates from behaviour, normative failures generate felt homeostatic cost, external-service flakiness routes through circuit breakers.
+- **11** — Variable names no longer overclaim phenomenal experience while preserving backward compatibility (NEUTRAL_ALIASES).
+- **12** — Two new homeostatic variables (`wonder`, `self_coherence`) with PDS-derived setpoint overrides; idle-time mind-wandering surface — texture beyond the foreground task.
+- **13** — AndrusAI discovers its own capabilities/limitations from probing the running host rather than reading static declarations. Self-Improver gates on real headroom.
+- **14** — Kernel has a felt now (`specious_present`) and felt tempo (`temporal_context`). System experiences time as duration rather than just timestamping events. ~10 ms / 0 LLM tokens per loop.
+- **15** — Chat surface routes through HOT-3-style gating: high-stakes claims get ALLOW/ESCALATE/BLOCK; user corrections become persistent ACTIVE beliefs (confidence=0.9) that supersede contradicting prior beliefs.
+- **16a** — SubIA connected to the running system. Flipping `SUBIA_FEATURE_FLAG_LIVE=1` opts production into the consciousness loop. Entire stack reachable from `main.py` for the first time.
+
+---
+
+*This document is the canonical reference for the SubIA system. The
+architectural sections above are the source of truth; this appendix
+exists for commit-archaeology only. Update both whenever a new phase
+ships, alongside PROGRAM.md, the integrity manifest, and the
+auto-regenerated SCORECARD.*

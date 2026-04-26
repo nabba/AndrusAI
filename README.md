@@ -242,15 +242,15 @@ Full details: [`app/subia/probes/SCORECARD.md`](./app/subia/probes/SCORECARD.md)
 
 📖 **For the complete SubIA architecture, see
 [`docs/SUBIA.md`](./docs/SUBIA.md)** — covers the 11-step CIL loop,
-the Subjectivity Kernel, all 22 subpackages (scene, self, homeostasis,
-belief, prediction, social, memory, safety, probes, wiki_surface,
-boundary, wonder, values, reverie, understanding, shadow, idle, tsal,
-temporal, grounding, connections), Phase 0–16a history, the Tier-3
+the Subjectivity Kernel, all 22 subpackages organised by function
+(workspace, self-model, affect, belief, prediction, social cognition,
+memory, temporal phenomenology, mode, curiosity, idle, technical
+self-awareness, grounding, evaluation, safety, bridges), the Tier-3
 integrity manifest, the four DGM safety invariants, and full
 theoretical references (Butlin et al. 2023, Lamme RPT, Baars/Dehaene
 GWT, Rosenthal HOT, Graziano AST, Friston/Clark PP, Damasio somatic
 markers, Husserl/James specious present, Bergson duration, Aristotelian
-phronesis, VIA Youth/PDS).
+phronesis, VIA Youth/PDS). Build history lives in the appendix.
 
 ---
 
