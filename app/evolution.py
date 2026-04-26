@@ -1354,34 +1354,43 @@ def _measure_skill_impact(
 
 # ── Dynamic engine selection ──────────────────────────────────────────────────
 
+# Minimum days between forced ShinkaEvolve sessions. Guarantees the
+# alternative engine gets exercised even when AVO appears to be performing
+# well — without this, the kept_ratio>0.60 gate locks the system into AVO
+# and ShinkaEvolve never accumulates ROI data for comparison.
+_SHINKA_ROTATION_INTERVAL_DAYS = 7.0
+
+
 def _select_evolution_engine() -> str:
     """Dynamically select the best evolution engine for this session.
 
-    Decision logic (evaluated in order):
+    Decision logic (evaluated in priority order):
 
-    1. Manual override: if config.evolution_engine is "avo" or "shinka"
-       (not "auto"), respect it.
+      1. Manual override: config.evolution_engine in ("avo", "shinka") wins.
 
-    2. ShinkaEvolve unavailable: if workspace/shinka/initial.py doesn't
-       exist or shinka isn't installed, fall back to AVO.
+      2. Availability: ShinkaEvolve missing → AVO.
 
-    3. SUBIA safety < 0.70 (conservative): use AVO — single-mutation
-       is safer and more predictable under integrity concerns.
+      3. SUBIA safety < 0.70 → AVO (conservative single-mutation is safer).
 
-    4. AVO stagnation detected (last 5 experiments all failed): switch to
-       ShinkaEvolve — population diversity breaks local optima.
+      4. AVO stagnation (5 consecutive failures) → ShinkaEvolve (break out).
 
-    5. Recent AVO kept_ratio > 0.60 (AVO is working well): stay with AVO —
-       don't fix what isn't broken.
+      5. Forced rotation: ShinkaEvolve hasn't run in N days → ShinkaEvolve.
+         This guarantees exploration even when AVO appears healthy. Without
+         this rule, the kept_ratio gate (rule 6) locks the selector into
+         AVO permanently and ShinkaEvolve never accumulates ROI data.
 
-    6. Recent AVO kept_ratio < 0.20 (AVO mutations too ambitious): try
-       ShinkaEvolve — island model explores more conservatively.
+      6. AVO performing well (kept_ratio > 0.60) → AVO. Don't fix what
+         isn't broken — but only after rule 5 confirms ShinkaEvolve has
+         had recent exposure.
 
-    7. Undiagnosed errors exist: use AVO — it has full system context
-       (error patterns, stack traces) to target specific fixes.
+      7. AVO too ambitious (kept_ratio < 0.20) → ShinkaEvolve.
 
-    8. Default fallback: alternate — use ShinkaEvolve every 4th session
-       to maintain population diversity even when AVO is performing OK.
+      8. Undiagnosed errors ≥ 3 → AVO (has error context for targeting).
+
+      9. ROI recommendation: when both engines have data, defer to whichever
+         has lower cost-per-improvement. When only one has data, use it.
+
+     10. Default → AVO.
 
     Returns:
         "avo" or "shinka"
@@ -1395,8 +1404,7 @@ def _select_evolution_engine() -> str:
         pass
 
     # 2. ShinkaEvolve availability check
-    shinka_available = _is_shinka_available()
-    if not shinka_available:
+    if not _is_shinka_available():
         return "avo"
 
     # 3. SUBIA safety check — conservative mode uses AVO
@@ -1405,30 +1413,48 @@ def _select_evolution_engine() -> str:
         logger.info(f"Engine selector: AVO (SUBIA safety={subia_safety:.2f} < 0.70, conservative)")
         return "avo"
 
-    # 4-8: Analyze recent evolution performance
+    # 4-9: Analyze recent evolution performance
     recent = get_recent_results(10)
-    if not recent:
-        return "avo"  # No history yet, start with AVO
 
     # 4. Stagnation detection — last 5 all failed → switch to ShinkaEvolve
-    last_5 = recent[:5]
-    if len(last_5) >= 5 and all(r.get("status") in ("discard", "crash") for r in last_5):
-        logger.info("Engine selector: ShinkaEvolve (AVO stagnated — 5 consecutive failures)")
-        return "shinka"
+    if len(recent) >= 5:
+        last_5 = recent[:5]
+        if all(r.get("status") in ("discard", "crash") for r in last_5):
+            logger.info("Engine selector: ShinkaEvolve (AVO stagnated — 5 consecutive failures)")
+            return "shinka"
 
-    # 5. AVO performing well → stay with AVO
+    # 5. Forced rotation — ensure ShinkaEvolve gets fresh data periodically.
+    # Placed BEFORE the kept_ratio gate so that AVO performing well doesn't
+    # starve ShinkaEvolve of exploration opportunities.
+    try:
+        from app.evolution_roi import days_since_engine_run
+        days_since_shinka = days_since_engine_run("shinka")
+        if days_since_shinka >= _SHINKA_ROTATION_INTERVAL_DAYS:
+            elapsed = "never" if days_since_shinka == float("inf") else f"{days_since_shinka:.1f}d ago"
+            logger.info(
+                f"Engine selector: ShinkaEvolve (forced rotation — last run {elapsed}, "
+                f"interval {_SHINKA_ROTATION_INTERVAL_DAYS}d)"
+            )
+            return "shinka"
+    except Exception as exc:
+        logger.debug(f"Engine selector: rotation check failed: {exc}")
+
+    if not recent:
+        return "avo"  # No history → start with AVO
+
+    # 6. AVO performing well → stay with AVO
     kept = sum(1 for r in recent if r.get("status") == "keep")
     kept_ratio = kept / len(recent)
     if kept_ratio > 0.60:
         logger.info(f"Engine selector: AVO (kept_ratio={kept_ratio:.2f} > 0.60, performing well)")
         return "avo"
 
-    # 6. AVO mutations too ambitious → try ShinkaEvolve
+    # 7. AVO mutations too ambitious → try ShinkaEvolve
     if kept_ratio < 0.20 and len(recent) >= 5:
         logger.info(f"Engine selector: ShinkaEvolve (kept_ratio={kept_ratio:.2f} < 0.20, too ambitious)")
         return "shinka"
 
-    # 7. Undiagnosed errors → AVO (has error context)
+    # 8. Undiagnosed errors → AVO (has error context)
     try:
         from app.self_heal import get_recent_errors
         undiagnosed = [e for e in get_recent_errors(10) if not e.get("diagnosed")]
@@ -1438,12 +1464,28 @@ def _select_evolution_engine() -> str:
     except Exception:
         pass
 
-    # 8. Default: alternate every 4th session for diversity
-    total_experiments = len(get_recent_results(100))
-    if total_experiments % 4 == 0:
-        logger.info(f"Engine selector: ShinkaEvolve (rotation, experiment #{total_experiments})")
-        return "shinka"
+    # 9. ROI recommendation — let cost-per-improvement decide.
+    # Replaces the previous count-modulo rotation, which was too weak to
+    # ever fire reliably. This rule fires only when neither engine is
+    # clearly indicated by rules 4-8 — true ambiguity warrants ROI data.
+    try:
+        from app.evolution_roi import get_engine_recommendation, get_rolling_roi
+        rec = get_engine_recommendation()
+        # Only trust the recommendation when there's enough data to compare
+        snapshot = get_rolling_roi(days=14)
+        avo_data = snapshot.by_engine.get("avo", {})
+        shinka_data = snapshot.by_engine.get("shinka", {})
+        if avo_data.get("real_improvements", 0) >= 1 and shinka_data.get("real_improvements", 0) >= 1:
+            logger.info(
+                f"Engine selector: {rec} (ROI recommendation — "
+                f"avo cpi={avo_data.get('cost_per_improvement')}, "
+                f"shinka cpi={shinka_data.get('cost_per_improvement')})"
+            )
+            return rec
+    except Exception as exc:
+        logger.debug(f"Engine selector: ROI check failed: {exc}")
 
+    # 10. Default
     return "avo"
 
 

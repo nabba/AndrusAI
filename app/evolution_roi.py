@@ -346,6 +346,31 @@ def get_throttle_factor() -> float:
     return factor
 
 
+# ── Engine activity tracking ────────────────────────────────────────────────
+
+def get_last_run_timestamp(engine: str) -> float:
+    """Return the unix timestamp of the most recent run by this engine.
+
+    Returns 0.0 if the engine has never run. Used by the dynamic engine
+    selector to enforce minimum-interval rotation: if ShinkaEvolve hasn't
+    been tried in N days, force a session so we get fresh ROI data.
+    """
+    with _ledger_lock:
+        records = _load_ledger()
+    matches = [r for r in records if r.get("engine") == engine]
+    if not matches:
+        return 0.0
+    return max(r.get("timestamp", 0.0) for r in matches)
+
+
+def days_since_engine_run(engine: str) -> float:
+    """Convenience: days since the engine last ran. Infinity if never."""
+    last = get_last_run_timestamp(engine)
+    if last <= 0:
+        return float("inf")
+    return (time.time() - last) / 86400
+
+
 # ── Engine ROI comparison ───────────────────────────────────────────────────
 
 def get_engine_recommendation() -> str:
