@@ -369,6 +369,11 @@ class SubIALoop:
         This gives the rest of the loop access to retention/primal/
         protention + circadian mode + processing density. Wrapped in
         try/except matching existing step-level failure containment.
+
+        Phase 12 addition: tag every unclassified scene item with its
+        Boundary Sense `processing_mode` (introspective / perceptual /
+        memorial / imaginative / social) so downstream gates and the
+        consolidator can route per-mode.
         """
         try:
             from app.subia.temporal_hooks import refresh_temporal_state
@@ -387,7 +392,20 @@ class SubIALoop:
         for item in input_items:
             self._candidates.append(item)
             count += 1
-        return {"candidates": count}
+
+        # Phase 12 Boundary Sense — stamp processing_mode on candidates
+        # before the gate competes them. Tagging at perceive-time means
+        # gating, consolidation, and value-resonance all see a stable
+        # mode tag (DGM constraint: source→mode mapping is in config,
+        # not agent code).
+        boundary_tagged = 0
+        try:
+            from app.subia.boundary.classifier import classify_scene
+            boundary_tagged = classify_scene(self._candidates)
+        except Exception:
+            logger.debug("phase12 boundary classify failed", exc_info=True)
+
+        return {"candidates": count, "boundary_tagged": boundary_tagged}
 
     def _step_feel(self) -> dict:
         """Step 2: deterministic homeostatic update from candidates.
@@ -474,6 +492,39 @@ class SubIALoop:
         )
         self._tiers = tiers
 
+        # Mirror the focal items into kernel.scene so subsystems that
+        # iterate kernel.scene (boundary classifier on later cycles,
+        # value resonance, persistence, consolidator, retrospective
+        # promotion) actually see the currently-attended items. The
+        # kernel.scene was previously left empty — items lived only on
+        # the gate's internal lists, invisible to consumers.
+        previous_focal_ids = {getattr(i, "id", None) for i in self.kernel.focal_scene()}
+        new_scene: list = []
+        for item in tiers.focal:
+            if not getattr(item, "tier", None):
+                try:
+                    item.tier = "focal"
+                except Exception:
+                    pass
+            new_scene.append(item)
+        # Peripheral entries (tiers.peripheral) are PeripheralEntry
+        # records, not SceneItems — keep them out of kernel.scene to
+        # preserve type discipline. The compact context renderer reads
+        # tiers.peripheral directly.
+        self.kernel.scene = new_scene
+
+        # Phase 12 Value Resonance + Phronesis lenses (apply against
+        # the now-populated kernel.scene). Closes the Step 3 hook
+        # documented in app/subia/phase12_hooks.py.
+        lens_report: dict = {}
+        try:
+            from app.subia.phase12_hooks import (
+                apply_value_resonance_and_lenses,
+            )
+            lens_report = apply_value_resonance_and_lenses(self.kernel) or {}
+        except Exception:
+            logger.debug("phase12 value resonance failed", exc_info=True)
+
         details = {
             "admitted": admitted,
             "rejected": rejected,
@@ -483,6 +534,10 @@ class SubIALoop:
         }
         if social_boost_report is not None:
             details["social_boost"] = social_boost_report.to_dict()
+        if lens_report:
+            details["value_resonance"] = lens_report.get("items_modulated", 0)
+            if lens_report.get("lens_aggregate"):
+                details["lens_aggregate"] = lens_report["lens_aggregate"]
         return details
 
     def _step_own(self) -> dict:

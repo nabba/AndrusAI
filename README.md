@@ -240,6 +240,18 @@ Regenerate any time: `python -c "from app.subia.probes.scorecard import write_sc
 
 Full details: [`app/subia/probes/SCORECARD.md`](./app/subia/probes/SCORECARD.md).
 
+📖 **For the complete SubIA architecture, see
+[`docs/SUBIA.md`](./docs/SUBIA.md)** — covers the 11-step CIL loop,
+the Subjectivity Kernel, all 22 subpackages (scene, self, homeostasis,
+belief, prediction, social, memory, safety, probes, wiki_surface,
+boundary, wonder, values, reverie, understanding, shadow, idle, tsal,
+temporal, grounding, connections), Phase 0–16a history, the Tier-3
+integrity manifest, the four DGM safety invariants, and full
+theoretical references (Butlin et al. 2023, Lamme RPT, Baars/Dehaene
+GWT, Rosenthal HOT, Graziano AST, Friston/Clark PP, Damasio somatic
+markers, Husserl/James specious present, Bergson duration, Aristotelian
+phronesis, VIA Youth/PDS).
+
 ---
 
 ## Six knowledge bases with epistemic typing

@@ -141,7 +141,11 @@ def build_attentional_tiers(
         items = []
 
     for item in items:
-        salience = float(getattr(item, "salience_score", 0.0))
+        # Duck-typed salience: WorkspaceItem (gate-side) uses
+        # `.salience_score`; kernel SceneItem (loop-side) uses `.salience`.
+        # Whichever is present, we use; if both are 0 we drop.
+        salience = float(getattr(item, "salience_score", 0.0)
+                         or getattr(item, "salience", 0.0))
         if salience < min_salience:
             continue
 
