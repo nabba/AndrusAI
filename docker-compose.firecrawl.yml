@@ -31,7 +31,14 @@ services:
   searxng:
     image: searxng/searxng:latest
     networks:
-      - firecrawl-backend
+      firecrawl-backend: {}
+      # Also exposed to the crewai-team external network so app/tools/web_search.py
+      # can reach it via http://searxng:8080 as a Brave-API fallback. The alias
+      # is required because the container's compose-default name is
+      # "firecrawl-searxng-1", which won't resolve from the gateway.
+      crewai-team_external:
+        aliases:
+          - searxng
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     deploy:

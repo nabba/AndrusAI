@@ -640,10 +640,21 @@ def tech_radar(limit: int = Query(20, ge=1, le=100)):
     except Exception as exc:
         err = str(exc)
         logger.debug("tech-radar endpoint: %s", exc)
+
+    # Search backend health — lets the React app explain *why* the radar may
+    # be quiet (e.g. "Brave quota exhausted, falling back to SearXNG").
+    search_status: dict = {}
+    try:
+        from app.tools.web_search import get_search_status
+        search_status = get_search_status()
+    except Exception as exc:
+        logger.debug("tech-radar endpoint: search status failed: %s", exc)
+
     return {
         "discoveries": discoveries,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "error": err,
+        "search_status": search_status,
     }
 
 # ── LLM catalog, role assignments, discovery control ─────────────────────────

@@ -751,9 +751,44 @@ function TechRadarTab() {
     .filter((k) => buckets.has(k))
     .concat(Array.from(buckets.keys()).filter((k) => !['models', 'frameworks', 'research', 'tools', 'unknown'].includes(k)));
 
+  // Search-backend health banner — explains why discoveries may be sparse.
+  const searchStatus = data?.search_status;
+  const backendNotice = (() => {
+    if (!searchStatus) return null;
+    const { last_backend_used, brave_quota_blocked_until, last_failure_chain } = searchStatus;
+    if (last_backend_used === null && last_failure_chain.length > 0) {
+      return { tone: 'error' as const, text: `All search backends failed: ${last_failure_chain.join(' → ')}` };
+    }
+    if (brave_quota_blocked_until && brave_quota_blocked_until > Date.now() / 1000) {
+      const used = last_backend_used ?? 'fallback';
+      const resumeAt = new Date(brave_quota_blocked_until * 1000).toLocaleString();
+      return {
+        tone: 'warn' as const,
+        text: `Brave quota exhausted — using ${used} until retry at ${resumeAt}`,
+      };
+    }
+    if (last_backend_used && last_backend_used !== 'brave') {
+      return { tone: 'info' as const, text: `Search served by ${last_backend_used} (Brave skipped)` };
+    }
+    return null;
+  })();
+
   return (
     <div className="space-y-5">
       {data?.error && <div className="text-xs text-[#fbbf24]">{data.error}</div>}
+      {backendNotice && (
+        <div
+          className={`text-xs px-3 py-2 rounded border ${
+            backendNotice.tone === 'error'
+              ? 'border-[#7f1d1d] bg-[#1f0a0a] text-[#fca5a5]'
+              : backendNotice.tone === 'warn'
+              ? 'border-[#78350f] bg-[#1f1408] text-[#fbbf24]'
+              : 'border-[#1e3a5f] bg-[#0a1422] text-[#7dd3fc]'
+          }`}
+        >
+          {backendNotice.text}
+        </div>
+      )}
       {orderedCategories.map((cat) => {
         const colors = RADAR_COLORS[cat] ?? RADAR_COLORS.unknown;
         const rows = buckets.get(cat) ?? [];
