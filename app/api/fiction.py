@@ -34,8 +34,14 @@ async def upload_fiction_text(
     author: str = Form(""),
     title: str = Form(""),
     theme: str = Form(""),
+    # Must be Form() — a bare bool is treated as a query param so the
+    # multipart "overwrite=true" body field would be silently dropped.
+    overwrite: bool = Form(False),
 ):
-    """Upload a .md/.txt fiction file (up to 20MB) into the fiction library."""
+    """Upload a .md/.txt fiction file (up to 20MB) into the fiction library.
+
+    Refuses duplicates by default — pass ``overwrite=true`` to replace.
+    """
     _ensure_dirs()
 
     filename = file.filename or "upload.md"
@@ -50,6 +56,34 @@ async def upload_fiction_text(
         raise HTTPException(413, f"File too large ({len(content)} bytes). Max {MAX_UPLOAD_SIZE // (1024*1024)}MB.")
     if not content.strip():
         raise HTTPException(400, "File is empty.")
+
+    # ── Duplicate check (2026-04-26) ─────────────────────────────────
+    from app.api.kb_dedup import find_duplicate
+    try:
+        from app.fiction_inspiration import _get_collection
+        col = await asyncio.to_thread(_get_collection)
+    except Exception:
+        col = None
+    dup = await asyncio.to_thread(
+        find_duplicate,
+        new_content=content,
+        new_filename=safe_name,
+        existing_files_dir=FICTION_TEXTS_DIR,
+        collection=col,
+        filename_meta_key="source_file",
+    )
+    if dup and not overwrite:
+        raise HTTPException(status_code=409, detail=dup.as_detail())
+    if dup and overwrite:
+        try:
+            (FICTION_TEXTS_DIR / dup.existing_filename).unlink(missing_ok=True)
+            if col is not None:
+                # Best-effort: remove existing chunks for the same source_file
+                await asyncio.to_thread(
+                    col.delete, where={"source_file": dup.existing_filename},
+                )
+        except Exception:
+            logger.debug("fiction: pre-overwrite cleanup failed", exc_info=True)
 
     text = content.decode("utf-8", errors="replace")
 

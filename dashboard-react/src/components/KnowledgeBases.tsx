@@ -119,9 +119,34 @@ function useKBStatsQuery(kbType: KBType) {
 
 // ── Upload form components ──────────────────────────────────────────────────
 
+/**
+ * Custom error class for upload failures. Carries the HTTP status and,
+ * on 409 Conflict, the parsed duplicate-detection detail so the
+ * caller can show a "replace?" prompt instead of a raw error string.
+ */
+class UploadError extends Error {
+  status: number;
+  detail: Record<string, unknown> | null;
+  constructor(message: string, status: number, detail: Record<string, unknown> | null) {
+    super(message);
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 function uploadFormData(path: string, body: FormData): Promise<unknown> {
   return fetch(path, { method: 'POST', body }).then(async (res) => {
-    if (!res.ok) throw new Error(`Upload failed: ${res.status} ${await res.text().catch(() => '')}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      let detail: Record<string, unknown> | null = null;
+      try {
+        const parsed = JSON.parse(text);
+        detail = (parsed?.detail ?? parsed) as Record<string, unknown>;
+      } catch {
+        // non-JSON body — keep detail null
+      }
+      throw new UploadError(`Upload failed: ${res.status} ${text}`, res.status, detail);
+    }
     return res.json();
   });
 }
@@ -129,8 +154,55 @@ function uploadFormData(path: string, body: FormData): Promise<unknown> {
 function FileUploadZone({ kbType, color, onUploadDone }: { kbType: KBType; color: string; onUploadDone: () => void }) {
   const [status, setStatus] = useState('');
   const [dragOver, setDragOver] = useState(false);
+  /** Pending duplicate state: when set, user is prompted to confirm overwrite. */
+  const [duplicate, setDuplicate] = useState<{
+    files: File[];
+    matched_by?: string;
+    existing_filename?: string;
+    added_at?: string | null;
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const cfg = KB_CONFIGS[kbType];
+
+  const doUpload = useCallback(async (files: File[], overwrite: boolean) => {
+    setStatus(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}${overwrite ? ' (replacing)' : ''}...`);
+    const fd = new FormData();
+    for (const f of files) fd.append('file', f);
+    if (overwrite) fd.append('overwrite', 'true');
+
+    try {
+      const j = await uploadFormData(cfg.uploadPath, fd) as {
+        chunks_created?: number;
+        total_chunks?: number;
+        files_processed?: number;
+        errors?: number;
+      };
+      if (files.length === 1) {
+        setStatus(j.chunks_created ? `${j.chunks_created} chunks ingested${overwrite ? ' (replaced)' : ''}` : 'Uploaded');
+      } else {
+        const chunks = j.total_chunks ?? j.chunks_created ?? 0;
+        const errCount = j.errors ?? 0;
+        setStatus(`${j.files_processed ?? files.length} files → ${chunks} chunks${errCount ? ` (${errCount} failed)` : ''}`);
+      }
+      setDuplicate(null);
+      setTimeout(() => setStatus(''), 5000);
+      onUploadDone();
+    } catch (err) {
+      // Duplicate-detected → surface a confirm prompt instead of raw error.
+      if (err instanceof UploadError && err.status === 409 && err.detail) {
+        const d = err.detail as Record<string, unknown>;
+        setDuplicate({
+          files,
+          matched_by: typeof d.matched_by === 'string' ? d.matched_by : 'filename',
+          existing_filename: typeof d.existing_filename === 'string' ? d.existing_filename : undefined,
+          added_at: typeof d.added_at === 'string' ? d.added_at : null,
+        });
+        setStatus('');
+        return;
+      }
+      setStatus(err instanceof Error ? err.message : 'Upload failed');
+    }
+  }, [cfg.uploadPath, onUploadDone]);
 
   const upload = useCallback(async (files: FileList | File[]) => {
     const fileArr = Array.from(files);
@@ -141,44 +213,60 @@ function FileUploadZone({ kbType, color, onUploadDone }: { kbType: KBType; color
       setStatus(`${oversized.length} file(s) too large (max 50MB)`);
       return;
     }
-
-    setStatus(`Uploading ${fileArr.length} file${fileArr.length > 1 ? 's' : ''}...`);
-    const fd = new FormData();
-    for (const f of fileArr) fd.append('file', f);
-
-    try {
-      const j = await uploadFormData(cfg.uploadPath, fd) as {
-        chunks_created?: number;
-        total_chunks?: number;
-        files_processed?: number;
-        errors?: number;
-      };
-      if (fileArr.length === 1) {
-        setStatus(j.chunks_created ? `${j.chunks_created} chunks ingested` : 'Uploaded');
-      } else {
-        const chunks = j.total_chunks ?? j.chunks_created ?? 0;
-        const errCount = j.errors ?? 0;
-        setStatus(`${j.files_processed ?? fileArr.length} files → ${chunks} chunks${errCount ? ` (${errCount} failed)` : ''}`);
-      }
-      setTimeout(() => setStatus(''), 5000);
-      onUploadDone();
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : 'Upload failed');
-    }
-  }, [cfg.uploadPath, onUploadDone]);
+    await doUpload(fileArr, false);
+  }, [doUpload]);
 
   return (
-    <div
-      className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all ${dragOver ? 'border-opacity-100' : 'border-opacity-40'}`}
-      style={{ borderColor: color }}
-      onClick={() => inputRef.current?.click()}
-      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) void upload(e.dataTransfer.files); }}
-    >
-      <input ref={inputRef} type="file" accept=".md,.txt,.pdf,.docx" multiple className="hidden" onChange={(e) => { if (e.target.files?.length) void upload(e.target.files); }} />
-      <p className="text-xs text-[#7a8599]">Drop files here or <span style={{ color }} className="font-medium">click to upload</span></p>
-      {status && <p className="text-xs mt-2" style={{ color: status.toLowerCase().includes('fail') ? '#f87171' : '#34d399' }}>{status}</p>}
+    <div>
+      <div
+        className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all ${dragOver ? 'border-opacity-100' : 'border-opacity-40'}`}
+        style={{ borderColor: color }}
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) void upload(e.dataTransfer.files); }}
+      >
+        <input ref={inputRef} type="file" accept=".md,.txt,.pdf,.docx" multiple className="hidden" onChange={(e) => { if (e.target.files?.length) void upload(e.target.files); }} />
+        <p className="text-xs text-[#7a8599]">Drop files here or <span style={{ color }} className="font-medium">click to upload</span></p>
+        {status && <p className="text-xs mt-2" style={{ color: status.toLowerCase().includes('fail') ? '#f87171' : '#34d399' }}>{status}</p>}
+      </div>
+
+      {/* Duplicate-detected confirm prompt (2026-04-26 dedup feature). */}
+      {duplicate && (
+        <div
+          className="mt-2 p-3 rounded-lg border text-xs"
+          style={{ borderColor: '#f59e0b40', backgroundColor: '#f59e0b10' }}
+        >
+          <div className="font-semibold mb-1" style={{ color: '#fbbf24' }}>
+            Already in this knowledge base
+          </div>
+          <div className="text-[#d1d5db] mb-2">
+            <strong>{duplicate.existing_filename}</strong>
+            {duplicate.added_at && (
+              <span className="text-[#9ca3af]"> · added {new Date(duplicate.added_at).toLocaleDateString()}</span>
+            )}
+            <span className="text-[#9ca3af]"> · matched by {duplicate.matched_by}</span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="px-3 py-1 rounded text-xs"
+              style={{ background: '#f59e0b', color: '#1f1300', fontWeight: 600 }}
+              onClick={() => void doUpload(duplicate.files, true)}
+            >
+              Replace
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1 rounded text-xs"
+              style={{ background: 'transparent', border: '1px solid #4b5563', color: '#d1d5db' }}
+              onClick={() => setDuplicate(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

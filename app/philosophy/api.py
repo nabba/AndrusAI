@@ -40,11 +40,16 @@ async def upload_philosophy_text(
     tradition: str = Form(""),
     era: str = Form(""),
     title: str = Form(""),
+    # Must be Form() so a multipart "overwrite=true" field is honored
+    # (otherwise FastAPI treats bare bool as a query param).
+    overwrite: bool = Form(False),
 ):
     """Upload a .md file into the philosophy knowledge base.
 
     The file is saved to workspace/philosophy/texts/ and ingested into ChromaDB.
     If the file has YAML frontmatter, those values take precedence over form fields.
+
+    Refuses duplicates by default — pass ``overwrite=true`` to replace.
     """
     filename = file.filename or "upload.md"
 
@@ -67,6 +72,35 @@ async def upload_philosophy_text(
         raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
     if len(contents) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
+
+    # ── Duplicate check (2026-04-26) ─────────────────────────────────
+    from app.api.kb_dedup import find_duplicate
+    texts_dir_path = _texts_dir()
+    try:
+        from app.philosophy.vectorstore import get_store
+        col = getattr(get_store(), "_collection", None)
+    except Exception:
+        col = None
+    dup = await asyncio.to_thread(
+        find_duplicate,
+        new_content=contents,
+        new_filename=safe_name,
+        existing_files_dir=texts_dir_path,
+        collection=col,
+        filename_meta_key="source_file",
+    )
+    if dup and not overwrite:
+        raise HTTPException(status_code=409, detail=dup.as_detail())
+    if dup and overwrite:
+        # Remove the old file + chunks before re-ingesting fresh.
+        try:
+            (texts_dir_path / dup.existing_filename).unlink(missing_ok=True)
+            if col is not None:
+                await asyncio.to_thread(
+                    get_store().remove_by_source, dup.existing_filename,
+                )
+        except Exception:
+            logger.debug("philosophy: pre-overwrite cleanup failed", exc_info=True)
 
     text = contents.decode("utf-8", errors="replace")
 

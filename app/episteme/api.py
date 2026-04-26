@@ -24,8 +24,13 @@ async def _process_one_upload(
     epistemic_status: str,
     date: str,
     title: str,
+    overwrite: bool = False,
 ) -> dict:
-    """Process a single uploaded file. Returns a result dict."""
+    """Process a single uploaded file. Returns a result dict.
+
+    Refuses duplicates by default — caller passes ``overwrite=True``
+    to replace an existing copy with the same filename or content hash.
+    """
     if not file.filename:
         return {"filename": "?", "error": "No filename", "chunks_created": 0}
 
@@ -39,6 +44,39 @@ async def _process_one_upload(
 
     texts_dir = Path(config.TEXTS_DIR)
     texts_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Duplicate check (2026-04-26) ─────────────────────────────────
+    import asyncio as _asyncio_dup
+    from app.api.kb_dedup import find_duplicate
+    try:
+        from app.episteme.vectorstore import get_store as _get_episteme_store
+        col = getattr(_get_episteme_store(), "_collection", None)
+    except Exception:
+        col = None
+    dup = await _asyncio_dup.to_thread(
+        find_duplicate,
+        new_content=content,
+        new_filename=safe_name,
+        existing_files_dir=texts_dir,
+        collection=col,
+        filename_meta_key="source_file",
+    )
+    if dup and not overwrite:
+        return {
+            "filename": safe_name,
+            "error": "duplicate",
+            "duplicate": dup.as_detail(),
+            "chunks_created": 0,
+        }
+    if dup and overwrite:
+        try:
+            (texts_dir / dup.existing_filename).unlink(missing_ok=True)
+            if col is not None and hasattr(_get_episteme_store(), "remove_by_source"):
+                await _asyncio_dup.to_thread(
+                    _get_episteme_store().remove_by_source, dup.existing_filename,
+                )
+        except Exception:
+            logger.debug("episteme: pre-overwrite cleanup failed", exc_info=True)
 
     dest = texts_dir / safe_name
     text = content.decode("utf-8", errors="replace")
@@ -87,17 +125,21 @@ async def upload_texts(
     epistemic_status: str = Form("theoretical"),
     date: str = Form(""),
     title: str = Form(""),
+    # Must be Form() so a multipart "overwrite=true" body field is
+    # honored (FastAPI defaults bare bool to query-string).
+    overwrite: bool = Form(False),
 ):
     """Upload one or more research texts (.md or .txt) to the episteme KB.
 
     Accepts multiple files in a single request. Metadata fields (author,
     paper_type, etc.) apply as defaults — files with YAML frontmatter
-    override them per-file.
+    override them per-file. Duplicates are refused unless ``overwrite=true``.
     """
     results = []
     for f in file:
         result = await _process_one_upload(
             f, author, paper_type, domain, epistemic_status, date, title,
+            overwrite=overwrite,
         )
         results.append(result)
 
@@ -109,6 +151,8 @@ async def upload_texts(
     # Backward-compatible: single file returns flat response
     if len(results) == 1:
         r = results[0]
+        if r.get("error") == "duplicate":
+            raise HTTPException(409, r.get("duplicate") or {"error": "duplicate"})
         if "error" in r:
             raise HTTPException(400, r["error"])
         return {"status": "ok", **r}

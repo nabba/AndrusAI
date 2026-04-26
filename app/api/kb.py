@@ -37,12 +37,56 @@ def _get_kb_store():
     return _kb_store
 
 
+def _stamp_content_hash(collection, source_name: str, content_hash: str) -> None:
+    """Add ``content_hash`` to every chunk metadata for a freshly-ingested
+    document. Lets future uploads match by content even after rename.
+
+    Run AFTER the store's add_document() succeeds, so we know which
+    chunk IDs to update. Non-fatal — caller wraps in try/except.
+    """
+    if collection is None or not source_name or not content_hash:
+        return
+    try:
+        existing = collection.get(
+            where={"source": source_name},
+            include=["metadatas"],
+        )
+        ids = existing.get("ids") or []
+        metas = existing.get("metadatas") or []
+        if not ids:
+            return
+        # Update each chunk metadata with content_hash; ChromaDB's update()
+        # is the right primitive (vs delete+re-add which would lose
+        # embeddings).
+        new_metas = []
+        for m in metas:
+            new = dict(m or {})
+            new["content_hash"] = content_hash
+            new_metas.append(new)
+        collection.update(ids=ids, metadatas=new_metas)
+    except Exception:
+        logger.debug(
+            "_stamp_content_hash: update failed (non-fatal — dedup will "
+            "still work on filename match)",
+            exc_info=True,
+        )
+
+
 @router.post("/upload")
 async def kb_upload(
     file: UploadFile = File(...),
     category: str = Form("general"),
+    # Form() not bare bool — without this FastAPI treats it as a query
+    # param and ignores the form body, so the dashboard's "Replace"
+    # button (which sends overwrite as a multipart field) was being
+    # silently dropped and the upload would 409 again.
+    overwrite: bool = Form(False),
 ):
-    """Ingest an uploaded file into the knowledge base."""
+    """Ingest an uploaded file into the knowledge base.
+
+    Refuses duplicates by default — pass ``overwrite=true`` (form field
+    or query param) to replace an existing copy.
+    """
     import tempfile
 
     filename = file.filename or "upload"
@@ -63,12 +107,55 @@ async def kb_upload(
         if len(contents) == 0:
             raise HTTPException(status_code=400, detail="Empty file")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=ext, prefix="kb_upload_") as tmp:
-            tmp.write(contents)
-            tmp_path = tmp.name
-
+        # ── Duplicate check (2026-04-26) ─────────────────────────────
+        # Look for an existing document with the same filename or hash;
+        # 409 unless caller explicitly opted into overwrite.
+        from app.api.kb_dedup import (
+            find_duplicate, compute_content_hash,
+        )
+        from pathlib import Path as _Path
+        # Sanitize the original filename so it's safe to use as a path component
+        # (some users upload "résumé final.pdf" or files with slashes).
+        sanitized_name = re.sub(r"[^\w\-.]", "_", filename) or "upload"
         store = await asyncio.to_thread(_get_kb_store)
+        col = getattr(store, "_collection", None) or getattr(store, "collection", None)
+        dup = await asyncio.to_thread(
+            find_duplicate,
+            new_content=contents,
+            new_filename=sanitized_name,
+            existing_files_dir=None,           # KB store doesn't keep files on disk
+            collection=col,
+            filename_meta_key="source",
+        )
+        if dup and not overwrite:
+            raise HTTPException(status_code=409, detail=dup.as_detail())
+        if dup and overwrite:
+            try:
+                await asyncio.to_thread(store.remove_document, dup.existing_filename)
+            except Exception:
+                logger.debug("KB upload: pre-overwrite remove failed", exc_info=True)
+
+        # Write to a temp directory but PRESERVE the user's filename so
+        # the chunk metadata's ``source`` field carries something a
+        # human can recognize (and so subsequent dedup checks can match
+        # by filename — without this trick every upload looked like a
+        # new document with a random tmpfile name).
+        tmp_dir = tempfile.mkdtemp(prefix="kb_upload_")
+        tmp_path = str(_Path(tmp_dir) / sanitized_name)
+        with open(tmp_path, "wb") as tmp_file:
+            tmp_file.write(contents)
+
         result = await asyncio.to_thread(store.add_document, tmp_path, category=category)
+
+        # Stamp content_hash onto every chunk we just added so future
+        # uploads can match by hash even if the filename changes.
+        try:
+            content_hash = compute_content_hash(contents)
+            await asyncio.to_thread(
+                _stamp_content_hash, col, sanitized_name, content_hash,
+            )
+        except Exception:
+            logger.debug("KB upload: hash stamp failed (non-fatal)", exc_info=True)
 
         if not result.success:
             raise HTTPException(status_code=422, detail=result.error or "Ingestion failed")
@@ -91,6 +178,14 @@ async def kb_upload(
         if tmp_path:
             try:
                 os.unlink(tmp_path)
+            except OSError:
+                pass
+            # Also remove the parent tmpdir we created (mkdtemp leaves
+            # the directory behind even after we delete the file).
+            try:
+                parent = os.path.dirname(tmp_path)
+                if parent and parent.startswith("/tmp") and "kb_upload_" in parent:
+                    os.rmdir(parent)
             except OSError:
                 pass
 
