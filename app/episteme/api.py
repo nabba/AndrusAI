@@ -55,8 +55,18 @@ async def _process_one_upload(
     dest.write_text(text, encoding="utf-8")
 
     try:
+        # 2026-04-26: ingest_file is a SYNC operation (chunk + embed +
+        # ChromaDB write) that for a large research PDF takes 30-90s.
+        # Calling it directly from an `async def` handler freezes the
+        # asyncio event loop for the whole duration — every OTHER
+        # request on the gateway blocks too, the dashboard's polling
+        # KBs see timeouts, and the user-visible result is "504 Gateway
+        # timeout" + cascading "Failed to load" cards across all KBs.
+        # Philosophy + fiction handlers already use asyncio.to_thread;
+        # this fix brings episteme into line.
         from app.episteme.ingestion import ingest_file
-        chunks = ingest_file(dest)
+        import asyncio as _asyncio
+        chunks = await _asyncio.to_thread(ingest_file, dest)
     except Exception as e:
         logger.error("Ingestion failed for %s: %s", safe_name, e)
         return {"filename": safe_name, "error": str(e)[:200], "chunks_created": 0}

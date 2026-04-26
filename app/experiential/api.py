@@ -66,9 +66,12 @@ async def upload_entry(
         "created_at": now.isoformat(),
     }
 
+    # 2026-04-26: don't block the asyncio loop on sync embed+store.
+    # See aesthetics/api.py for the rationale.
+    import asyncio as _asyncio
     from app.experiential.vectorstore import get_store
-    store = get_store()
-    ok = store.add_entry(text.strip(), metadata, entry_id)
+    store = await _asyncio.to_thread(get_store)
+    ok = await _asyncio.to_thread(store.add_entry, text.strip(), metadata, entry_id)
 
     if not ok:
         raise HTTPException(500, "Failed to store entry")

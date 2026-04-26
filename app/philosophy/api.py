@@ -172,8 +172,15 @@ async def upload_philosophy_raw_text(
 
 
 @philosophy_router.get("/status")
+@philosophy_router.get("/stats")  # alias — dashboard React calls /philosophy/stats
 async def philosophy_status():
-    """Return philosophy knowledge base statistics."""
+    """Return philosophy knowledge base statistics.
+
+    Both ``/status`` and ``/stats`` resolve here. The React dashboard
+    expects ``/stats`` (consistent with episteme/aesthetics/tensions);
+    older callers use ``/status``. Keep both indefinitely — the router
+    decorator stack costs zero at request time.
+    """
     try:
         store = await asyncio.to_thread(_get_store)
         stats = await asyncio.to_thread(store.get_stats)

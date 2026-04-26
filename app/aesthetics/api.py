@@ -72,9 +72,15 @@ async def upload_pattern(
         "created_at": now.isoformat(),
     }
 
+    # 2026-04-26: store.add_pattern does sync embed + ChromaDB write (~1-3s
+    # per call). Calling it directly from an async handler blocks the
+    # asyncio loop for the whole duration; under concurrent uploads or
+    # background polling that surfaces as "504 Gateway timeout" / "Load
+    # failed" cards across the dashboard. Same fix as episteme.api.
+    import asyncio as _asyncio
     from app.aesthetics.vectorstore import get_store
-    store = get_store()
-    ok = store.add_pattern(content, metadata, pattern_id)
+    store = await _asyncio.to_thread(get_store)
+    ok = await _asyncio.to_thread(store.add_pattern, content, metadata, pattern_id)
 
     if not ok:
         raise HTTPException(500, "Failed to store pattern")

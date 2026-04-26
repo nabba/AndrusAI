@@ -96,13 +96,33 @@ async def upload_fiction_text(
 
 
 @fiction_router.get("/status")
+@fiction_router.get("/stats")  # alias — frontend symmetry with episteme/aesthetics/tensions
 async def fiction_status():
-    """Return fiction library statistics."""
+    """Return fiction library statistics.
+
+    Both ``/status`` and ``/stats`` resolve here so the React dashboard
+    can use either name. Returns ``total_chunks`` and ``total_documents``
+    so the UI's chunk-count and doc-count badges both populate.
+    """
     try:
         from app.fiction_inspiration import _get_collection
         col = _get_collection()
         count = col.count()
-        return {"status": "ok", "total_chunks": count}
+        # Approximate document count from collection metadata if available;
+        # fall back to chunk count as a worst-case overestimate that's
+        # still useful as a "stuff is here" signal.
+        try:
+            meta = col.get(include=["metadatas"], limit=10000)
+            docs = {m.get("source") for m in (meta.get("metadatas") or []) if m}
+            doc_count = len(docs) or 0
+        except Exception:
+            doc_count = 0
+        return {
+            "status": "ok",
+            "total_chunks": count,
+            "total_documents": doc_count,
+            "collection_name": "fiction_inspiration",
+        }
     except Exception as e:
         raise HTTPException(500, str(e)[:200])
 
