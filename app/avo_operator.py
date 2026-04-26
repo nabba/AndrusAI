@@ -110,6 +110,14 @@ def _phase_planning(
     planning_instructions = _load_meta_prompt("avo_planning_prompt.md", _FALLBACK_PLANNING)
 
     prompt = f"{planning_instructions}\n\n## System State\n{context}\n\n"
+
+    # Fix A: Inject coding conventions so the planner produces elegant code,
+    # not just code that improves a metric. Loaded from workspace/meta/ —
+    # evolvable but starts with the rules from CLAUDE.md.
+    conventions = _load_meta_prompt("coding_conventions.md", "")
+    if conventions:
+        prompt += f"## Coding Conventions (you must follow these)\n{conventions}\n\n"
+
     if memory_context:
         prompt += f"## Evolutionary Memory\n{memory_context}\n\n"
     if lineage_context:
@@ -363,6 +371,17 @@ def _phase_local_testing(files: dict[str, str]) -> tuple[bool, list[str]]:
         if not content.strip():
             errors.append(f"Empty file: {fpath}")
 
+    # Fix E: Architectural review — cycle detection is a hard reject;
+    # capability overlaps and centrality spikes are surfaced via metadata
+    # for the Phase 4 critique LLM but don't fail Phase 3.
+    try:
+        from app.architectural_review import review_mutation
+        report = review_mutation(files)
+        if report.has_hard_rejects:
+            errors.append(f"Architectural review: {report.summary()}")
+    except Exception as exc:
+        logger.debug(f"architectural_review unavailable: {exc}")
+
     return (len(errors) == 0, errors)
 
 # ── Phase 4: Self-Critique ───────────────────────────────────────────────────
@@ -409,6 +428,27 @@ def _phase_self_critique(
         f"## Change Type: {change_type}\n\n"
         f"## Files\n" + "\n\n".join(file_summary) + "\n\n"
     )
+
+    # Fix A: Critique LLM also sees the coding conventions, so it can reject
+    # mutations that violate them even if functionally correct.
+    conventions = _load_meta_prompt("coding_conventions.md", "")
+    if conventions:
+        prompt += f"## Coding Conventions (mutations must comply)\n{conventions}\n\n"
+
+    # Fix E: Surface architectural review findings to the critique LLM.
+    # Hard rejects (cycles) are caught in Phase 3; soft warnings here
+    # become inputs to the critique's structured rubric.
+    try:
+        from app.architectural_review import review_mutation
+        report = review_mutation(files)
+        if report.has_soft_warnings:
+            prompt += (
+                "## Architectural Review Findings (consider these in your critique)\n"
+                f"{report.summary()}\n\n"
+            )
+    except Exception:
+        pass
+
     if memory_context:
         prompt += f"## Evolutionary Memory\n{memory_context}\n\n"
 
@@ -425,8 +465,25 @@ def _phase_self_critique(
 
     approved = result.get("approve", True)
     concerns = result.get("concerns", [])
-    notes = "; ".join(concerns) if concerns else "No concerns"
 
+    # Fix C: Honor the structured rubric — hard rejects always fail, and a
+    # rubric score below 7/10 also fails (matches the prompt's threshold).
+    hard_rejects = result.get("hard_rejects_triggered", [])
+    if hard_rejects:
+        approved = False
+        concerns = list(concerns) + [f"Hard reject: {hr}" for hr in hard_rejects[:5]]
+
+    rubric_score = result.get("rubric_score")
+    if isinstance(rubric_score, (int, float)) and rubric_score < 7:
+        approved = False
+        concerns = list(concerns) + [f"Rubric score {rubric_score}/10 below threshold of 7"]
+
+    smells = result.get("smells_detected", [])
+    if len(smells) >= 2:
+        approved = False
+        concerns = list(concerns) + [f"Multiple smells: {', '.join(smells[:3])}"]
+
+    notes = "; ".join(concerns) if concerns else "No concerns"
     return approved, notes
 
 # ── Main Pipeline ────────────────────────────────────────────────────────────

@@ -98,12 +98,28 @@ def _categorize_experiment(experiment: dict) -> tuple[str, ...]:
 def extract_pattern_from_experiment(experiment: dict) -> Pattern | None:
     """Convert one successful experiment into a Pattern.
 
-    Returns None if the experiment doesn't meet the minimum delta threshold.
+    Returns None if the experiment doesn't meet the minimum delta threshold,
+    OR if its quality regressed (Fix D — patterns from inelegant code don't
+    become exemplars). The detail field carries quality regression notes when
+    the gate fired, so we can detect them via substring match.
     """
     delta = abs(experiment.get("delta", 0.0))
     if delta < _MIN_DELTA_FOR_PATTERN:
         return None
     if experiment.get("status") not in ("keep", "deployed"):
+        return None
+
+    # Fix D: don't promote patterns from mutations whose quality regressed.
+    # The experiment_runner records quality gate rejection in the detail
+    # field; if we see those markers, this experiment isn't a good exemplar
+    # even if delta was positive.
+    detail_lower = (experiment.get("detail") or "").lower()
+    quality_markers = (
+        "quality gate rejected",
+        "quality regression",
+        "blocked by quality regression",
+    )
+    if any(marker in detail_lower for marker in quality_markers):
         return None
 
     hypothesis = experiment.get("hypothesis", "")[:300]

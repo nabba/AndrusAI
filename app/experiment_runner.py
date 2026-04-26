@@ -256,6 +256,24 @@ class ExperimentRunner:
                 self._restore_backup(backed_up)
                 detail = f"No improvement (delta={delta:+.4f}), reverted"
 
+        # Fix B: Code quality gate — even functional improvements get rejected
+        # if they degrade code quality (drop type hints, increase complexity,
+        # add lint issues). Mechanical check; LLM-judged style elegance is
+        # a separate concern handled by the AVO Phase 4 critique rubric.
+        if status == "keep" and mutation.change_type == "code" and mutation.files:
+            quality_report = self._evaluate_quality(mutation, backed_up)
+            if quality_report and quality_report.has_regression:
+                status = "discard"
+                self._restore_backup(backed_up)
+                detail = (
+                    f"Functional improvement (delta={delta:+.4f}) blocked by quality "
+                    f"regression: {quality_report.summary[:200]}"
+                )
+                logger.info(
+                    f"Experiment {mutation.experiment_id}: quality gate rejected — "
+                    f"{quality_report.summary[:120]}"
+                )
+
         # 7. Clean up backup
         self._cleanup_backup()
 
@@ -320,6 +338,32 @@ class ExperimentRunner:
         """Remove backup directory."""
         if self._backup_dir.exists():
             shutil.rmtree(self._backup_dir, ignore_errors=True)
+
+    def _evaluate_quality(self, mutation, backed_up):
+        """Compare code quality before vs after for the mutation's Python files.
+
+        Returns a MutationQualityReport, or None if the quality module is
+        unavailable. Used as a gate to reject functional improvements that
+        degrade code quality (drop type hints, increase complexity, etc.).
+        """
+        try:
+            from app.code_quality import evaluate_mutation_quality
+        except ImportError:
+            return None
+
+        files_after = {p: c for p, c in mutation.files.items() if p.endswith(".py")}
+        if not files_after:
+            return None
+
+        # `backed_up` maps {path: original_source_or_None_if_new_file}
+        # which already matches `evaluate_mutation_quality`'s expected shape.
+        files_before = {p: backed_up.get(p) for p in files_after}
+
+        try:
+            return evaluate_mutation_quality(files_before, files_after)
+        except Exception as exc:
+            logger.debug(f"Experiment: quality evaluation failed: {exc}")
+            return None
 
     def _apply_mutation(self, mutation: MutationSpec) -> list[str]:
         """Apply the mutation files. Returns list of changed file paths."""

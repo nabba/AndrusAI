@@ -134,6 +134,10 @@ TIER_IMMUTABLE = frozenset({
     "app/alignment_audit.py",
     "app/human_gate.py",
     "app/differential_test.py",
+    # Code-quality safeguards (the system must not be able to relax its
+    # own elegance gates — those modules belong with the safety core)
+    "app/code_quality.py",
+    "app/architectural_review.py",
 })
 
 # ── TIER_GATED (~25 files — evolution engine + soul prompts) ────────────────
