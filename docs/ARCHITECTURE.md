@@ -124,3 +124,11 @@ app/adaptation/  → Improvement systems (governance, evolution, feedback, train
 ```
 
 These are facade packages providing clean import boundaries. All existing import paths continue working.
+
+## Subsystem deep-dives
+
+- **[LLM Subsystem](LLM_SUBSYSTEM.md)** — catalog, resolver, factory, vetting, discovery, promotion, hand-pin, span tracking. The full lifecycle of "how does this system pick a model and why?".
+- [Self-Improvement](SELF_IMPROVEMENT.md) — evolution pipeline + LLM-as-Judge (`evo_critic` role).
+- [Control Planes](CONTROL_PLANES.md) — Postgres-backed command + state surface.
+- [Creativity System](CREATIVITY_SYSTEM.md) — Diverge/Discuss/Converge mode.
+- [SubIA](SUBIA.md) — meta-cognitive layer (`introspector` role).
