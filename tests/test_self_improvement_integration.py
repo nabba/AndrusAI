@@ -225,6 +225,7 @@ class TestAutoDeployOnKeep:
     """Fix 5: Kept code mutations trigger auto_deployer."""
 
     def test_trigger_calls_schedule_deploy(self):
+        """High-confidence (delta > 0.05) bypasses human gate and auto-deploys."""
         from app.evolution import _trigger_code_auto_deploy
         from app.experiment_runner import ExperimentResult, MutationSpec
 
@@ -233,8 +234,8 @@ class TestAutoDeployOnKeep:
             hypothesis="test code change",
             change_type="code",
             metric_before=0.80,
-            metric_after=0.82,
-            delta=0.02,
+            metric_after=0.90,
+            delta=0.10,  # HIGH confidence (above _HIGH_CONFIDENCE_DELTA=0.05)
             status="keep",
             files_changed=["app/agents/researcher.py"],
         )
@@ -246,7 +247,9 @@ class TestAutoDeployOnKeep:
         )
 
         with patch("app.auto_deployer.schedule_deploy") as mock_schedule, \
-             patch("app.auto_deployer.validate_proposal_paths", return_value=[]):
+             patch("app.auto_deployer.validate_proposal_paths", return_value=[]), \
+             patch("app.self_model.get_centrality_score", return_value=0.0), \
+             patch("app.self_model.is_hot_path", return_value=False):
             _trigger_code_auto_deploy(result, mutation)
             assert mock_schedule.called
             args, kwargs = mock_schedule.call_args

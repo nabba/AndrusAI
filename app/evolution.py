@@ -730,16 +730,14 @@ def _propose_mutation_legacy(context: str, tried_hashes: set[str]) -> MutationSp
 # ── Auto-deploy trigger for kept code mutations ──────────────────────────────
 
 def _trigger_code_auto_deploy(result, mutation) -> None:
-    """Schedule auto-deploy for a kept code mutation.
+    """Schedule auto-deploy or queue for human review based on confidence.
 
-    Fix 5: Without this, kept code mutations sit in the workspace and
-    never affect production. The auto_deployer enforces TIER protection,
-    AST/safety validation, blocked-import checks, hot-reload, and
-    60-second post-deploy error monitoring with auto-rollback.
+    HIGH confidence (delta > 0.05, eval-confirmed, low risk) → auto-deploy.
+    BORDERLINE confidence → queue for human approval via human_gate.
+    LOW confidence → caller would not have called us here.
 
-    All gating happens inside auto_deployer — this function just hands off
-    the mutation. If any safety check fails, the deploy is blocked and
-    logged to deploy_log.json but the experiment record remains "keep".
+    The classification considers self_model centrality and hot-path status
+    so high-blast-radius changes get extra scrutiny even when delta is large.
     """
     try:
         from app.auto_deployer import (
@@ -767,9 +765,38 @@ def _trigger_code_auto_deploy(result, mutation) -> None:
             )
             return
 
-        # Schedule deploy — auto_deployer handles the rest:
-        # AST validation → blocked imports → backup → copy → hot-reload →
-        # 60s monitor → auto-rollback on error spike
+        # Confidence classification — borderline mutations route through human_gate
+        try:
+            from app.human_gate import classify_confidence, request_approval, ConfidenceTier
+            from app.self_model import is_hot_path, get_centrality_score
+
+            high_centrality = any(get_centrality_score(p) > 0.30 for p in files)
+            on_hot_path = any(is_hot_path(p) for p in files)
+            tier_decision, reason = classify_confidence(
+                delta=result.delta,
+                eval_measured=True,  # if we got here from a kept code mutation, eval ran
+                has_high_centrality_files=high_centrality,
+                is_hot_path=on_hot_path,
+            )
+
+            if tier_decision == ConfidenceTier.BORDERLINE:
+                request_approval(
+                    experiment_id=result.experiment_id,
+                    hypothesis=result.hypothesis,
+                    change_type=result.change_type,
+                    files=files,
+                    delta=result.delta,
+                    confidence_reason=reason,
+                )
+                logger.info(
+                    f"Evolution: queued borderline mutation {result.experiment_id} "
+                    f"for human review ({reason})"
+                )
+                return  # Wait for human decision; do NOT auto-deploy
+        except Exception as exc:
+            logger.debug(f"Evolution: confidence classification failed (defaulting to auto-deploy): {exc}")
+
+        # HIGH confidence: schedule deploy — auto_deployer handles the rest
         schedule_deploy(reason=f"evolution-keep-{result.experiment_id}")
         logger.info(
             f"Evolution: scheduled auto-deploy for {result.experiment_id} "
@@ -797,6 +824,22 @@ def run_evolution_session(max_iterations: int = 5) -> str:
     Returns:
         Summary of all experiments run
     """
+    # ── ROI throttle gate ──────────────────────────────────────────────────────
+    # If recent ROI is poor (no real improvements for 14 days, high rollback
+    # rate, or cost-per-improvement above threshold), reduce iterations
+    # rather than burning more cost on patterns that aren't working.
+    try:
+        from app.evolution_roi import should_throttle
+        throttled, reason, factor = should_throttle()
+        if throttled:
+            adjusted = max(1, int(max_iterations * factor))
+            logger.warning(
+                f"Evolution throttled to {factor:.0%} ({adjusted}/{max_iterations} iterations): {reason}"
+            )
+            max_iterations = adjusted
+    except Exception:
+        pass
+
     # ── Dynamic engine selection ──────────────────────────────────────────────
     # Automatically pick the best engine based on recent performance, SUBIA
     # safety, and stagnation detection. Manual override via config still works.
@@ -986,6 +1029,42 @@ def run_evolution_session(max_iterations: int = 5) -> str:
                 discarded += 1
             else:
                 crashed += 1
+
+            # Record cost / outcome for ROI tracking
+            try:
+                from app.evolution_roi import record_evolution_cost
+                # Estimate cost: AVO cycle uses ~3-4 LLM calls (planning, impl, critique).
+                # Cost varies by tier; conservative estimate ~$0.05-$0.20 per cycle.
+                # When request_cost_tracker is available, use the precise figure.
+                cost_estimate = 0.10  # USD per AVO cycle (conservative)
+                try:
+                    from app.rate_throttle import get_request_cost_estimate
+                    actual = get_request_cost_estimate()
+                    if actual is not None and actual > 0:
+                        cost_estimate = actual
+                except Exception:
+                    pass
+
+                record_evolution_cost(
+                    experiment_id=result.experiment_id,
+                    engine="avo",
+                    cost_usd=cost_estimate,
+                    delta=result.delta,
+                    status=result.status,
+                    deployed=(result.status == "keep" and result.change_type == "code"),
+                )
+            except Exception as exc:
+                logger.debug(f"Evolution: ROI recording failed: {exc}")
+
+            # Update mutation strategy success stats (if AVO sampled a strategy)
+            try:
+                from app.mutation_strategies import update_strategy_success
+                # AVO logs strategy at info level; we don't pass it through here,
+                # so update_strategy_success is best-effort with the change_type.
+                strategy_name = result.change_type  # "code" | "skill" maps to broad category
+                update_strategy_success(strategy_name, result.status == "keep", result.delta)
+            except Exception:
+                pass
 
             # Store in variant archive with genealogy
             try:

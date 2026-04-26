@@ -1,0 +1,46 @@
+{
+  "_meta": "Mutation type taxonomy with sampling weights. AVO planner samples a strategy per cycle, biasing exploration across all six categories rather than defaulting to defensive error-handling. Weights adjust based on success rates per strategy.",
+  "_evolve_block": "strategies",
+
+  "defensive": {
+    "weight": 0.20,
+    "description": "Error handling, validation wrappers, retry logic, timeouts, circuit breakers, defensive null checks.",
+    "examples": ["wrap API call in try/except", "add retry with exponential backoff", "validate inputs before processing"],
+    "guidance": "Use when there are recurring TRANSIENT errors. Avoid when the underlying API is already retried at a lower layer."
+  },
+
+  "refactoring": {
+    "weight": 0.20,
+    "description": "Simplify, extract function, dedupe, consolidate. No behavior change — just structural improvement.",
+    "examples": ["extract repeated logic into helper", "combine two similar functions", "remove dead code branches"],
+    "guidance": "Choose when the same logic appears in 3+ places. Verify no behavior change with differential testing."
+  },
+
+  "capability": {
+    "weight": 0.20,
+    "description": "Add a new tool, agent skill, endpoint, or external integration.",
+    "examples": ["new web scraping tool", "new agent role for translation", "new MCP server connection"],
+    "guidance": "Use when the system repeatedly fails because it lacks a specific capability. Check capability inventory first."
+  },
+
+  "architectural": {
+    "weight": 0.15,
+    "description": "Change agent hierarchy, context flow, delegation rules, or evaluation pipeline structure.",
+    "examples": ["add reflection step between research and writing", "split coder into design and implementation phases", "introduce a verifier agent"],
+    "guidance": "Highest leverage but highest risk. Requires cross-file mutations. Use when problems span agent boundaries."
+  },
+
+  "removal": {
+    "weight": 0.10,
+    "description": "Delete unused code, prune dead paths, simplify by subtraction.",
+    "examples": ["remove unused imports", "delete unreferenced helper", "drop deprecated config option"],
+    "guidance": "Counterintuitive but powerful. Use when the system has accumulated cruft. Requires self_model dependency check first."
+  },
+
+  "optimization": {
+    "weight": 0.15,
+    "description": "Caching, batching, parallelism, latency reduction, cost reduction.",
+    "examples": ["cache LLM responses", "batch ChromaDB queries", "parallelize independent agent calls"],
+    "guidance": "Use when response_time or cost metrics show degradation. Verify with differential testing."
+  }
+}

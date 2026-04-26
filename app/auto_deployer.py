@@ -126,6 +126,14 @@ TIER_IMMUTABLE = frozenset({
     "app/failure_taxonomy.py",
     "app/confidence_tracker.py",
     "app/fault_isolator.py",
+    # General improvements pass — safety-critical infrastructure
+    "app/self_model.py",
+    "app/evolution_roi.py",
+    "app/goodhart_guard.py",
+    "app/tier_graduation.py",
+    "app/alignment_audit.py",
+    "app/human_gate.py",
+    "app/differential_test.py",
 })
 
 # ── TIER_GATED (~25 files — evolution engine + soul prompts) ────────────────
@@ -158,19 +166,39 @@ PROTECTED_FILES = TIER_IMMUTABLE | TIER_GATED
 
 
 def get_protection_tier(filepath: str) -> ProtectionTier:
-    """Determine the protection tier for a given file."""
+    """Determine the protection tier for a given file.
+
+    Returns the MORE restrictive of the static tier (configured here) and
+    the dynamic tier (history-aware, from tier_graduation). This means a
+    file demoted dynamically can never be MORE permissive than its static
+    configuration.
+    """
     normalized = filepath.replace("\\", "/").lstrip("/")
-    # Strip leading slashes and normalize
     if normalized.startswith("/"):
         normalized = normalized[1:]
+
+    # Static tier (this module's authoritative definition)
     if normalized in TIER_IMMUTABLE:
-        return ProtectionTier.IMMUTABLE
-    if normalized in TIER_GATED:
-        return ProtectionTier.GATED
-    # workspace/meta/ files are GATED
-    if normalized.startswith("workspace/meta/"):
-        return ProtectionTier.GATED
-    return ProtectionTier.OPEN
+        static = ProtectionTier.IMMUTABLE
+    elif normalized in TIER_GATED:
+        static = ProtectionTier.GATED
+    elif normalized.startswith("workspace/meta/"):
+        static = ProtectionTier.GATED
+    else:
+        static = ProtectionTier.OPEN
+
+    # Dynamic tier overlay — never relaxes static, can only tighten
+    try:
+        from app.tier_graduation import get_dynamic_tier
+        dynamic_value = get_dynamic_tier(normalized)
+        # Restrictiveness: IMMUTABLE > GATED > OPEN
+        order = {"open": 0, "gated": 1, "immutable": 2}
+        if order.get(dynamic_value, 0) > order.get(static.value, 0):
+            return ProtectionTier(dynamic_value)
+    except Exception:
+        pass  # Graceful: dynamic overlay is advisory
+
+    return static
 
 
 def validate_mutation_for_tier(
@@ -520,6 +548,14 @@ def _deploy_locked(reason: str) -> str:
     _log_deploy("success", reason, deployed)
     logger.info(f"auto_deployer: {msg}")
 
+    # Record successful deploy in tier_graduation history (drives promotion logic)
+    try:
+        from app.tier_graduation import record_successful_mutation
+        for filepath in deployed:
+            record_successful_mutation(filepath)
+    except Exception as exc:
+        logger.debug(f"auto_deployer: tier_graduation record_success failed: {exc}")
+
     # F4: Hot-reload with verification + auto-rollback on failure.
     # If any module fails to reload, restore ALL files from backup and abort.
     reloaded, reload_errors = _hot_reload_modules_safe(deployed, backup)
@@ -711,6 +747,26 @@ def _post_deploy_monitor(deployed_files: list[str], backup_dir: Path, reason: st
                             pass
 
             _log_deploy("auto_rollback", f"Error spike ({len(recent)} in 2min) after: {reason}", deployed_files)
+
+            # Record rollback in tier_graduation history (drives demotion logic)
+            try:
+                from app.tier_graduation import record_rollback
+                for filepath in deployed_files:
+                    record_rollback(filepath)
+            except Exception as exc:
+                logger.debug(f"auto_deployer: tier_graduation record_rollback failed: {exc}")
+
+            # Mark ROI ledger entry as rolled_back (drives throttle decisions)
+            try:
+                from app.evolution_roi import mark_rollback
+                # The reason field carries the experiment_id (e.g. "evolution-keep-exp_..._abc")
+                if "exp_" in reason:
+                    import re as _re
+                    match = _re.search(r"exp_[a-zA-Z0-9_]+", reason)
+                    if match:
+                        mark_rollback(match.group(0))
+            except Exception as exc:
+                logger.debug(f"auto_deployer: evolution_roi mark_rollback failed: {exc}")
 
             # Notify user via Signal
             try:

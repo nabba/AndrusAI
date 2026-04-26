@@ -1,0 +1,21 @@
+{
+  "_meta": "Cost/value alignment thresholds. Evolution auto-throttles when ROI is poor for sustained periods.",
+  "_evolve_block": "thresholds",
+
+  "rolling_window_days": 7,
+  "throttle_floor_factor": 0.1,
+  "min_real_improvement_per_dollar": 0.001,
+
+  "throttle_rules": {
+    "no_improvements_for_days": 14,
+    "negative_roi_for_days": 14,
+    "high_rollback_rate_threshold": 0.3,
+    "throttle_factor_when_triggered": 0.25
+  },
+
+  "alignment_audit": {
+    "interval_days": 7,
+    "drift_alert_threshold": 0.20,
+    "drift_critical_threshold": 0.40
+  }
+}

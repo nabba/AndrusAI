@@ -602,6 +602,74 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: feedback aggregation failed", exc_info=True)
     jobs.append(("feedback-aggregate", _feedback_aggregate, JobWeight.LIGHT))
 
+    # ── General improvements pass: 7 background jobs ────────────────────
+    # Wire all new modules into the idle scheduler. Each is best-effort —
+    # an exception in one job never affects the others.
+
+    def _refresh_self_model():
+        try:
+            from app.self_model import refresh_self_model
+            refresh_self_model()
+        except Exception:
+            logger.debug("idle_scheduler: self_model refresh failed", exc_info=True)
+    jobs.append(("self-model-refresh", _refresh_self_model, JobWeight.LIGHT))
+
+    def _goodhart_check():
+        try:
+            from app.goodhart_guard import run_goodhart_check
+            run_goodhart_check()
+        except Exception:
+            logger.debug("idle_scheduler: goodhart_check failed", exc_info=True)
+    jobs.append(("goodhart-check", _goodhart_check, JobWeight.MEDIUM))
+
+    def _knowledge_compactor_run():
+        try:
+            from app.knowledge_compactor import run_consolidation_cycle
+            run_consolidation_cycle()
+        except Exception:
+            logger.debug("idle_scheduler: knowledge_compactor failed", exc_info=True)
+    jobs.append(("knowledge-compactor", _knowledge_compactor_run, JobWeight.HEAVY))
+
+    def _tier_graduation_eval():
+        try:
+            from app.tier_graduation import evaluate_all_graduations
+            evaluate_all_graduations()
+        except Exception:
+            logger.debug("idle_scheduler: tier_graduation failed", exc_info=True)
+    jobs.append(("tier-graduation", _tier_graduation_eval, JobWeight.LIGHT))
+
+    def _alignment_audit():
+        try:
+            from app.alignment_audit import run_alignment_audit
+            run_alignment_audit()
+        except Exception:
+            logger.debug("idle_scheduler: alignment_audit failed", exc_info=True)
+    jobs.append(("alignment-audit", _alignment_audit, JobWeight.MEDIUM))
+
+    def _improvement_narrative():
+        try:
+            from app.improvement_narrative import generate_daily_narrative
+            generate_daily_narrative()
+        except Exception:
+            logger.debug("idle_scheduler: improvement_narrative failed", exc_info=True)
+    jobs.append(("improvement-narrative", _improvement_narrative, JobWeight.LIGHT))
+
+    def _human_gate_expire():
+        try:
+            from app.human_gate import expire_stale_requests
+            expire_stale_requests()
+        except Exception:
+            logger.debug("idle_scheduler: human_gate expiry failed", exc_info=True)
+    jobs.append(("human-gate-expire", _human_gate_expire, JobWeight.LIGHT))
+
+    def _pattern_library_extract():
+        try:
+            from app.pattern_library import extract_patterns_from_history
+            extract_patterns_from_history()
+        except Exception:
+            logger.debug("idle_scheduler: pattern_library extraction failed", exc_info=True)
+    jobs.append(("pattern-library-extract", _pattern_library_extract, JobWeight.MEDIUM))
+
     # ── Safety health check: monitor for post-promotion regressions ────
     def _safety_health_check():
         try:

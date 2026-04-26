@@ -115,6 +115,39 @@ def _phase_planning(
     if lineage_context:
         prompt += f"## Variant Lineage\n{lineage_context}\n\n"
 
+    # General improvements pass: inject mutation strategy guidance
+    # Samples one of six strategies (defensive, refactoring, capability,
+    # architectural, removal, optimization) per cycle to break out of the
+    # observed defensive-pattern monoculture.
+    try:
+        from app.mutation_strategies import select_strategy, build_strategy_prompt_section
+        strategy = select_strategy()
+        prompt += build_strategy_prompt_section(strategy)
+        logger.info(f"AVO Phase 1: sampled strategy {strategy.name.value}")
+    except Exception as exc:
+        logger.debug(f"AVO Phase 1: strategy injection failed: {exc}")
+
+    # Inject relevant successful patterns from the pattern library as
+    # positive exemplars (complements evo_memory's negative knowledge).
+    try:
+        from app.pattern_library import find_relevant_patterns
+        patterns = find_relevant_patterns(context[:500], n=3)
+        if patterns:
+            pattern_lines = [
+                f"  - **{p.template_summary[:80]}** "
+                f"(observed {p.times_observed}x, avg delta {p.avg_delta:+.4f})"
+                for p in patterns
+            ]
+            prompt += (
+                "\n## Successful patterns from past evolution\n"
+                "These patterns have produced real improvements before — "
+                "consider them as exemplars:\n"
+                + "\n".join(pattern_lines)
+                + "\n"
+            )
+    except Exception as exc:
+        logger.debug(f"AVO Phase 1: pattern library lookup failed: {exc}")
+
     try:
         raw = str(llm.call(prompt)).strip()
     except Exception as e:
