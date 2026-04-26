@@ -41,6 +41,25 @@ services:
       COMPOSIO_API_KEY: ${COMPOSIO_API_KEY}
       # Smithery MCP server registry (for auto-discovery of remote MCP servers)
       SMITHERY_API_KEY: ${SMITHERY_API_KEY:-}
+      # ── Paid B2B / LinkedIn data adapters (optional) ──────────────────
+      # When set, the research_orchestrator's source_priority chain
+      # automatically includes the matching adapter:
+      #
+      #   APOLLO_API_KEY     → unlocks the `apollo` adapter (Apollo.io REST).
+      #                        Provides head_of_sales name + title +
+      #                        LinkedIn URL + (tier-dependent) work email.
+      #                        ~$59/mo basic plan. Get key at
+      #                        https://apollo.io/settings/api.
+      #   PROXYCURL_API_KEY  → unlocks the `linkedin_data` adapter.
+      #                        Provides personal LinkedIn URLs without
+      #                        scraping. ~$0.01-$0.03 per lookup. Get key
+      #                        at https://nubela.co/proxycurl.
+      #
+      # Without these keys the adapters degrade silently to free fallbacks
+      # (Brave structural search) — partial coverage but no crash.
+      # Restart `docker compose up -d gateway` after changing .env.
+      APOLLO_API_KEY: ${APOLLO_API_KEY:-}
+      PROXYCURL_API_KEY: ${PROXYCURL_API_KEY:-}
       # Host RAM in GB — used by app/llm_registry_scanner to compute the
       # safe-to-pull model size cap. On Docker-Desktop-for-Mac the
       # container's view of /proc/meminfo and Docker /info both return

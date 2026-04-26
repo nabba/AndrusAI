@@ -183,12 +183,23 @@ _MATRIX_ENTITY_NOUNS: tuple[str, ...] = (
 
 # Field keyword → orchestrator field-spec hint. Order matters because
 # the dict's first-insertion order shapes the source-priority chain.
+#
+# Field keys MUST match the canonical names in adapter ``_SUPPORTED_FIELDS``
+# tables — otherwise the adapter sees an unknown key and returns None
+# silently, defeating the entire paid-adapter integration. The current
+# canonical sales-leader keys (used by both Apollo and Proxycurl):
+#
+#   head_of_sales              — "FirstName LastName (Title)" string
+#   head_of_sales_linkedin     — personal LinkedIn URL (alias: linkedin_head_of_sales)
+#   head_of_sales_email        — work email (Apollo only, tier-dependent)
+#
+# Anything else is filled by free adapters only.
 _MATRIX_FIELD_HINTS: dict[str, dict] = {
     "homepage":            {"key": "homepage",
                             "hint": "official company website URL"},
     "website":             {"key": "homepage",
                             "hint": "official company website URL"},
-    "linkedin profile":    {"key": "linkedin_head_of_sales",
+    "linkedin profile":    {"key": "head_of_sales_linkedin",
                             "hint": "personal LinkedIn URL of head of sales / CRO / VP Sales",
                             "known_hard": True,
                             "reason": ("LinkedIn blocks scraping of personal "
@@ -196,12 +207,27 @@ _MATRIX_FIELD_HINTS: dict[str, dict] = {
                                        "or Sales Navigator (Proxycurl).")},
     "linkedin":            {"key": "linkedin_company",
                             "hint": "public company LinkedIn URL"},
-    "head of sales":       {"key": "head_of_sales_name",
-                            "hint": "name of Head of Sales / VP Sales / CRO / Commercial Director"},
-    "vp sales":            {"key": "head_of_sales_name",
-                            "hint": "name of VP Sales / Head of Sales / CRO"},
-    "cro":                 {"key": "head_of_sales_name",
-                            "hint": "Chief Revenue Officer / Head of Sales / VP Sales"},
+    # Canonical Apollo/Proxycurl key — matches both adapters' _SUPPORTED_FIELDS.
+    "head of sales":       {"key": "head_of_sales",
+                            "hint": "name + title of Head of Sales / VP Sales / CRO / Commercial Director",
+                            "known_hard": True,
+                            "reason": ("Sales-leader names rarely surface in "
+                                       "free SERP; reliable via Apollo when "
+                                       "APOLLO_API_KEY is set.")},
+    "vp sales":            {"key": "head_of_sales",
+                            "hint": "name + title of VP Sales / Head of Sales / CRO",
+                            "known_hard": True,
+                            "reason": "see head_of_sales"},
+    "cro":                 {"key": "head_of_sales",
+                            "hint": "Chief Revenue Officer / Head of Sales / VP Sales",
+                            "known_hard": True,
+                            "reason": "see head_of_sales"},
+    "head_of_sales_email": {"key": "head_of_sales_email",
+                            "hint": "head of sales work email (Apollo tier-dependent)",
+                            "known_hard": True,
+                            "reason": ("Personal work emails are gated; "
+                                       "Apollo paid tier required.")},
+    # Non-sales C-suite — no paid adapter, fills via free sources only.
     "ceo":                 {"key": "ceo_name", "hint": "name of CEO / Founder"},
     "founder":             {"key": "ceo_name", "hint": "name of founder / CEO"},
     "cto":                 {"key": "cto_name", "hint": "name of CTO / VP Engineering"},
@@ -266,13 +292,22 @@ def _try_matrix_research_route(
     # the prompt itself if no attachment). The orchestrator will refuse
     # to run with an empty subjects list, which is the right safety
     # behavior.
+    #
+    # ``source_priority`` uses default_source_priority() so the chain
+    # automatically includes apollo / linkedin_data when their env
+    # keys are set — no code change needed when the user adds keys.
+    try:
+        from app.tools.research_orchestrator import default_source_priority
+        priority = default_source_priority()
+    except Exception:
+        priority = ["regulator", "company_site", "search"]
     spec = {
         "title": user_input[:120],
         "subjects": [],   # agent fills from attachment / prompt
         "fields": list(matched_fields.values()),
         "max_subjects_in_parallel": 2,
         "budget_seconds": 1500,
-        "source_priority": ["regulator", "company_site", "search"],
+        "source_priority": priority,
     }
     spec_json = json.dumps(spec, indent=2)
     n_fields = len(matched_fields)

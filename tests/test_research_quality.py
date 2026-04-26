@@ -67,8 +67,9 @@ class TestMatrixResearchRoute:
         # Pre-built spec embedded in task body
         assert "research_orchestrator(spec_json=" in decision["task"]
         assert "MATRIX TASK — STRICT ROUTER PRE-RESOLUTION" in decision["task"]
-        # The known-hard linkedin field is included
-        assert "linkedin_head_of_sales" in decision["task"]
+        # The known-hard linkedin field is included (canonical Apollo
+        # key after 2026-04-26 alignment).
+        assert "head_of_sales_linkedin" in decision["task"]
         # Spec is valid JSON when extracted
         # (we don't strictly parse — just sanity-check it's there)
         assert '"fields"' in decision["task"]
@@ -112,14 +113,18 @@ class TestMatrixResearchRoute:
 
     def test_extracted_spec_includes_all_mentioned_fields(self):
         """When user mentions multiple field types they should ALL
-        appear in the orchestrator spec."""
+        appear in the orchestrator spec — using canonical adapter-
+        compatible keys."""
         prompt = "find ceo, cto, head of sales, and email for these 12 startups"
         out = _try_matrix_research_route(prompt)
         assert out is not None
         body = out[0]["task"]
         assert "ceo_name" in body
         assert "cto_name" in body
-        assert "head_of_sales_name" in body
+        # Canonical Apollo key — was head_of_sales_name in the original
+        # implementation, but that didn't match Apollo's _SUPPORTED_FIELDS
+        # so the adapter would silently no-op. Fixed 2026-04-26.
+        assert '"head_of_sales"' in body
         assert "sales_email" in body
 
     def test_known_hard_field_marked(self):

@@ -302,16 +302,113 @@ def install_paid_adapters() -> None:
     module can be imported without side effects — tests and the
     light-path researcher agent don't pull the HTTP dependencies
     transitively.  Idempotent.
+
+    Also emits a one-line status log per session so users have a
+    visible signal of which paid adapters are active. The log fires
+    every install call but ``_log_adapter_status_once`` rate-limits
+    to once per process to avoid noise.
     """
     try:
         from app.tools.research_adapters import install as _install_all
         _install_all()
+        _log_adapter_status_once()
     except Exception:
         logger.debug(
             "research_orchestrator: paid-adapter install failed "
             "(non-fatal; adapters remain unavailable this session)",
             exc_info=True,
         )
+
+
+_ADAPTER_STATUS_LOGGED = False
+
+
+def _log_adapter_status_once() -> None:
+    global _ADAPTER_STATUS_LOGGED
+    if _ADAPTER_STATUS_LOGGED:
+        return
+    _ADAPTER_STATUS_LOGGED = True
+    try:
+        status = get_paid_adapter_status()
+        active = [name for name, configured in status.items() if configured]
+        inactive = [name for name, configured in status.items() if not configured]
+        if active:
+            logger.info(
+                f"research_orchestrator: paid adapters ACTIVE: {', '.join(active)}"
+            )
+        if inactive:
+            logger.info(
+                f"research_orchestrator: paid adapters available but unconfigured "
+                f"(set env keys to activate): {', '.join(inactive)}"
+            )
+    except Exception:
+        logger.debug("research_orchestrator: status log failed", exc_info=True)
+
+
+def get_paid_adapter_status() -> dict[str, bool]:
+    """Return ``{adapter_name: is_configured}`` for paid adapters.
+
+    Live (re-evaluated on every call) so a key added to the env at
+    runtime takes effect on the next research call without restart —
+    though Docker users still need to recreate the container for the
+    env var to enter the process namespace.
+
+    Used by:
+      * startup log (visibility)
+      * dashboard / Signal status command
+      * default source_priority assembly
+    """
+    status: dict[str, bool] = {}
+    try:
+        from app.tools.research_adapters import apollo as _apollo
+        status["apollo"] = bool(_apollo.is_configured())
+    except Exception:
+        status["apollo"] = False
+    try:
+        from app.tools.research_adapters import linkedin_data as _li
+        # is_configured returns True when EITHER Proxycurl OR Brave is
+        # available. We want the stronger signal here — only count
+        # the linkedin_data adapter as active when Proxycurl is keyed.
+        # Brave fallback is always available via the search adapter.
+        import os as _os
+        status["linkedin_data"] = bool(_os.environ.get("PROXYCURL_API_KEY", "").strip())
+    except Exception:
+        status["linkedin_data"] = False
+    return status
+
+
+def default_source_priority() -> list[str]:
+    """Build the default ``source_priority`` for an orchestrator spec
+    based on which paid adapters are currently configured.
+
+    The chain is ordered for trust + cost:
+
+      1. ``regulator``     — official regulator registries (BaFin,
+                             KNF, etc.). Free, authoritative.
+      2. ``company_site``  — direct fetch of the company's own site
+                             (about / team / leadership pages). Free,
+                             usually accurate.
+      3. ``apollo``        — Apollo B2B database. Paid; only included
+                             when ``APOLLO_API_KEY`` is set.
+      4. ``linkedin_data`` — Proxycurl LinkedIn lookup. Paid; only
+                             included when ``PROXYCURL_API_KEY`` is set.
+      5. ``search``        — Brave structural search. Free, always
+                             included as final fallback.
+
+    Without paid adapters the chain is ``regulator → company_site →
+    search`` (legacy behavior preserved). With both keys it becomes
+    ``regulator → company_site → apollo → linkedin_data → search``,
+    which means free sources get tried first (good for cost), paid
+    adapters fill the known-hard gaps, and Brave fallback remains.
+    """
+    chain = ["regulator", "company_site"]
+    status = get_paid_adapter_status()
+    if status.get("apollo"):
+        chain.append("apollo")
+    if status.get("linkedin_data"):
+        chain.append("linkedin_data")
+    chain.append("search")
+    return chain
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -498,8 +595,12 @@ def orchestrate_research(spec: dict) -> dict:
             "error": "spec missing required 'subjects' or 'fields'",
             "rows": [], "skipped": [], "meta": {"elapsed": 0.0},
         }
+    # Default chain dynamically includes paid adapters when their env
+    # keys are set (see default_source_priority() docstring). Caller
+    # can still override via spec.source_priority — explicit overrides
+    # always win.
     source_priority: list[str] = list(
-        spec.get("source_priority") or ["regulator", "company_site", "search"]
+        spec.get("source_priority") or default_source_priority()
     )
     parallelism = int(spec.get("max_subjects_in_parallel", 2))
     budget = float(spec.get("budget_seconds", 1500))

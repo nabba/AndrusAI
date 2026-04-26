@@ -1310,3 +1310,56 @@ def observability_snapshot_kinds():
             for r in (rows or [])
         ],
     }
+
+
+# ── Research adapters status ─────────────────────────────────────────────
+#
+# Lightweight status endpoint so the dashboard / Signal can answer
+# "is Apollo activated?" without a round-trip through the orchestrator.
+# Keys are read live from os.environ on every call so adding a key
+# and recreating the gateway shows up immediately.
+
+@router.get("/research/adapters")
+def research_adapter_status():
+    """Show which paid research adapters are configured.
+
+    Response shape::
+
+      {
+        "adapters": {
+          "apollo":        {"configured": false, "env_key": "APOLLO_API_KEY"},
+          "linkedin_data": {"configured": false, "env_key": "PROXYCURL_API_KEY"}
+        },
+        "source_priority_now": ["regulator", "company_site", "search"],
+        "source_priority_full": ["regulator", "company_site", "apollo",
+                                 "linkedin_data", "search"]
+      }
+    """
+    try:
+        from app.tools.research_orchestrator import (
+            get_paid_adapter_status, default_source_priority,
+        )
+    except Exception as e:
+        return {"error": f"orchestrator import failed: {e}"}
+    status = get_paid_adapter_status()
+    return {
+        "adapters": {
+            "apollo": {
+                "configured": status.get("apollo", False),
+                "env_key": "APOLLO_API_KEY",
+                "provides": ["head_of_sales", "head_of_sales_linkedin",
+                             "head_of_sales_email"],
+                "homepage": "https://apollo.io/settings/api",
+            },
+            "linkedin_data": {
+                "configured": status.get("linkedin_data", False),
+                "env_key": "PROXYCURL_API_KEY",
+                "provides": ["head_of_sales", "head_of_sales_linkedin"],
+                "homepage": "https://nubela.co/proxycurl/api-keys",
+            },
+        },
+        "source_priority_now": default_source_priority(),
+        "source_priority_full": [
+            "regulator", "company_site", "apollo", "linkedin_data", "search",
+        ],
+    }
