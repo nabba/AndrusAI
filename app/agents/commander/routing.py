@@ -254,6 +254,64 @@ def _is_likely_follow_up(text: str) -> bool:
     return False
 
 
+# Creative-mode auto-promotion keywords (Fix 1 from creativity-subsystem audit).
+# When the router picks `writing` for a high-difficulty task that contains
+# any of these signals, we promote the dispatch to `creative`. This catches
+# the cases where the router LLM under-uses creative mode despite obvious
+# brainstorming/ideation intent. Budget cap (creative_run_budget_usd) is the
+# safety net — even an over-eager promotion can't burn more than the cap.
+_CREATIVE_PROMOTION_PATTERNS = re.compile(
+    r"\b(?:"
+    r"brainstorm|brainstorming|"
+    r"ideate|ideation|"
+    r"come up with|generate (?:ideas|approaches|alternatives|options|strategies)|"
+    r"novel (?:approach|solution|design|idea)|"
+    r"creative (?:approach|solution|alternatives?|options?|ideas?)|"
+    r"unconventional|"
+    r"think outside|out of the box|"
+    r"breakthrough|paradigm[- ]shift|"
+    r"reimagine|rethink|"
+    r"explore alternatives|alternative approaches|"
+    r"design a new|new way to|"
+    r"strategic options|strategic alternatives"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Difficulty threshold for auto-promotion. Below this, even brainstorm-style
+# tasks stay in `writing` because the cost asymmetry isn't justified.
+_CREATIVE_PROMOTION_MIN_DIFFICULTY = 6
+
+
+def maybe_promote_to_creative(decisions: list[dict]) -> list[dict]:
+    """Auto-promote `writing` decisions to `creative` when warranted.
+
+    Trigger: crew_name == "writing" AND difficulty >= 6 AND task contains a
+    brainstorm/ideation/novelty keyword. The promotion is logged and the
+    task description is unchanged — the creative crew receives the same
+    task and decides its own internal phasing.
+
+    Idempotent: already-creative decisions pass through. Mutates the input
+    list in place (each dict's `crew` field) and returns it for chaining.
+    """
+    for d in decisions:
+        if d.get("crew") != "writing":
+            continue
+        if int(d.get("difficulty", 0)) < _CREATIVE_PROMOTION_MIN_DIFFICULTY:
+            continue
+        task_text = str(d.get("task", ""))
+        if not _CREATIVE_PROMOTION_PATTERNS.search(task_text):
+            continue
+        original_task = task_text[:80]
+        d["crew"] = "creative"
+        d["_auto_promoted"] = True
+        logger.info(
+            f"creative auto-promote: writing → creative "
+            f"(difficulty={d['difficulty']}, task={original_task!r})"
+        )
+    return decisions
+
+
 def _try_fast_route(user_input: str, has_attachments: bool) -> list[dict] | None:
     """Attempt to route without an LLM call using keyword patterns.
 
@@ -414,14 +472,16 @@ For simple questions you can answer directly:
 crew_name MUST be one of:
   "research"  — web lookups, fact-finding, comparisons, current events
   "coding"    — writing, running, or debugging code
-  "writing"   — summaries, documentation, emails, reports, routine creative text
+  "writing"   — summaries, documentation, emails, reports, factual text
   "media"     — YouTube video analysis, image/photo analysis, audio/podcast summarization, document OCR
-  "creative"  — tasks that require GENUINE novelty: brainstorming, strategic
-                ideation under uncertainty, novel solution design, cross-domain
-                framing. Use ONLY when the user explicitly asks for creative
-                alternatives, breakthrough thinking, or when the problem has no
-                established correct answer. Runs a multi-agent 3-phase pipeline
-                with a per-run budget cap; do not use it for routine writing.
+  "creative"  — open-ended ideation: brainstorming, generating multiple
+                alternatives, novel solution design, cross-domain framing,
+                strategic options under uncertainty. Pick this whenever the
+                request asks for ideas/approaches/alternatives rather than a
+                single right answer. Examples: "brainstorm names for X",
+                "what are some creative ways to Y", "ideate on Z", "design a
+                novel approach to Q". Default to this over "writing" when the
+                user wants exploration, not transcription.
   "pim"       — email triage, calendar management, task tracking (check inbox, schedule meetings, manage tasks)
   "financial" — stock data, financial analysis, SEC filings, valuation models, investment reports
   "desktop"   — macOS desktop automation via AppleScript (open apps, manage windows, take screenshots, run Shortcuts)

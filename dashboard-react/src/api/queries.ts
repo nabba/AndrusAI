@@ -396,6 +396,30 @@ export function useUpdateCreativeMode() {
   });
 }
 
+export interface CreativeRunResult {
+  final_output: string;
+  scores: {
+    fluency: number;
+    flexibility: number;
+    originality: number;
+    elaboration: number;
+    diagnostics?: Record<string, unknown>;
+  } | null;
+  cost_usd: number;
+  aborted_reason: string | null;
+  phases: number;
+}
+
+export function useCreativeRun() {
+  return useMutation({
+    mutationFn: (body: { task: string; creativity?: 'high' | 'medium' }) =>
+      api<CreativeRunResult>(endpoints.creativeRun(), {
+        method: 'POST',
+        body: JSON.stringify({ creativity: 'high', ...body }),
+      }),
+  });
+}
+
 // ── KB businesses ───────────────────────────────────────────────────────────
 export interface BusinessKB {
   business_name: string;
@@ -634,10 +658,20 @@ export interface TechDiscovery {
   action?: string;
 }
 
+export interface SearchBackendStatus {
+  /** Tier that satisfied the most recent search (null = all tiers failed). */
+  last_backend_used: 'brave' | 'searxng' | 'ddg' | null;
+  /** Per-tier failure tags accumulated during the cascade. */
+  last_failure_chain: string[];
+  /** Epoch seconds; non-null = Brave is in 402-quota backoff. */
+  brave_quota_blocked_until: number | null;
+}
+
 export interface TechRadarReport {
   discoveries: TechDiscovery[];
   updated_at: string;
   error?: string | null;
+  search_status?: SearchBackendStatus;
 }
 
 export function useTechRadarQuery() {

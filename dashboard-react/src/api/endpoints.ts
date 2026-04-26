@@ -121,6 +121,7 @@ export const endpoints = {
 
   // Creative mode (prefix /config — requires gateway secret on POST)
   creativeMode: () => `/config/creative_mode`,
+  creativeRun: () => `/config/creative_run`,
 
   // Knowledge bases (root-mounted prefixes)
   kbStatus: () => `/kb/status`,

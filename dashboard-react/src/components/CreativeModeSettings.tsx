@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { ErrorPanel } from './ui/ErrorPanel';
-import { useCreativeModeQuery, useUpdateCreativeMode, type CreativeSettings } from '../api/queries';
+import {
+  useCreativeModeQuery,
+  useUpdateCreativeMode,
+  useCreativeRun,
+  type CreativeSettings,
+} from '../api/queries';
 
 // Note: POST to /config/creative_mode requires a gateway bearer secret. The
 // dashboard server (server.mjs) injects `Authorization: Bearer $GATEWAY_SECRET`
@@ -21,7 +26,82 @@ export default function CreativeModeSettings() {
   if (!settingsQ.data) return null;
 
   // Remount the form when server data changes (key on object identity).
-  return <CreativeModeForm key={settingsQ.data.mem0_weight + '|' + settingsQ.data.creative_run_budget_usd} initial={settingsQ.data} />;
+  return (
+    <div className="space-y-4">
+      <CreativeModeForm
+        key={settingsQ.data.mem0_weight + '|' + settingsQ.data.creative_run_budget_usd}
+        initial={settingsQ.data}
+      />
+      <CreativeRunPanel />
+    </div>
+  );
+}
+
+function CreativeRunPanel() {
+  const run = useCreativeRun();
+  const [task, setTask] = useState('');
+  const result = run.data;
+  const error = run.error instanceof Error ? run.error.message : '';
+
+  const submit = () => {
+    const trimmed = task.trim();
+    if (!trimmed) return;
+    run.mutate({ task: trimmed });
+  };
+
+  return (
+    <div className="bg-[#111820] border border-[#1e2738] rounded-xl p-4 space-y-3">
+      <div>
+        <h3 className="text-base font-semibold text-[#e2e8f0]">Try Creative Mode</h3>
+        <p className="text-xs text-[#7a8599] mt-1">
+          Force-dispatch a task through the multi-agent ideation pipeline.
+          Bypasses the router; budget cap above still applies.
+        </p>
+      </div>
+      <textarea
+        value={task}
+        onChange={(e) => setTask(e.target.value)}
+        placeholder="e.g. Brainstorm 5 unconventional ways to monetise a Finnish summer cottage"
+        rows={3}
+        className="w-full bg-[#0a0f18] border border-[#1e2738] rounded px-3 py-2 text-[#e2e8f0] text-sm resize-y"
+      />
+      <div className="flex items-center gap-3">
+        <button
+          onClick={submit}
+          disabled={run.isPending || !task.trim()}
+          className="px-4 py-2 bg-[#7c3aed] hover:bg-[#6d28d9] disabled:opacity-50 rounded text-white text-sm"
+        >
+          {run.isPending ? 'Running…' : 'Run Creative'}
+        </button>
+        {error && <span className="text-[#f87171] text-sm">{error}</span>}
+      </div>
+
+      {result && (
+        <div className="mt-3 space-y-3 border-t border-[#1e2738] pt-3">
+          {result.aborted_reason && (
+            <div className="text-xs text-[#fbbf24] bg-[#fbbf24]/10 border border-[#fbbf24]/30 rounded p-2">
+              Aborted: {result.aborted_reason}
+            </div>
+          )}
+          <div className="text-xs text-[#7a8599] flex flex-wrap gap-3">
+            <span>cost: <span className="text-[#34d399]">${result.cost_usd.toFixed(4)}</span></span>
+            <span>phases: {result.phases}</span>
+            {result.scores && (
+              <>
+                <span>fluency: {result.scores.fluency}</span>
+                <span>flexibility: {result.scores.flexibility}</span>
+                <span>originality: {result.scores.originality.toFixed(2)}</span>
+                <span>elaboration: {result.scores.elaboration.toFixed(2)}</span>
+              </>
+            )}
+          </div>
+          <pre className="text-xs text-[#e2e8f0] bg-[#0a0f18] border border-[#1e2738] rounded p-3 whitespace-pre-wrap max-h-96 overflow-auto">
+            {result.final_output}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function CreativeModeForm({ initial }: { initial: CreativeSettings }) {

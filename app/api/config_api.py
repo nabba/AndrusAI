@@ -105,3 +105,50 @@ async def set_creative_mode_endpoint(request: Request):
             raise HTTPException(status_code=400, detail=str(exc))
 
     return {"status": "ok", **snapshot()}
+
+
+@router.post("/creative_run")
+async def creative_run_endpoint(request: Request):
+    """Force-dispatch a task to the creative crew, bypassing the router.
+
+    This is the "Try Creative Mode" entry point — it lets users explicitly
+    invoke the multi-agent ideation pipeline without phrasing their request
+    in a way the LLM router happens to recognize as creative.
+
+    Accepts: {"task": str, "creativity": "high"|"medium"} — creativity
+    defaults to "high". Budget cap (creative_run_budget_usd) still applies.
+
+    Returns: {"final_output": str, "scores": dict, "cost_usd": float,
+              "aborted_reason": str|None, "phases": int}.
+    """
+    if not verify_gateway_secret(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    payload = await request.json()
+    task = (payload.get("task") or "").strip()
+    if not task:
+        raise HTTPException(status_code=400, detail="Missing 'task'")
+    if len(task) > 4000:
+        raise HTTPException(status_code=400, detail="Task too long (max 4000 chars)")
+    creativity = payload.get("creativity", "high")
+    if creativity not in ("high", "medium"):
+        creativity = "high"
+
+    try:
+        from app.crews.creative_crew import run_creative_crew
+        from app.rate_throttle import start_request_tracking, stop_request_tracking
+        # Track cost so the budget cap can fire mid-run
+        tracker = start_request_tracking(request_id=f"creative_run_{int(__import__('time').time())}")
+        try:
+            result = run_creative_crew(task, creativity=creativity)
+        finally:
+            stop_request_tracking()
+        return {
+            "final_output": result.final_output,
+            "scores": result.scores,
+            "cost_usd": result.cost_usd,
+            "aborted_reason": result.aborted_reason,
+            "phases": len(result.phase_1_outputs) + len(result.phase_2_outputs),
+        }
+    except Exception as exc:
+        logger.exception("creative_run failed")
+        raise HTTPException(status_code=500, detail=f"Creative run failed: {exc}")

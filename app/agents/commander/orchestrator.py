@@ -17,6 +17,7 @@ from pathlib import Path
 from app.agents.commander.routing import (
     _is_introspective, _try_fast_route, _recover_truncated_routing,
     ROUTING_PROMPT, COMMANDER_BACKSTORY, _load_skill_names,
+    maybe_promote_to_creative,
     _TEMPORAL_PATTERN, _INSTANT_REPLIES, _FAST_ROUTE_PATTERNS,
 )
 from app.agents.commander.context import (
@@ -842,6 +843,11 @@ class Commander:
                 d["difficulty"] = 5
             else:
                 d["difficulty"] = int(diff)
+
+        # Creative-mode auto-promotion (Fix 1 from creativity-subsystem audit).
+        # Catches obvious brainstorm/ideation tasks that the router LLM
+        # under-classifies as routine writing. Budget cap is the safety net.
+        decisions = maybe_promote_to_creative(decisions)
 
         # L6+L9: Apply homeostatic behavioral modifiers to routing decisions
         try:

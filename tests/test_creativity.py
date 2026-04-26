@@ -558,3 +558,86 @@ class TestCreativeMode:
             assert "creative_run_budget_usd" in s
             assert "originality_wiki_weight" in s
             assert "mem0_weight" in s
+
+
+# ── Creative auto-promotion (Fix 1 from creativity-subsystem audit) ─────────
+
+class TestCreativeAutoPromote:
+    """maybe_promote_to_creative auto-rewrites high-difficulty `writing` tasks
+    that contain brainstorm/ideation keywords to `creative` mode."""
+
+    def test_promotes_brainstorm_high_difficulty(self):
+        from app.agents.commander.routing import maybe_promote_to_creative
+        decisions = [{"crew": "writing", "task": "Brainstorm five ideas for a logo", "difficulty": 7}]
+        out = maybe_promote_to_creative(decisions)
+        assert out[0]["crew"] == "creative"
+        assert out[0]["_auto_promoted"] is True
+
+    def test_promotes_ideate(self):
+        from app.agents.commander.routing import maybe_promote_to_creative
+        out = maybe_promote_to_creative([
+            {"crew": "writing", "task": "Ideate on a new product line for elderly users", "difficulty": 8}
+        ])
+        assert out[0]["crew"] == "creative"
+
+    def test_promotes_novel_solution(self):
+        from app.agents.commander.routing import maybe_promote_to_creative
+        out = maybe_promote_to_creative([
+            {"crew": "writing", "task": "Design a novel approach to recycling textile waste", "difficulty": 7}
+        ])
+        assert out[0]["crew"] == "creative"
+
+    def test_does_not_promote_low_difficulty(self):
+        """Difficulty < 6 stays as writing even with brainstorm keywords."""
+        from app.agents.commander.routing import maybe_promote_to_creative
+        out = maybe_promote_to_creative([
+            {"crew": "writing", "task": "Brainstorm a quick name", "difficulty": 3}
+        ])
+        assert out[0]["crew"] == "writing"
+        assert "_auto_promoted" not in out[0]
+
+    def test_does_not_promote_routine_writing(self):
+        """No keywords → no promotion regardless of difficulty."""
+        from app.agents.commander.routing import maybe_promote_to_creative
+        out = maybe_promote_to_creative([
+            {"crew": "writing", "task": "Summarize the quarterly report", "difficulty": 8}
+        ])
+        assert out[0]["crew"] == "writing"
+
+    def test_does_not_promote_other_crews(self):
+        """Only `writing` is eligible — `research`/`coding` stay put."""
+        from app.agents.commander.routing import maybe_promote_to_creative
+        out = maybe_promote_to_creative([
+            {"crew": "research", "task": "Brainstorm novel approaches to climate", "difficulty": 9},
+            {"crew": "coding", "task": "Generate creative options for caching", "difficulty": 8},
+        ])
+        assert out[0]["crew"] == "research"
+        assert out[1]["crew"] == "coding"
+
+    def test_already_creative_passes_through(self):
+        from app.agents.commander.routing import maybe_promote_to_creative
+        out = maybe_promote_to_creative([
+            {"crew": "creative", "task": "Brainstorm something", "difficulty": 7}
+        ])
+        assert out[0]["crew"] == "creative"
+        assert "_auto_promoted" not in out[0]  # didn't go through promotion path
+
+    def test_idempotent(self):
+        """Running twice gives the same result."""
+        from app.agents.commander.routing import maybe_promote_to_creative
+        decisions = [{"crew": "writing", "task": "Brainstorm ideas", "difficulty": 7}]
+        once = maybe_promote_to_creative(decisions)
+        # The same dict (mutated in place) is now `creative` — second call no-ops
+        twice = maybe_promote_to_creative(once)
+        assert twice[0]["crew"] == "creative"
+
+    def test_mixed_decisions(self):
+        """A list with mixed crews promotes only the eligible writing entry."""
+        from app.agents.commander.routing import maybe_promote_to_creative
+        out = maybe_promote_to_creative([
+            {"crew": "research", "task": "Find population stats", "difficulty": 4},
+            {"crew": "writing", "task": "Brainstorm naming alternatives for the launch", "difficulty": 7},
+            {"crew": "writing", "task": "Format the meeting minutes", "difficulty": 3},
+        ])
+        crews = [d["crew"] for d in out]
+        assert crews == ["research", "creative", "writing"]
