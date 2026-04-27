@@ -84,6 +84,10 @@
       "sha256": "c543c4e64c21ee4164bd43c7b0306384e32423600b7215a6b46094e173851e09",
       "size": 3027
     },
+    "app/subia/connections/introspection_chat_bridge.py": {
+      "sha256": "2e17a7854f28b1120a605e9732aa11d7e16d0a6d59bd58a3399441e5dcebdefd",
+      "size": 2048
+    },
     "app/subia/connections/pds_bridge.py": {
       "sha256": "8cbe767bcf9f0170c777d1a0e0a4f3b733d2478a2da52cece948562cd7a3de41",
       "size": 7496
@@ -183,6 +187,26 @@
     "app/subia/integrity.py": {
       "sha256": "7c6b6d0bab73c9b684cb20df93594510d067ecd2862692e55499da73f7921e80",
       "size": 9440
+    },
+    "app/subia/introspection/__init__.py": {
+      "sha256": "6f28325c4d49650e6526b03073025a3458c76051bf97858e96c982dd72bd081a",
+      "size": 2695
+    },
+    "app/subia/introspection/context.py": {
+      "sha256": "6dfb8c4753b9e3b26916e4dd6f878c925bc3cb1687330677f08781df90cc087f",
+      "size": 7278
+    },
+    "app/subia/introspection/detector.py": {
+      "sha256": "32a51db3f82289577c32b18905635517bb452d2180ed53a829322ff68a5a0118",
+      "size": 6350
+    },
+    "app/subia/introspection/formatter.py": {
+      "sha256": "8e6a51ac8bcc43adb250b18cca17ae6de5746c8b0b995a2fb3c915126973e9c2",
+      "size": 8856
+    },
+    "app/subia/introspection/pipeline.py": {
+      "sha256": "9ce025e621ab64c085df5950ceef56f8fa00c304a24259a7da77cd6815237e6e",
+      "size": 5193
     },
     "app/subia/kernel.py": {
       "sha256": "ba92b3ca76cf303ebc197856e09ccab4588fa08f7e63f3f4f7a901f36a297658",

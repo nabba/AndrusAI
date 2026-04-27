@@ -212,6 +212,13 @@ TIER3_FILES = [
     "app/subia/grounding/pipeline.py",              # public orchestrator
     "app/subia/grounding/belief_adapter.py",        # adapter interface
     "app/subia/connections/grounding_chat_bridge.py",  # feature-flagged hook
+    # ── Phase 17 — Self-Introspection Routing ────────────────────────
+    "app/subia/introspection/__init__.py",
+    "app/subia/introspection/detector.py",       # keyword + scoring weights (Tier-3)
+    "app/subia/introspection/context.py",        # gather defensive
+    "app/subia/introspection/formatter.py",      # Phase-11 honest-language rules
+    "app/subia/introspection/pipeline.py",       # orchestrator + feature flag
+    "app/subia/connections/introspection_chat_bridge.py",  # main.py wire-in
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

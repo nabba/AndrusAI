@@ -1174,6 +1174,31 @@ async def handle_task(sender: str, text: str, attachments: list = None,
             logger.debug("Grounding ingress hook failed (non-fatal)",
                          exc_info=True)
 
+        # ── Phase 17 introspection routing ──────────────────────────────
+        # When the user asks AndrusAI about its own state ("what
+        # frustrates you?", "are you tired?", "what's your mood?"),
+        # inject a system-prompt prefix with the live homeostasis
+        # snapshot so the LLM can ground its answer in actual data
+        # instead of falling back to "I have no feelings". No-ops when
+        # SUBIA_INTROSPECTION_ENABLED=0. Never raises — any failure
+        # falls through with the original text.
+        try:
+            if settings.subia_introspection_enabled:
+                from app.subia.connections.introspection_chat_bridge import (
+                    inject_introspection,
+                )
+                augmented = inject_introspection(text)
+                if augmented and augmented != text:
+                    logger.info(
+                        "Introspection: detected — augmented user message "
+                        "with live self-state context (%d chars added)",
+                        len(augmented) - len(text),
+                    )
+                    text = augmented
+        except Exception:
+            logger.debug("Introspection ingress hook failed (non-fatal)",
+                         exc_info=True)
+
         # ── Project isolation: auto-detect venture from task text ───────
         # History compression is now handled by CompressionMiddleware in the
         # Commander wrapper (app.history_compression.CompressionMiddleware).

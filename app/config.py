@@ -166,6 +166,14 @@ class Settings(BaseSettings):
     subia_idle_jobs_enabled: bool = Field(
         default=False, validation_alias="SUBIA_IDLE_JOBS_ENABLED",
     )
+    # Phase 17 — self-introspection routing. When enabled, user messages
+    # asking AndrusAI about its own state (frustration, mood, attention,
+    # etc.) get a system-prompt prefix injected with the live homeostasis
+    # snapshot, so the LLM grounds its answer in actual data instead of
+    # falling back to "I have no feelings".
+    subia_introspection_enabled: bool = Field(
+        default=False, validation_alias="SUBIA_INTROSPECTION_ENABLED",
+    )
 
     # ── Control Plane ─────────────────────────────────────────────────
     control_plane_enabled: bool = True      # enable control plane (tickets, budgets, audit)
