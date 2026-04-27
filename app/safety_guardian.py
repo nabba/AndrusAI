@@ -219,6 +219,16 @@ TIER3_FILES = [
     "app/subia/introspection/formatter.py",      # Phase-11 honest-language rules
     "app/subia/introspection/pipeline.py",       # orchestrator + feature flag
     "app/subia/connections/introspection_chat_bridge.py",  # main.py wire-in
+    # ── Phase 18 — Self-Knowledge Routing (per-topic handlers) ───────
+    "app/subia/introspection/topics/__init__.py",
+    "app/subia/introspection/topics/beliefs.py",        # Cat A: belief store + sources
+    "app/subia/introspection/topics/technical.py",      # Cat B: TSAL profiles
+    "app/subia/introspection/topics/chronicle.py",      # Cat C: recent activity
+    "app/subia/introspection/topics/scene.py",          # Cat D: focal/peripheral
+    "app/subia/introspection/topics/wonder_shadow.py",  # Cat E: wonder + shadow
+    "app/subia/introspection/topics/scorecard.py",      # Cat F: Butlin/RSM/SK + drift
+    "app/subia/introspection/topics/predictions.py",    # Cat G: accuracy + history
+    "app/subia/introspection/topics/social.py",         # Cat H: ToM
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

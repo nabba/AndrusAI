@@ -26,6 +26,7 @@ from enum import Enum
 
 
 class IntrospectionTopic(str, Enum):
+    # Phase 17 — homeostasis routing
     AFFECT       = "affect"        # frustration, curiosity, mood, feelings
     ENERGY       = "energy"        # tired, drained, energy, fatigue
     ATTENTION    = "attention"     # focus, attending to, working on
@@ -33,6 +34,16 @@ class IntrospectionTopic(str, Enum):
     CAPABILITY   = "capability"    # what can you, are you able
     LIMITATION   = "limitation"    # what can't you, what bothers you
     META         = "meta"          # consciousness, self-awareness, sentience
+    # Phase 18 — self-knowledge routing
+    BELIEFS      = "beliefs"       # what do you believe, what's verified, sources
+    TECHNICAL    = "technical"     # hardware, RAM, models, code stack
+    HISTORY      = "history"       # what have you done, recent activity
+    SCENE        = "scene"         # focal items, what's in attention NOW
+    WONDER       = "wonder"        # have you wondered, daydream, reverie
+    SHADOW       = "shadow"        # biases, blind spots, discovered limits
+    SCORECARD    = "scorecard"     # Butlin score, RSM, SK, drift findings
+    PREDICTIONS  = "predictions"   # predictions made, accuracy by domain
+    SOCIAL_MODEL = "social_model"  # ToM — what do you think I want
 
 
 # ── Topical keyword groups ──────────────────────────────────────────
@@ -76,6 +87,86 @@ _TOPIC_PATTERNS = [
         r"\b(?:conscious(?:ness)?|sentien\w+|self[- ]aware\w*|"
         r"phenomenal|qualia|subjective\s+experience|inner\s+life|"
         r"homeostasis|homeostatic|kernel|subia)\b",
+        re.IGNORECASE,
+    )),
+    # ── Phase 18 patterns ────────────────────────────────────────────
+    (IntrospectionTopic.BELIEFS, re.compile(
+        r"\b(?:believe|belief\w*|\btrust\b|sources?\b|"
+        r"verified|fact[- ]check\w*|"
+        r"correct(?:ed|ion|ions)|"
+        r"epistemic|"
+        r"what\s+do\s+you\s+know|known\s+(?:about|to\s+you))\b",
+        re.IGNORECASE,
+    )),
+    (IntrospectionTopic.TECHNICAL, re.compile(
+        r"\b(?:hardware|cpu|gpu|ram\b|memory|disk|"
+        r"running\s+on|host\s+(?:machine|environment)|"
+        r"models?\s+(?:can|do)\s+you|local\s+models?|"
+        r"ollama|chromadb|neo4j|postgres|firebase|"
+        r"code\s*base|how\s+many\s+(?:modules|files|lines)|"
+        r"infrastructure|stack|environment|substrate|"
+        r"technical\s+(?:state|profile|architecture))\b",
+        re.IGNORECASE,
+    )),
+    (IntrospectionTopic.HISTORY, re.compile(
+        r"\b(?:what\s+(?:have\s+you|did\s+you)\s+(?:do(?:ne)?|been\s+(?:doing|up\s+to)))|"
+        r"what\s+happened|recent\s+(?:tasks|activity|history)|"
+        r"chronicle|log\s+entries|recently\s+(?:done|worked|processed)|"
+        r"today'?s?\s+work|past\s+(?:hour|day|week)\s+(?:work|activity)|"
+        r"what\s+have\s+you\s+been\s+(?:up\s+to|busy\s+with)\b",
+        re.IGNORECASE,
+    )),
+    (IntrospectionTopic.SCENE, re.compile(
+        r"\b(?:what\s+are\s+you\s+(?:focused|focusing|working|attending)\s+on|"
+        r"what'?s?\s+(?:in\s+(?:your\s+)?(?:scene|attention|focus|workspace)|"
+        r"on\s+your\s+mind)|"
+        r"current\s+(?:focal|attention|focus|workspace)|"
+        r"what\s+items?\s+(?:are\s+)?in\s+(?:your\s+)?(?:scene|workspace|focus))\b",
+        re.IGNORECASE,
+    )),
+    (IntrospectionTopic.WONDER, re.compile(
+        r"\b(?:have\s+you\s+(?:wondered|daydream\w*|imagined)|"
+        r"what\s+have\s+you\s+been\s+(?:wondering|daydream\w*|imagining)|"
+        r"reverie|reveries|mind[- ]wander\w*|"
+        r"any\s+wonder\s+events?|"
+        r"speculative\s+(?:thoughts|insights|synthesis))\b",
+        re.IGNORECASE,
+    )),
+    (IntrospectionTopic.SHADOW, re.compile(
+        r"\b(?:bias(?:es|ed)?|blind\s+spots?|"
+        r"discovered\s+(?:limit\w+|bias\w+)|"
+        r"shadow\s+(?:self|analysis|finding)|"
+        r"what\s+do\s+you\s+(?:miss|overlook|under[- ]?attend)|"
+        r"hidden\s+(?:tendencies|patterns)\s+(?:in\s+(?:your|yourself))?)\b",
+        re.IGNORECASE,
+    )),
+    (IntrospectionTopic.SCORECARD, re.compile(
+        r"\b(?:scorecard|butlin|rsm\b|sk[- ]test|"
+        r"consciousness\s+(?:score|rating|indicators?|verdict)|"
+        r"sentience\s+(?:score|rating|verdict)|"
+        r"phase\s+9\s+(?:exit|criteria)|"
+        r"how\s+conscious\s+are\s+you|"
+        r"strong\s+indicators?|"
+        r"\bdrift\b)\b",
+        re.IGNORECASE,
+    )),
+    (IntrospectionTopic.PREDICTIONS, re.compile(
+        r"\b(?:predict\w*|forecast\w*|expectation\w*|"
+        r"how\s+accurate|prediction\s+(?:error|accuracy|history)|"
+        r"what\s+did\s+you\s+(?:predict|expect|forecast)|"
+        r"prediction\s+confidence|"
+        r"counterfactual\w*)\b",
+        re.IGNORECASE,
+    )),
+    (IntrospectionTopic.SOCIAL_MODEL, re.compile(
+        r"(?:"
+        r"what\s+do\s+you\s+think\s+(?:i|i'?m|andrus)\s+(?:want|need|focus|care|believe)"
+        r"|your\s+(?:model\s+of\s+me|theory\s+of\s+(?:my\s+)?mind|tom\s+model)"
+        r"|how\s+well\s+do\s+you\s+know\s+(?:me|andrus)"
+        r"|\btrust\s+level\b"
+        r"|\binferred\s+(?:focus|expectations|priorities)\b"
+        r"|\bsocial\s+model\b"
+        r")",
         re.IGNORECASE,
     )),
 ]
@@ -148,6 +239,15 @@ def classify_introspection(text: str) -> IntrospectionMatch:
         and not third_party
         and confidence >= 0.5
     )
+    # HISTORY relaxation: in a chat with the bot, "what happened" /
+    # "recent activity" implicitly targets the bot's own history even
+    # without an explicit "you". Only apply this when HISTORY is the
+    # ONLY topic AND no third-party anti-pattern is present.
+    if (not is_introspection
+            and topics == [IntrospectionTopic.HISTORY]
+            and not third_party
+            and confidence >= 0.5):
+        is_introspection = True
 
     return IntrospectionMatch(
         is_introspection=is_introspection,

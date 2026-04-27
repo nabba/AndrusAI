@@ -113,6 +113,35 @@ class IntrospectionPipeline:
                 augmented_message=user_message,
             )
 
+        # ── Phase 18: per-topic sections ────────────────────────────
+        # Run the topic-specific handlers for any detected topics
+        # OUTSIDE the Phase 17 base set (AFFECT/ENERGY/SELF_STATE/etc.).
+        # Each handler is wrapped: a failure logs and skips that
+        # section without blocking the rest.
+        try:
+            from .topics import _import_topic_handlers
+            handlers = _import_topic_handlers()
+            for topic in (match.topics or []):
+                handler = handlers.get(topic)
+                if handler is None:
+                    continue
+                gather_fn, format_fn = handler
+                try:
+                    section_data = gather_fn() or {}
+                    section_text = format_fn(section_data) or ""
+                    if section_text.strip():
+                        note += "\n\n" + section_text
+                except Exception as topic_exc:
+                    logger.debug(
+                        "introspection: topic %s handler failed: %s",
+                        getattr(topic, "value", topic), topic_exc,
+                    )
+        except Exception as exc:
+            logger.debug(
+                "introspection: per-topic dispatch failed (non-fatal): %s",
+                exc,
+            )
+
         augmented = (
             f"{note}\n\n"
             f"User question: {user_message}"

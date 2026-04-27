@@ -197,16 +197,52 @@
       "size": 7278
     },
     "app/subia/introspection/detector.py": {
-      "sha256": "32a51db3f82289577c32b18905635517bb452d2180ed53a829322ff68a5a0118",
-      "size": 6350
+      "sha256": "d14fd8bac7a00aeb3f5b4dd2128b6a820421cd8f1f4fa7fdb7dcf7fe2120b002",
+      "size": 11212
     },
     "app/subia/introspection/formatter.py": {
       "sha256": "8e6a51ac8bcc43adb250b18cca17ae6de5746c8b0b995a2fb3c915126973e9c2",
       "size": 8856
     },
     "app/subia/introspection/pipeline.py": {
-      "sha256": "9ce025e621ab64c085df5950ceef56f8fa00c304a24259a7da77cd6815237e6e",
-      "size": 5193
+      "sha256": "57567b96b528827985815f20b685b58aa21073985370318bdcf84990d0c0ecd8",
+      "size": 6543
+    },
+    "app/subia/introspection/topics/__init__.py": {
+      "sha256": "63da9064318b0da6c761c4cba15b713c178fd2317313dad31b7858204a274330",
+      "size": 1931
+    },
+    "app/subia/introspection/topics/beliefs.py": {
+      "sha256": "687d2190cc54a0e14bd8200b8735c8ca2e6aab34a8d5650b16ed011a44ba08d6",
+      "size": 5005
+    },
+    "app/subia/introspection/topics/chronicle.py": {
+      "sha256": "37295637b6e5fd4f82ac9c7dbe61f75b66ec50b5553edf5ce6d373b6b9148112",
+      "size": 4607
+    },
+    "app/subia/introspection/topics/predictions.py": {
+      "sha256": "896e7ba1f0f49a463fd98561080ad1f81edd1ed3c017dc351d16ddab95fb724d",
+      "size": 3722
+    },
+    "app/subia/introspection/topics/scene.py": {
+      "sha256": "945bc86075ec6da99cee5ec5a7dfa486b42e3f68b9309fb99dec737c47e5cbb0",
+      "size": 5082
+    },
+    "app/subia/introspection/topics/scorecard.py": {
+      "sha256": "77b56be491c99f1f7b8312cabefcc283d1680a1027d3d3a808cd68cb04cf3712",
+      "size": 5669
+    },
+    "app/subia/introspection/topics/social.py": {
+      "sha256": "4416d63229442426d3702957caef01139cd41e60c37d259058881801479c1903",
+      "size": 3994
+    },
+    "app/subia/introspection/topics/technical.py": {
+      "sha256": "3322d95de6556df39ffb922e6377bc7c54854136452c5f8648ac193e8ea5835e",
+      "size": 7726
+    },
+    "app/subia/introspection/topics/wonder_shadow.py": {
+      "sha256": "7b89974b7fda2bdeb2a318f8f872ef81d5c4b57bbfc2c961a5984d6df2185169",
+      "size": 8066
     },
     "app/subia/kernel.py": {
       "sha256": "ba92b3ca76cf303ebc197856e09ccab4588fa08f7e63f3f4f7a901f36a297658",
