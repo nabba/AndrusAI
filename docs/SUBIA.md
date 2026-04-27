@@ -6,11 +6,11 @@
 > ones it cannot. Replaces opaque self-scoring with per-indicator
 > mechanistic tests that ship in the codebase.
 
-**Status:** Phase 16a complete. 605 phase-tests + 50/50 functional
+**Status:** Live in production. 680+ phase-tests + 50/50 functional
 smoke pass. Feature-flagged on by default in the production `.env`
 (`SUBIA_FEATURE_FLAG_LIVE=1`, `SUBIA_GROUNDING_ENABLED=1`,
-`SUBIA_IDLE_JOBS_ENABLED=1`). Disabled subsystems remain unimported,
-zero overhead.
+`SUBIA_IDLE_JOBS_ENABLED=1`, `SUBIA_INTROSPECTION_ENABLED=1`).
+Disabled subsystems remain unimported, zero overhead.
 
 **Canonical evaluation:** `app/subia/probes/SCORECARD.md` (auto-regenerated).
 Per-indicator mechanistic tests; no single number.
@@ -39,6 +39,7 @@ Per-indicator mechanistic tests; no single number.
    - **Background execution:** [idle/](#idle)
    - **Technical self-awareness:** [tsal/](#tsal)
    - **Factual grounding:** [grounding/](#grounding)
+   - **Self-knowledge surfacing:** [introspection/](#introspection)
    - **Evaluation and drift:** [probes/](#probes), [wiki_surface/](#wiki_surface)
    - **Safety invariants:** [safety/](#safety)
    - **Inter-system bridges:** [connections/](#connections)
@@ -833,16 +834,23 @@ The HOT-3 home. Three pieces:
    reduces just-computed FEEL/ATTEND/OWN/PREDICT/MONITOR signals into
    a single `BoundMoment` whose stability bias comes from the
    SpeciousPresent retention.
+5. **Wonder inhibit gate.**
+   `wonder/register.py::should_inhibit_completion(kernel)` runs at
+   the END of Step 6. When wonder is clearly elevated (per-item
+   `wonder_intensity > 0` OR `homeostasis.wonder` exceeds setpoint
+   by a margin), an `ALLOW` dispatch is downgraded to `ESCALATE`
+   with rationale `wonder_active`. `BLOCK` decisions are preserved.
+   Default-steady-state wonder does NOT trigger the gate.
 
 ### The post-task half (Steps 7-11)
 
 #### Step 7 — Act
 
 Not implemented in the loop itself — this is where the agent's actual
-task runs. The Wonder Register
-(`wonder/register.py::should_inhibit_completion`) optionally inhibits
-completion when wonder is high, allowing exploration to outweigh
-task-completion in dense epistemic windows.
+task runs. By the time Step 7 begins, the Wonder Register has already
+gated the dispatch via Step 6 (see Wonder inhibit gate above), so
+`Act` receives an `ALLOW`/`ESCALATE`/`BLOCK` decision that already
+reflects depth-sensitive epistemic affect.
 
 #### Step 8 — Compare
 
@@ -936,7 +944,10 @@ global broadcast, state-dependent attention.
 - `buffer.py` — `WorkspaceItem` + `CompetitiveGate` + `SalienceScorer`.
   Hard capacity (default 5), 4-factor weighted salience (goal_relevance
   0.35, novelty 0.25, urgency 0.15, surprise 0.25), competitive
-  displacement, novelty floor, decay.
+  displacement, novelty floor, decay. `SalienceScorer.score` consults
+  `wonder.register.freeze_decay_for(item)` per-item — items above
+  the wonder freeze threshold skip recency decay (multiplier=1.0)
+  so wonder holds attention against routine fade-out.
 - `attention_schema.py` — AST-1 predictive model of attention. Predicts
   next focus, detects stuck/capture states, applies DGM-bounded
   salience intervention.
@@ -997,7 +1008,13 @@ persistence (the subject persists across sessions via
   `exploration_bonus` ↔ `curiosity`, `resource_budget` ↔
   `cognitive_energy`).
 - `engine.py` — deterministic 11-variable arithmetic. Per-source
-  delta tables (agent, firecrawl, wiki, mem0, internal). Recomputes
+  delta tables (agent, firecrawl, wiki, mem0, internal). Per-batch
+  deltas for `novelty_balance` and `contradiction_pressure` are
+  scaled by `boundary.differential.homeostatic_modulator_for(dom_mode,
+  var)` where `dom_mode` is the dominant scene processing_mode —
+  so 3 perceptual items move novelty MORE than 3 memorial items.
+  When no item carries a `processing_mode` the modulator returns 1.0
+  and the legacy delta path is used (no behaviour change). Recomputes
   deviations + `restoration_queue`.
 - `somatic_marker.py` — Damasio somatic-marker computer
   (per-decision affective intensity).
@@ -1184,11 +1201,23 @@ page) + narrative drift audit.
   introspective`, `firecrawl → perceptual`, `mem0 → memorial`,
   `reverie → imaginative`, `social_model → social`). Stamps
   `processing_mode` on every unclassified scene item.
-- `differential.py` — `consolidator_route_for(mode)`: per-mode
-  routing preferences for the consolidator (e.g. introspective
-  content gets curated-only; perceptual gets both tiers).
+- `differential.py` — two pure functions:
+  - `consolidator_route_for(mode)`: per-mode routing preferences
+    for the consolidator (e.g. introspective content gets
+    curated-only; perceptual gets both tiers).
+  - `homeostatic_modulator_for(mode, var)`: per-(mode, variable)
+    multiplier consumed by the homeostasis engine. Examples:
+    perceptual × 1.5 on `novelty_balance` (perception is novelty-
+    rich), memorial × 0.7 on `novelty_balance` (memory is familiar),
+    imaginative × 0.8 on `trustworthiness` (imagination shouldn't
+    strengthen trust), introspective × 1.5 on `coherence`. The
+    dominant scene processing_mode shapes how strongly variables
+    move per loop.
 
 **CIL integration.** Step 1 (Perceive — classification at admission).
+Step 2 (Feel — `homeostasis/engine.py::_update_from_items` reads the
+dominant scene mode and scales `novelty_balance` and
+`contradiction_pressure` deltas by `homeostatic_modulator_for`).
 Step 10 (Consolidate — per-item route in curated episode).
 
 ### wonder/
@@ -1203,14 +1232,26 @@ that gates Step 7 act and modulates salience decay.
   analogies, deep questions, cross-domain contradictions, recursive
   structure into a single `UnderstandingDepth` descriptor.
 - `register.py` — closed-loop application. Three behavioural
-  consequences:
+  consequences, all consumed live:
   1. Bumps `homeostasis.wonder` toward signal intensity
      (exponential moving average).
-  2. Stamps triggering scene item with `wonder_intensity` (freezes
-     decay when above `WONDER_FREEZE_THRESHOLD`).
+  2. Stamps triggering scene item with `wonder_intensity`. Consumed
+     by `scene/buffer.py::SalienceScorer.score` via
+     `freeze_decay_for(item)` — items above
+     `WONDER_FREEZE_THRESHOLD` (default 0.5) have their recency
+     decay multiplier replaced with 1.0, so wonder holds attention
+     against routine fade-out.
   3. `should_inhibit_completion(kernel)` reads
      `effective_wonder_threshold` (density- and circadian-adjusted
-     by `temporal_subia_bridge`) and gates Step 7 (Act).
+     by `temporal_subia_bridge`) and is consumed at the END of CIL
+     Step 6 (Monitor): when the gate fires AND the prior dispatch
+     decision was `ALLOW`, it's downgraded to `ESCALATE` with
+     rationale `wonder_active`. Conservative gating prevents the
+     default-steady-state `wonder=0.5` from spuriously firing —
+     the gate requires EITHER a per-item `wonder_intensity > 0`
+     (real Phase-12 wonder event) OR `wonder` exceeding its
+     setpoint by a clear margin (default 0.15). `BLOCK` decisions
+     are preserved untouched.
 
 ### values/
 
@@ -1433,6 +1474,93 @@ Off by default; activation via `SUBIA_GROUNDING_ENABLED=1`. Failure
 mode: any pipeline error falls through to original draft with logged
 warning — chat path keeps working unchanged.
 
+### introspection/
+
+**Purpose.** Self-knowledge surfacing at the chat surface. Closes the
+"computed-but-unread" failure mode for self-state — the bot held
+`frustration=0.6293` in `homeostasis.state.get_state()` but answered
+"I don't have feelings" because the chat path never consulted any
+SubIA store. Detector classifies user messages into 16 introspection
+topics; per-topic gatherers pull live data from the relevant kernel/
+store; formatters render the data as a system-prompt prefix the LLM
+sees BEFORE answering. The LLM grounds in actual numbers instead of
+falling back to the canned "I'm just an AI" disclaimer.
+
+**Modules:**
+
+- `detector.py` — deterministic regex classifier with self-target
+  anchoring + third-party anti-pattern. 16 topics: `affect / energy /
+  attention / self_state / capability / limitation / meta / beliefs /
+  technical / history / scene / wonder / shadow / scorecard /
+  predictions / social_model`. Confidence scoring; HISTORY-only
+  messages trigger without explicit "you" (in-chat the implicit
+  subject IS the bot).
+- `context.py` — `IntrospectionContext` aggregates four base sources
+  defensively: legacy 4-var homeostasis (the source with hundreds of
+  tasks of accumulated history), the SubIA-native kernel
+  (9-var state + scene + specious_present + temporal_context +
+  discovered_limitations), `error_handler.recent_errors` (causal
+  evidence), and the system_chronicle excerpt.
+- `formatter.py` — pure transformer producing the system-prompt
+  prefix in Phase-11-honest framing: cites actual numeric values,
+  names neutral aliases, lists active behavioural modifiers, exposes
+  causal contributors, prohibits canned "I have no feelings" /
+  phenomenal claims.
+- `pipeline.py` — public orchestrator (`inspect()` / `inject()`).
+  Detects, gathers per-topic, composes sections. Defensive: per-topic
+  handler failure logs and skips that section without breaking the
+  rest of the response.
+- `topics/` — nine per-topic gather+format modules:
+  - `beliefs.py` — HOT-3 belief store (active + suspended +
+    retracted) + `grounding/source_registry` + recent corrections from
+    narrative audit.
+  - `technical.py` — TSAL host (CPU/RAM/GPU/disk/OS) + live
+    resources + components (ChromaDB/Neo4j/Mem0/Ollama/wiki) + cascade
+    tiers + codebase summary.
+  - `chronicle.py` — recent task summary (success rate, latency) +
+    `system_chronicle.md` excerpt + recent errors + narrative audit
+    entries.
+  - `scene.py` — focal items (with salience + ownership +
+    processing_mode + wonder_intensity) + peripheral tier +
+    `meta_monitor.attention_justification` + specious-present
+    lingering / stable items / tempo / direction.
+  - `wonder_shadow.py` — Wonder: live wonder homeostatic level vs
+    effective threshold + per-item `wonder_intensity` + recent
+    reverie pages from `wiki/meta/reverie/`. Shadow:
+    `self_state.discovered_limitations` (Shadow mining) +
+    `self_state.capabilities` with `discovered=True` markers (TSAL).
+  - `scorecard.py` — `meets_exit_criteria()` + Butlin/RSM/SK
+    summaries + drift findings from narrative audit. Embeds the
+    honest caveat that STRONG ratings are mechanism-level, that
+    ABSENT-by-declaration indicators are substrate-incompatible, and
+    that no phenomenal consciousness is claimed.
+  - `predictions.py` — rolling accuracy by domain (from
+    `prediction/accuracy_tracker`) + recent kernel predictions with
+    confidence + prediction_error + cached flag.
+  - `social.py` — per-entity ToM: `inferred_focus`,
+    `inferred_expectations`, `inferred_priorities`, `trust_level`,
+    `divergences`. Notes ToM is BEHAVIOURAL evidence only.
+
+**CIL integration.** Wrapped around the ingress side of `handle_task()`
+in `app/main.py`, BEFORE `commander.handle()`. The user's message is
+augmented in place with the system-prompt prefix when introspection
+is detected; otherwise it passes through unchanged. The grounding
+egress hook (above) then operates on the response generated against
+the augmented prompt.
+
+Single-line bridge:
+`app/subia/connections/introspection_chat_bridge.py`. Off by default;
+activation via `SUBIA_INTROSPECTION_ENABLED=1`. Failure mode: any
+pipeline error returns the original message unchanged with a debug
+log — chat path keeps working unchanged.
+
+**Closed-loop discipline.** Every persistent SubIA store now has a
+USER-FACING consumer when the user asks about it: the HOT-3 belief
+store, the source registry, the kernel scene + meta_monitor, the
+specious-present, the homeostasis engine, the discovered_limitations,
+the scorecard, the prediction accuracy tracker, the ToM social
+models, the TSAL profiles, and the system chronicle.
+
 ### connections/
 
 **Purpose.** Inter-system bridges. See [§Inter-system bridges](#inter-system-bridges).
@@ -1525,6 +1653,28 @@ handler:
 
 Both are defensive wrappers that never raise. Failure → original
 text passes through with a debug log.
+
+### Introspection chat bridge (self-knowledge at the chat surface)
+
+`introspection_chat_bridge.py` is the companion to the grounding
+bridge — same single-line wire-in pattern, opposite direction
+(grounding gates outgoing facts; introspection enriches incoming
+context with live self-state):
+
+- `inject_introspection(user_message)` — when the user is asking
+  about AndrusAI's own state (frustration, hardware, recent
+  activity, scorecard, beliefs, wonder, biases, ToM model, …),
+  augment the message with a system-prompt prefix containing the
+  live homeostasis snapshot + relevant per-topic kernel data. When
+  no introspection is detected, returns the message unchanged.
+- `inspect_message(user_message)` — diagnostic; returns the full
+  `IntrospectionResult` so callers can see WHY a message was/wasn't
+  classified, without triggering injection.
+- `is_introspection_enabled()` — surfaces the feature-flag state.
+
+Both are defensive wrappers that never raise. Failure → original
+message passes through with a debug log. Activation via
+`SUBIA_INTROSPECTION_ENABLED=1`.
 
 ---
 
@@ -1809,7 +1959,7 @@ COMPRESSED_LOOP_TOKEN_BUDGET        = 0
 
 ### Environment variables (`app/config.py`)
 
-Three feature flags bound via Pydantic `validation_alias`:
+Four feature flags bound via Pydantic `validation_alias`:
 
 ```python
 subia_live_enabled: bool = Field(
@@ -1821,6 +1971,9 @@ subia_grounding_enabled: bool = Field(
 subia_idle_jobs_enabled: bool = Field(
     default=False, validation_alias="SUBIA_IDLE_JOBS_ENABLED",
 )
+subia_introspection_enabled: bool = Field(
+    default=False, validation_alias="SUBIA_INTROSPECTION_ENABLED",
+)
 ```
 
 In `.env`:
@@ -1829,10 +1982,13 @@ In `.env`:
 SUBIA_FEATURE_FLAG_LIVE=1
 SUBIA_GROUNDING_ENABLED=1
 SUBIA_IDLE_JOBS_ENABLED=1
+SUBIA_INTROSPECTION_ENABLED=1
 ```
 
 Defaults are OFF — production must opt in. Disabled flags keep the
-SubIA stack unimported (no latency, no memory, no risk).
+corresponding SubIA components unimported (no latency, no memory, no
+risk). Each flag is independently toggleable so capabilities can
+activate in stages.
 
 ---
 
