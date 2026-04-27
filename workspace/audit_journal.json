@@ -1799,5 +1799,122 @@
       "app/control_plane/crew_tasks.py",
       "app/control_plane/dashboard_api.py"
     ]
+  },
+  {
+    "ts": "2026-04-25T20:01:51.146995+00:00",
+    "event": "code_audit",
+    "detail": "1 issues in 6 files: Fixed a connection health validation bug in the database pool. Setting `conn.autocommit = True` does not actually verify if the physical connection to the PostgreSQL server is still alive; it only changes a client-side setting. This could lead to `psycopg2.InterfaceError` or `OperationalError` during the actual query execution despite the validation check. I replaced this with a lightweight `SELECT 1` query to ensure the connection is active.",
+    "files_changed": [
+      "app/control_plane/db.py",
+      "app/control_plane/governance.py",
+      "app/control_plane/heartbeats.py",
+      "app/control_plane/org_chart.py",
+      "app/control_plane/projects.py",
+      "app/control_plane/tickets.py"
+    ]
+  },
+  {
+    "ts": "2026-04-26T00:06:27.580010+00:00",
+    "event": "code_audit",
+    "detail": "1 issues in 6 files: Fixed truncated function implementation in conversation_store.py",
+    "files_changed": [
+      "app/conversation_store.py",
+      "app/creative_mode.py",
+      "app/crew_checkpointer.py",
+      "app/crews/__init__.py",
+      "app/crews/base_crew.py",
+      "app/crews/coding_crew.py"
+    ]
+  },
+  {
+    "ts": "2026-04-26T04:05:33.287826+00:00",
+    "event": "code_audit",
+    "detail": "0 issues in 6 files: No issues found",
+    "files_changed": [
+      "app/crews/creative_crew.py",
+      "app/crews/creative_prompts.py",
+      "app/crews/critic_crew.py",
+      "app/crews/delegated_coding.py",
+      "app/crews/delegated_research.py",
+      "app/crews/delegated_writing.py"
+    ]
+  },
+  {
+    "ts": "2026-04-26T08:00:48.700606+00:00",
+    "event": "code_audit",
+    "detail": "0 issues in 6 files: No issues found",
+    "files_changed": [
+      "app/crews/delegation.py",
+      "app/crews/delegation_settings.py",
+      "app/crews/desktop_crew.py",
+      "app/crews/devops_crew.py",
+      "app/crews/event_handlers.py",
+      "app/crews/events.py"
+    ]
+  },
+  {
+    "ts": "2026-04-26T16:00:41.212412+00:00",
+    "event": "code_audit",
+    "detail": "0 issues in 6 files: No issues found",
+    "files_changed": [
+      "app/alignment_audit.py",
+      "app/architectural_review.py",
+      "app/code_quality.py",
+      "app/crews/financial_crew.py",
+      "app/crews/lifecycle.py",
+      "app/crews/media_crew.py"
+    ]
+  },
+  {
+    "ts": "2026-04-26T20:01:27.639733+00:00",
+    "event": "code_audit",
+    "detail": "0 issues in 6 files: No issues found",
+    "files_changed": [
+      "app/api/kb_dedup.py",
+      "app/crews/parallel_runner.py",
+      "app/crews/pim_crew.py",
+      "app/crews/registry.py",
+      "app/crews/repo_analysis_crew.py",
+      "app/crews/research_crew.py"
+    ]
+  },
+  {
+    "ts": "2026-04-27T00:01:58.303390+00:00",
+    "event": "code_audit",
+    "detail": "2 issues in 6 files: Fixed asyncio event loop blockage in aesthetics API routes.",
+    "files_changed": [
+      "app/aesthetics/__init__.py",
+      "app/aesthetics/api.py",
+      "app/aesthetics/config.py",
+      "app/aesthetics/tools.py",
+      "app/aesthetics/vectorstore.py",
+      "app/agents/media_analyst.py"
+    ]
+  },
+  {
+    "ts": "2026-04-27T04:03:51.403369+00:00",
+    "event": "code_audit",
+    "detail": "1 issues in 6 files: Fixed a critical logic error in the anomaly alert handler that caused all subsequent alerts in a batch to be ignored when one hit a remediation cooldown.",
+    "files_changed": [
+      "app/agents/specialists.py",
+      "app/anomaly_detector.py",
+      "app/api/__init__.py",
+      "app/api/config_api.py",
+      "app/api/fiction.py",
+      "app/api/health.py"
+    ]
+  },
+  {
+    "ts": "2026-04-27T08:00:55.160335+00:00",
+    "event": "code_audit",
+    "detail": "3 issues in 6 files: Fixed critical security vulnerability in kb.py, logic bug in auth_patterns.py, and a crash-inducing truncation in code_forge.py",
+    "files_changed": [
+      "app/api/kb.py",
+      "app/atlas/auth_patterns.py",
+      "app/atlas/code_forge.py",
+      "app/atlas/competence_tracker.py",
+      "app/atlas/learning_planner.py",
+      "app/atlas/skill_library.py"
+    ]
   }
 ]

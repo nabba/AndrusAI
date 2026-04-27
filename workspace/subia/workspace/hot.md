@@ -1,7 +1,7 @@
 ---
 title: "SubIA session continuity buffer"
-updated_at: "2026-04-25T06:19:12.593620+00:00"
-loop_count: 39
+updated_at: "2026-04-26T20:48:50.074295+00:00"
+loop_count: 51
 session_id: ""
 ---
 
@@ -16,7 +16,8 @@ session_id: ""
 ## Homeostatic pressures
 - coherence: +0.50
 - safety: -0.50
-- overload: -0.50
+- progress: +0.50
+- overload: -0.40
 
 ## Resume hint
 Start by attending to homeostatic pressure: reduce coherence.

@@ -1360,5 +1360,23 @@
     "mutation_summary": "No improvement (delta=+0.0000), reverted",
     "timestamp": "2026-04-25T12:03:35.966166+00:00",
     "generation": 46
+  },
+  {
+    "id": "exp_202604260002_c728",
+    "parent_id": "exp_202604222104_f9f6",
+    "hypothesis": "Implementing a robust retry mechanism with exponential backoff specifically for APIConnectionError and ConnectionError in the research and coding tools will reduce the overall error rate and improve task success stability.",
+    "change_type": "code",
+    "fitness_before": 0.7945,
+    "fitness_after": 0.7945,
+    "delta": 0.0,
+    "test_pass_rate": 0.0,
+    "status": "discard",
+    "files_changed": [
+      "app/tools/research.py",
+      "app/tools/coding.py"
+    ],
+    "mutation_summary": "No improvement (delta=-0.0160), reverted",
+    "timestamp": "2026-04-26T00:06:45.275224+00:00",
+    "generation": 46
   }
 ]

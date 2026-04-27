@@ -5,8 +5,8 @@ section: self
 page_type: synthesis
 epistemic_status: speculative
 confidence: low
-updated_at: "2026-04-24T13:33:17.810257+00:00"
-update_count: 30
+updated_at: "2026-04-26T20:48:49.960714+00:00"
+update_count: 50
 tags:
   - consciousness
   - self-awareness
@@ -29,7 +29,7 @@ consciousness architecture and current consciousness-like
 properties. It is itself a wiki page subject to the dynamics
 it describes — the strange loop.
 
-Loop count: **30** — last updated 2026-04-24T13:33:17.810257+00:00
+Loop count: **50** — last updated 2026-04-26T20:48:49.960714+00:00
 
 ## Butlin indicator scorecard
 
@@ -40,7 +40,7 @@ or run the probes package for the current indicator status._
 
 - **Focal scene items**: 0
 - **Active commitments**: 0
-- **Homeostatic variables above threshold**: 3
+- **Homeostatic variables above threshold**: 4
 - **Resolved predictions on record**: 0
 - **Social models tracked**: 1
 - **Meta confidence**: 0.50 (known unknowns: 0)

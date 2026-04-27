@@ -1,0 +1,39 @@
+{
+  "trajectory_id": "traj_33dfe89f0c5845de",
+  "task_id": "diag_e2e",
+  "crew_name": "research",
+  "task_description": "live diag write",
+  "steps": [
+    {
+      "step_idx": 0,
+      "agent_role": "research",
+      "phase": "crew",
+      "planned_action": "diag write probe",
+      "tool_name": "",
+      "tool_args_sample": "",
+      "tool_args_hash": "",
+      "output_sample": "ok",
+      "output_hash": "2689367b205c",
+      "observer_prediction": {},
+      "observer_recommendation_followed": false,
+      "elapsed_ms": 0,
+      "tokens_prompt": 0,
+      "tokens_completion": 0,
+      "mcsv_snapshot": "",
+      "started_at": "2026-04-26T18:56:10+00:00"
+    }
+  ],
+  "started_at": "2026-04-26T18:56:10+00:00",
+  "ended_at": "2026-04-26T18:56:10+00:00",
+  "outcome_summary": {
+    "passed_quality_gate": true,
+    "retries": 0,
+    "difficulty": 3,
+    "duration_s": 1.0,
+    "is_failure_pattern": false,
+    "has_result": true,
+    "confidence": "high",
+    "completeness": "complete"
+  },
+  "injected_skill_ids": []
+}
