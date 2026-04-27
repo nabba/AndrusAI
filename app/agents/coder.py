@@ -48,6 +48,17 @@ def create_coder(force_tier: str | None = None) -> Agent:
         tools.extend(create_wiki_tools("read", "write"))
     except Exception:
         pass
+    # Forge generator — only exposed when both TOOL_FORGE_ENABLED and
+    # TOOL_FORGE_AGENT_GENERATION_ENABLED are set. Lets Coder register a new
+    # sandboxed tool through the audit pipeline. Tool lands in SHADOW at best;
+    # promotion past SHADOW requires manual human approval.
+    try:
+        from app.forge.generator_tool import get_forge_generator_tool
+        forge_tool = get_forge_generator_tool()
+        if forge_tool is not None:
+            tools.append(forge_tool)
+    except Exception:
+        pass
 
     return Agent(
         role="Coder",

@@ -138,6 +138,33 @@ TIER_IMMUTABLE = frozenset({
     # own elegance gates — those modules belong with the safety core)
     "app/code_quality.py",
     "app/architectural_review.py",
+    # Forge — staged tool generation. The audit pipeline, capability
+    # enforcement, killswitch and registry must not be agent-modifiable;
+    # otherwise an agent could write a tool that loosens its own gates.
+    "app/forge/__init__.py",
+    "app/forge/config.py",
+    "app/forge/manifest.py",
+    "app/forge/registry.py",
+    "app/forge/killswitch.py",
+    "app/forge/api.py",
+    "app/forge/capabilities.py",
+    "app/forge/audit/__init__.py",
+    "app/forge/audit/static.py",
+    "app/forge/audit/semantic.py",
+    "app/forge/audit/pipeline.py",
+    "app/forge/summary.py",
+    "app/forge/runtime/__init__.py",
+    "app/forge/runtime/guards.py",
+    "app/forge/runtime/declarative.py",
+    "app/forge/runtime/python_sandbox.py",
+    "app/forge/runtime/budget.py",
+    "app/forge/runtime/dispatcher.py",
+    "app/forge/composition.py",
+    "app/forge/audit/periodic.py",
+    "app/forge/anomaly.py",
+    "app/forge/integrity.py",
+    "app/forge/cron.py",
+    "app/forge/generator_tool.py",
 })
 
 # ── TIER_GATED (~25 files — evolution engine + soul prompts) ────────────────

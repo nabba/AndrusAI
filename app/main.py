@@ -398,6 +398,14 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.debug("NL cron restoration failed", exc_info=True)
 
+    # ── Forge maintenance jobs (periodic re-audit, anomaly detection,
+    #     hash-chain integrity verification) ──
+    try:
+        from app.forge.cron import register_periodic_jobs
+        register_periodic_jobs(scheduler)
+    except Exception:
+        logger.debug("Forge cron registration failed", exc_info=True)
+
     scheduler.start()
 
     # ── PARALLELIZED: cleanup + mode read are independent I/O operations ──
@@ -1718,6 +1726,17 @@ try:
     logger.info("Evolution API mounted at /api/cp/evolution/")
 except Exception:
     logger.debug("Evolution API not available", exc_info=True)
+
+# ── Forge API (staged tool generation) ─────────────────────────────────────
+# Default OFF: TOOL_FORGE_ENABLED env var must be true and runtime override
+# must allow before any forged tool can run. Registry + audits work either
+# way so the UI can show what would have been created.
+try:
+    from app.forge.api import router as forge_router
+    app.include_router(forge_router)
+    logger.info("Forge API mounted at /api/forge/")
+except Exception:
+    logger.debug("Forge API not available", exc_info=True)
 
 # ── MCP Server (Model Context Protocol — P6) ──────────────────────────────
 # Exposes philosophical RAG, MCSV, blackboard, personality, and Mem0

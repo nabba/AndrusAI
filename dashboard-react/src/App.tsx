@@ -38,6 +38,24 @@ const NotesPage = lazy(() =>
 const WikiPage = lazy(() =>
   import('./components/WikiPage').then((m) => ({ default: m.WikiPage })),
 );
+const ForgePage = lazy(() =>
+  import('./components/ForgePage').then((m) => ({ default: m.ForgePage })),
+);
+const ForgeToolDetailPage = lazy(() =>
+  import('./components/ForgeToolDetailPage').then((m) => ({
+    default: m.ForgeToolDetailPage,
+  })),
+);
+const ForgeSettingsPage = lazy(() =>
+  import('./components/ForgeSettingsPage').then((m) => ({
+    default: m.ForgeSettingsPage,
+  })),
+);
+const ForgeCompositionsPage = lazy(() =>
+  import('./components/ForgeCompositionsPage').then((m) => ({
+    default: m.ForgeCompositionsPage,
+  })),
+);
 
 function RouteFallback() {
   return (
@@ -77,6 +95,10 @@ export default function App() {
             <Route path="/workspaces" element={<LazyRoute><WorkspacesPage /></LazyRoute>} />
             <Route path="/evolution" element={<LazyRoute><EvolutionMonitor /></LazyRoute>} />
             <Route path="/knowledge" element={<LazyRoute><KnowledgeBases /></LazyRoute>} />
+            <Route path="/forge" element={<LazyRoute><ForgePage /></LazyRoute>} />
+            <Route path="/forge/settings" element={<LazyRoute><ForgeSettingsPage /></LazyRoute>} />
+            <Route path="/forge/compositions" element={<LazyRoute><ForgeCompositionsPage /></LazyRoute>} />
+            <Route path="/forge/:id" element={<LazyRoute><ForgeToolDetailPage /></LazyRoute>} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
