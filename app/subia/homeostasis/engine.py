@@ -134,6 +134,34 @@ def update_homeostasis(
 
 # ── Item-driven deltas (pre-task) ─────────────────────────────────
 
+def _dominant_processing_mode(items: list) -> str | None:
+    """Return the most common Boundary processing_mode across items, or
+    None if no items carry one. Phase 12 boundary tagged scene items
+    with introspective/memorial/perceptual/imaginative/social — Phase
+    19 makes that classification actually shape the homeostatic update."""
+    counts: dict[str, int] = {}
+    for it in items or []:
+        mode = getattr(it, "processing_mode", None)
+        if mode:
+            counts[mode] = counts.get(mode, 0) + 1
+    if not counts:
+        return None
+    return max(counts.items(), key=lambda kv: kv[1])[0]
+
+
+def _modulator(mode: str | None, variable: str) -> float:
+    """Look up the per-(mode, variable) multiplier from
+    boundary/differential.py. Returns 1.0 when boundary import fails or
+    no mode is set, so the legacy delta path is the safe default."""
+    if not mode:
+        return 1.0
+    try:
+        from app.subia.boundary.differential import homeostatic_modulator_for
+        return float(homeostatic_modulator_for(mode, variable))
+    except Exception:
+        return 1.0
+
+
 def _update_from_items(
     h: HomeostaticState,
     items: list,
@@ -154,20 +182,34 @@ def _update_from_items(
             new_count += 1
         conflict_count += len(getattr(item, "conflicts_with", []) or [])
 
+    # ── Phase 19 closure: Boundary modulator ──────────────────────
+    # The dominant scene processing_mode shapes how strongly each
+    # homeostatic variable moves. introspective × 1.5 on coherence,
+    # perceptual × 1.5 on novelty_balance, imaginative × 0.8 on
+    # trustworthiness, etc. — see boundary/differential.py.
+    dom_mode = _dominant_processing_mode(items)
+    if dom_mode:
+        summary["dominant_processing_mode"] = dom_mode
+
     if new_count:
         _clamped_add(
             h.variables, "novelty_balance",
-            _DELTA_NOVELTY_PER_NEW_ITEM * new_count,
+            _DELTA_NOVELTY_PER_NEW_ITEM * new_count
+            * _modulator(dom_mode, "novelty_balance"),
         )
     if conflict_count:
         _clamped_add(
             h.variables, "contradiction_pressure",
-            _DELTA_CONTRADICTION_PER_CONFLICT * conflict_count,
+            _DELTA_CONTRADICTION_PER_CONFLICT * conflict_count
+            * _modulator(dom_mode, "contradiction_pressure"),
         )
     if items:
         _clamped_add(
             h.variables, "overload",
             _DELTA_OVERLOAD_PER_ITEM * len(items),
+            # Overload itself is not in the boundary modulator table
+            # (it tracks resource pressure, not content-mode), so no
+            # mode-scaling applied.
         )
 
     summary.update({

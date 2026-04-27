@@ -153,8 +153,8 @@
       "size": 88
     },
     "app/subia/homeostasis/engine.py": {
-      "sha256": "29c788c60ee88570f0baad4f79298e57ca0a426c83f1d61d6d23e4a7d73c1fb5",
-      "size": 8508
+      "sha256": "ffd3f6c4756aabecb13fecb30aa9009ed9b36105d644fd45597773f9231c426d",
+      "size": 10405
     },
     "app/subia/homeostasis/somatic_bias.py": {
       "sha256": "4c8e919d49f3a15919168738be6296183dc08f288385109eea80b4ea1a5a3875",
@@ -253,8 +253,8 @@
       "size": 18337
     },
     "app/subia/loop.py": {
-      "sha256": "f66c88bfd552fee8e15c5c3db4fcdb538bb6f3139fbd6f66c499ab638156948c",
-      "size": 45988
+      "sha256": "5a411027eef9e7586781a839558bd998fb52af19a982ae702a2504a4c4e570b9",
+      "size": 48584
     },
     "app/subia/memory/__init__.py": {
       "sha256": "f0074922981104b9498b0b4fccd4ffcb071e9951d6797cd147f302ba4354df8d",
@@ -401,8 +401,8 @@
       "size": 12674
     },
     "app/subia/scene/buffer.py": {
-      "sha256": "c92c3d880e07097dc86c947ec183f3386e9b00bb224cabbb65de000b1dff5195",
-      "size": 13344
+      "sha256": "52e9bb4f251148f4df6554183f1e878449f0bd9ce01ccc06213d7243c5411001",
+      "size": 14000
     },
     "app/subia/scene/compact_context.py": {
       "sha256": "43c58b1974c14fdde0bdcfc430c0623c23edfbb5b09a27c057bda98438d6f9ec",

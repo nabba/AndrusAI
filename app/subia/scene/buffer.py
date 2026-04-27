@@ -107,8 +107,22 @@ class SalienceScorer:
         else:
             item.novelty_score = 0.8  # High novelty for first items
 
-        # Recency decay for items already in workspace
-        decay = (1.0 - item.decay_rate) ** item.cycles_in_workspace
+        # Recency decay for items already in workspace.
+        # Phase 19 closure: items carrying high wonder_intensity have
+        # their decay frozen — items the system is wondering about
+        # shouldn't fade out under routine recency pressure. The
+        # predicate freeze_decay_for() is the canonical Phase 12 check
+        # (compares wonder_intensity to WONDER_FREEZE_THRESHOLD).
+        decay_frozen = False
+        try:
+            from app.subia.wonder.register import freeze_decay_for
+            decay_frozen = bool(freeze_decay_for(item))
+        except Exception:
+            pass
+        if decay_frozen:
+            decay = 1.0  # No decay — wonder holds attention
+        else:
+            decay = (1.0 - item.decay_rate) ** item.cycles_in_workspace
 
         # Composite
         raw = (self.w_goal * item.goal_relevance

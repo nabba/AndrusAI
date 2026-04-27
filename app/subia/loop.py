@@ -728,6 +728,53 @@ class SubIALoop:
         except Exception:
             logger.debug("phase14 temporal_bind failed", exc_info=True)
 
+        # ── Phase 19 closure: Wonder inhibit-completion gate ──────
+        # If wonder is high enough that completion should be inhibited
+        # (Phase 12 §4.2 §4 closed-loop), downgrade an ALLOW dispatch to
+        # ESCALATE so the orchestrator is signalled to deepen rather
+        # than ship. BLOCK decisions are preserved (BLOCK is stricter).
+        #
+        # We DON'T fire on default-steady-state wonder: the homeostatic
+        # wonder variable is initialised at 0.5 which is above the
+        # 0.3 inhibit threshold but is just the default. The gate fires
+        # only when EITHER:
+        #   (a) a per-item wonder_intensity has been set (a real wonder
+        #       event registered against a specific scene item), OR
+        #   (b) the wonder variable exceeds its setpoint by a clear
+        #       margin (i.e. recent rising wonder, not steady state).
+        try:
+            from app.subia.wonder.register import should_inhibit_completion
+            if should_inhibit_completion(self.kernel):
+                wonder_var = float(
+                    self.kernel.homeostasis.variables.get("wonder", 0.0)
+                )
+                wonder_sp = float(
+                    self.kernel.homeostasis.set_points.get("wonder", 0.4)
+                )
+                _MARGIN = 0.15
+                has_item_wonder = any(
+                    float(getattr(it, "wonder_intensity", 0.0) or 0.0) > 0.0
+                    for it in self.kernel.focal_scene()
+                )
+                rising_above_setpoint = (wonder_var - wonder_sp) > _MARGIN
+                if has_item_wonder or rising_above_setpoint:
+                    details["wonder_inhibits_completion"] = True
+                    cur = getattr(self, "_dispatch_decision", None)
+                    if cur is not None and getattr(cur, "verdict", None) == "ALLOW":
+                        try:
+                            cur.verdict = "ESCALATE"
+                            existing = getattr(cur, "rationale", "") or ""
+                            cur.rationale = (
+                                (existing + " | " if existing else "")
+                                + "wonder_active: depth-sensitive epistemic "
+                                "affect above threshold; deepen before completion"
+                            )[:500]
+                        except Exception:
+                            pass
+                        details["dispatch_overridden_by_wonder"] = True
+        except Exception:
+            logger.debug("phase19: wonder inhibit gate failed", exc_info=True)
+
         return details
 
     def _step_compare(
