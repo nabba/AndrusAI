@@ -239,6 +239,29 @@ def install_throttle() -> None:
         # ``LLMCallCompletedEvent`` covers every provider uniformly,
         # including any CrewAI ships in the future.
 
+        # ── OpenAI SDK credit-failover patch (2026-04-28) ────────────
+        # CrewAI 1.14.x ships a "providers" system whose openai branch
+        # (crewai/llms/providers/openai/completion.py) calls
+        # openai.OpenAI directly — bypassing litellm.completion entirely
+        # and therefore bypassing the credit-failover patch above.
+        # Result: when OpenRouter returns 402 "insufficient credits",
+        # the openai SDK raises APIStatusError, the orchestrator
+        # propagates it up, and the user sees "Crew pim failed: Error
+        # code: 402".
+        #
+        # Mirror of the litellm patch: wrap chat.completions.create
+        # (sync + async) so 402s trigger _try_credit_failover_sync
+        # the same way. Idempotent — guarded by an attribute flag on
+        # the bound method's class.
+        try:
+            _install_openai_credit_failover()
+        except Exception as exc:
+            logger.warning(
+                "rate_throttle: failed to install openai credit-failover patch "
+                "(%s) — credit failover only covers litellm calls",
+                exc,
+            )
+
     # Litellm success_callback is still useful for the observability
     # concerns that the event payload can't represent: measured
     # ``latency_ms`` for benchmark scoring and the raw response shape
@@ -840,6 +863,122 @@ async def _try_credit_failover_async(
         return None
     finally:
         _failover_in_progress.reset(token)
+
+
+# ── OpenAI SDK credit-failover (2026-04-28) ────────────────────────────
+#
+# CrewAI's openai-provider branch calls openai.OpenAI directly. When
+# OpenRouter returns 402 the SDK raises APIStatusError without ever
+# touching litellm.completion, so the litellm-level failover above
+# never runs. This patch wraps the SDK's chat.completions.create
+# (sync + async) symmetrically.
+#
+# Strategy:
+#   * Patch the BOUND METHOD on the Completions class, not individual
+#     instances. CrewAI creates a fresh OpenAI client per agent, so
+#     instance-level patching wouldn't cover them.
+#   * On 402 / "insufficient credits" / "afford" → call into the
+#     existing _try_credit_failover_sync/async machinery, which already
+#     knows how to pick a local Ollama model and retry once.
+#   * The local retry goes through litellm so it's still subject to
+#     the rate_throttle wrapper above (no double-failover, the
+#     ContextVar guard prevents recursion).
+
+_openai_patched = False
+
+
+def _install_openai_credit_failover() -> None:
+    """Patch ``openai.resources.chat.completions.Completions.create`` and
+    its async counterpart so 402 errors trigger the same credit
+    failover path as the litellm wrapper above. Idempotent."""
+    global _openai_patched
+    if _openai_patched:
+        return
+    try:
+        from openai.resources.chat.completions import (
+            Completions, AsyncCompletions,
+        )
+    except Exception as exc:
+        logger.debug("openai SDK not importable, skipping patch: %s", exc)
+        return
+
+    _orig_create = Completions.create
+    _orig_acreate = AsyncCompletions.create
+
+    def _patched_create(self, *args, **kwargs):
+        try:
+            return _orig_create(self, *args, **kwargs)
+        except Exception as exc:
+            # Only hijack credit-shaped errors. Everything else propagates.
+            try:
+                from app.firebase.publish import detect_credit_error
+                if detect_credit_error(exc) is None:
+                    raise
+            except Exception:
+                raise
+            # Build a litellm-compatible kwargs dict and call into the
+            # existing failover helper. The completion request from the
+            # openai SDK looks like
+            # {model, messages, temperature, max_tokens, tools, ...} —
+            # which is mostly compatible with litellm.completion.
+            model = kwargs.get("model", "")
+            try:
+                import litellm
+                fallback = _try_credit_failover_sync(
+                    exc, model, kwargs, litellm.completion,
+                )
+            except Exception as fallback_exc:
+                logger.debug(
+                    "openai credit failover plumbing failed (%s); "
+                    "propagating original 402", fallback_exc,
+                )
+                raise exc from None
+            if fallback is None:
+                # No local model available, or local also failed.
+                raise
+            logger.warning(
+                "openai credit failover: 402 on %r → served by local Ollama",
+                model,
+            )
+            return fallback
+
+    async def _patched_acreate(self, *args, **kwargs):
+        try:
+            return await _orig_acreate(self, *args, **kwargs)
+        except Exception as exc:
+            try:
+                from app.firebase.publish import detect_credit_error
+                if detect_credit_error(exc) is None:
+                    raise
+            except Exception:
+                raise
+            model = kwargs.get("model", "")
+            try:
+                import litellm
+                fallback = await _try_credit_failover_async(
+                    exc, model, kwargs, litellm.acompletion,
+                )
+            except Exception as fallback_exc:
+                logger.debug(
+                    "openai async credit failover plumbing failed (%s); "
+                    "propagating", fallback_exc,
+                )
+                raise exc from None
+            if fallback is None:
+                raise
+            logger.warning(
+                "openai async credit failover: 402 on %r → served by local Ollama",
+                model,
+            )
+            return fallback
+
+    Completions.create = _patched_create
+    AsyncCompletions.create = _patched_acreate
+    _openai_patched = True
+    logger.info(
+        "rate_throttle: openai SDK credit-failover patch installed "
+        "(covers crewai's openai-provider path)"
+    )
 
 
 # ── Per-model reliability circuit breaker ─────────────────────────────
