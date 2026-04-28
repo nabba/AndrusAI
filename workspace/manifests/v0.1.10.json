@@ -1,10 +1,10 @@
 {
   "version": "v0.1.10",
-  "timestamp": "2026-04-28T13:19:23.009809+00:00",
+  "timestamp": "2026-04-28T13:21:16.311863+00:00",
   "components": {
     "agent_code": {
-      "git_sha": "bb4d610c0b96b804ed23fa434fc27f4b48adbcbb",
-      "branch": "master",
+      "git_sha": "unknown",
+      "branch": "unknown",
       "dirty": true
     },
     "prompts": {
@@ -40,10 +40,10 @@
       "writer.md": "e50e1cddffebdf3b700956507bd17408534b74bb1bc09e076ceee6ea9fd1a6ec"
     },
     "mem0_state": {
-      "snapshot_id": "20260428T131923Z",
+      "snapshot_id": "20260428T132116Z",
       "method": "row_counts",
       "total_tables": 65,
-      "total_rows": 40301,
+      "total_rows": 40311,
       "tables": {
         "atlas.api_knowledge": 0,
         "atlas.audit_log": 55,
@@ -52,7 +52,7 @@
         "control_plane.audit_log": 1574,
         "control_plane.budgets": 46,
         "control_plane.crew_task_spans": 1142,
-        "control_plane.crew_tasks": 537,
+        "control_plane.crew_tasks": 538,
         "control_plane.discovered_models": 356,
         "control_plane.external_ranks": 33,
         "control_plane.governance_requests": 16,
@@ -98,7 +98,7 @@
         "public.internal_states": 384,
         "public.mem0migrations": 0,
         "public.metacognitive_updates": 82,
-        "public.observability_snapshots": 15406,
+        "public.observability_snapshots": 15415,
         "public.prediction_errors": 290,
         "public.predictions": 290,
         "public.prosocial_game_outcomes": 0,
@@ -159,8 +159,8 @@
           "hash": "f3cea7f8c795d6ab"
         },
         "consolidation_proposals": {
-          "count": 1,
-          "hash": "a21d70e8e13360e9"
+          "count": 2,
+          "hash": "d7964ec542897ab8"
         },
         "literature_inspiration": {
           "count": 324,
@@ -290,7 +290,7 @@
       "total_collections": 43
     },
     "neo4j_graph": {
-      "snapshot_id": "20260428T131923Z",
+      "snapshot_id": "20260428T132116Z",
       "error": "{neo4j_code: Neo.ClientError.Security.Unauthorized} {message: The client is unauthorized due to authentication failure.} {gql_status: 50N42} {gql_status_description: error: general processing exceptio"
     },
     "config": {

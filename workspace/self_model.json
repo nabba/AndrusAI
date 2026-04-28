@@ -12300,8 +12300,8 @@
       "app/forge/runtime/declarative.py"
     ]
   },
-  "built_at": 1777382364.1642942,
-  "build_duration_s": 2.3173032510094345,
+  "built_at": 1777382477.2715895,
+  "build_duration_s": 23.878010635991814,
   "module_count": 579,
   "hot_path_count": 33
 }
