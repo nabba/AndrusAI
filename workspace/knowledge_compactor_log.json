@@ -12,5 +12,12 @@
     "consolidations_proposed": 3,
     "promotion_candidates": 0,
     "promotions_proposed": 0
+  },
+  {
+    "timestamp": 1777293000.9069843,
+    "clusters_found": 5,
+    "consolidations_proposed": 3,
+    "promotion_candidates": 0,
+    "promotions_proposed": 0
   }
 ]

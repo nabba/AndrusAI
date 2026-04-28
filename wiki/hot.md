@@ -1,11 +1,11 @@
 ---
 title: Hot Cache
-updated_at: "2026-04-26T20:17:36Z"
+updated_at: "2026-04-28T13:19:34Z"
 ---
 
 # Wiki Hot Cache
 
-*Auto-generated 2026-04-26T20:17:36Z. Read this for quick context.*
+*Auto-generated 2026-04-28T13:19:34Z. Read this for quick context.*
 
 ## Recent Wiki Changes
   | 2026-04-23T23:56:36Z | idle_scheduler.wiki_synthesis | CREATE | meta/structured-research-to-identify-verified-sales-contacts-individuals-email-a92038 | Created: **** Structured research to identify verified sales contacts (individuals, emails, LinkedIn) for reg |
@@ -23,8 +23,8 @@ updated_at: "2026-04-26T20:17:36Z"
   None.
 
 ## Knowledge Gaps
-  - kaicart: no pages yet
+  - archibal: no pages yet
   - plg: no pages yet
   - self: no pages yet
+  - kaicart: no pages yet
   - philosophy: no pages yet
-  - archibal: no pages yet

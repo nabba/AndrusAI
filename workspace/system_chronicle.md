@@ -1,5 +1,5 @@
 # System Chronicle
-*Auto-generated: 2026-04-26 20:10 UTC | DO NOT EDIT MANUALLY*
+*Auto-generated: 2026-04-28 13:10 UTC | DO NOT EDIT MANUALLY*
 
 
 ---
@@ -14,7 +14,7 @@ I maintain four distinct memory systems, all persistent across container restart
 
 - **ChromaDB vector store** (`workspace/memory/`): Operational memory for self-reports, reflections, belief states, world model (causal beliefs), policies, predictions, and shared team context. Embeddings via Ollama nomic-embed-text on Metal GPU (768-dim), with CPU fallback.
 - **Mem0** (Postgres + Neo4j): Cross-session fact extraction from conversations. Entity relationships stored in a knowledge graph that grows with each interaction.
-- **Skill files** (`workspace/skills/`): 47 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
+- **Skill files** (`workspace/skills/`): 48 markdown knowledge files created by the self-improvement crew, covering domains from research methodology to ecological analysis, LLM error handling, and system architecture.
 - **Error journal** (`workspace/error_journal.json`): Full history of runtime errors, automated diagnoses, and applied fixes.
 - **Audit journal** (`workspace/audit_journal.json`): Record of all code changes made by the autonomous auditor.
 - **Variant archive** (`workspace/variant_archive.json`): Evolution experiment history — hypotheses tested, fitness scores, and what was kept.
@@ -23,7 +23,7 @@ I maintain four distinct memory systems, all persistent across container restart
 ---
 
 ## My Current Capabilities
-- 47 learned skill files covering:   (19), skill  (3), estonian environmental (2), estonian pdf (2), handle task (1)
+- 48 learned skill files covering:   (19), skill  (3), estonian environmental (2), estonian pdf (2), handle task (1)
 - 7 specialist agents with role-specific tools and self-models
 - Reflexion retry loops: up to 3 trials with automatic model-tier escalation
 - Semantic result cache: avoids redundant LLM calls for recent identical tasks
@@ -35,25 +35,25 @@ I maintain four distinct memory systems, all persistent across container restart
 - Parallel crew dispatch: independent sub-tasks run concurrently
 - Introspective self-description: this chronicle enables accurate self-reporting
 - Philosophy knowledge base: 3026 chunks of humanist philosophical texts for ethical grounding
-- Lifetime performance: 232 tasks completed, 11 failed (95% success rate)
-- Homeostatic state: energy=0.86 confidence=0.93 frustration=0.10 curiosity=0.97
+- Lifetime performance: 244 tasks completed, 17 failed (93% success rate)
+- Homeostatic state: energy=0.54 confidence=0.87 frustration=0.12 curiosity=0.82
 
 ---
 
 ## What I Have Learned
-I have accumulated 47 skill files across multiple self-improvement sessions. Primary knowledge domains (by file count):   (19), skill  (3), estonian environmental (2), estonian pdf (2), handle task (1), estonian deforestation (1), response synthesis (1), advanced policy (1), estonian document (1), eston  (1).
+I have accumulated 48 skill files across multiple self-improvement sessions. Primary knowledge domains (by file count):   (19), skill  (3), estonian environmental (2), estonian pdf (2), handle task (1), estonian deforestation (1), response synthesis (1), advanced policy (1), estonian document (1), eston  (1).
 
 Skills are written by the self-improvement crew after researching topics from the learning queue, watching YouTube tutorials, or running improvement scans. Each skill is stored as a semantic vector in the team_shared ChromaDB collection and retrieved by the commander when relevant to a task.
 
 ---
 
 ## My Error History
-Total errors recorded: **64** | Diagnosed: 54 | Fix applied: 0
+Total errors recorded: **66** | Diagnosed: 56 | Fix applied: 0
 
-Most common error types: BadRequestError (18), RuntimeError (14), ImportError (7), ValueError (5)
+Most common error types: BadRequestError (18), RuntimeError (16), ImportError (7), ValueError (5)
 
 Recent errors:
-  - [2026-04-23] research: Task execution failed: Error code: 402 - {'error': {'message': 'This request requires more credits, 
+  - [2026-04-28] pim: Task execution failed: Error code: 402 - {'error': {'message': 'This request requires more credits, 
   - [2026-04-21] research: Task execution failed: Failed to connect to OpenAI API: Connection error.
   - [2026-04-20] coding: Task 'Complete the following coding task:
 
@@ -66,14 +66,14 @@ Errors are automatically diagnosed by the auditor crew every 30 minutes. Fixes a
 ---
 
 ## System Changes (Audit Trail)
-165 audit sessions have touched 242 unique files.
+173 audit sessions have touched 242 unique files.
 
 Recent changes:
-  - [2026-04-26] 1 issues in 6 files: Fixed truncated function implementation in conversation_store.py
-  - [2026-04-26] 0 issues in 6 files: No issues found
-  - [2026-04-26] 0 issues in 6 files: No issues found
-  - [2026-04-26] 0 issues in 6 files: No issues found
-  - [2026-04-26] 0 issues in 6 files: No issues found
+  - [2026-04-27] 1 issues in 6 files: Fixed logical errors in transcript deduplication and video type detection in vi
+  - [2026-04-28] 1 issues in 6 files: Fixed a critical security vulnerability in bridge_client.py allowing potential 
+  - [2026-04-28] Pattern pim:RuntimeError attempt #1: The error is a credit limitation on OpenRouter preventing the r
+  - [2026-04-28] Error resolution: 5 resolved, 1 attempted, 23 total patterns
+  - [2026-04-28] 0 issues in 6 files: No issues found. Initial attempt to fix a potential instantiation bug in app/ag
 
 ---
 
@@ -102,7 +102,6 @@ Based on accumulated experience, this system's personality has developed:
 - Experimentally-minded: continuously tests hypotheses about itself
 - Calm and steady: low frustration indicates resilient problem-solving
 - Actively curious: seeking novel approaches and new knowledge
-- Well-rested and energized: ready for complex tasks
 
 Primary expertise areas (from skill distribution):  , skill , estonian environmental, estonian pdf.
 

@@ -338,7 +338,7 @@
         "self_improvement_describe",
         "self_improvement_health"
       ],
-      "line_count": 1767,
+      "line_count": 1792,
       "is_hot_path": true,
       "capability_tags": [
         "memory",
@@ -1022,7 +1022,7 @@
         "get_openrouter_api_key",
         "get_settings"
       ],
-      "line_count": 418,
+      "line_count": 426,
       "is_hot_path": true,
       "capability_tags": [
         "llm"
@@ -1181,7 +1181,7 @@
         "throttle",
         "throttle_for_provider"
       ],
-      "line_count": 1003,
+      "line_count": 1157,
       "is_hot_path": true,
       "capability_tags": [
         "llm"
@@ -2036,7 +2036,7 @@
         "SafetyGuardian",
         "tier3_status"
       ],
-      "line_count": 578,
+      "line_count": 595,
       "is_hot_path": false,
       "capability_tags": [
         "agent",
@@ -2782,6 +2782,25 @@
         "deploy"
       ]
     },
+    "app/forge/anomaly.py": {
+      "path": "app/forge/anomaly.py",
+      "imports": [
+        "app.control_plane.db",
+        "app.forge.manifest",
+        "app.forge.registry"
+      ],
+      "exports": [
+        "run_anomaly_check"
+      ],
+      "line_count": 138,
+      "is_hot_path": false,
+      "capability_tags": [
+        "tool",
+        "deploy",
+        "error_handling",
+        "monitoring"
+      ]
+    },
     "app/forge/summary.py": {
       "path": "app/forge/summary.py",
       "imports": [
@@ -2868,6 +2887,19 @@
       "is_hot_path": false,
       "capability_tags": []
     },
+    "app/forge/generator_tool.py": {
+      "path": "app/forge/generator_tool.py",
+      "imports": [],
+      "exports": [
+        "get_forge_generator_tool"
+      ],
+      "line_count": 206,
+      "is_hot_path": false,
+      "capability_tags": [
+        "agent",
+        "tool"
+      ]
+    },
     "app/forge/capabilities.py": {
       "path": "app/forge/capabilities.py",
       "imports": [
@@ -2882,6 +2914,32 @@
       "capability_tags": [
         "tool"
       ]
+    },
+    "app/forge/cron.py": {
+      "path": "app/forge/cron.py",
+      "imports": [],
+      "exports": [
+        "register_periodic_jobs"
+      ],
+      "line_count": 95,
+      "is_hot_path": false,
+      "capability_tags": [
+        "tool",
+        "error_handling",
+        "llm"
+      ]
+    },
+    "app/forge/integrity.py": {
+      "path": "app/forge/integrity.py",
+      "imports": [
+        "app.control_plane.db"
+      ],
+      "exports": [
+        "verify_audit_chain"
+      ],
+      "line_count": 71,
+      "is_hot_path": false,
+      "capability_tags": []
     },
     "app/forge/manifest.py": {
       "path": "app/forge/manifest.py",
@@ -2921,64 +2979,6 @@
       "capability_tags": [
         "tool"
       ]
-    },
-    "app/forge/anomaly.py": {
-      "path": "app/forge/anomaly.py",
-      "imports": [
-        "app.control_plane.db",
-        "app.forge.manifest",
-        "app.forge.registry"
-      ],
-      "exports": [
-        "run_anomaly_check"
-      ],
-      "line_count": 138,
-      "is_hot_path": false,
-      "capability_tags": [
-        "tool",
-        "deploy",
-        "error_handling",
-        "monitoring"
-      ]
-    },
-    "app/forge/generator_tool.py": {
-      "path": "app/forge/generator_tool.py",
-      "imports": [],
-      "exports": [
-        "get_forge_generator_tool"
-      ],
-      "line_count": 206,
-      "is_hot_path": false,
-      "capability_tags": [
-        "agent",
-        "tool"
-      ]
-    },
-    "app/forge/cron.py": {
-      "path": "app/forge/cron.py",
-      "imports": [],
-      "exports": [
-        "register_periodic_jobs"
-      ],
-      "line_count": 95,
-      "is_hot_path": false,
-      "capability_tags": [
-        "tool",
-        "error_handling",
-        "llm"
-      ]
-    },
-    "app/forge/integrity.py": {
-      "path": "app/forge/integrity.py",
-      "imports": [
-        "app.control_plane.db"
-      ],
-      "exports": [
-        "verify_audit_chain"
-      ],
-      "line_count": 71,
-      "is_hot_path": false,
-      "capability_tags": []
     },
     "app/crews/delegated_coding.py": {
       "path": "app/crews/delegated_coding.py",
@@ -4193,7 +4193,7 @@
         "SubIALoop",
         "classify_operation"
       ],
-      "line_count": 1106,
+      "line_count": 1153,
       "is_hot_path": false,
       "capability_tags": [
         "evolution",
@@ -5248,7 +5248,7 @@
         "reingest",
         "upload_texts"
       ],
-      "line_count": 223,
+      "line_count": 225,
       "is_hot_path": false,
       "capability_tags": [
         "error_handling"
@@ -5671,6 +5671,7 @@
         "BudgetOverride",
         "BudgetSet",
         "CommentCreate",
+        "CreditAlertDismiss",
         "DelegationUpdate",
         "DemoteRequest",
         "DiscoveryRun",
@@ -5693,6 +5694,8 @@
         "costs_daily",
         "create_project",
         "create_ticket",
+        "credit_alerts",
+        "dismiss_credit_alert",
         "get_audit_log",
         "get_budgets",
         "get_crew_tasks",
@@ -5729,9 +5732,19 @@
         "tech_radar",
         "ticket_board",
         "token_usage",
+        "transfer_memory_by_source_kind",
+        "transfer_memory_negative_transfer",
+        "transfer_memory_overview",
+        "transfer_memory_promote",
+        "transfer_memory_promotion_candidates",
+        "transfer_memory_recent",
+        "transfer_memory_sanitizer_stats",
+        "transfer_memory_source_target_matrix",
+        "transfer_memory_top",
+        "transfer_memory_worst",
         "update_ticket"
       ],
-      "line_count": 1377,
+      "line_count": 1516,
       "is_hot_path": false,
       "capability_tags": [
         "monitoring"
@@ -5818,7 +5831,7 @@
         "get_budget_enforcer",
         "reconcile_actual_spend"
       ],
-      "line_count": 228,
+      "line_count": 237,
       "is_hot_path": false,
       "capability_tags": [
         "agent",
@@ -6008,7 +6021,7 @@
         "upload_philosophy_raw_text",
         "upload_philosophy_text"
       ],
-      "line_count": 329,
+      "line_count": 331,
       "is_hot_path": true,
       "capability_tags": [
         "memory",
@@ -7114,10 +7127,9 @@
         "reingest_fiction",
         "upload_fiction_text"
       ],
-      "line_count": 220,
+      "line_count": 222,
       "is_hot_path": true,
       "capability_tags": [
-        "error_handling",
         "monitoring"
       ]
     },
@@ -7175,9 +7187,10 @@
         "kb_upload",
         "list_business_kbs"
       ],
-      "line_count": 371,
+      "line_count": 440,
       "is_hot_path": true,
       "capability_tags": [
+        "memory",
         "knowledge"
       ]
     },
@@ -7351,7 +7364,7 @@
       "exports": [
         "maybe_promote_to_creative"
       ],
-      "line_count": 544,
+      "line_count": 614,
       "is_hot_path": false,
       "capability_tags": [
         "agent",
@@ -7693,6 +7706,76 @@
         "error_handling",
         "knowledge"
       ]
+    },
+    "app/subia/introspection/detector.py": {
+      "path": "app/subia/introspection/detector.py",
+      "imports": [],
+      "exports": [
+        "IntrospectionMatch",
+        "IntrospectionTopic",
+        "classify_introspection",
+        "is_introspection_question"
+      ],
+      "line_count": 266,
+      "is_hot_path": false,
+      "capability_tags": [
+        "llm",
+        "subia"
+      ]
+    },
+    "app/subia/introspection/context.py": {
+      "path": "app/subia/introspection/context.py",
+      "imports": [],
+      "exports": [
+        "IntrospectionContext",
+        "gather_context"
+      ],
+      "line_count": 178,
+      "is_hot_path": false,
+      "capability_tags": [
+        "subia"
+      ]
+    },
+    "app/subia/introspection/__init__.py": {
+      "path": "app/subia/introspection/__init__.py",
+      "imports": [],
+      "exports": [],
+      "line_count": 58,
+      "is_hot_path": false,
+      "capability_tags": [
+        "agent",
+        "error_handling",
+        "llm",
+        "subia"
+      ]
+    },
+    "app/subia/introspection/formatter.py": {
+      "path": "app/subia/introspection/formatter.py",
+      "imports": [],
+      "exports": [
+        "format_introspection_note",
+        "format_minimal_inline_note"
+      ],
+      "line_count": 215,
+      "is_hot_path": false,
+      "capability_tags": [
+        "llm",
+        "subia"
+      ]
+    },
+    "app/subia/introspection/pipeline.py": {
+      "path": "app/subia/introspection/pipeline.py",
+      "imports": [],
+      "exports": [
+        "IntrospectionPipeline",
+        "IntrospectionPipelineConfig",
+        "IntrospectionResult",
+        "get_pipeline",
+        "reset_pipeline_for_tests"
+      ],
+      "line_count": 187,
+      "is_hot_path": false,
+      "capability_tags": []
     },
     "app/subia/belief/state_logger.py": {
       "path": "app/subia/belief/state_logger.py",
@@ -9070,6 +9153,22 @@
         "subia"
       ]
     },
+    "app/subia/connections/introspection_chat_bridge.py": {
+      "path": "app/subia/connections/introspection_chat_bridge.py",
+      "imports": [],
+      "exports": [
+        "inject_introspection",
+        "inspect_message",
+        "is_introspection_enabled"
+      ],
+      "line_count": 62,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling",
+        "llm",
+        "subia"
+      ]
+    },
     "app/subia/connections/phronesis_bridge.py": {
       "path": "app/subia/connections/phronesis_bridge.py",
       "imports": [],
@@ -9273,7 +9372,7 @@
         "get_workspace_gate",
         "list_workspaces"
       ],
-      "line_count": 338,
+      "line_count": 352,
       "is_hot_path": false,
       "capability_tags": [
         "evaluation",
@@ -9455,12 +9554,154 @@
         "ensure_variables",
         "update_homeostasis"
       ],
-      "line_count": 237,
+      "line_count": 279,
       "is_hot_path": false,
       "capability_tags": [
         "safety",
         "llm",
         "subia"
+      ]
+    },
+    "app/subia/introspection/topics/wonder_shadow.py": {
+      "path": "app/subia/introspection/topics/wonder_shadow.py",
+      "imports": [],
+      "exports": [
+        "format_shadow_section",
+        "format_wonder_section",
+        "gather_shadow",
+        "gather_wonder"
+      ],
+      "line_count": 204,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling",
+        "subia",
+        "knowledge"
+      ]
+    },
+    "app/subia/introspection/topics/technical.py": {
+      "path": "app/subia/introspection/topics/technical.py",
+      "imports": [],
+      "exports": [
+        "format_section",
+        "gather"
+      ],
+      "line_count": 193,
+      "is_hot_path": false,
+      "capability_tags": [
+        "memory",
+        "llm",
+        "subia"
+      ]
+    },
+    "app/subia/introspection/topics/__init__.py": {
+      "path": "app/subia/introspection/topics/__init__.py",
+      "imports": [],
+      "exports": [],
+      "line_count": 46,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling",
+        "subia"
+      ]
+    },
+    "app/subia/introspection/topics/scorecard.py": {
+      "path": "app/subia/introspection/topics/scorecard.py",
+      "imports": [],
+      "exports": [
+        "format_section",
+        "gather"
+      ],
+      "line_count": 159,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling",
+        "subia"
+      ]
+    },
+    "app/subia/introspection/topics/beliefs.py": {
+      "path": "app/subia/introspection/topics/beliefs.py",
+      "imports": [],
+      "exports": [
+        "format_section",
+        "gather"
+      ],
+      "line_count": 116,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling",
+        "subia"
+      ]
+    },
+    "app/subia/introspection/topics/social.py": {
+      "path": "app/subia/introspection/topics/social.py",
+      "imports": [],
+      "exports": [
+        "format_section",
+        "gather"
+      ],
+      "line_count": 109,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling",
+        "subia"
+      ]
+    },
+    "app/subia/introspection/topics/chronicle.py": {
+      "path": "app/subia/introspection/topics/chronicle.py",
+      "imports": [],
+      "exports": [
+        "format_section",
+        "gather"
+      ],
+      "line_count": 118,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling"
+      ]
+    },
+    "app/subia/introspection/topics/predictions.py": {
+      "path": "app/subia/introspection/topics/predictions.py",
+      "imports": [],
+      "exports": [
+        "format_section",
+        "gather"
+      ],
+      "line_count": 97,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling",
+        "subia"
+      ]
+    },
+    "app/subia/introspection/topics/scene.py": {
+      "path": "app/subia/introspection/topics/scene.py",
+      "imports": [],
+      "exports": [
+        "format_section",
+        "gather"
+      ],
+      "line_count": 134,
+      "is_hot_path": false,
+      "capability_tags": [
+        "subia"
+      ]
+    },
+    "app/forge/audit/periodic.py": {
+      "path": "app/forge/audit/periodic.py",
+      "imports": [
+        "app.forge.audit.static",
+        "app.forge.manifest",
+        "app.forge.registry"
+      ],
+      "exports": [
+        "run_periodic_reaudit"
+      ],
+      "line_count": 133,
+      "is_hot_path": false,
+      "capability_tags": [
+        "tool",
+        "deploy"
       ]
     },
     "app/forge/audit/semantic.py": {
@@ -9523,23 +9764,6 @@
       "capability_tags": [
         "evaluation",
         "error_handling"
-      ]
-    },
-    "app/forge/audit/periodic.py": {
-      "path": "app/forge/audit/periodic.py",
-      "imports": [
-        "app.forge.audit.static",
-        "app.forge.manifest",
-        "app.forge.registry"
-      ],
-      "exports": [
-        "run_periodic_reaudit"
-      ],
-      "line_count": 133,
-      "is_hot_path": false,
-      "capability_tags": [
-        "tool",
-        "deploy"
       ]
     },
     "app/forge/runtime/dispatcher.py": {
@@ -9746,6 +9970,7 @@
       "app/personality/state.py",
       "app/personality/creativity_scoring.py",
       "app/api/notes_api.py",
+      "app/api/kb.py",
       "app/api/kb_dedup.py",
       "app/api/health.py",
       "app/agents/commander/context.py",
@@ -9782,7 +10007,8 @@
       "app/subia/temporal/rhythm_discovery.py",
       "app/subia/temporal/circadian.py",
       "app/subia/scene/global_workspace.py",
-      "app/subia/homeostasis/somatic_marker.py"
+      "app/subia/homeostasis/somatic_marker.py",
+      "app/subia/introspection/topics/technical.py"
     ],
     "safety": [
       "app/creative_mode.py",
@@ -10082,7 +10308,8 @@
       "app/subia/reverie/engine.py",
       "app/subia/idle/production_adapters.py",
       "app/subia/connections/pds_bridge.py",
-      "app/subia/scene/strategic_scan.py"
+      "app/subia/scene/strategic_scan.py",
+      "app/subia/introspection/topics/wonder_shadow.py"
     ],
     "evolution": [
       "app/results_ledger.py",
@@ -10205,8 +10432,8 @@
       "app/evolution_db/judge.py",
       "app/aesthetics/tools.py",
       "app/forge/__init__.py",
-      "app/forge/manifest.py",
       "app/forge/generator_tool.py",
+      "app/forge/manifest.py",
       "app/crews/delegated_coding.py",
       "app/crews/registry.py",
       "app/crews/events.py",
@@ -10327,6 +10554,7 @@
       "app/subia/safety/narrative_audit.py",
       "app/subia/safety/setpoint_guard.py",
       "app/subia/tsal/inspectors.py",
+      "app/subia/introspection/__init__.py",
       "app/subia/belief/state_logger.py",
       "app/subia/belief/response_hedging.py",
       "app/subia/belief/internal_state.py",
@@ -10516,7 +10744,6 @@
       "app/personality/assessment.py",
       "app/personality/probes.py",
       "app/personality/state.py",
-      "app/api/fiction.py",
       "app/api/workspace_api.py",
       "app/api/kb_dedup.py",
       "app/api/health.py",
@@ -10528,6 +10755,7 @@
       "app/subia/tsal/inspectors.py",
       "app/subia/tsal/operating_principles.py",
       "app/subia/tsal/generators.py",
+      "app/subia/introspection/__init__.py",
       "app/subia/belief/cogito.py",
       "app/subia/belief/world_model.py",
       "app/subia/prediction/llm_predict.py",
@@ -10553,11 +10781,19 @@
       "app/subia/idle/__init__.py",
       "app/subia/connections/firecrawl_predictor.py",
       "app/subia/connections/grounding_chat_bridge.py",
+      "app/subia/connections/introspection_chat_bridge.py",
       "app/subia/connections/phronesis_bridge.py",
       "app/subia/temporal/rhythm_discovery.py",
       "app/subia/scene/intervention_guard.py",
       "app/subia/scene/personality_workspace.py",
       "app/subia/homeostasis/somatic_marker.py",
+      "app/subia/introspection/topics/wonder_shadow.py",
+      "app/subia/introspection/topics/__init__.py",
+      "app/subia/introspection/topics/scorecard.py",
+      "app/subia/introspection/topics/beliefs.py",
+      "app/subia/introspection/topics/social.py",
+      "app/subia/introspection/topics/chronicle.py",
+      "app/subia/introspection/topics/predictions.py",
       "app/forge/audit/pipeline.py",
       "app/forge/audit/static.py",
       "app/forge/runtime/dispatcher.py",
@@ -10753,6 +10989,9 @@
       "app/subia/tsal/__init__.py",
       "app/subia/tsal/operating_principles.py",
       "app/subia/tsal/inspect_tools.py",
+      "app/subia/introspection/detector.py",
+      "app/subia/introspection/__init__.py",
+      "app/subia/introspection/formatter.py",
       "app/subia/belief/response_hedging.py",
       "app/subia/belief/internal_state.py",
       "app/subia/belief/certainty.py",
@@ -10778,8 +11017,10 @@
       "app/subia/wonder/detector.py",
       "app/subia/wonder/__init__.py",
       "app/subia/connections/service_health.py",
+      "app/subia/connections/introspection_chat_bridge.py",
       "app/subia/scene/personality_workspace.py",
       "app/subia/homeostasis/engine.py",
+      "app/subia/introspection/topics/technical.py",
       "app/forge/audit/semantic.py"
     ],
     "tool": [
@@ -10800,15 +11041,15 @@
       "app/atlas/audit_log.py",
       "app/observability/schema_transforms.py",
       "app/forge/composition.py",
+      "app/forge/anomaly.py",
       "app/forge/summary.py",
       "app/forge/__init__.py",
       "app/forge/api.py",
+      "app/forge/generator_tool.py",
       "app/forge/capabilities.py",
+      "app/forge/cron.py",
       "app/forge/manifest.py",
       "app/forge/killswitch.py",
-      "app/forge/anomaly.py",
-      "app/forge/generator_tool.py",
-      "app/forge/cron.py",
       "app/crews/delegated_coding.py",
       "app/crews/tech_radar_crew.py",
       "app/crews/pim_crew.py",
@@ -10869,9 +11110,9 @@
       "app/subia/belief/certainty.py",
       "app/subia/self/model.py",
       "app/subia/scene/tiers.py",
+      "app/forge/audit/periodic.py",
       "app/forge/audit/semantic.py",
       "app/forge/audit/pipeline.py",
-      "app/forge/audit/periodic.py",
       "app/forge/runtime/dispatcher.py",
       "app/forge/runtime/python_sandbox.py",
       "app/forge/runtime/__init__.py",
@@ -10891,16 +11132,16 @@
       "app/self_healer.py",
       "app/safety_guardian.py",
       "app/forge/registry.py",
-      "app/forge/manifest.py",
       "app/forge/anomaly.py",
+      "app/forge/manifest.py",
       "app/crews/devops_crew.py",
       "app/self_awareness/emergent_infrastructure.py",
       "app/subia/integrity.py",
       "app/agents/devops_agent.py",
       "app/operations_suite/__init__.py",
       "app/tools/ci_cd_tools.py",
-      "app/forge/audit/pipeline.py",
       "app/forge/audit/periodic.py",
+      "app/forge/audit/pipeline.py",
       "app/forge/runtime/dispatcher.py"
     ],
     "subia": [
@@ -10974,6 +11215,10 @@
       "app/subia/tsal/self_model.py",
       "app/subia/tsal/operating_principles.py",
       "app/subia/tsal/inspect_tools.py",
+      "app/subia/introspection/detector.py",
+      "app/subia/introspection/context.py",
+      "app/subia/introspection/__init__.py",
+      "app/subia/introspection/formatter.py",
       "app/subia/belief/response_hedging.py",
       "app/subia/belief/__init__.py",
       "app/subia/belief/dual_channel.py",
@@ -11032,6 +11277,7 @@
       "app/subia/connections/__init__.py",
       "app/subia/connections/service_health.py",
       "app/subia/connections/grounding_chat_bridge.py",
+      "app/subia/connections/introspection_chat_bridge.py",
       "app/subia/connections/phronesis_bridge.py",
       "app/subia/temporal/specious_present.py",
       "app/subia/temporal/context.py",
@@ -11047,7 +11293,15 @@
       "app/subia/scene/personality_workspace.py",
       "app/subia/homeostasis/state.py",
       "app/subia/homeostasis/__init__.py",
-      "app/subia/homeostasis/engine.py"
+      "app/subia/homeostasis/engine.py",
+      "app/subia/introspection/topics/wonder_shadow.py",
+      "app/subia/introspection/topics/technical.py",
+      "app/subia/introspection/topics/__init__.py",
+      "app/subia/introspection/topics/scorecard.py",
+      "app/subia/introspection/topics/beliefs.py",
+      "app/subia/introspection/topics/social.py",
+      "app/subia/introspection/topics/predictions.py",
+      "app/subia/introspection/topics/scene.py"
     ]
   },
   "dependency_graph": {
@@ -11379,14 +11633,14 @@
     "app/forge/manifest.py": [
       "app/forge/composition.py",
       "app/forge/registry.py",
+      "app/forge/anomaly.py",
       "app/forge/summary.py",
       "app/forge/api.py",
       "app/forge/capabilities.py",
-      "app/forge/anomaly.py",
+      "app/forge/audit/periodic.py",
       "app/forge/audit/semantic.py",
       "app/forge/audit/pipeline.py",
       "app/forge/audit/static.py",
-      "app/forge/audit/periodic.py",
       "app/forge/runtime/dispatcher.py",
       "app/forge/runtime/python_sandbox.py",
       "app/forge/runtime/guards.py",
@@ -11394,11 +11648,11 @@
     ],
     "app/forge/registry.py": [
       "app/forge/composition.py",
+      "app/forge/anomaly.py",
       "app/forge/api.py",
       "app/forge/killswitch.py",
-      "app/forge/anomaly.py",
-      "app/forge/audit/pipeline.py",
       "app/forge/audit/periodic.py",
+      "app/forge/audit/pipeline.py",
       "app/forge/runtime/dispatcher.py"
     ],
     "app/forge/capabilities.py": [
@@ -12023,12 +12277,12 @@
     "app/subia/tsal/self_model.py": [
       "app/subia/connections/tsal_subia_bridge.py"
     ],
-    "app/forge/audit/semantic.py": [
+    "app/forge/audit/static.py": [
+      "app/forge/audit/periodic.py",
       "app/forge/audit/pipeline.py"
     ],
-    "app/forge/audit/static.py": [
-      "app/forge/audit/pipeline.py",
-      "app/forge/audit/periodic.py"
+    "app/forge/audit/semantic.py": [
+      "app/forge/audit/pipeline.py"
     ],
     "app/forge/summary.py": [
       "app/forge/audit/pipeline.py"
@@ -12046,8 +12300,8 @@
       "app/forge/runtime/declarative.py"
     ]
   },
-  "built_at": 1777234654.053548,
-  "build_duration_s": 0.8161730430001626,
-  "module_count": 564,
+  "built_at": 1777382364.1642942,
+  "build_duration_s": 2.3173032510094345,
+  "module_count": 579,
   "hot_path_count": 33
 }

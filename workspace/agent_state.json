@@ -1,12 +1,12 @@
 {
   "research": {
-    "tasks_completed": 176,
+    "tasks_completed": 178,
     "tasks_failed": 10,
-    "success_rate": 0.9462,
-    "avg_confidence": 0.4837,
+    "success_rate": 0.9468,
+    "avg_confidence": 0.5628,
     "by_difficulty": {
       "2": {
-        "completed": 52,
+        "completed": 54,
         "failed": 3
       },
       "3": {
@@ -38,8 +38,8 @@
         "failed": 0
       }
     },
-    "streak": 0,
-    "last_task_at": "2026-04-26T21:55:37.408583+00:00"
+    "streak": 2,
+    "last_task_at": "2026-04-27T23:12:14.598406+00:00"
   },
   "writing": {
     "tasks_completed": 23,
@@ -102,13 +102,13 @@
     "last_task_at": "2026-04-26T21:25:17.660231+00:00"
   },
   "pim": {
-    "tasks_completed": 15,
+    "tasks_completed": 18,
     "tasks_failed": 0,
     "success_rate": 1.0,
-    "avg_confidence": 0.7424,
+    "avg_confidence": 0.7852,
     "by_difficulty": {
       "3": {
-        "completed": 6,
+        "completed": 9,
         "failed": 0
       },
       "2": {
@@ -120,8 +120,8 @@
         "failed": 0
       }
     },
-    "streak": 15,
-    "last_task_at": "2026-04-27T04:20:30.534992+00:00"
+    "streak": 18,
+    "last_task_at": "2026-04-28T06:56:10.882212+00:00"
   },
   "media": {
     "tasks_completed": 1,

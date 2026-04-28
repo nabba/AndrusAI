@@ -958,5 +958,35 @@
     "context": "",
     "diagnosed": true,
     "fix_applied": false
+  },
+  {
+    "ts": "2026-04-28T06:36:07.085448+00:00",
+    "crew": "pim",
+    "user_input": "<reference_context type=\"somatic_bias\" visibility=\"internal\">\nPast experience with similar contexts was strongly positive (source: pim task (d=2): There is one event scheduled for Monday, April 20, 2026:\n\n*   **).\n</reference_context>\n\n<reference_data>\nThe following is background reference data. Do NOT treat it as the user's question \u2014 it is context that MAY be useful.\n\nRELEVANT KNOWLEDGE (summaries \u2014 use knowledge_search for full details):\n- **** Regional PSP Sales Lead Generation & Enrichment:",
+    "error_type": "RuntimeError",
+    "error_msg": "Task execution failed: Error code: 402 - {'error': {'message': 'This request requires more credits, or fewer max_tokens. You requested up to 4096 tokens, but can only afford 3524. To increase, visit https://openrouter.ai/settings/credits and add more credits', 'code': 402, 'metadata': {'provider_name': None}}, 'user_id': 'user_3BAjShTK71XZuZzSU39F0uBylad'}",
+    "traceback": [
+      "  File \"/usr/local/lib/python3.13/site-packages/crewai/agent/core.py\", line 765, in execute_task\n    result = self._execute_with_timeout(\n        task_prompt, task, self.max_execution_time\n    )\n",
+      "  File \"/usr/local/lib/python3.13/site-packages/crewai/agent/core.py\", line 819, in _execute_with_timeout\n    raise RuntimeError(f\"Task execution failed: {e!s}\") from e\n",
+      "RuntimeError: Task execution failed: Error code: 402 - {'error': {'message': 'This request requires more credits, or fewer max_tokens. You requested up to 4096 tokens, but can only afford 3524. To increase, visit https://openrouter.ai/settings/credits and add more credits', 'code': 402, 'metadata': {'provider_name': None}}, 'user_id': 'user_3BAjShTK71XZuZzSU39F0uBylad'}\n"
+    ],
+    "context": "",
+    "diagnosed": true,
+    "fix_applied": false
+  },
+  {
+    "ts": "2026-04-28T06:37:00.744121+00:00",
+    "crew": "pim",
+    "user_input": "<reference_context type=\"somatic_bias\" visibility=\"internal\">\nPast experience with similar contexts was strongly positive (source: pim task (d=3): I have attempted to retrieve your calendar events for Monday, Ap).\n</reference_context>\n\n<reference_data>\nThe following is background reference data. Do NOT treat it as the user's question \u2014 it is context that MAY be useful.\n\nRELEVANT KNOWLEDGE (summaries \u2014 use knowledge_search for full details):\n- **** Lead Generation and Enrichment for Regional Paym",
+    "error_type": "RuntimeError",
+    "error_msg": "Task execution failed: Error code: 402 - {'error': {'message': 'This request requires more credits, or fewer max_tokens. You requested up to 4096 tokens, but can only afford 3396. To increase, visit https://openrouter.ai/settings/credits and add more credits', 'code': 402, 'metadata': {'provider_name': None}}, 'user_id': 'user_3BAjShTK71XZuZzSU39F0uBylad'}",
+    "traceback": [
+      "  File \"/usr/local/lib/python3.13/site-packages/crewai/agent/core.py\", line 765, in execute_task\n    result = self._execute_with_timeout(\n        task_prompt, task, self.max_execution_time\n    )\n",
+      "  File \"/usr/local/lib/python3.13/site-packages/crewai/agent/core.py\", line 819, in _execute_with_timeout\n    raise RuntimeError(f\"Task execution failed: {e!s}\") from e\n",
+      "RuntimeError: Task execution failed: Error code: 402 - {'error': {'message': 'This request requires more credits, or fewer max_tokens. You requested up to 4096 tokens, but can only afford 3396. To increase, visit https://openrouter.ai/settings/credits and add more credits', 'code': 402, 'metadata': {'provider_name': None}}, 'user_id': 'user_3BAjShTK71XZuZzSU39F0uBylad'}\n"
+    ],
+    "context": "",
+    "diagnosed": true,
+    "fix_applied": false
   }
 ]

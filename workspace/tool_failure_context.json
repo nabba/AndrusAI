@@ -1,32 +1,5 @@
 [
   {
-    "task_hash": "4c5424c04752528e",
-    "task": "Research the following topic for the user:\n\n<user_request>\n<reference_data>\nThe following is backgro",
-    "failure_count": 4,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1777146479.1349154,
-    "replan_suggested": true
-  },
-  {
-    "task_hash": "b006f46b5bd127d0",
-    "task": "Research sales leaders and LinkedIn URLs for 25 Payment Service Providers",
-    "failure_count": 1,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1777146515.4344385,
-    "replan_suggested": false
-  },
-  {
-    "task_hash": "b006f46b5bd127d0",
-    "task": "Research sales leaders and LinkedIn URLs for 25 Payment Service Providers",
-    "failure_count": 2,
-    "last_tool": "browser_fetch",
-    "last_error": "Browser init failed: BrowserType.launch: Executable doesn't exist at /home/appuser/.cache/ms-playwri",
-    "ts": 1777146515.62403,
-    "replan_suggested": false
-  },
-  {
     "task_hash": "b006f46b5bd127d0",
     "task": "Research sales leaders and LinkedIn URLs for 25 Payment Service Providers",
     "failure_count": 3,
@@ -448,5 +421,32 @@
     "last_error": "Error: File not found: app/atlas/code_forge.py.  Tip: use action='list' to enumerate available files",
     "ts": 1777276827.6683042,
     "replan_suggested": true
+  },
+  {
+    "task_hash": "f5e43ea7684a9845",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: Cannot write to 'app/atlas/video_learner.py'. Writable directories: output, proposals, skills",
+    "ts": 1777320256.7044022,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "b2ba899cb39d1aa9",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 4,
+    "last_tool": "file_manager",
+    "last_error": "Error: File not found: app/chaos_tester.py.  Tip: use action='list' to enumerate available files fir",
+    "ts": 1777348806.2027576,
+    "replan_suggested": false
+  },
+  {
+    "task_hash": "612bc215551eb19b",
+    "task": "Audit these Python source files for bugs, security issues, and non-optimal code.\n\nFiles in the codeb",
+    "failure_count": 1,
+    "last_tool": "file_manager",
+    "last_error": "Error: Cannot write to 'app/agents/coder.py'. Writable directories: output, proposals, skills",
+    "ts": 1777363236.6511512,
+    "replan_suggested": false
   }
 ]
