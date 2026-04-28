@@ -53,6 +53,21 @@ logger = logging.getLogger(__name__)
 
 KB_CHOICES = ("episteme", "experiential", "aesthetics", "tensions")
 
+# Provenance keys that flow Draft → Record.provenance → Chroma metadata.
+# Adding a new transferred provenance field is a one-line change here; the
+# integrate() and _write_to_kb() loops iterate this constant rather than
+# hard-coding key names. The Chroma where-filter machinery (used by the
+# retrieval orchestrator and trajectory context_builder) reads these keys
+# verbatim, so a key listed here is automatically filterable downstream.
+_PROVENANCE_KEYS_TO_INDEX: tuple[str, ...] = (
+    # Trajectory-sourced (Phase 6, arXiv:2603.10600)
+    "tip_type", "source_trajectory_id", "agent_role",
+    # Transfer-memory (Phase 17) — set by app.transfer_memory.compiler
+    "source_kind", "source_domain", "transfer_scope", "project_origin",
+    "abstraction_score", "leakage_risk", "negative_transfer_tags",
+    "evidence_refs",
+)
+
 _CLASSIFIER_PROMPT = """Classify this knowledge artifact into exactly one knowledge base.
 
 The four destinations:
@@ -130,10 +145,12 @@ def _write_to_kb(kb: str, record: SkillRecord) -> bool:
     }
     if record.superseded_by:
         meta["superseded_by"] = record.superseded_by
-    # Trajectory-sourced provenance (arXiv:2603.10600) — mirrored into meta
-    # so the retrieval orchestrator can filter on tip_type / agent_role via
-    # ChromaDB where-clauses without dereferencing SkillRecord.provenance.
-    for _key in ("tip_type", "source_trajectory_id", "agent_role"):
+    # Forwarded provenance (trajectory + transfer-memory) — mirrored into
+    # meta so retrieval can filter via ChromaDB where-clauses without
+    # dereferencing SkillRecord.provenance. Truthy filter preserves the
+    # original behaviour for empty strings; numeric zeros are treated as
+    # "absent" which matches the existing tip_type semantics.
+    for _key in _PROVENANCE_KEYS_TO_INDEX:
         _val = record.provenance.get(_key)
         if _val:
             meta[_key] = _val
@@ -336,6 +353,7 @@ def update_record(record: SkillRecord) -> bool:
 def integrate(
     draft: SkillDraft,
     novelty_kbs: Optional[list[str]] = None,
+    initial_status: str = "active",
 ) -> Optional[SkillRecord]:
     """Route a SkillDraft to the right KB and persist a SkillRecord.
 
@@ -354,6 +372,14 @@ def integrate(
                      queries. Used by the legacy recovery flow to exclude
                      `team_shared` (where the source content still lives).
                      None = default (all 5 KBs).
+        initial_status: status the persisted SkillRecord starts in.
+                     Defaults to "active" (immediately retrievable).
+                     Phase 17b transfer-memory drafts pass "shadow" so
+                     records are persisted but invisible to the existing
+                     retrieval path (which filters status="active");
+                     they become retrievable only after Phase 17c
+                     promotion. Other valid values: "superseded",
+                     "archived" — generally only set by lifecycle code.
 
     Returns the persisted SkillRecord on success, None on rejection or error.
     """
@@ -393,22 +419,20 @@ def integrate(
         "novelty_at_creation": float(draft.novelty_at_creation),
         "supersedes": list(draft.supersedes),
     }
-    # Trajectory-sourced provenance (arXiv:2603.10600) — only attach when
-    # the draft came from a real execution trajectory. Empty strings keep
-    # the SkillRecord identical to the external-topic path.
-    if draft.tip_type:
-        provenance["tip_type"] = draft.tip_type
-    if draft.source_trajectory_id:
-        provenance["source_trajectory_id"] = draft.source_trajectory_id
-    if draft.agent_role:
-        provenance["agent_role"] = draft.agent_role
+    # Forwarded provenance (trajectory + transfer-memory) — only attach
+    # when the draft carries a non-empty value, so SkillRecord stays
+    # identical to the external-topic path when these fields are unused.
+    for _key in _PROVENANCE_KEYS_TO_INDEX:
+        _val = getattr(draft, _key, None)
+        if _val:
+            provenance[_key] = _val
 
     record = SkillRecord(
         id=record_id,
         topic=draft.topic,
         content_markdown=draft.content_markdown,
         kb=kb,
-        status="active",
+        status=initial_status,
         provenance=provenance,
         created_at=now,
     )

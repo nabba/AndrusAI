@@ -160,3 +160,86 @@ def compose_trajectory_hint_block(
                          exc_info=True)
 
     return "\n".join(lines)
+
+
+# ── Coordinator (Phase 17) ─────────────────────────────────────────────
+#
+# Single entry point for the commander dispatch path. Composes the
+# trajectory tip block (existing behaviour) AND the transfer-memory
+# block (Phase 17b production retrieval), and runs transfer-memory
+# shadow logging as a side effect. Each sub-block has its own internal
+# flag-gating; the coordinator just orders them and concatenates.
+
+def compose_pre_dispatch_blocks(
+    crew_name: str,
+    task_text: str,
+    predicted_failure_mode: str = "",
+    project_scope: Optional[str] = None,
+    top_k: int = _DEFAULT_TOP_K,
+) -> str:
+    """Compose all pre-dispatch context blocks for crew injection.
+
+    Order matters — trajectory tips first (more specific), transfer-
+    memory insights second (more abstract). Mirrors the prompt-design
+    convention of "specific before general".
+
+    Side-effect: transfer-memory shadow retrieval is logged to
+    ``shadow_retrievals.jsonl`` regardless of whether the production
+    retrieval flag is set, so the operator accumulates "what would have
+    been retrieved" data for review before flipping retrieval on.
+
+    Returns the concatenated block(s) as Markdown, or ``""`` when no
+    block applies. Failures in either composition are swallowed —
+    pre-dispatch enrichment must never break the dispatch itself.
+    """
+    blocks: list[str] = []
+
+    # 1. Trajectory tips (existing, status=active records).
+    try:
+        t_block = compose_trajectory_hint_block(
+            crew_name=crew_name,
+            task_text=task_text,
+            predicted_failure_mode=predicted_failure_mode,
+            top_k=top_k,
+        )
+        if t_block:
+            blocks.append(t_block)
+    except Exception:
+        logger.debug(
+            "compose_pre_dispatch_blocks: trajectory block failed",
+            exc_info=True,
+        )
+
+    # 2. Transfer-memory production retrieval (default OFF via config).
+    try:
+        from app.transfer_memory.retriever import compose_transfer_insight_block
+        x_block = compose_transfer_insight_block(
+            crew_name=crew_name,
+            task_text=task_text,
+            predicted_failure_mode=predicted_failure_mode,
+            project_scope=project_scope,
+        )
+        if x_block:
+            blocks.append(x_block)
+    except Exception:
+        logger.debug(
+            "compose_pre_dispatch_blocks: transfer block failed",
+            exc_info=True,
+        )
+
+    # 3. Transfer-memory shadow logging (default ON; cheap; never injects).
+    try:
+        from app.transfer_memory.retriever import log_shadow_retrieval
+        log_shadow_retrieval(
+            crew_name=crew_name,
+            task_text=task_text,
+            predicted_failure_mode=predicted_failure_mode,
+            project_scope=project_scope,
+        )
+    except Exception:
+        logger.debug(
+            "compose_pre_dispatch_blocks: shadow logging failed",
+            exc_info=True,
+        )
+
+    return "\n\n".join(blocks)

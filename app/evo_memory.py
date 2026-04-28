@@ -34,10 +34,26 @@ def store_success(
         "files": ",".join(files)[:500],
         "ts": datetime.now(timezone.utc).isoformat(),
     }
+    stored = False
     try:
         store(EVO_SUCCESSES, text, metadata)
+        stored = True
     except Exception as e:
         logger.debug(f"evo_memory: failed to store success: {e}")
+    finally:
+        if stored:
+            _queue_transfer_event(
+                kind_name="evo_success",
+                source_id=_evo_source_id("success", hypothesis, change_type),
+                summary=f"[SUCCESS] {hypothesis[:160]}",
+                payload={
+                    "hypothesis": hypothesis,
+                    "change_type": change_type,
+                    "delta": round(delta, 6),
+                    "files": list(files)[:8],
+                    "detail": detail[:500],
+                },
+            )
 
 
 def store_failure(
@@ -52,10 +68,59 @@ def store_failure(
         "reason": reason[:500],
         "ts": datetime.now(timezone.utc).isoformat(),
     }
+    stored = False
     try:
         store(EVO_FAILURES, text, metadata)
+        stored = True
     except Exception as e:
         logger.debug(f"evo_memory: failed to store failure: {e}")
+    finally:
+        if stored:
+            _queue_transfer_event(
+                kind_name="evo_failure",
+                source_id=_evo_source_id("failure", hypothesis, change_type),
+                summary=f"[FAILURE] {hypothesis[:160]}",
+                payload={
+                    "hypothesis": hypothesis,
+                    "change_type": change_type,
+                    "reason": reason[:500],
+                },
+            )
+
+
+def _evo_source_id(kind: str, hypothesis: str, change_type: str) -> str:
+    """Stable id from (kind, change_type, hypothesis prefix) — collisions
+    within the same idle window are intentional (queue dedups by id)."""
+    import hashlib
+    h = hashlib.sha256(
+        f"{kind}::{change_type}::{hypothesis[:200]}".encode()
+    ).hexdigest()[:16]
+    return f"evo_{kind}_{h}"
+
+
+def _queue_transfer_event(
+    *,
+    kind_name: str,
+    source_id: str,
+    summary: str,
+    payload: dict,
+) -> None:
+    """Append a transfer-memory event for nightly compilation.
+
+    Failures swallowed — evolution storage must never break because the
+    transfer-memory subsystem is unavailable.
+    """
+    try:
+        from app.transfer_memory import append_event, TransferKind
+        kind = TransferKind(kind_name)
+        append_event(
+            kind=kind,
+            source_id=source_id,
+            summary=summary,
+            payload=payload,
+        )
+    except Exception:
+        logger.debug("evo_memory: transfer_memory hook failed", exc_info=True)
 
 
 def recall_similar_successes(query: str, n: int = 5) -> list[dict]:

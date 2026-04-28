@@ -427,6 +427,51 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug("idle_scheduler: trajectory tips failed", exc_info=True)
     jobs.append(("trajectory-tips", _trajectory_tips, JobWeight.MEDIUM))
 
+    # ── Transfer-memory compile (Phase 17a): nightly batch of healing /
+    # evo / grounding / gap events into cross-domain "Insight" drafts.
+    # Cadence-guarded to ≥24h; pins llm_mode="free" for the duration so
+    # compile cost is bounded to the local Ollama + free-tier OpenRouter
+    # cascade. Phase 17b: drafts now also flow through integrator with
+    # status="shadow" so the retriever can find them in shadow mode.
+    def _transfer_compile():
+        try:
+            from app.transfer_memory.compiler import run_compile
+            run_compile()
+        except Exception:
+            logger.debug("idle_scheduler: transfer-compile failed", exc_info=True)
+    jobs.append(("transfer-compile", _transfer_compile, JobWeight.HEAVY))
+
+    # ── Transfer-memory attribution (Phase 17c): walk recent failed
+    # trajectories that involved an injected transfer-memory record,
+    # heuristically classify the implicated record under a
+    # NegativeTransferTag, and apply the demotion ladder. LIGHT —
+    # entirely deterministic, no LLM calls.
+    def _transfer_attribution():
+        try:
+            from app.transfer_memory.attribution import run_attribution
+            run_attribution()
+        except Exception:
+            logger.debug(
+                "idle_scheduler: transfer-attribution failed", exc_info=True,
+            )
+    jobs.append(("transfer-attribution", _transfer_attribution, JobWeight.LIGHT))
+
+    # ── Transfer-memory promotion (Phase 17c): walk records at
+    # status="shadow", check eligibility (age + surface_count + no
+    # negative attribution), and either promote them or refresh the
+    # candidates file for operator review (default: review-only).
+    # MEDIUM — touches both the index and the underlying KB metadata
+    # when the auto-promote flag is on.
+    def _transfer_promotion():
+        try:
+            from app.transfer_memory.promotion import run_promotion
+            run_promotion()
+        except Exception:
+            logger.debug(
+                "idle_scheduler: transfer-promotion failed", exc_info=True,
+            )
+    jobs.append(("transfer-promotion", _transfer_promotion, JobWeight.MEDIUM))
+
     # ── Evolution: run experiments (2 iterations per idle slot) ─────────
     # Reduced from 5 to 2: each iteration takes ~4min, so 5 = 20min which
     # starves all subsequent jobs. 2 iterations keeps total under 10min.

@@ -1323,6 +1323,66 @@ def observability_snapshot_kinds():
     }
 
 
+# ── Credit alerts (top-up requests) ──────────────────────────────────────
+#
+# When OpenRouter / Anthropic / OpenAI / Google return a credit-exhausted
+# error, the rate_throttle wrapper writes an entry into firebase.publish's
+# _active_alerts dict. The dashboard polls these endpoints to render a
+# "Top up <provider>" card on the Budgets page.
+#
+# Why a manual dismiss endpoint when the wrapper auto-resolves on next
+# success? Because the credit-failover transparently routes subsequent
+# requests to local Ollama, so the failed provider may never be called
+# again — and the auto-resolve path never fires. Manual dismiss clears
+# the card after the user has topped up.
+
+@router.get("/credit-alerts")
+def credit_alerts():
+    """Active credit/billing alerts grouped by provider.
+
+    Response shape::
+
+        {
+          "alerts": {
+            "openrouter": {
+              "provider": "openrouter",
+              "error": "Error code: 402 — requires more credits ...",
+              "url": "https://openrouter.ai/settings/credits",
+              "ts": "2026-04-28T19:42:18+00:00",
+              "resolved": false
+            }, ...
+          },
+          "count": 1
+        }
+    """
+    try:
+        from app.firebase.publish import _active_alerts
+        return {
+            "alerts": dict(_active_alerts),
+            "count": len(_active_alerts),
+        }
+    except Exception as e:
+        return {"error": str(e), "alerts": {}, "count": 0}
+
+
+class CreditAlertDismiss(BaseModel):
+    provider: str
+
+
+@router.post("/credit-alerts/dismiss")
+def dismiss_credit_alert(body: CreditAlertDismiss):
+    """Manually clear a credit alert for a provider. Use after topping up."""
+    try:
+        from app.firebase.publish import resolve_credit_alert, _active_alerts
+        if body.provider not in _active_alerts:
+            return {"status": "not_found", "provider": body.provider}
+        resolve_credit_alert(body.provider)
+        logger.info(f"credit alert dismissed by user: {body.provider}")
+        return {"status": "dismissed", "provider": body.provider}
+    except Exception as e:
+        raise HTTPException(500, str(e)[:200])
+
+
 # ── Research adapters status ─────────────────────────────────────────────
 #
 # Lightweight status endpoint so the dashboard / Signal can answer
@@ -1374,3 +1434,82 @@ def research_adapter_status():
             "regulator", "company_site", "apollo", "linkedin_data", "search",
         ],
     }
+
+
+# ── Transfer Insight Layer (Phase 17d) ───────────────────────────────────────
+
+@router.get("/transfer-memory/overview")
+def transfer_memory_overview():
+    """Top-line metrics for the Transfer Insight Layer."""
+    from app.transfer_memory.dashboard import get_overview
+    return get_overview()
+
+
+@router.get("/transfer-memory/by-source-kind")
+def transfer_memory_by_source_kind():
+    """Per-source-kind compile + outcome counters."""
+    from app.transfer_memory.dashboard import get_by_source_kind
+    return get_by_source_kind()
+
+
+@router.get("/transfer-memory/recent")
+def transfer_memory_recent(days: int = Query(7, ge=1, le=90)):
+    """Compile + retrieval activity over the trailing N days."""
+    from app.transfer_memory.dashboard import get_recent_activity
+    return get_recent_activity(days=days)
+
+
+@router.get("/transfer-memory/top-performers")
+def transfer_memory_top(n: int = Query(10, ge=1, le=100)):
+    """Most-surfaced records with no negative-transfer entries."""
+    from app.transfer_memory.dashboard import get_top_performers
+    return get_top_performers(n=n)
+
+
+@router.get("/transfer-memory/worst-performers")
+def transfer_memory_worst(n: int = Query(10, ge=1, le=100)):
+    """Records with the most negative-transfer entries."""
+    from app.transfer_memory.dashboard import get_worst_performers
+    return get_worst_performers(n=n)
+
+
+@router.get("/transfer-memory/sanitizer-stats")
+def transfer_memory_sanitizer_stats():
+    """Hard-reject + demotion totals across all compiled rows."""
+    from app.transfer_memory.dashboard import get_sanitizer_stats
+    return get_sanitizer_stats()
+
+
+@router.get("/transfer-memory/promotion-candidates")
+def transfer_memory_promotion_candidates():
+    """Eligible records waiting for promotion (operator review)."""
+    from app.transfer_memory.dashboard import get_promotion_candidates
+    return get_promotion_candidates()
+
+
+@router.get("/transfer-memory/negative-transfer")
+def transfer_memory_negative_transfer():
+    """Tag distribution and recent negative-transfer events."""
+    from app.transfer_memory.dashboard import get_negative_transfer_stats
+    return get_negative_transfer_stats()
+
+
+@router.get("/transfer-memory/source-target-matrix")
+def transfer_memory_source_target_matrix():
+    """Source-domain × target-domain co-occurrence from shadow retrievals."""
+    from app.transfer_memory.dashboard import get_source_to_target_matrix
+    return get_source_to_target_matrix()
+
+
+@router.post("/transfer-memory/promote/{record_id}")
+def transfer_memory_promote(record_id: str):
+    """Operator-driven manual promotion of a single shadow record.
+
+    Bypasses the cadence guard but still requires the record to pass
+    eligibility checks (age, surface count, no negative attribution).
+    """
+    from app.transfer_memory.promotion import manual_promote
+    ok = manual_promote(record_id)
+    if not ok:
+        raise HTTPException(409, "Promotion rejected — record ineligible or update failed")
+    return {"promoted": True, "skill_record_id": record_id}

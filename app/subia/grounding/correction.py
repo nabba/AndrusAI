@@ -280,6 +280,19 @@ class CorrectionCapture:
             except Exception:
                 pass
 
+        # Transfer-memory hook (Phase 17). Fires only when something was
+        # actually upserted so the nightly compiler has a real source row
+        # to refer to. Failures are swallowed — correction capture must
+        # never break because the transfer-memory subsystem is unavailable.
+        if report.get("belief_upserted") or report.get("source_registered"):
+            try:
+                _queue_grounding_transfer_event(correction)
+            except Exception:
+                logger.debug(
+                    "correction.persist: transfer_memory hook failed",
+                    exc_info=True,
+                )
+
         return report
 
     def detect_and_persist(
@@ -294,3 +307,47 @@ class CorrectionCapture:
             return None
         self.persist(c, loop_count=loop_count)
         return c
+
+
+# ── Transfer-memory hook ─────────────────────────────────────────────
+
+def _queue_grounding_transfer_event(correction: "DetectedCorrection") -> None:
+    """Append a transfer-memory event for the nightly compiler.
+
+    Crucially, the corrected numeric value is NOT included in the payload
+    — the lesson we want to compile is the verification discipline (use
+    authoritative sources for date-sensitive numeric claims), not the
+    specific value (which belongs in the belief-store).
+    """
+    import hashlib
+    from app.transfer_memory import append_event, TransferKind
+
+    src_key = (
+        correction.topic_hint
+        or correction.suggested_source_phrase
+        or correction.matched_pattern
+        or "grounding"
+    )
+    h = hashlib.sha256(src_key.encode()).hexdigest()[:16]
+    source_id = f"grounding_{h}"
+    summary = (
+        f"correction on topic={correction.topic_hint or 'unknown'}"
+        + (
+            f" via {correction.suggested_source_phrase}"
+            if correction.suggested_source_phrase else ""
+        )
+    )[:240]
+    append_event(
+        kind=TransferKind.GROUNDING_CORRECTION,
+        source_id=source_id,
+        summary=summary,
+        payload={
+            "topic_hint": correction.topic_hint,
+            "suggested_source_phrase": correction.suggested_source_phrase,
+            "attributed_date": correction.attributed_date,
+            "matched_pattern": correction.matched_pattern,
+            # Deliberately omitting normalized_value / suggested_source_url
+            # — those are facts that belong in the belief-store, not in
+            # cross-domain procedural memory.
+        },
+    )

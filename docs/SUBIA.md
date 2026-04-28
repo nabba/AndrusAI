@@ -28,7 +28,7 @@ Per-indicator mechanistic tests; no single number.
 7. [Subpackage reference](#subpackage-reference) — grouped by function:
    - **Workspace and attention:** [scene/](#scene)
    - **Self-model:** [self/](#self)
-   - **Affect and homeostatic regulation:** [homeostasis/](#homeostasis)
+   - **Affect and homeostatic regulation:** [homeostasis/](#homeostasis), [affect/](#affect)
    - **Belief and metacognition:** [belief/](#belief)
    - **Prediction:** [prediction/](#prediction)
    - **Social cognition:** [social/](#social)
@@ -1025,6 +1025,97 @@ persistence (the subject persists across sessions via
 location. Step 9 (Update) — outcome-driven adjustments. Step 5
 (Predict) — homeostasis is part of the predictor's input.
 
+### affect/
+
+**Purpose.** Homeostatic affective agency — viability variables (H_t),
+the V_t/A_t/C_t triple, an INFRASTRUCTURE-level welfare envelope, and
+the narrative-self synthesis pipeline (Damasio, Seth, Barrett, Friston,
+Panksepp, Metzinger). Companion package at `app/affect/` — sibling of
+`app/subia/`, not a SubIA subpackage; layered on `homeostasis/`. Where
+`homeostasis/` produces the somatic substrate, `affect/` builds the
+dimensional triple, governs welfare, and consolidates raw affect into
+autobiographical narrative.
+
+**Core modules:**
+
+- `viability.py` — H_t in 10 dimensions (compute_reserve,
+  latency_pressure, memory_pressure, epistemic_uncertainty,
+  attachment_security, autonomy, task_coherence, novelty_pressure,
+  ecological_connectedness, self_continuity). Soft-envelope set-points
+  in `setpoints.json`; weighted L1 distance from set-points produces
+  E_t.
+- `core.py` — V_t (valence), A_t (arousal), C_t (controllability)
+  computed from `state.somatic.valence`,
+  `hyper_model.free_energy_proxy`, and `certainty.adjusted_certainty`.
+  Constructed-emotion attractor label (Barrett) for human readability;
+  the LLM-facing path uses the float triple, never the label.
+- `schemas.py` — `AffectState`, `ViabilityFrame`, `WelfareBreach`,
+  `ReferenceScenarioResult`, `SalienceEvent`.
+- `runtime_state.py` — task/decision tracking that feeds the autonomy
+  and task_coherence variables (PRE_TASK, ON_DELEGATION).
+- `kb_metadata.py` — appends affect tags to experiential / tensions
+  KB entries on episode close.
+- `attachment.py` — Phase-3 OtherModel; user-attachment dynamics
+  (read-only on chapters until the Phase-3 attachment ramp lands).
+
+**Welfare envelope (INFRASTRUCTURE-level, file-edit only):**
+
+- `welfare.py` — hard-envelope checks: max negative-valence duration
+  (300s default), variance floor, monotonic-drift detection,
+  healthy-dynamics predicate. Audit log at `welfare_audit.jsonl`.
+  `override_reset()` is the user-only panic button; Self-Improver
+  attempts are blocked at `assert_not_self_improver`.
+- `reference_panel.py` — fixed 20-scenario compass; replayed in the
+  daily reflection cycle to detect drift signatures (numbness,
+  over-reactive, wrong-attractor).
+- `calibration.py` — daily reflection cycle at 04:30 EET; Phase-1
+  diagnostic, Phase-2 set-point adjustment under hard envelope +
+  ratchet.
+- `l9_snapshots.py` — daily L9 homeostasis snapshot at 04:35 EET
+  (rolled-up affect stats + viability + welfare-breach counts).
+
+**Narrative-Self pipeline (April 2026; INFRASTRUCTURE-level):**
+
+Three loops convert the affect firehose into autobiographical
+synthesis. Targets the structural prerequisites of Damasio's
+core-self / autobiographical-self distinction and Metzinger's
+narrative self-model — not a consciousness claim, the architectural
+condition.
+
+- `salience.py` (Loop 1) — pure-Python event detector. Triggers on
+  attractor transitions, |ΔV|/|ΔA| > 0.4 within 60s, hard-envelope
+  ≥80% near-miss, viability tolerance crossings, and attractors
+  unseen in 24h. Persists to `salience.jsonl`. No LLM, no governance.
+- `episodes.py` (Loop 2) — clusters salience events by quiescence
+  (≥15 min idle) or task boundary; one cheap-vetting LLM call per
+  cluster produces a 2-3 sentence reflection. Writes the experiential
+  KB with `entry_type=episode`. Replaces the unconditional per-task
+  journal trigger.
+- `narrative.py` (Loop 3) — daily 04:40 EET chapter consolidator.
+  Reads the last 24h of episodes plus the last 7 chapters; emits a
+  chapter with `identity_claims` (FIFO ≤ 5), `recurring_tensions`,
+  `growth_edges`, `dominant_attractors`, and a `drift_signal` derived
+  from the latest reflection report. Severe drift suppresses
+  identity-claim updates. `override_identity_claims()` is the
+  user-only manual override (audit-logged via `welfare.audit`).
+- `health_check.py` — diagnostic (no LLM): cadence, FIFO turnover,
+  episode/salience volume, drift-signal distribution. Markdown report
+  at `health_checks/YYYY-MM-DD.md`; one-shot via APScheduler
+  `DateTrigger`.
+
+Retrieval surface: `narrative.identity_at(query, k)` joins the
+commander context pipeline alongside the four KBs from KB v2 —
+identity claims as a single block, chapters as `<chapter>` blocks.
+
+**CIL integration.** Step 2 (Feel) — `affect/core.py` runs as the
+POST_LLM_CALL handler at priority 9 (immutable), reading the
+just-produced internal_state and producing the `AffectState`; the
+salience filter fires inline. Step 9 (Update) — welfare check +
+(Phase 2) calibration delta. Step 11 (Reflect) — chapter consolidator
+runs alongside the daily reflection cycle and writes back into the
+experiential KB; chapters are then read by the commander context
+pipeline on subsequent CIL passes, closing the narrative loop.
+
 ### belief/
 
 **Purpose.** HOT-3 belief-gated agency, HOT-2 metacognition,
@@ -1473,6 +1564,19 @@ Single-line bridge: `app/subia/connections/grounding_chat_bridge.py`.
 Off by default; activation via `SUBIA_GROUNDING_ENABLED=1`. Failure
 mode: any pipeline error falls through to original draft with logged
 warning — chat path keeps working unchanged.
+
+**Downstream consumer — Transfer Insight Layer (memory Layer 12).**
+Whenever `correction.persist()` upserts a belief or registers a
+source URL, it appends a `TransferEvent(kind=GROUNDING_CORRECTION)`
+to the transfer-memory compile queue (`app/transfer_memory/queue.py`).
+The nightly free-tier compile distils a procedural insight from the
+correction — *the verification discipline*, not the corrected value
+— and persists it as a shadow `SkillRecord` for cross-domain
+retrieval. The corrected `normalized_value` is deliberately omitted
+from the payload: facts stay in the belief-store; only practices
+("verify external numeric claims via the registered source before
+finalising") transfer. See `docs/MEMORY_ARCHITECTURE.md` §13 (Layer
+12 — Transfer Insight Layer) for the full pipeline.
 
 ### introspection/
 

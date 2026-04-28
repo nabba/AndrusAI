@@ -143,6 +143,8 @@ def update_gap_status(gap_id: str, status: GapStatus, notes: str = "") -> bool:
     col = _get_collection()
     if col is None:
         return False
+
+    success_gap: LearningGap | None = None
     try:
         existing = col.get(ids=[gap_id])
         if not existing.get("ids"):
@@ -163,10 +165,61 @@ def update_gap_status(gap_id: str, status: GapStatus, notes: str = "") -> bool:
         from app.memory.chromadb_manager import embed
         col.upsert(ids=[gap.id], documents=[doc], metadatas=[meta],
                     embeddings=[embed(doc)])
+        success_gap = gap
         return True
     except Exception as exc:
         logger.debug(f"update_gap_status failed: {exc}")
         return False
+    finally:
+        # Transfer-memory hook (Phase 17): only RESOLVED_NEW transitions
+        # carry the "we learned something new" signal worth compiling.
+        # Other transitions (TRIAGED, SCHEDULED, RESOLVED_EXISTING) are
+        # workflow noise that doesn't belong in cross-domain memory.
+        if success_gap is not None and status == GapStatus.RESOLVED_NEW:
+            try:
+                _queue_gap_transfer_event(success_gap, notes)
+            except Exception:
+                logger.debug(
+                    "update_gap_status: transfer_memory hook failed",
+                    exc_info=True,
+                )
+
+
+def _queue_gap_transfer_event(gap: "LearningGap", notes: str) -> None:
+    """Append a gap-resolution event for nightly transfer-memory compilation."""
+    from app.transfer_memory import append_event, TransferKind
+    append_event(
+        kind=TransferKind.GAP_RESOLVED,
+        source_id=gap.id,
+        summary=f"[{gap.source.value}] {gap.description[:160]}",
+        payload={
+            "source": gap.source.value,
+            "description": gap.description[:600],
+            "evidence": _shrink_evidence(gap.evidence),
+            "signal_strength": float(gap.signal_strength),
+            "resolution_notes": (notes or gap.resolution_notes)[:400],
+        },
+    )
+
+
+def _shrink_evidence(evidence: dict) -> dict:
+    """Keep gap.evidence small enough for the JSONL queue line.
+
+    Strips long values and any obviously oversized blobs; keeps key/value
+    pairs whose stringified value is ≤200 chars.
+    """
+    if not isinstance(evidence, dict):
+        return {}
+    out: dict = {}
+    for k, v in evidence.items():
+        s = str(v)
+        if len(s) <= 200:
+            out[k] = v
+        else:
+            out[k] = s[:200] + "…"
+        if len(out) >= 12:
+            break
+    return out
 
 
 def query_gaps(query_text: str, n: int = 5) -> list[LearningGap]:

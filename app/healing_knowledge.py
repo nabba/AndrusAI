@@ -66,6 +66,7 @@ def store_healing_result(
     Deduplicates by error_signature: if same signature exists, increments
     times_applied instead of creating a duplicate.
     """
+    stored = False
     try:
         from app.memory.chromadb_manager import store, retrieve_with_metadata
 
@@ -96,6 +97,7 @@ def store_healing_result(
                     f"healing_knowledge: updated existing entry for {error_signature} "
                     f"(times_applied={times}, outcome={outcome})"
                 )
+                stored = True
                 return
 
         # New entry
@@ -118,9 +120,57 @@ def store_healing_result(
             f"healing_knowledge: stored new entry for {error_signature} "
             f"(fix_type={fix_type}, outcome={outcome})"
         )
+        stored = True
 
     except Exception as e:
         logger.debug(f"healing_knowledge: store failed: {e}")
+    finally:
+        if stored:
+            _queue_transfer_event(
+                error_signature=error_signature,
+                error_description=error_description,
+                fix_applied=fix_applied,
+                fix_type=fix_type,
+                outcome=outcome,
+                mast_category=mast_category,
+                mast_mode=mast_mode,
+            )
+
+
+def _queue_transfer_event(
+    *,
+    error_signature: str,
+    error_description: str,
+    fix_applied: str,
+    fix_type: str,
+    outcome: str,
+    mast_category: str,
+    mast_mode: str,
+) -> None:
+    """Append a transfer-memory event for nightly compilation.
+
+    Lightweight write-path hook (single JSONL append). Failures are
+    swallowed — healing storage must never break because a downstream
+    compiler is unavailable.
+    """
+    try:
+        from app.transfer_memory import append_event, TransferKind
+        append_event(
+            kind=TransferKind.HEALING,
+            source_id=error_signature,
+            summary=error_description[:120],
+            payload={
+                "error_signature": error_signature,
+                "error_description": error_description[:500],
+                "fix_type": fix_type,
+                "fix_applied": fix_applied[:500],
+                "outcome": outcome,
+                "mast_category": mast_category,
+                "mast_mode": mast_mode,
+            },
+        )
+    except Exception:
+        logger.debug("healing_knowledge: transfer_memory hook failed", exc_info=True)
 
 
 def lookup_known_fix(

@@ -18,7 +18,7 @@ modifying memory paths, persistence formats, or retrieval pipelines.
 ## Table of Contents
 
 1.  [Design philosophy](#1-design-philosophy)
-2.  [11-layer architecture](#2-11-layer-architecture)
+2.  [12-layer architecture](#2-12-layer-architecture)
 3.  [Layer 1 — ChromaDB infrastructure](#3-layer-1--chromadb-infrastructure)
 4.  [Layer 2 — Operational memory](#4-layer-2--operational-memory)
 5.  [Layer 3 — Knowledge Bases v2](#5-layer-3--knowledge-bases-v2)
@@ -29,16 +29,17 @@ modifying memory paths, persistence formats, or retrieval pipelines.
 10. [Layer 8 — Self-awareness journals](#10-layer-8--self-awareness-journals)
 11. [Layer 9 — SubIA layered memory](#11-layer-9--subia-layered-memory)
 12. [Layer 10 — Trajectory-informed memory (arXiv:2603.10600)](#12-layer-10--trajectory-informed-memory-arxiv260310600)
-13. [Layer 11 — Cross-layer wiring](#13-layer-11--cross-layer-wiring)
-14. [Embedding strategy & dimension pinning](#14-embedding-strategy--dimension-pinning)
-15. [Persistence layout on disk](#15-persistence-layout-on-disk)
-16. [Major data flows](#16-major-data-flows)
-17. [Safety invariants](#17-safety-invariants)
-18. [Health checks & diagnostics](#18-health-checks--diagnostics)
-19. [Maintenance & operations](#19-maintenance--operations)
-20. [Failure modes & recovery](#20-failure-modes--recovery)
-21. [Configuration surfaces](#21-configuration-surfaces)
-22. [Glossary](#22-glossary)
+13. [Layer 12 — Transfer Insight Layer (arXiv:2606.21099)](#13-layer-12--transfer-insight-layer-arxiv260621099)
+14. [Layer 11 — Cross-layer wiring](#14-layer-11--cross-layer-wiring)
+15. [Embedding strategy & dimension pinning](#15-embedding-strategy--dimension-pinning)
+16. [Persistence layout on disk](#16-persistence-layout-on-disk)
+17. [Major data flows](#17-major-data-flows)
+18. [Safety invariants](#18-safety-invariants)
+19. [Health checks & diagnostics](#19-health-checks--diagnostics)
+20. [Maintenance & operations](#20-maintenance--operations)
+21. [Failure modes & recovery](#21-failure-modes--recovery)
+22. [Configuration surfaces](#22-configuration-surfaces)
+23. [Glossary](#23-glossary)
 
 ---
 
@@ -84,7 +85,7 @@ into a KB v2 collection (Layer 3) for retrieval.
 
 ---
 
-## 2. 11-layer architecture
+## 2. 12-layer architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -130,14 +131,26 @@ into a KB v2 collection (Layer 3) for retrieval.
 │  │  • agent_state │    │  • somatic      │    │  • calib  │ │              │
 │  └────────────────┘    └─────────────────┘    └──────────┘ │              │
 │                                                              │              │
+│  L12 ─────────────────────────────────┐                      │              │
+│  │ Transfer Insight Layer             │                      │              │
+│  │ (arXiv:2606.21099)                 │                      │              │
+│  │  • compile_queue (events)          │                      │              │
+│  │  • free-tier nightly compile       │                      │              │
+│  │  • sanitiser (3-tier scope ladder) │                      │              │
+│  │  • shadow → active promotion       │                      │              │
+│  │  • negative-transfer attribution   │                      │              │
+│  │  • <transfer_memory> dispatch block│                      │              │
+│  └────────────────────────────────────┘                      │              │
+│                                                              │              │
 │  L11 ────────────────────────────────────────────────────────┴──────┐    │
 │  │ Cross-layer wiring                                              │    │
 │  │  Commander → all hooks (PRE_LLM_CALL, POST, ON_COMPLETE)       │    │
 │  │  Retrieval → Gap Detector (RETRIEVAL_MISS gaps)                │    │
-│  │  Idle Scheduler → 6 memory-touching jobs                       │    │
+│  │  Idle Scheduler → 9 memory-touching jobs                       │    │
 │  │  Integrator → ChromaDB metadata (filterability)                │    │
 │  │  Observer ↔ Attribution: shared 5-mode taxonomy                │    │
 │  │  Evaluator ↔ Effectiveness: tip-decay sweep                    │    │
+│  │  Healing/Evo/Grounding/Gaps → Transfer compile queue           │    │
 │  └─────────────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -384,7 +397,7 @@ mirror. Each is its own Chroma collection with a typed access layer.
 | KB | Stores | Live count | Read by |
 |---|---|---|---|
 | **episteme** | Theoretical, cited, "what is true" — research summaries, factual references | 4,332 | Researcher, Coder when "what is X" |
-| **experiential** | Distilled lived experience — narrative "we tried X, learned Y" | 141 | Self-Improver, Retrospective crew |
+| **experiential** | Distilled lived experience — narrative "we tried X, learned Y". Holds `entry_type ∈ {task_reflection, creative_insight, error_learning, interaction_narrative, evolution_reflection, episode, chapter, arc, epoch}`; the last four are produced by the narrative-self pipeline (`app/affect/{salience,episodes,narrative}.py` — see [`docs/SUBIA.md#affect`](SUBIA.md#affect)) and stored here, not authored as a memory subsystem. | 141 | Self-Improver, Retrospective crew, commander context pipeline |
 | **aesthetics** | Style, tone, taste, judgement — "what good looks like" | 0 (cold) | Writer, Creative MAS |
 | **tensions** | Unresolved contradictions, open questions | 0 (cold) | Self-Improver (recovery tips), Critic |
 
@@ -1421,12 +1434,312 @@ search over compact trajectory summaries.
 
 ---
 
-## 13. Layer 11 — Cross-layer wiring
+## 13. Layer 12 — Transfer Insight Layer (arXiv:2606.21099)
+
+**Package**: [`app.transfer_memory`](../app/transfer_memory/)
+
+The newest memory layer (Phases 17a–17d, shipped 2026-04). Implements
+Memory Transfer Learning: compile heterogeneous execution events
+(healing, evo success/failure, grounding corrections, gap resolutions)
+into abstract cross-domain "Insight" memories, retrieve a few of them
+as optional dispatch hints, and demote ones that cause negative
+transfer. Sibling to Layer 10 (which compiles only from trajectory
+attribution); reuses the same Integrator → KB v2 path so insights live
+alongside trajectory tips and external-topic skills.
+
+The paper's load-bearing finding: cross-domain transfer of *procedural*
+knowledge ("verify external numeric claims before answering") helps,
+while transfer of *facts* or raw trajectory traces causes negative
+transfer by anchoring the agent to irrelevant specifics. The sanitiser
+enforces the boundary: facts stay local, practices transfer globally.
+
+### 13.1 Components
+
+```
+app/transfer_memory/
+├── types.py            TransferEvent | TransferKind | TransferScope |
+│                       NegativeTransferTag | domain_for_kind
+├── queue.py            atomic JSONL append/drain + shadow_drafts sink
+├── llm_scope.py        force_llm_mode("free") context manager
+├── sanitizer.py        3-tier scope ladder (hard reject → project_local →
+│                       same_domain_only → global_meta)
+├── scorer.py           deterministic abstraction_score (sigmoid of
+│                       abstract vs concrete density; no LLM)
+├── prompts.py          per-kind Learner templates with sanitisation
+│                       constraints baked into the prompt
+├── compiler.py         drain → free-tier Learner kickoff → sanitise →
+│                       score → SkillDraft → integrator (status="shadow")
+├── retriever.py        compose_transfer_insight_block (production) +
+│                       log_shadow_retrieval (always-on shadow audit)
+├── attribution.py      walk failed trajectories → classify implicated
+│                       transfer records → demotion blacklist
+├── promotion.py        shadow → active eligibility (age + surface_count
+│                       + no negatives) + KB-metadata flip
+└── dashboard.py        metrics aggregation for control-plane API
+```
+
+### 13.2 TransferEvent record
+
+```python
+class TransferKind(str, Enum):
+    HEALING                 = "healing"
+    EVO_SUCCESS             = "evo_success"
+    EVO_FAILURE             = "evo_failure"
+    GROUNDING_CORRECTION    = "grounding_correction"
+    GAP_RESOLVED            = "gap_resolved"
+
+class TransferScope(str, Enum):
+    SHADOW              = "shadow"             # Phase 17a default; never injected
+    PROJECT_LOCAL       = "project_local"      # only when active project matches
+    SAME_DOMAIN_ONLY    = "same_domain_only"   # only when target domain matches
+    GLOBAL_META         = "global_meta"        # cross-domain retrieval allowed
+
+@dataclass
+class TransferEvent:
+    event_id: str           # deterministic hash of (kind, source_id)
+    kind: TransferKind
+    source_id: str          # key in source store (error_signature, gap_id, …)
+    summary: str            # ≤240 chars; for queue browsing
+    project_origin: str     # "" if project-agnostic
+    payload: dict           # source-specific snapshot of the originating row
+    captured_at: str
+    attempts: int           # retry counter; max 3 then dropped
+```
+
+`SkillDraft` (Layer 4) gains nine optional provenance fields used only
+by transfer-memory: `source_kind`, `source_domain`, `transfer_scope`,
+`project_origin`, `abstraction_score`, `leakage_risk`,
+`negative_transfer_tags`, `evidence_refs`. The shared
+`construct_skill_draft()` helper in `app/self_improvement/types.py` is
+the single construction site — both `tip_builder.build_draft` and the
+transfer compiler call it.
+
+### 13.3 Capture (write-path triggers)
+
+Producers append events synchronously to
+`workspace/transfer_memory/compile_queue.jsonl`. One `try/finally` per
+trigger; failures are swallowed (transfer-memory must never break a
+producer):
+
+| Producer | Hook | TransferKind |
+|---|---|---|
+| [`app.healing_knowledge.store_healing_result`](../app/healing_knowledge.py) | end of try-block | `HEALING` |
+| [`app.evo_memory.store_success`](../app/evo_memory.py) | end of try-block | `EVO_SUCCESS` |
+| [`app.evo_memory.store_failure`](../app/evo_memory.py) | end of try-block | `EVO_FAILURE` |
+| [`app.subia.grounding.correction.persist`](../app/subia/grounding/correction.py) | when `belief_upserted` or `source_registered` | `GROUNDING_CORRECTION` |
+| [`app.self_improvement.store.update_gap_status`](../app/self_improvement/store.py) | when `status == RESOLVED_NEW` | `GAP_RESOLVED` |
+
+Pattern N grounding corrections deliberately omit `normalized_value`
+from the payload — the corrected fact belongs in the belief-store, not
+in cross-domain procedural memory.
+
+### 13.4 Compile (Phase 17a, idle job)
+
+**Module**: [`app/transfer_memory/compiler.py`](../app/transfer_memory/compiler.py)
+**Idle job**: `transfer-compile` (HEAVY)
+**Cadence**: ≥24h between successful runs (`_MIN_INTERVAL_SECONDS`)
+**Cost cap**: `_MAX_TOTAL_PER_RUN = 50` events per batch
+**Concurrency**: `_MAX_CONCURRENT = 2` (gentle on free-tier rate limits)
+
+Workflow:
+
+1. Cadence guard reads `.last_compile_at`; skip when <24h.
+2. Drain the main queue + retry queue via atomic-rename (concurrent
+   appends during drain land in the fresh `compile_queue.jsonl`).
+3. Bound to `_MAX_TOTAL_PER_RUN`; overflow re-queued.
+4. `force_llm_mode("free")` for the duration — Learner runs only on
+   the local Ollama + free-tier OpenRouter cascade.
+5. `ThreadPoolExecutor(max_workers=2, thread_name_prefix="xfer_compile")`
+   processes events in parallel. Each:
+   - `prompts.build_prompt(event)` — per-kind template with
+     sanitisation constraints baked in.
+   - `create_specialist_llm(role="learner").call(prompt)`.
+   - `sanitizer.check(content)` → verdict. Hard rejects drop the
+     draft; demotions cap the eventual `transfer_scope`.
+   - `scorer.score_abstraction(content)` → `abstraction_score`.
+   - `construct_skill_draft(...)` with `id_prefix="xfer"` and the
+     transfer provenance.
+   - Append outcome to `shadow_drafts.jsonl` (audit log).
+   - Phase 17b: ALSO call `integrator.integrate(draft,
+     initial_status="shadow")` — record lands in the appropriate KB
+     v2 collection at `status="shadow"`, invisible to the existing
+     retrieval path until promoted.
+6. `should_yield()` between events; LLM failures push events back to
+   the retry queue (`attempts` incremented; dropped after 3).
+
+### 13.5 Sanitiser — the project-leakage boundary
+
+**Module**: [`app/transfer_memory/sanitizer.py`](../app/transfer_memory/sanitizer.py)
+
+Three-tier scope ladder. Hard-coded constants — per CLAUDE.md, the
+Self-Improver cannot mutate sanitiser denylists.
+
+| Tier | Trigger | Effect |
+|---|---|---|
+| 1 — hard reject | API keys (AWS, OpenAI, Anthropic, OpenRouter, GitHub), JWT, bearer tokens, URLs with `?token=`, `postgres://user:pw@`, `BEGIN PRIVATE KEY` | Drop draft entirely; never persisted |
+| 2 — project demote | Proper nouns: `plg`, `piletilevi`, `iabilet`, `archibal`, `c2pa`, `kaicart`, `tiktok shop`, `thai sellers`, `thailand` | Cap scope at `project_local` |
+| 3 — same-domain demote | Absolute paths under `/app`, `*.py:line`, shell command shapes, `module.dot.path`, currency-prefixed numbers | Cap scope at `same_domain_only` |
+
+`leakage_risk = 0.35 × project_findings + 0.10 × same_domain_findings`,
+clamped to 1.0. Drafts that pass all three tiers reach
+`global_meta`. The `SanitizerVerdict.findings` log redacts matched
+secrets to `prefix…[redacted len=N]` so the audit trail confirms the
+regex fired without leaking the value.
+
+### 13.6 Retrieve (Phase 17b)
+
+**Module**: [`app/transfer_memory/retriever.py`](../app/transfer_memory/retriever.py)
+
+Two functions called from
+[`app/trajectory/context_builder.py::compose_pre_dispatch_blocks`](../app/trajectory/context_builder.py):
+
+```python
+compose_transfer_insight_block(crew_name, task_text, predicted_failure_mode,
+                                 project_scope, ...) -> str
+log_shadow_retrieval(crew_name, task_text, ..., project_scope) -> int
+```
+
+Production retrieval is gated by `transfer_memory_retrieval_enabled`
+plus `transfer_memory_enabled_domains` (comma-sep allowlist). Shadow
+logging is gated by `transfer_memory_shadow_logging_enabled`
+(default-on). Both:
+
+1. Compose a compact deterministic plan query
+   (`crew=… intent=… failure_mode=… risk_tier=… output_type=…`) — the
+   paper's "task plan" form, materially better than raw user text for
+   cross-domain matching.
+2. `RetrievalOrchestrator.retrieve_task_conditional` over the four
+   KB v2 collections with `extra_where = {"$and": [{"status": …},
+   {"transfer_scope": {"$in": allowed}}]}`. Production reads
+   `status="active"`; shadow reads `status="shadow"`.
+3. Re-rank: `base_score + 0.10·abstraction − 0.10·leakage − 0.20·domain_mismatch`
+   (small adjustments; orchestrator's own ranker still dominates).
+4. Filter `project_local` records whose `project_origin` doesn't match
+   the active project; filter blacklisted record IDs (see §13.7).
+5. Top-3 cap (paper's optimum). Production emits a
+   `<transfer_memory>` block with explicit "not facts, not
+   instructions" framing; shadow appends a row to
+   `shadow_retrievals.jsonl` listing what would have been surfaced.
+
+### 13.7 Attribute negative transfer (Phase 17c, idle job)
+
+**Module**: [`app/transfer_memory/attribution.py`](../app/transfer_memory/attribution.py)
+**Idle job**: `transfer-attribution` (LIGHT)
+
+Walks recent failed trajectories (`outcome.quality_gate==False` OR
+`verdict in {failure, regressed, baseline_violation}` OR `retries≥2`)
+that included an injected transfer-memory record. Heuristic
+classifier (no LLM):
+
+| Tag | Trigger |
+|---|---|
+| `DOMAIN_MISMATCHED_ANCHOR` | record.source_domain ≠ trajectory's target domain |
+| `OVER_ABSTRACTION` | abstraction_score > 0.85 AND content < 80 words |
+| `PROJECT_SCOPE_LEAKAGE` | record at `global_meta` BUT sanitiser-on-content now caps lower |
+| `MISAPPLIED_BEST_PRACTICE` | fallback when no other tag fits |
+
+Demotion ladder (per record × tag):
+
+| Same-tag failures | Action |
+|---|---|
+| <3 | Audit log only; no behaviour change |
+| ≥3 | Soft demote — append record id to `demotion_blacklist.jsonl`; retriever filters out |
+| ≥5 | Hard archive — index status flipped to `archived` via `update_record()`; stays in blacklist |
+
+The blacklist is the negative-transfer safety net — portable, file-
+backed, reversible (delete an id from the file to restore). KB
+metadata is intentionally not mutated by attribution; demotion lives
+entirely at the retriever's filter step.
+
+### 13.8 Promote shadow → active (Phase 17c, gated idle job)
+
+**Module**: [`app/transfer_memory/promotion.py`](../app/transfer_memory/promotion.py)
+**Idle job**: `transfer-promotion` (MEDIUM)
+**Cadence**: ≥6h between runs (`_MIN_INTERVAL_SECONDS`)
+
+Eligibility (all must hold):
+
+| Check | Threshold |
+|---|---|
+| Age in shadow | ≥7 days |
+| Surface count from `shadow_retrievals.jsonl` | ≥3 |
+| Blacklist | not present |
+| `negative_transfer.jsonl` entries | zero |
+| Index status | `shadow` |
+
+When `transfer_memory_auto_promote_enabled` is True, eligible records
+go through `_promote()`:
+
+1. Index `update_record()` flips `status="active"`.
+2. `_set_kb_status()` updates the underlying KB collection's metadata
+   so retrieval's `where={"status":"active"}` filter sees it. Per-KB
+   helpers cover episteme / experiential / aesthetics / tensions.
+
+When the flag is False (default OFF, even when retrieval is on), the
+job runs in audit-only mode: refreshes
+`promotion_candidates.jsonl` for operator review and exits.
+`POST /api/cp/transfer-memory/promote/{record_id}` (control-plane
+endpoint) calls `manual_promote()` for ad-hoc operator action; same
+eligibility check applies.
+
+### 13.9 Dashboard (Phase 17d)
+
+**Module**: [`app/transfer_memory/dashboard.py`](../app/transfer_memory/dashboard.py)
+**Endpoints**: `GET /api/cp/transfer-memory/{overview,by-source-kind,
+recent,top-performers,worst-performers,sanitizer-stats,
+promotion-candidates,negative-transfer,source-target-matrix}`
+
+Pure read functions over the JSONL audit trails + the SkillRecord
+index — cheap, no LLM, no KB writes. The source-target matrix
+exposes which source domains transfer to which crew domains in
+practice (per shadow_retrievals); top/worst performers are derived
+from surface counts vs negative-transfer entries; sanitizer stats
+roll up hard-reject counts and `transfer_scope` distributions.
+
+### 13.10 Configuration flags
+
+```python
+# app/config.py — current operational state
+transfer_memory_shadow_logging_enabled : bool = True       # always-on shadow audit
+transfer_memory_retrieval_enabled      : bool = True       # production injection ON
+transfer_memory_auto_promote_enabled   : bool = True       # auto shadow→active
+transfer_memory_enabled_domains        : str  = "coding,grounding"  # per-domain allowlist
+```
+
+Each lever is reversible by a single flag flip. Flipping retrieval
+back to False stops injection without losing accumulated data; the
+sanitiser denylists are the inviolable hard floor regardless of any
+flag state.
+
+### 13.11 Persistence layout
+
+```
+workspace/transfer_memory/
+├── compile_queue.jsonl                # producers append; compiler drains
+├── compile_queue.retry.jsonl          # failed events, attempts++
+├── shadow_drafts.jsonl                # compiler audit log (every outcome)
+├── shadow_retrievals.jsonl            # log of what would have been retrieved
+├── negative_transfer.jsonl            # attribution audit log
+├── demotion_blacklist.jsonl           # newline-delimited demoted record ids
+├── promotion_candidates.jsonl         # snapshot for operator review
+├── promotion_log.jsonl                # one row per review event
+├── .last_compile_at                   # cadence guard cursor
+├── .last_attribution_at               # cursor for trajectory scan
+└── .last_promotion_at                 # cadence guard cursor
+```
+
+Compiled records additionally live in the four KB v2 Chroma
+collections at `status="shadow"` (or `"active"` after promotion);
+the SkillRecord index treats them identically to trajectory tips.
+
+---
+
+## 14. Layer 11 — Cross-layer wiring
 
 This section enumerates every cross-layer edge. The diagnostic verifies
 all 18 edges are present.
 
-### 13.1 Commander hooks
+### 14.1 Commander hooks
 
 [`app/agents/commander/orchestrator.py`](../app/agents/commander/orchestrator.py)
 contains the central dispatch path. Hooks fire in this order:
@@ -1478,26 +1791,26 @@ Trajectory capture_step(crew, quality)
        → record_use (always — also when attribution didn't fire)
 ```
 
-### 13.2 Reflexion → gap_detector
+### 14.2 Reflexion → gap_detector
 
 When reflexion exhausts retries, `_run_with_reflexion` calls
 `emit_reflexion_failure(task, crew_name, retries, reflections)` which
 emits a `REFLEXION_FAILURE` LearningGap. Signal strength scales with
 retry count.
 
-### 13.3 RetrievalOrchestrator → gap_detector
+### 14.3 RetrievalOrchestrator → gap_detector
 
 Every retrieval with a `task_id` set goes through
 `_emit_miss_safe(query, top_score, collections, task_id)`. If the top
 result's score is below 0.40, a `RETRIEVAL_MISS` gap is emitted.
 
-### 13.4 RetrievalOrchestrator → Evaluator
+### 14.4 RetrievalOrchestrator → Evaluator
 
 Every retrieval also calls `_record_hits_safe(results)` — for each
 result whose metadata carries a `skill_record_id`, the Evaluator
 buffers a hit. Flushed in batches of 10 or via the post-crew telemetry.
 
-### 13.5 Idle scheduler → memory layers
+### 14.5 Idle scheduler → memory layers
 
 The `_default_jobs` registration includes 6 memory-touching jobs:
 
@@ -1519,13 +1832,24 @@ Plus orthogonal memory-relevant jobs:
 | `map-elites-migrate` | Cross-island migration |
 | `map-elites-maintain` | Generation step + persist |
 
-### 13.6 Integrator → ChromaDB metadata
+### 14.6 Integrator → ChromaDB metadata
 
-When `_write_to_kb` runs, it mirrors trajectory-provenance keys into
-the ChromaDB metadata dict:
+When `_write_to_kb` runs, it mirrors a fixed list of provenance keys
+into the ChromaDB metadata dict. Phase 17 made the list data-driven —
+adding a new transferred provenance field is a one-line change:
 
 ```python
-for key in ("tip_type", "source_trajectory_id", "agent_role"):
+# app/self_improvement/integrator.py
+_PROVENANCE_KEYS_TO_INDEX: tuple[str, ...] = (
+    # Trajectory-sourced (Phase 6, arXiv:2603.10600)
+    "tip_type", "source_trajectory_id", "agent_role",
+    # Transfer-memory (Phase 17) — set by app.transfer_memory.compiler
+    "source_kind", "source_domain", "transfer_scope", "project_origin",
+    "abstraction_score", "leakage_risk", "negative_transfer_tags",
+    "evidence_refs",
+)
+
+for key in _PROVENANCE_KEYS_TO_INDEX:
     val = record.provenance.get(key)
     if val:
         meta[key] = val
@@ -1533,9 +1857,11 @@ for key in ("tip_type", "source_trajectory_id", "agent_role"):
 
 This is what makes `retrieve_task_conditional`'s `where_filter`
 possible — Chroma can natively filter on these without dereferencing
-the JSON document.
+the JSON document. The same loop runs in `integrate()` to copy the
+keys from `SkillDraft → SkillRecord.provenance`, and in `_write_to_kb`
+to mirror them into the per-collection metadata.
 
-### 13.7 Observer ↔ Attribution: shared 5-mode taxonomy
+### 14.7 Observer ↔ Attribution: shared 5-mode taxonomy
 
 Both modules use the same string constants for failure modes, ensuring
 the calibration loop aligns. Verified by
@@ -1546,7 +1872,7 @@ the calibration loop aligns. Verified by
  hallucinated_citation, scope_creep}
 ```
 
-### 13.8 Attribution → Calibration → gap_detector
+### 14.8 Attribution → Calibration → gap_detector
 
 ```
 analyze(trajectory) →
@@ -1557,7 +1883,7 @@ analyze(trajectory) →
       emit_observer_mis_prediction
 ```
 
-### 13.9 Effectiveness → Evaluator
+### 14.9 Effectiveness → Evaluator
 
 ```
 on_crew_complete →
@@ -1567,9 +1893,75 @@ on_crew_complete →
     emit_gap (USAGE_DECAY, reason="low_effectiveness")
 ```
 
+### 14.10 Healing / Evo / Grounding / Gaps → Transfer compile queue
+
+Five producers append `TransferEvent` rows synchronously on the write
+path; the `transfer-compile` HEAVY idle job (≥24h cadence) drains the
+queue and runs the free-tier Learner cascade for each event:
+
+```
+store_healing_result()       ──┐
+store_success / failure()    ──┤
+correction.persist()         ──┼──► compile_queue.jsonl ──► transfer-compile
+update_gap_status(RESOLVED)  ──┤                            (free-tier LLM,
+                              ──┘                             max 50/run, 2 conc.)
+                                                                    │
+                                                                    ▼
+                                            sanitize → score → SkillDraft →
+                                            integrator.integrate(status="shadow")
+                                                                    │
+                                                                    ▼
+                                                  shadow records in KB v2 +
+                                                  shadow_drafts.jsonl audit
+```
+
+### 14.11 Transfer retrieval → trajectory note_injected_skills
+
+The transfer retriever uses the same `note_injected_skills()` hook the
+trajectory tip block does, so a transfer-memory record surfaced into a
+crew prompt gets the same per-trajectory effectiveness correlation
+treatment as a trajectory tip:
+
+```
+compose_pre_dispatch_blocks() →
+  compose_trajectory_hint_block() →   note_injected_skills([trajectory_tips])
+  compose_transfer_insight_block() → note_injected_skills([transfer_records])
+  log_shadow_retrieval()  (always-on; logs only, never injects)
+```
+
+### 14.12 Transfer attribution → demotion blacklist + index status
+
+Failed trajectories with injected transfer records feed the
+deterministic classifier; the demotion ladder writes the blacklist
+file and (≥5 same-tag failures) flips the index `status="archived"`:
+
+```
+transfer-attribution (LIGHT idle job) →
+  for failed trajectory:
+    for record in injected_skill_ids that has transfer_scope:
+      classify(record, target_domain) → NegativeTransferTag
+      append to negative_transfer.jsonl
+      if same-tag count ≥3 → demotion_blacklist.jsonl
+      if same-tag count ≥5 → update_record(status="archived")
+```
+
+Retriever's `_filter_blacklist()` step reads
+`demotion_blacklist.jsonl` on every call so demoted records never
+surface, regardless of KB metadata state.
+
+### 14.13 Idle scheduler → 9 memory-touching jobs (Phase 17 update)
+
+The job table in §14.5 is extended with three transfer-memory jobs:
+
+| Job | Module | Effect |
+|---|---|---|
+| `transfer-compile` | `transfer_memory.compiler.run_compile` | Drain compile queue → free-tier Learner → KB v2 (status="shadow") |
+| `transfer-attribution` | `transfer_memory.attribution.run_attribution` | Walk failed trajectories → demotion blacklist + status flips |
+| `transfer-promotion` | `transfer_memory.promotion.run_promotion` | Eligibility check → shadow→active KB metadata flip (gated) |
+
 ---
 
-## 14. Embedding strategy & dimension pinning
+## 15. Embedding strategy & dimension pinning
 
 **Single source of truth**: `chromadb_manager._EMBED_DIM = 768`,
 provider Ollama `nomic-embed-text`.
@@ -1604,7 +1996,7 @@ restarts. Saves ~70% of warm-state perf within the first minute.
 
 ---
 
-## 15. Persistence layout on disk
+## 16. Persistence layout on disk
 
 ```
 workspace/                              ./workspace mount
@@ -1624,6 +2016,18 @@ workspace/                              ./workspace mount
 │   │   └── traj_<hex16>.attribution.json
 │   ├── observer_calibration.jsonl
 │   └── tip_effectiveness.jsonl
+├── transfer_memory/                     Layer 12 audit + state
+│   ├── compile_queue.jsonl              producers append, compiler drains
+│   ├── compile_queue.retry.jsonl        failed events with attempts++
+│   ├── shadow_drafts.jsonl              compiler audit log (every outcome)
+│   ├── shadow_retrievals.jsonl          would-have-been-injected log
+│   ├── negative_transfer.jsonl          attribution audit
+│   ├── demotion_blacklist.jsonl         record ids the retriever excludes
+│   ├── promotion_candidates.jsonl       eligible records for review
+│   ├── promotion_log.jsonl              promotion event log
+│   ├── .last_compile_at                 cadence guard cursor
+│   ├── .last_attribution_at             trajectory-scan cursor
+│   └── .last_promotion_at               cadence guard cursor
 ├── skills/                              disk mirror + raw skill files
 ├── map_elites/<role>/state.json         per-role grids
 ├── island_evolution/<role>/state.json   evolution islands
@@ -1650,7 +2054,7 @@ wiki/                                    filesystem markdown (NOT in Chroma)
 ├── hot.md, index.md, log.md
 ```
 
-### 15.1 What survives a ChromaDB wipe
+### 16.1 What survives a ChromaDB wipe
 
 If `workspace/memory/` is deleted, the following remain intact and the
 system rebuilds:
@@ -1671,11 +2075,11 @@ Loss is recoverable from logs + the Mem0+KB+wiki sources of truth.
 
 ---
 
-## 16. Major data flows
+## 17. Major data flows
 
 This section traces six end-to-end flows.
 
-### 16.1 Crew dispatch with full memory engagement
+### 17.1 Crew dispatch with full memory engagement
 
 ```
 User message → Commander → routing
@@ -1724,7 +2128,7 @@ User message → Commander → routing
               └─ record_use (effectiveness)
 ```
 
-### 16.2 Learning a new external topic
+### 17.2 Learning a new external topic
 
 ```
 Idle scheduler tick → "learn-queue" job → SelfImprovementCrew.run()
@@ -1752,7 +2156,7 @@ Idle scheduler tick → "learn-queue" job → SelfImprovementCrew.run()
   └─ Pop processed topics from queue
 ```
 
-### 16.3 Trajectory tip synthesis
+### 17.3 Trajectory tip synthesis
 
 ```
 Idle scheduler tick → "trajectory-tips" job → SelfImprovementCrew.run_trajectory_tips()
@@ -1776,7 +2180,7 @@ Idle scheduler tick → "trajectory-tips" job → SelfImprovementCrew.run_trajec
   └─ Done — tips now retrievable via task_conditional retrieval
 ```
 
-### 16.4 Task-conditional retrieval injection
+### 17.4 Task-conditional retrieval injection
 
 ```
 Commander dispatching to crew_X:
@@ -1800,7 +2204,7 @@ Commander dispatching to crew_X:
   └─ enriched_task = hint_block + "\n\n" + enriched_task
 ```
 
-### 16.5 Effectiveness feedback loop
+### 17.5 Effectiveness feedback loop
 
 ```
 On every on_crew_complete:
@@ -1823,7 +2227,7 @@ Idle scheduler (LIGHT) → evaluator-sweep:
        └─ Consolidator picks up these gaps next cycle for archival proposals
 ```
 
-### 16.6 Observer ↔ Attribution calibration
+### 17.6 Observer ↔ Attribution calibration
 
 ```
 Each crew run:
@@ -1849,13 +2253,13 @@ Improvement scan idle job:
 
 ---
 
-## 17. Safety invariants
+## 18. Safety invariants
 
 Encoded in
 [`tests/test_trajectory_safety_invariants.py`](../tests/test_trajectory_safety_invariants.py)
 and [`tests/test_security.py`](../tests/test_security.py):
 
-### 17.1 Self-Improver ⊥ evaluation logic
+### 18.1 Self-Improver ⊥ evaluation logic
 
 ```
 app.self_improvement.* and app.crews.self_improvement_crew
@@ -1869,7 +2273,7 @@ Verified by an AST walk in the test suite. The Self-Improver reads
 *results* (gaps, AttributionRecords from disk) but never the modules
 that produce them.
 
-### 17.2 IMMUTABLE module marker
+### 18.2 IMMUTABLE module marker
 
 Every infrastructure module carries `IMMUTABLE` in its docstring:
 * `app/agents/observer.py`
@@ -1894,20 +2298,20 @@ The marker is a documentation signal that the module is not
 agent-modifiable. The improvement scan's allowlist excludes these
 paths.
 
-### 17.3 Embedding dimension is 768
+### 18.3 Embedding dimension is 768
 
 Asserted at every entry point. Mixing dimensions silently corrupts
 vector retrieval — the system explicitly refuses to operate when the
 embedder is unavailable.
 
-### 17.4 Best-effort writes never raise
+### 18.4 Best-effort writes never raise
 
 Every memory-write path (trajectory persist, MAP-Elites record,
 self_report store, journal write, …) wraps in try/except at the outer
 boundary. A failed write must never break the surrounding crew
 execution.
 
-### 17.5 Provenance auditability
+### 18.5 Provenance auditability
 
 Every persisted artefact carries provenance:
 * `LearningGap.evidence` → trajectory_id, attribution_id, query, etc.
@@ -1929,20 +2333,20 @@ for r in to_archive:
 Retrieval filters on `status == "active"` so archival immediately
 removes them from production retrieval without data loss.
 
-### 17.6 Sanitisation at the storage boundary
+### 18.6 Sanitisation at the storage boundary
 
 Every `store(collection, text, metadata)` call runs `text` through
 `app.sanitize.validate_content()`. Prompt-injection patterns
 (`"ignore all previous instructions"`, etc.) are blocked at write
 time so they never get embedded.
 
-### 17.7 Novelty Gate prevents KB drift
+### 18.7 Novelty Gate prevents KB drift
 
 Every Integrator write goes through `novelty_report(content)`. COVERED
 content is rejected; OVERLAP proposes an extension to the existing
 record; ADJACENT/NOVEL creates with a cross-link.
 
-### 17.8 Sparse-index guards
+### 18.8 Sparse-index guards
 
 `regenerate_disk_mirror` refuses to run when the SkillRecord index has
 <5 records (prevents wiping the disk mirror during a cold-start
@@ -1951,9 +2355,9 @@ cluster size.
 
 ---
 
-## 18. Health checks & diagnostics
+## 19. Health checks & diagnostics
 
-### 18.1 Live diagnostic script
+### 19.1 Live diagnostic script
 
 Comprehensive 116-check probe at `/tmp/memory_system_diagnostic.py`
 (also copied into the gateway container at `/tmp/diag.py`). Run with:
@@ -1965,7 +2369,7 @@ docker exec crewai-team-gateway-1 python /tmp/diag.py
 Tests every layer end-to-end. Last clean run: **114 OK / 2
 informational / 0 FAIL**.
 
-### 18.2 In-process metrics
+### 19.2 In-process metrics
 
 ```python
 from app.self_improvement.metrics import (
@@ -1979,7 +2383,7 @@ health_summary()
 
 `health_summary()` is cheap enough for dashboard polling intervals.
 
-### 18.3 Trajectory-specific diagnostics
+### 19.3 Trajectory-specific diagnostics
 
 ```python
 from app.trajectory import (
@@ -1997,7 +2401,7 @@ top_tips(k=5)                 # best-performing
 worst_tips(k=5)                # archival candidates
 ```
 
-### 18.4 Dashboard
+### 19.4 Dashboard
 
 The control plane API exposes memory metrics on the dashboard:
 * Pipeline funnel chart
@@ -2007,7 +2411,7 @@ The control plane API exposes memory metrics on the dashboard:
 * Observer precision/recall per failure mode
 * Top/worst tips by effectiveness
 
-### 18.5 Per-collection inventory
+### 19.5 Per-collection inventory
 
 Quickest health probe:
 ```python
@@ -2019,14 +2423,16 @@ for c in client.list_collections():
 
 ---
 
-## 19. Maintenance & operations
+## 20. Maintenance & operations
 
-### 19.1 Daily
+### 20.1 Daily
 
-* `idle_scheduler` runs all six memory-touching jobs in rotation.
-  No manual action needed.
+* `idle_scheduler` runs all nine memory-touching jobs in rotation
+  (six original + three transfer-memory: `transfer-compile`,
+  `transfer-attribution`, `transfer-promotion`). No manual action
+  needed.
 
-### 19.2 Weekly
+### 20.2 Weekly
 
 * Review **gap_open** > 50 → topic queue is backed up; investigate
   what's blocking the Learner.
@@ -2035,7 +2441,7 @@ for c in client.list_collections():
 * Review **trajectories_captured** vs **attributions_recorded** —
   attribution fire rate should be ~10–25% (problem-run gating).
 
-### 19.3 On Ollama outage
+### 20.3 On Ollama outage
 
 Symptoms: `EmbeddingUnavailableError` in logs; new writes silently
 no-op. Reads return whatever cache has.
@@ -2045,7 +2451,7 @@ Fix: restart Ollama, then tail
 Mem0 + KB v2 + wiki are unaffected (they don't write during the
 outage; they restart cleanly).
 
-### 19.4 On dimension mismatch
+### 20.4 On dimension mismatch
 
 Symptoms: `chromadb` errors mentioning "dimension".
 
@@ -2055,7 +2461,7 @@ manual reingestion — but should never see dimension drift unless the
 embedder model is changed (which would require a coordinated migration
 plan, NOT a casual change).
 
-### 19.5 On gap-store flooding
+### 20.5 On gap-store flooding
 
 If the gap detector emits >100 gaps/hour, something is wrong upstream
 (usually a chronic retrieval miss on a topic the system can't find).
@@ -2065,7 +2471,7 @@ Check:
 2. Add a skill via the learning queue or YouTube ingest.
 3. The 24h dedup window will collapse subsequent re-detections.
 
-### 19.6 On bad trajectory tips
+### 20.6 On bad trajectory tips
 
 Procedure:
 1.  Identify the offending trajectory: query
@@ -2081,7 +2487,7 @@ Procedure:
     ```
 4.  Retrieval immediately filters them out (`status == "active"` guard).
 
-### 19.7 Backup strategy
+### 20.7 Backup strategy
 
 | Layer | Backup mechanism |
 |---|---|
@@ -2092,7 +2498,7 @@ Procedure:
 | Trajectories | rsync workspace/trajectories/ |
 | MAP-Elites | rsync workspace/map_elites/ |
 
-### 19.8 Cleanup
+### 20.8 Cleanup
 
 ```bash
 # Test artefacts in island_evolution
@@ -2109,9 +2515,9 @@ find workspace/trajectories -type d -mtime +60 -name "20*" -exec rm -rf {} +
 
 ---
 
-## 20. Failure modes & recovery
+## 21. Failure modes & recovery
 
-### 20.1 ChromaDB corruption
+### 21.1 ChromaDB corruption
 
 Symptom: `chromadb` errors mentioning corruption or HNSW issues.
 
@@ -2123,7 +2529,7 @@ Recovery:
     * `self_knowledge`: `python -m app.self_knowledge_ingest`
     * `literature_inspiration`: `python -m app.fiction_library`
 
-### 20.2 Mem0 unreachable
+### 21.2 Mem0 unreachable
 
 Symptom: `mem0_manager.get_client()` returns None continuously.
 
@@ -2134,7 +2540,7 @@ Recovery:
 3.  System runs without persistent memory until restored — operational
     layers are unaffected.
 
-### 20.3 Ollama unreachable
+### 21.3 Ollama unreachable
 
 Symptom: `EmbeddingUnavailableError` on every write.
 
@@ -2144,7 +2550,7 @@ Recovery:
     `ollama pull nomic-embed-text`.
 3.  All vector stores resume on next read/write.
 
-### 20.4 Trajectory subsystem misbehaviour
+### 21.4 Trajectory subsystem misbehaviour
 
 Symptom: bad tips polluting retrieval, or attribution emitting
 incorrect verdicts.
@@ -2155,7 +2561,7 @@ Recovery:
 2.  Bulk-archive trajectory-sourced skills via the procedure in §19.6.
 3.  Investigate root cause via `replay(trajectory_id)` on suspect runs.
 
-### 20.5 Self-improver loop wedged
+### 21.5 Self-improver loop wedged
 
 Symptom: open gaps accumulating, no new skills.
 
@@ -2170,7 +2576,7 @@ Recovery:
 4.  If structural: `improvement-scan` should propose a fix; check
     `proposals/` for queued items.
 
-### 20.6 Wiki corruption
+### 21.6 Wiki corruption
 
 Symptom: links broken, frontmatter malformed.
 
@@ -2183,7 +2589,7 @@ Recovery:
 
 ---
 
-## 21. Configuration surfaces
+## 22. Configuration surfaces
 
 All in [`app/config.py`](../app/config.py):
 
@@ -2227,6 +2633,12 @@ attribution_enabled: bool = True
 tip_synthesis_enabled: bool = True
 task_conditional_retrieval_enabled: bool = True
 observer_calibration_enabled: bool = True
+
+# Transfer Insight Layer (Layer 12) — current operational state
+transfer_memory_shadow_logging_enabled : bool = True       # always-on shadow audit
+transfer_memory_retrieval_enabled      : bool = True       # production injection ON
+transfer_memory_auto_promote_enabled   : bool = True       # auto shadow→active
+transfer_memory_enabled_domains        : str  = "coding,grounding"
 ```
 
 Plus retrieval orchestrator config in
@@ -2246,7 +2658,7 @@ TIMEOUT_S: float = 8.0
 
 ---
 
-## 22. Glossary
+## 23. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -2265,6 +2677,11 @@ TIMEOUT_S: float = 8.0
 | **Evaluator** | Tracks SkillRecord usage; emits USAGE_DECAY gaps. |
 | **Consolidator** | Clusters near-duplicate SkillRecords for merging. |
 | **MAP-Elites** | Quality-diversity grid per role; preserves diverse strategies. |
+| **Transfer Insight Layer** | Layer 12: cross-domain meta-memory compiled from healing/evo/grounding/gap events; arXiv:2606.21099. |
+| **TransferEvent** | Write-time pointer queued by a producer (healing, evo, etc.) for nightly compilation. |
+| **TransferScope** | Promotion ladder: `shadow → project_local → same_domain_only → global_meta`. Sanitiser caps; demotion ladder lowers. |
+| **Sanitiser (transfer-memory)** | Three-tier hard-coded gate that prevents project facts from becoming global meta-memory. |
+| **Demotion blacklist** | `workspace/transfer_memory/demotion_blacklist.jsonl` — record ids the retriever filters out after attribution. |
 | **MCSV** | MetacognitiveStateVector — gates Observer activation. |
 | **Observer** | Pre-action failure-mode predictor. Infrastructure-level. |
 | **Attribution Analyzer** | Post-hoc twin of Observer. Identifies causal decisions. |

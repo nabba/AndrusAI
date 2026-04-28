@@ -26,7 +26,6 @@ IMMUTABLE — infrastructure-level module.
 from __future__ import annotations
 
 import logging
-import uuid
 from typing import Optional
 
 from app.trajectory.types import (
@@ -186,10 +185,13 @@ def build_draft(
 
     Returns None on any failure — the caller can skip the draft without
     raising.
+
+    Construction is delegated to the shared `construct_skill_draft` helper
+    so trajectory-tip and transfer-memory drafts share one schema, ID
+    format, and lazy novelty pre-check.
     """
     try:
-        from app.self_improvement.types import SkillDraft
-        from app.self_improvement.novelty import novelty_report
+        from app.self_improvement.types import construct_skill_draft
     except Exception:
         logger.debug("tip_builder.build_draft: imports failed", exc_info=True)
         return None
@@ -199,21 +201,10 @@ def build_draft(
         logger.debug(f"tip_builder: content too short ({len(content)} chars)")
         return None
 
-    # Topic-level + content-level novelty check happens in integrate(),
-    # but capture the distance here for provenance so the Evaluator has a
-    # per-draft score to correlate against.
-    novelty = 1.0
-    try:
-        rep = novelty_report(content)
-        novelty = float(rep.nearest_distance)
-    except Exception:
-        logger.debug("tip_builder: novelty check failed", exc_info=True)
-
     tip_type = (attribution.suggested_tip_type or "").lower()
     proposed_kb = _resolve_kb(tip_type)  # "" lets classify_kb LLM decide
 
-    draft = SkillDraft(
-        id=f"draft_traj_{uuid.uuid4().hex[:12]}",
+    return construct_skill_draft(
         topic=build_tip_topic(trajectory, attribution),
         rationale=(
             f"Trajectory-sourced tip from {trajectory.crew_name} run. "
@@ -222,14 +213,13 @@ def build_draft(
         ),
         content_markdown=content,
         proposed_kb=proposed_kb,
-        novelty_at_creation=novelty,
         created_from_gap=created_from_gap or "",
-        # Trajectory-specific provenance (Phase 0 fields)
+        id_prefix="traj",
         tip_type=tip_type,
         source_trajectory_id=trajectory.trajectory_id,
         agent_role=trajectory.crew_name or "",
+        source_kind="trajectory",
     )
-    return draft
 
 
 # ── CrewAI Task factory — for direct use by run_trajectory_tips ──────────

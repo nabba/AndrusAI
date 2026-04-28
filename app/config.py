@@ -342,6 +342,38 @@ class Settings(BaseSettings):
     task_conditional_retrieval_enabled: bool = True
     observer_calibration_enabled: bool = True
 
+    # ── Transfer Insight Layer (Phase 17, arXiv:2606.21099-style MTL) ──
+    # Cross-domain meta-memory compiled from healing/evo/grounding/gap.
+    # Drafts always land in shadow_drafts.jsonl + KBs at status="shadow".
+    #
+    #   transfer_memory_shadow_logging_enabled:
+    #       Log what WOULD be retrieved on each dispatch (without
+    #       injecting). Captures predicted-vs-actual usefulness data
+    #       for the operator to review before flipping retrieval on.
+    #   transfer_memory_retrieval_enabled:
+    #       Inject the <transfer_memory> block into the dispatch
+    #       prompt. Default OFF — flip to True only after shadow data
+    #       suggests positive transfer. Per-domain rollout via
+    #       ``transfer_memory_enabled_domains`` (comma-sep, "" = all).
+    #   transfer_memory_auto_promote_enabled:
+    #       Allow the promotion idle job to flip shadow records to
+    #       active automatically once they meet the effectiveness
+    #       threshold. Default OFF — promotion stays in operator hands
+    #       until measured data justifies automation.
+    transfer_memory_shadow_logging_enabled: bool = True
+    transfer_memory_retrieval_enabled: bool = True
+    # Auto-promote ON: the transfer-promotion idle job (≥6h cadence) will
+    # flip shadow records to active once they pass the deterministic
+    # eligibility check (age ≥7d + surface_count ≥3 + not blacklisted +
+    # zero negative-transfer log entries). Manual promotion via the
+    # dashboard endpoint still works for ad-hoc operator action.
+    transfer_memory_auto_promote_enabled: bool = True
+    # Phase 17c per-domain rollout — coding + grounding go live first
+    # (paper's strongest evidence + AndrusAI's grounding correction
+    # substrate). Empty string = all domains; widen by editing this
+    # value once the per-domain shadow data validates further rollout.
+    transfer_memory_enabled_domains: str = "coding,grounding"
+
     model_config = ConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("sandbox_memory_limit")

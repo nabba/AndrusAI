@@ -27,6 +27,7 @@ from app.agents.commander.context import (
     _load_global_workspace_broadcasts,
     _load_episteme_context, _load_experiential_context,
     _load_aesthetic_context, _load_tensions_context,
+    _load_narrative_self_context,
     _CONTEXT_BUDGET, _prune_context,
 )
 from app.agents.commander.execution import (
@@ -1002,6 +1003,7 @@ class Commander:
             f_experiential = _ctx_pool.submit(_load_experiential_context, crew_task)
             f_aesthetic = _ctx_pool.submit(_load_aesthetic_context, crew_task)
             f_tensions = _ctx_pool.submit(_load_tensions_context, crew_task)
+            f_narrative = _ctx_pool.submit(_load_narrative_self_context, crew_task)
             # Stage 4.1: true concurrent join with a single global deadline.
             # Previous version walked futures in order with per-future timeouts,
             # which compounded waits up to 8 s even though loaders ran in
@@ -1013,6 +1015,7 @@ class Commander:
                 (f_policies, "policies"), (f_world, "world"), (f_state, "state"),
                 (f_episteme, "episteme"), (f_experiential, "experiential"),
                 (f_aesthetic, "aesthetic"), (f_tensions, "tensions"),
+                (f_narrative, "narrative"),
             ]
             _parts: dict = {lbl: "" for _, lbl in _futs}
             _fut_to_lbl = {f: lbl for f, lbl in _futs}
@@ -1472,19 +1475,32 @@ class Commander:
         except Exception:
             logger.debug("Observer check failed (non-fatal)", exc_info=True)
 
-        # ── Task-conditional retrieval (arXiv:2603.10600) ──────────────────
+        # ── Task-conditional retrieval (arXiv:2603.10600 + Phase 17 MTL) ──
         # After the Observer fires we may have a predicted failure mode —
-        # use it (and the crew role) to pull targeted trajectory tips and
-        # prepend them to enriched_task. Flag-gated; no-op when off.
+        # use it (and the crew role) to pull targeted trajectory tips AND
+        # transfer-memory insights, prepending them to enriched_task.
+        # Flag-gated; no-op when off.
+        #
+        # The coordinator function composes both block types in a single
+        # call and runs transfer-memory shadow logging as a side effect.
+        # See app.trajectory.context_builder.compose_pre_dispatch_blocks.
         try:
             from app.config import get_settings as _gs
             if _gs().task_conditional_retrieval_enabled:
-                from app.trajectory.context_builder import compose_trajectory_hint_block
-                _hint = compose_trajectory_hint_block(
+                from app.trajectory.context_builder import compose_pre_dispatch_blocks
+                _active_project = None
+                try:
+                    from app.project_isolation import get_manager as _pm
+                    _ctx = _pm().active
+                    _active_project = _ctx.name if _ctx else None
+                except Exception:
+                    _active_project = None
+                _hint = compose_pre_dispatch_blocks(
                     crew_name=crew_name,
                     task_text=enriched_task,
                     predicted_failure_mode=(_observer_prediction.get(
                         "predicted_failure_mode", "") or ""),
+                    project_scope=_active_project,
                 )
                 if _hint:
                     enriched_task = _hint + "\n\n" + enriched_task
@@ -1682,10 +1698,12 @@ class Commander:
                 # Store 2: Cross-crew shared (read by _load_relevant_skills fallback + trigger_scanner)
                 store_team(reflection, {"role": crew_name, "type": "reflection"})
 
-                # Write experiential journal entry (Phase 3C).
+                # Narrative-Self Loop 2: synthesize an episode from any
+                # salience events accumulated during this task. No-op if the
+                # salience queue is empty (boring task → no narrative debt).
                 try:
-                    from app.experiential.journal_writer import JournalWriter
-                    JournalWriter().write_post_task_reflection(
+                    from app.affect.episodes import record_task_boundary
+                    record_task_boundary(
                         task_id=crew_name,
                         crew_name=crew_name,
                         result=str(result)[:500] if result else "",
@@ -1693,7 +1711,7 @@ class Commander:
                         duration_s=duration_s,
                     )
                 except Exception:
-                    pass  # Journal writing is best-effort.
+                    pass  # Episode synthesis is best-effort.
 
                 # Revise beliefs about crew performance (inter-agent awareness)
                 from app.memory.belief_state import revise_beliefs

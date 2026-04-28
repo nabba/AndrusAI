@@ -134,6 +134,11 @@ class SkillDraft:
     they carry through to `SkillRecord.provenance` so retrieval can filter
     on tip_type and the originating trajectory can be audited or bulk-
     archived if it turns out to have produced unreliable tips.
+
+    Transfer-memory fields (Phase 17, arXiv:2606.21099-style MTL) are
+    populated by `app.transfer_memory.compiler` for cross-domain "Insight"
+    memories compiled from healing/evo/grounding/gap sources. Empty for
+    trajectory tips and external-topic drafts.
     """
     id: str
     topic: str
@@ -148,6 +153,103 @@ class SkillDraft:
     tip_type: str = ""              # "strategy" | "recovery" | "optimization" | ""
     source_trajectory_id: str = ""  # UUID of the Trajectory this was distilled from
     agent_role: str = ""            # crew_name of the trajectory (for retrieval filter)
+    # ── Transfer-memory provenance (optional; empty for non-transfer drafts) ──
+    source_kind: str = ""           # "trajectory|healing|evo_success|evo_failure|grounding_correction|gap"
+    source_domain: str = ""         # "coding|ops|research|grounding|business|safety|evolution|healing"
+    transfer_scope: str = ""        # "shadow|project_local|same_domain_only|global_meta"
+    project_origin: str = ""        # project name when source was project-scoped
+    abstraction_score: float = 0.0  # 0..1, deterministic from transfer_memory.scorer
+    leakage_risk: float = 0.0       # 0..1, deterministic from transfer_memory.sanitizer
+    negative_transfer_tags: str = ""  # comma-sep tags, set post-hoc by attribution
+    evidence_refs: str = ""         # comma-sep refs, e.g. "traj:xyz#step7,evo:abc"
+
+
+def construct_skill_draft(
+    *,
+    topic: str,
+    rationale: str,
+    content_markdown: str,
+    proposed_kb: str | None = None,
+    created_from_gap: str = "",
+    supersedes: list[str] | None = None,
+    id_prefix: str = "",
+    # Trajectory-sourced provenance
+    tip_type: str = "",
+    source_trajectory_id: str = "",
+    agent_role: str = "",
+    # Transfer-memory provenance
+    source_kind: str = "",
+    source_domain: str = "",
+    transfer_scope: str = "",
+    project_origin: str = "",
+    abstraction_score: float = 0.0,
+    leakage_risk: float = 0.0,
+    negative_transfer_tags: str = "",
+    evidence_refs: str = "",
+    # Optional pre-computed novelty; if None the helper runs novelty_report.
+    novelty_at_creation: float | None = None,
+) -> "SkillDraft":
+    """Single source of truth for SkillDraft construction.
+
+    Both `app.trajectory.tip_builder.build_draft` and
+    `app.transfer_memory.compiler` route through this helper so the schema,
+    ID format, and lazy novelty pre-check stay in one place.
+
+    `id_prefix` distinguishes provenance at a glance:
+      "traj" → trajectory-sourced tip      (`draft_traj_<hex>`)
+      "xfer" → transfer-memory insight     (`draft_xfer_<hex>`)
+      ""     → external-topic draft        (`draft_<hex>`)
+
+    `proposed_kb` semantics:
+      None → omit from SkillDraft kwargs; the dataclass default
+             ("episteme") applies. Use this for flows that never pre-
+             classify and want the integrator's LLM classifier to decide.
+      ""   → explicit empty string. tip_builder passes this when the
+             tip_type is unknown so the integrator's classifier runs.
+      "experiential"|"episteme"|... → caller's pre-classification.
+
+    The novelty pre-check is best-effort — failures fall back to 1.0
+    (treated as fully novel) so a Chroma outage cannot block draft creation.
+    """
+    import uuid as _uuid
+
+    if novelty_at_creation is None:
+        novelty_at_creation = 1.0
+        try:
+            from app.self_improvement.novelty import novelty_report
+            rep = novelty_report(content_markdown)
+            novelty_at_creation = float(rep.nearest_distance)
+        except Exception:
+            pass
+
+    prefix = f"draft_{id_prefix}_" if id_prefix else "draft_"
+
+    kwargs: dict = {
+        "id": f"{prefix}{_uuid.uuid4().hex[:12]}",
+        "topic": topic,
+        "rationale": rationale,
+        "content_markdown": content_markdown,
+        "supersedes": list(supersedes or []),
+        "created_from_gap": created_from_gap,
+        "novelty_at_creation": float(novelty_at_creation),
+        "tip_type": tip_type,
+        "source_trajectory_id": source_trajectory_id,
+        "agent_role": agent_role,
+        "source_kind": source_kind,
+        "source_domain": source_domain,
+        "transfer_scope": transfer_scope,
+        "project_origin": project_origin,
+        "abstraction_score": float(abstraction_score),
+        "leakage_risk": float(leakage_risk),
+        "negative_transfer_tags": negative_transfer_tags,
+        "evidence_refs": evidence_refs,
+    }
+    # Only set proposed_kb when caller passes an explicit value (including
+    # ""). Passing None preserves the SkillDraft default ("episteme") for
+    # external-topic flows that never pre-classify.
+    if proposed_kb is not None:
+        kwargs["proposed_kb"] = proposed_kb
+    return SkillDraft(**kwargs)
 
 
 @dataclass
