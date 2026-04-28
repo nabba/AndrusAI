@@ -912,10 +912,19 @@ def _install_openai_credit_failover() -> None:
             # Only hijack credit-shaped errors. Everything else propagates.
             try:
                 from app.firebase.publish import detect_credit_error
-                if detect_credit_error(exc) is None:
+                provider = detect_credit_error(exc)
+                if provider is None:
                     raise
             except Exception:
                 raise
+            # Surface the alert so the dashboard's CreditAlertsPanel
+            # can show the user a "top up" button. Same call the litellm
+            # wrapper makes via _check_credit_error.
+            try:
+                _check_credit_error(exc, provider)
+            except Exception:
+                logger.debug("openai patch: credit alert reporting failed",
+                             exc_info=True)
             # Build a litellm-compatible kwargs dict and call into the
             # existing failover helper. The completion request from the
             # openai SDK looks like
@@ -948,10 +957,16 @@ def _install_openai_credit_failover() -> None:
         except Exception as exc:
             try:
                 from app.firebase.publish import detect_credit_error
-                if detect_credit_error(exc) is None:
+                provider = detect_credit_error(exc)
+                if provider is None:
                     raise
             except Exception:
                 raise
+            try:
+                _check_credit_error(exc, provider)
+            except Exception:
+                logger.debug("openai async patch: credit alert reporting failed",
+                             exc_info=True)
             model = kwargs.get("model", "")
             try:
                 import litellm

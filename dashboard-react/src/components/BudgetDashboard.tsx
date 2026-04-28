@@ -4,6 +4,7 @@ import type { Budget } from '../types';
 import { Skeleton } from './ui/Skeleton';
 import { ErrorPanel } from './ui/ErrorPanel';
 import { useBudgetsQuery, useOverrideBudget } from '../api/queries';
+import { CreditAlertsPanel } from './CreditAlertsPanel';
 
 function OverrideModal({
   budget,
@@ -116,6 +117,11 @@ export function BudgetDashboard() {
           {activeProject ? activeProject.name : 'All projects'}
         </p>
       </div>
+
+      {/* Credit-exhaustion alerts (renders nothing when no providers
+          are flagged). Sits at the top so depleted providers are
+          impossible to miss. */}
+      <CreditAlertsPanel />
 
       <div className="bg-[#111820] border border-[#1e2738] rounded-lg p-4">
         <div className="flex items-center justify-between mb-3">

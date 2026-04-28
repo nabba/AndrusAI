@@ -15,6 +15,8 @@ export const endpoints = {
   budgets: (projectId?: string) =>
     projectId ? `${CP}/budgets?project_id=${encodeURIComponent(projectId)}` : `${CP}/budgets`,
   budgetsOverride: () => `${CP}/budgets/override`,
+  creditAlerts: () => `${CP}/credit-alerts`,
+  creditAlertDismiss: () => `${CP}/credit-alerts/dismiss`,
   audit: (limit = 100, projectId?: string) =>
     projectId
       ? `${CP}/audit?limit=${limit}&project_id=${encodeURIComponent(projectId)}`
@@ -145,4 +147,27 @@ export const endpoints = {
   aestheticsUpload: () => `/aesthetics/upload`,
   tensionsStats: () => `/tensions/stats`,
   tensionsUpload: () => `/tensions/upload`,
+
+  // Affective layer (Phase 1 + Phase 2)
+  affectNow: () => `/affect/now`,
+  affectWelfareAudit: (limit = 100) => `/affect/welfare-audit?limit=${limit}`,
+  affectReferencePanel: () => `/affect/reference-panel`,
+  affectCalibration: () => `/affect/calibration`,
+  affectCalibrationHistory: (limit = 50) => `/affect/calibration-history?limit=${limit}`,
+  affectReflections: () => `/affect/reflections`,
+  affectReflectionByDate: (date: string) => `/affect/reflections/${encodeURIComponent(date)}`,
+  affectL9Snapshots: (days = 30) => `/affect/l9-snapshots?days=${days}`,
+  affectAttachments: () => `/affect/attachments`,
+  affectCheckInCandidates: (limit = 50) => `/affect/check-in-candidates?limit=${limit}`,
+  affectCareLedger: (limit = 100) => `/affect/care-ledger?limit=${limit}`,
+  affectEcological: () => `/affect/ecological`,
+  affectConsciousnessIndicators: () => `/affect/consciousness-indicators`,
+  affectPhase5Proposals: () => `/affect/phase5-proposals`,
+  affectPhase5ProposalReview: (featureName: string) =>
+    `/affect/phase5-proposals/${encodeURIComponent(featureName)}/review`,
+  affectTrace: (hours = 24, maxPoints = 200) =>
+    `/affect/trace?hours=${hours}&max_points=${maxPoints}`,
+  affectWelfareConfig: () => `/affect/welfare-config`,
+  affectSetpoints: () => `/affect/setpoints`,
+  affectOverrideReset: () => `/affect/override-reset`,
 } as const;
