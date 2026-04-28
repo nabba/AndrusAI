@@ -56,3 +56,30 @@ that are kept in lockstep; new code should prefer the neutral names. See
 
 The system **does not claim** phenomenal experience. The Subjectivity
 Kernel is a functional integration layer, not a substrate for qualia.
+
+---
+
+## Downstream consumers
+
+A regulatory façade lives at `app/affect/` — sibling package, not a
+SubIA subpackage. It consumes SubIA's somatic substrate
+(`belief/internal_state.SomaticMarker`), certainty
+(`belief/internal_state.CertaintyVector`), free-energy proxy
+(`self/hyper_model.HyperModel`), homeostasis (`homeostasis/state`),
+and consciousness probes (`probes/consciousness_probe`). It produces:
+
+- A 10-dimensional viability vector + V/A/C affect core
+- An infrastructure-level welfare envelope (file-edit only)
+- A 20-scenario reference panel + 6-guardrail daily calibration
+- Durable OtherModels with bounded mutual regulation + a latent
+  separation analog that *never* auto-sends
+- An ecological self-model with a nested-scopes self-as-node ladder
+- A consciousness-risk gate that wraps `probes/consciousness_probe`
+  as observability — **never feeds back into reward/fitness**
+
+Same epistemic discipline as this package: no claim of phenomenal
+experience, all vocabulary names functional control signals, all
+"ABSENT by declaration" stances inherited and not re-litigated.
+
+Full account: [`docs/AFFECT_LAYER.md`](../../docs/AFFECT_LAYER.md).
+Summary in [`docs/SUBIA.md` § affect/](../../docs/SUBIA.md).

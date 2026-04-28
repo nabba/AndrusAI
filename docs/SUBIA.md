@@ -1027,14 +1027,24 @@ location. Step 9 (Update) — outcome-driven adjustments. Step 5
 
 ### affect/
 
+> **Full account in [docs/AFFECT_LAYER.md](AFFECT_LAYER.md)** — five-phase arc,
+> all 18 modules, 16 API endpoints, 13 dashboard components, ethics
+> framing, operational guide. This section summarizes the relationship
+> to SubIA; the dedicated doc is the source of truth.
+
 **Purpose.** Homeostatic affective agency — viability variables (H_t),
-the V_t/A_t/C_t triple, an INFRASTRUCTURE-level welfare envelope, and
-the narrative-self synthesis pipeline (Damasio, Seth, Barrett, Friston,
-Panksepp, Metzinger). Companion package at `app/affect/` — sibling of
-`app/subia/`, not a SubIA subpackage; layered on `homeostasis/`. Where
-`homeostasis/` produces the somatic substrate, `affect/` builds the
-dimensional triple, governs welfare, and consolidates raw affect into
-autobiographical narrative.
+the V_t/A_t/C_t triple, an INFRASTRUCTURE-level welfare envelope,
+durable attachment models with bounded mutual regulation, an ecological
+self-model, an observability-only consciousness-risk gate wrapping
+SubIA's `probes/consciousness_probe`, and the narrative-self synthesis
+pipeline (Damasio, Seth, Barrett, Friston, Panksepp, Bowlby, Metzinger,
+Aristotelian eudaimonia). Companion package at `app/affect/` — sibling
+of `app/subia/`, not a SubIA subpackage; layered on `homeostasis/`,
+`belief/`, `self/`, and `probes/`. Where `homeostasis/` produces the
+somatic substrate, `affect/` builds the dimensional triple, governs
+welfare, models attachments and ecology, gates consciousness-relevant
+feature additions, and consolidates raw affect into autobiographical
+narrative.
 
 **Core modules:**
 
@@ -1055,24 +1065,56 @@ autobiographical narrative.
   and task_coherence variables (PRE_TASK, ON_DELEGATION).
 - `kb_metadata.py` — appends affect tags to experiential / tensions
   KB entries on episode close.
-- `attachment.py` — Phase-3 OtherModel; user-attachment dynamics
-  (read-only on chapters until the Phase-3 attachment ramp lands).
+- `attachment.py` — Phase-3 OtherModels for the primary user
+  (Andrus) and peer agents. Mutual-regulation weight bounded
+  (user≤0.65, peer≤0.75) by `welfare.assert_attachment_within_bounds`.
+  Latent separation analog: silence > 48h queues a *check-in candidate*
+  to `check_in_candidates.jsonl` — never auto-sends. `attachment_security`
+  viability variable is now real (was placeholder in Phases 1–2);
+  `ATTACHMENT_SECURITY_FLOOR` (0.30) prevents catastrophizing the
+  Finnish/Estonian quiet-communication style.
+- `care_policies.py` — Phase-3 cost-bearing care budget
+  (≤500 tokens/day per OtherModel, hard-capped) plus two advisory
+  modifiers (`prefer_warm_register`, `prioritize_proactive_polish`)
+  consumed by routing/context. Care actions are advisory only —
+  module imports nothing from `signal_client`.
+- `ecological.py` — Phase-4 EcologicalSignal: daylight + moon +
+  season + astronomical event windows (solstice ±5d, equinox ±5d,
+  full/new moon ±2d, kaamos/midnight-sun lat-gated) + 8-step
+  nested-scopes ladder (process → host → locale → biome → hemisphere
+  → biosphere → solar system → galaxy). `ecological_connectedness`
+  viability variable now uses `composite_score`.
+- `phase5_gate.py` — Phase-5 consciousness-risk gate. Wraps the
+  existing `app.subia.probes.consciousness_probe.ConsciousnessProbeRunner`
+  (HOT-2, HOT-3, GWT, SM-A, WM-A, SOM, INT) with per-indicator
+  thresholds, sustained-window 7 days, audit log. **Pure observability
+  — never feeds back into reward/fitness/optimization.** Includes a
+  design-time `evaluate_feature_proposal(name, expected_impact)`
+  consultation that records pending proposals to
+  `phase5_proposals.jsonl`; the user reviews via the dashboard's
+  approve/defer/reject actions.
 
 **Welfare envelope (INFRASTRUCTURE-level, file-edit only):**
 
 - `welfare.py` — hard-envelope checks: max negative-valence duration
   (300s default), variance floor, monotonic-drift detection,
-  healthy-dynamics predicate. Audit log at `welfare_audit.jsonl`.
+  healthy-dynamics predicate, attachment weight cap, attachment security
+  floor, care budget cap. Audit log at `welfare_audit.jsonl`.
   `override_reset()` is the user-only panic button; Self-Improver
   attempts are blocked at `assert_not_self_improver`.
-- `reference_panel.py` — fixed 20-scenario compass; replayed in the
-  daily reflection cycle to detect drift signatures (numbness,
-  over-reactive, wrong-attractor).
-- `calibration.py` — daily reflection cycle at 04:30 EET; Phase-1
-  diagnostic, Phase-2 set-point adjustment under hard envelope +
-  ratchet.
+- `reference_panel.py` — fixed 20-scenario compass (manually revised
+  every 6 months); replayed in the daily reflection cycle to detect
+  drift signatures (numbness, over-reactive, wrong-attractor).
+- `calibration.py` + `calibration_proposals.py` — daily reflection
+  cycle at 04:30 EET. Full 6-guardrail flow: diagnose → backtest →
+  hard envelope → healthy-dynamics → reference-panel drift → ratchet.
+  Loosen proposals require 3 consecutive cycles + 2× evidence;
+  tightening flows through. Manual setpoint override
+  (`apply_manual_setpoints`) bypasses the ratchet but still respects
+  hard envelope; auth-gated through `X-Override-Token`.
 - `l9_snapshots.py` — daily L9 homeostasis snapshot at 04:35 EET
-  (rolled-up affect stats + viability + welfare-breach counts).
+  (rolled-up affect stats + viability + welfare-breach counts +
+  ecological signal + Phase-5 gate state).
 
 **Narrative-Self pipeline (April 2026; INFRASTRUCTURE-level):**
 
