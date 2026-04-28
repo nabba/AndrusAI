@@ -3,6 +3,7 @@
 !.env.example
 workspace/memory/
 workspace/output/
+workspace/affect/
 workspace/skills/*.md
 !workspace/skills/learning_queue.md
 # Versioned prompt registry — tracked for version history and rollback
