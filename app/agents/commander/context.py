@@ -355,6 +355,50 @@ def _load_experiential_context(task: str, n: int = 3) -> str:
         return ""
 
 
+def _load_narrative_self_context(task: str, k: int = 2) -> str:
+    """Inject the system's autobiographical thread: active identity claims +
+    relevant chapters from the narrative-self pipeline (Loop 3).
+
+    Identity claims are short first-person statements summarizing who the
+    system has been across recent days; chapters are reflective daily
+    summaries of episodes. Both live in the experiential KB.
+    """
+    try:
+        from app.affect.narrative import identity_at
+        items = identity_at(query=task, k=k)
+        if not items:
+            return ""
+        blocks: list[str] = []
+        for item in items:
+            kind = item.get("kind")
+            if kind == "identity_claims":
+                claims = item.get("claims", [])
+                if claims:
+                    blocks.append(
+                        "Active identity claims (subject to revision):\n- "
+                        + "\n- ".join(claims)
+                    )
+            elif kind == "chapter":
+                meta = item.get("metadata", {})
+                date = (meta.get("created_at") or "")[:10]
+                attractors = meta.get("dominant_attractors", "")
+                text = (item.get("text") or "")[:500]
+                blocks.append(
+                    f"<chapter date=\"{date}\" attractors=\"{attractors}\">\n"
+                    f"{text}\n</chapter>"
+                )
+        if not blocks:
+            return ""
+        return (
+            "NARRATIVE-SELF CONTEXT (autobiographical thread; reference, not authority):\n\n"
+            + "\n\n".join(blocks)
+            + "\n\n"
+        )
+    except Exception:
+        logger.debug("narrative-self context load failed", exc_info=True)
+        return ""
+
+
 def _load_aesthetic_context(task: str, n: int = 2) -> str:
     """Retrieve quality patterns relevant to the current task."""
     try:
@@ -445,17 +489,48 @@ _CONTEXT_BUDGET = {
 }
 
 
+def _affect_budget_multiplier() -> float:
+    """Affect-aware adjustment to the context budget.
+
+    Phase 2: reads the latest AffectState. High arousal + low controllability
+    cuts budget by up to 25% (system is under pressure → less context, more
+    direct action). Low arousal + high controllability + low total error
+    expands budget by up to 15% (flow state → broad integration).
+
+    Returns 1.0 (no change) on any failure path so callers stay safe.
+    """
+    try:
+        from app.affect.core import latest_affect
+        from app.affect.viability import compute_viability_frame
+        s = latest_affect()
+        if s is None:
+            return 1.0
+        if s.arousal > 0.65 and s.controllability < 0.45:
+            return 0.75
+        f = compute_viability_frame()
+        if s.arousal < 0.35 and s.controllability > 0.65 and f.total_error < 0.15:
+            return 1.15
+        return 1.0
+    except Exception:
+        return 1.0
+
+
 def _prune_context(context: str, difficulty: int) -> str:
     """Compress injected context to fit within a token budget.
 
     Keeps the most relevant blocks (KB passages first, then skills, then
     team memory) and truncates each block proportionally.  This reduces
     per-agent latency by cutting input tokens without losing signal.
+
+    Phase 2: budget is multiplied by `_affect_budget_multiplier()` so the
+    same difficulty produces less context under pressure and more during
+    flow. Bounded ±25% so this never destabilizes the existing routing.
     """
     if not context:
         return ""
 
-    budget = _CONTEXT_BUDGET.get(difficulty, 2000)
+    base_budget = _CONTEXT_BUDGET.get(difficulty, 2000)
+    budget = int(base_budget * _affect_budget_multiplier())
     if len(context) <= budget:
         return context
 

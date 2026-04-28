@@ -406,6 +406,14 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.debug("Forge cron registration failed", exc_info=True)
 
+    # ── Affective layer: register POST_LLM_CALL/ON_COMPLETE hooks and
+    #     schedule the daily 04:30 Helsinki reflection cycle. ──
+    try:
+        from app.affect.hooks import install as install_affect_hooks
+        install_affect_hooks()
+    except Exception:
+        logger.debug("Affect layer install failed", exc_info=True)
+
     scheduler.start()
 
     # ── PARALLELIZED: cleanup + mode read are independent I/O operations ──
@@ -1721,6 +1729,14 @@ except Exception:
 # ── Health + Dashboard router (extracted to app/api/health.py) ─────────────────
 from app.api.health import router as health_router
 app.include_router(health_router)
+
+# ── Affective layer router (Phase 1: /affect/now, /welfare-audit,
+#     /reference-panel, /calibration, POST /override-reset) ─────────────
+try:
+    from app.affect.api import router as affect_router
+    app.include_router(affect_router)
+except Exception:
+    logger.debug("Affect API router registration failed", exc_info=True)
 
 # ── Workspace API (consciousness workspaces for React dashboard) ──────────────
 try:

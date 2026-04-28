@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: '/org-chart', label: 'Org Chart', icon: '🏢', exact: false },
   { to: '/costs', label: 'Costs', icon: '📈', exact: false },
   { to: '/workspaces', label: 'Workspaces', icon: '🧠', exact: false },
+  { to: '/affect', label: 'Affect', icon: '🌡️', exact: false },
   { to: '/evolution', label: 'Evolution', icon: '🧬', exact: false },
   { to: '/ops', label: 'Ops', icon: '🛠️', exact: false },
   { to: '/llms', label: 'LLMs', icon: '🤖', exact: false },

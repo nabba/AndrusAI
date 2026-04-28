@@ -45,9 +45,57 @@ def get_sampling_params(phase: Phase | None) -> dict[str, float] | None:
     return dict(_PHASE_PRESETS[phase])
 
 
+def _affect_modulation(
+    phase: Phase,
+    affect_state: dict | None,
+) -> tuple[float, float]:
+    """Per-phase multipliers for (temperature, top_p) given an affect snapshot.
+
+    Returns multiplicative factors clamped so output stays in sane bounds.
+    Affect-state shape: {"valence": -1..1, "arousal": 0..1, "controllability": 0..1}.
+    None or missing keys → (1.0, 1.0) (no modulation).
+
+    Maps Panksepp's primary affective systems onto creative phases:
+        diverge  ↔ SEEKING        — high arousal + positive valence widen exploration
+        discuss  ↔ social/CAUTION — threat (negative valence + arousal) tightens top_p
+        converge ↔ peace/coherence — high arousal cools T, low controllability tightens
+    """
+    if not affect_state:
+        return 1.0, 1.0
+
+    v = float(affect_state.get("valence", 0.0))
+    a = float(affect_state.get("arousal", 0.0))
+    c = float(affect_state.get("controllability", 0.5))
+
+    pos_v = max(0.0, v)
+    threat = max(0.0, -v) * a       # negative valence weighted by urgency
+
+    if phase == "diverge":
+        t_mult = (1.0 + 0.4 * a) * (1.0 + 0.3 * pos_v)
+        p_mult = 1.0
+    elif phase == "discuss":
+        t_mult = 1.0 - 0.3 * threat
+        # Low controllability → tighten top_p (less wandering when system feels
+        # out of control of the discussion).
+        p_mult = 1.0 - 0.15 * (1.0 - c)
+    elif phase == "converge":
+        # High arousal cools T further (push toward integration). Low controllability
+        # also tightens — converge phase wants stability when uncertain.
+        t_mult = (1.0 - 0.5 * a) * (1.0 - 0.2 * (1.0 - c))
+        p_mult = 1.0 - 0.10 * (1.0 - c)
+    else:
+        return 1.0, 1.0
+
+    # Clamp to safety bands so a malformed affect signal can't blow up sampling.
+    t_mult = max(0.5, min(1.6, t_mult))
+    p_mult = max(0.85, min(1.0, p_mult))
+    return t_mult, p_mult
+
+
 def build_llm_kwargs(
     phase: Phase | None,
     provider: str,
+    affect_state: dict | None = None,
 ) -> dict:
     """Translate a phase + provider into crewai.LLM constructor kwargs.
 
@@ -58,6 +106,9 @@ def build_llm_kwargs(
         phase: one of "diverge", "discuss", "converge", or None.
         provider: "anthropic" | "openrouter" | "ollama" | "local".
                   (Anything else is treated as openrouter-compatible.)
+        affect_state: optional snapshot {"valence","arousal","controllability"}.
+                  When provided and phase is not None, biases temperature/top_p
+                  per `_affect_modulation`. Default None preserves legacy behavior.
     """
     sampling = get_sampling_params(phase)
     if not sampling:
@@ -67,6 +118,11 @@ def build_llm_kwargs(
     top_p = sampling["top_p"]
     min_p = sampling["min_p"]
     presence_penalty = sampling["presence_penalty"]
+
+    if affect_state and phase is not None:
+        t_mult, p_mult = _affect_modulation(phase, affect_state)
+        temperature = round(temperature * t_mult, 4)
+        top_p = round(top_p * p_mult, 4)
 
     if provider == "anthropic":
         # Anthropic SDK supports temperature and top_p only.
