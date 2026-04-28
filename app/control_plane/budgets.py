@@ -204,24 +204,33 @@ def reconcile_actual_spend(
     every observed LLM call rolls up into the Postgres budgets table, not just
     the ones that went through the commander orchestrator's PRE_LLM_CALL hook.
 
-    Fire-and-forget. A missing budget row is auto-created with limit_usd=0 so
-    the UI still shows the accumulated spend; the user can set a real limit
-    later from the Budgets page.
+    Fire-and-forget. A missing budget row is auto-created with the
+    project-wide default limit (``settings.default_budget_per_agent_usd``,
+    50 USD) so the agent role isn't immediately paused. Previously this
+    initializer used limit_usd=0 — and since the enforcer correctly
+    interprets 0 as "no budget", the very first observed spend tripped
+    is_paused and locked the role out. Bug pinned 2026-04-28 when the
+    PIM crew couldn't read the user's email despite routing being right.
     """
     if not project_id or cost_usd <= 0:
         return
     role = agent_role or "unknown"
     period = _current_period()
     try:
+        from app.config import get_settings
+        default_limit = float(get_settings().default_budget_per_agent_usd)
+    except Exception:
+        default_limit = 50.0
+    try:
         execute(
             """INSERT INTO control_plane.budgets
                (project_id, agent_role, period, limit_usd, spent_usd, spent_tokens)
-               VALUES (%s, %s, %s, 0, %s, %s)
+               VALUES (%s, %s, %s, %s, %s, %s)
                ON CONFLICT (project_id, agent_role, period) DO UPDATE
                SET spent_usd = control_plane.budgets.spent_usd + EXCLUDED.spent_usd,
                    spent_tokens = control_plane.budgets.spent_tokens + EXCLUDED.spent_tokens,
                    updated_at = NOW()""",
-            (project_id, role, period, cost_usd, tokens),
+            (project_id, role, period, default_limit, cost_usd, tokens),
         )
     except Exception as exc:
         logger.debug(f"budgets reconcile failed (non-fatal): {exc}")
