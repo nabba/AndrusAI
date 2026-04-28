@@ -26,6 +26,47 @@ _INSTANT_REPLIES: dict[re.Pattern, str] = {
     re.compile(r"^status\s*[!.?]*$", re.IGNORECASE): None,  # None = fall through to crew
 }
 
+# ── PIM prefilter (2026-04-28) ────────────────────────────────────────────
+#
+# Bug pinned: "what are the most important emails i have received today"
+# was matching the generic "^what/who/when..." → research rule before
+# the PIM rule below (which only fires when the prompt starts with
+# check/read/send/reply/forward). The user got a "no access to email"
+# refusal because the research crew has no email tools.
+#
+# Fix: a HIGH-priority pre-rule that scans for email/calendar/inbox
+# nouns paired with a personal-mailbox qualifier (my, today, important,
+# urgent, top, unread, etc.). If both signal classes are present, the
+# question is unambiguously about the user's personal inbox / calendar
+# / tasks regardless of how it's phrased ("what are…", "rank…", "any…",
+# etc.). Routes to PIM, which has email_tools registered.
+#
+# Tighter than a bare keyword match — "research about email marketing
+# at companies X, Y, Z" stays research because it lacks a personal
+# qualifier.
+_PIM_NOUN_RE = re.compile(
+    r"\b(?:e-?mails?|inbox(?:es)?|mailbox(?:es)?|gmail|imap|"
+    r"calendar|appointments?|meetings?|events?|tasks?|todos?|to-?dos?)\b",
+    re.IGNORECASE,
+)
+_PIM_QUALIFIER_RE = re.compile(
+    r"\b(?:my|today|today's|yesterday|this\s+(?:morning|afternoon|evening|week|weekend|month)"
+    r"|over\s+(?:the\s+)?weekend|past\s+\d+|received|got|important|urgent|"
+    r"top(?:\s+\d+)?|new|unread|recent|latest|priorit(?:y|ize|ised|ized)|"
+    r"rank|attention|action|reply\s+to|respond\s+to|missed)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_pim_question(text: str) -> bool:
+    """True when the prompt is about the user's personal inbox/calendar/
+    tasks. Used as a high-priority routing filter so generic question-
+    word rules don't intercept email questions."""
+    if not text:
+        return False
+    return bool(_PIM_NOUN_RE.search(text) and _PIM_QUALIFIER_RE.search(text))
+
+
 _FAST_ROUTE_PATTERNS = [
     # Simple factual questions → research, difficulty 2
     (re.compile(
@@ -294,10 +335,24 @@ def maybe_promote_to_creative(decisions: list[dict]) -> list[dict]:
     Idempotent: already-creative decisions pass through. Mutates the input
     list in place (each dict's `crew` field) and returns it for chaining.
     """
+    # Phase 2: affect-aware promotion threshold. SEEKING-state (positive
+    # valence + high arousal) lowers the difficulty bar by 1 — the system is
+    # already in an exploration mode and minor creative tasks earn the full
+    # divergent pipeline.
+    affect_seeking = False
+    try:
+        from app.affect.core import latest_affect
+        s = latest_affect()
+        if s is not None and s.valence > 0.20 and s.arousal > 0.55:
+            affect_seeking = True
+    except Exception:
+        pass
+    threshold = _CREATIVE_PROMOTION_MIN_DIFFICULTY - (1 if affect_seeking else 0)
+
     for d in decisions:
         if d.get("crew") != "writing":
             continue
-        if int(d.get("difficulty", 0)) < _CREATIVE_PROMOTION_MIN_DIFFICULTY:
+        if int(d.get("difficulty", 0)) < threshold:
             continue
         task_text = str(d.get("task", ""))
         if not _CREATIVE_PROMOTION_PATTERNS.search(task_text):
@@ -305,9 +360,12 @@ def maybe_promote_to_creative(decisions: list[dict]) -> list[dict]:
         original_task = task_text[:80]
         d["crew"] = "creative"
         d["_auto_promoted"] = True
+        if affect_seeking:
+            d["_affect_seeking_promotion"] = True
         logger.info(
             f"creative auto-promote: writing → creative "
-            f"(difficulty={d['difficulty']}, task={original_task!r})"
+            f"(difficulty={d['difficulty']}, threshold={threshold}, "
+            f"seeking={affect_seeking}, task={original_task!r})"
         )
     return decisions
 
@@ -344,6 +402,18 @@ def _try_fast_route(user_input: str, has_attachments: bool) -> list[dict] | None
     # gate in handle(), but guard here too in case fast-route runs first.
     if _is_introspective(text):
         return None
+
+    # ── PIM short-circuit (2026-04-28) ─────────────────────────────────
+    # Personal-inbox / calendar / task questions take precedence over
+    # both the generic "what/who/where" research rule AND the follow-up
+    # detector. "what meetings do I have today" looks like a follow-up
+    # heuristically (short + question word) but is in fact a direct PIM
+    # ask. Without this guard, it falls through to the LLM router which
+    # has historically routed to the research crew (no email tools).
+    # See _looks_like_pim_question for the dual-signal heuristic.
+    if _looks_like_pim_question(text):
+        logger.info(f"fast_route: matched 'pim' d=3 (PIM short-circuit) for: {text[:80]}")
+        return [{"crew": "pim", "task": text, "difficulty": 3}]
 
     # Q8: Follow-up detection — short messages that likely reference prior
     # conversation context MUST go through the LLM router, which has access
