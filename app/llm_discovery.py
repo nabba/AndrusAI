@@ -353,17 +353,37 @@ def _discover_judges(
 ) -> tuple[tuple[str, str], ...]:
     """Pick the strongest catalog entries across distinct provider families.
 
-    Scans the live CATALOG, scores each entry by its ``reasoning`` strength
-    (the closest proxy to "good at judging another model's output"), and
-    returns one representative per provider family up to ``target_families``
-    in descending strength order.
+    Resolution order per family:
+      1. **Manual pin** in ``control_plane.judge_pins`` — operator
+         override; takes precedence regardless of strength.
+      2. **Dynamic** pick — highest-``reasoning``-strength catalog entry
+         in that family (the closest proxy to "good at judging another
+         model's output").
+
+    Scans the live CATALOG so a freshly-launched stronger model
+    (e.g. Opus 4.8, Gemini 4) automatically becomes the reference judge
+    the week after it lands — no hand-curated list to maintain.
 
     Falls back to whatever the bootstrap provides if the catalog hasn't
     been refreshed yet — survival mode still benchmarks, just with one
     judge instead of three.
     """
     from app.llm_catalog import CATALOG
-    # Rank every catalog entry by its judging-relevant strength.
+    # ── Pinned overrides ────────────────────────────────────────────
+    # A row in ``judge_pins`` forces a specific model for its family,
+    # regardless of intelligence ranking. Models that aren't in the
+    # live CATALOG are silently ignored (the dashboard write path
+    # validates this, but defensive read-side too).
+    pinned_by_family: dict[str, str] = {}
+    try:
+        from app.llm_judge_pins import list_pins as _list_judge_pins
+        for fam, model in _list_judge_pins().items():
+            if model in CATALOG:
+                pinned_by_family[fam] = model
+    except Exception:
+        pass  # graceful — falls through to dynamic-only behaviour
+
+    # ── Rank every catalog entry by judging-relevant strength ───────
     scored: list[tuple[str, str, float]] = []
     for name, entry in CATALOG.items():
         if entry.get("supports_tools") is False:
@@ -382,9 +402,21 @@ def _discover_judges(
         scored.append((name, _provider_family(entry.get("model_id", name)), s))
     scored.sort(key=lambda t: -t[2])
 
-    # One winner per family, up to target_families.
+    # One winner per family, up to target_families. Pinned families
+    # use their pin first; everything else uses the top dynamic pick.
     picks: list[tuple[str, str]] = []
     seen_families: set[str] = set()
+
+    # First pass: emit pinned families (preserves operator intent).
+    for fam, model in pinned_by_family.items():
+        if fam in seen_families:
+            continue
+        seen_families.add(fam)
+        picks.append((model, fam))
+        if len(picks) >= target_families:
+            return tuple(picks)
+
+    # Second pass: fill remaining slots dynamically.
     for name, family, _score in scored:
         if family in seen_families:
             continue
@@ -438,30 +470,181 @@ def _provider_family(model_id: str) -> str:
     return "unknown"
 
 
-def _build_judge_llm(catalog_key: str):
-    """Instantiate an LLM for the given catalog judge key. Returns None
-    on any failure (API key missing, key not in catalog, etc.).
+class _FallbackLLM:
+    """Wrap a primary judge LLM with one OpenRouter fallback.
+
+    Catches **specifically** the credit/auth/billing classes of error
+    (out-of-credits on the direct provider API) and retries through
+    OpenRouter, which proxies to multiple upstream providers and rarely
+    runs out of credits in lockstep with one specific vendor account.
+
+    Generic errors (timeout, rate limit, model_not_found) are NOT
+    swapped — those should surface so they're visible in the
+    benchmark / discovery logs, not silently get a different model.
+
+    The wrapper records which path executed in
+    ``self.last_used_fallback`` so the telemetry layer can flag panels
+    where the OpenRouter fallback fired.
     """
+
+    # Fragments that mean "the direct API ran out of money" — checked
+    # case-insensitively against the exception's stringified form.
+    _CREDIT_TOKENS = (
+        "credit", "billing", "insufficient", "quota exceeded",
+        "no credit", "out of credits", "402", "payment required",
+    )
+    _AUTH_TOKENS = ("401", "unauthorized", "authentication", "invalid api key")
+
+    def __init__(self, primary, fallback, name: str = "") -> None:
+        self._primary = primary
+        self._fallback = fallback
+        self._name = name
+        self.last_used_fallback: bool = False
+
+    def _should_fallback(self, exc: BaseException) -> bool:
+        if self._fallback is None:
+            return False
+        msg = str(exc).lower()
+        if any(tok in msg for tok in self._CREDIT_TOKENS):
+            return True
+        if any(tok in msg for tok in self._AUTH_TOKENS):
+            return True
+        # litellm BadRequestError on Anthropic with HTTP 402 surfaces
+        # as a status_code attribute on the exception:
+        code = getattr(exc, "status_code", None)
+        if code in (401, 402):
+            return True
+        return False
+
+    def call(self, *args, **kwargs):
+        try:
+            self.last_used_fallback = False
+            return self._primary.call(*args, **kwargs)
+        except BaseException as exc:
+            if self._should_fallback(exc):
+                logger.warning(
+                    "_FallbackLLM[%s]: primary failed (%s) — "
+                    "swapping to OpenRouter fallback",
+                    self._name, type(exc).__name__,
+                )
+                self.last_used_fallback = True
+                return self._fallback.call(*args, **kwargs)
+            raise
+
+    def __getattr__(self, name):
+        # Delegate everything else (.model, .provider, etc.) to the primary.
+        return getattr(self._primary, name)
+
+
+def _openrouter_equivalent_model_id(catalog_key: str, entry: dict | None) -> str | None:
+    """Best-effort lookup of an OpenRouter-routable model_id for ``catalog_key``.
+
+    Strategy:
+      1. If the entry already lives on OpenRouter, return its model_id
+         (no fallback needed — same provider).
+      2. If the catalog records ``openrouter_model_id`` (the builder
+         populates this when the same canonical key is published by both
+         AA and OpenRouter), return it.
+      3. Otherwise infer: many vendors publish ``vendor/model`` ids on
+         OpenRouter with the same shape (``anthropic/claude-opus-4-7``,
+         ``google/gemini-2.5-pro``, etc.). When the entry's model_id
+         already has a vendor prefix we accept it as a candidate; the
+         actual probe happens at call time and fails harmlessly through
+         the wrapper if the guess is wrong.
+
+    Returns ``None`` when no candidate is found.
+    """
+    if not entry:
+        return None
+    provider = entry.get("provider")
+    model_id = entry.get("model_id") or catalog_key
+    if provider == "openrouter":
+        return model_id
+    # Builder may populate this hint on dual-published entries.
+    or_hint = entry.get("openrouter_model_id")
+    if or_hint:
+        return or_hint
+    # Vendor-prefixed strings ("anthropic/claude-…") are usable by
+    # OpenRouter as-is. Bare names (e.g. "claude-sonnet-4-6") aren't.
+    if "/" in model_id:
+        return model_id
+    return None
+
+
+def _build_primary_llm(catalog_key: str, entry: dict):
+    """Build the direct-provider LLM for a judge key (no fallback)."""
+    from app.llm_factory import _cached_llm
+    from app.config import get_settings, get_anthropic_api_key
+    provider = entry.get("provider")
+    if provider == "anthropic":
+        key = get_anthropic_api_key()
+        if not key:
+            return None
+        return _cached_llm(entry["model_id"], max_tokens=256, api_key=key)
+    if provider == "openrouter":
+        or_key = get_settings().openrouter_api_key.get_secret_value()
+        if not or_key:
+            return None
+        return _cached_llm(
+            entry["model_id"], max_tokens=256,
+            base_url="https://openrouter.ai/api/v1", api_key=or_key,
+        )
+    if provider == "ollama":
+        # Local models are their own fallback — no OpenRouter route.
+        return _cached_llm(entry["model_id"], max_tokens=256)
+    return None
+
+
+def _build_openrouter_fallback(or_model_id: str):
+    """Build an OpenRouter LLM for the given model_id, or None on failure."""
     try:
         from app.llm_factory import _cached_llm
-        from app.config import get_settings, get_anthropic_api_key
+        from app.config import get_settings
+        or_key = get_settings().openrouter_api_key.get_secret_value()
+        if not or_key:
+            return None
+        return _cached_llm(
+            or_model_id, max_tokens=256,
+            base_url="https://openrouter.ai/api/v1", api_key=or_key,
+        )
+    except Exception:
+        return None
+
+
+def _build_judge_llm(catalog_key: str):
+    """Instantiate a judge LLM with OpenRouter credit fallback.
+
+    Behaviour:
+      * Build the primary LLM using whatever provider the catalog says
+        (typically the vendor's direct API).
+      * Look up an OpenRouter equivalent (when the entry isn't already
+        OpenRouter-routed); build a second LLM there.
+      * Wrap as ``_FallbackLLM(primary, openrouter)`` so a 402 / 401 /
+        billing / "out of credits" error on the primary auto-routes
+        through OpenRouter without losing the panel slot.
+
+    Returns ``None`` when neither path can be built (no API keys,
+    catalog key missing). All other errors are caught and produce
+    ``None`` so judge-panel construction never throws.
+    """
+    try:
         from app.llm_catalog import get_model
         entry = get_model(catalog_key)
         if not entry:
             return None
-        if entry["provider"] == "anthropic":
-            key = get_anthropic_api_key()
-            if not key:
-                return None
-            return _cached_llm(entry["model_id"], max_tokens=256, api_key=key)
-        if entry["provider"] == "openrouter":
-            or_key = get_settings().openrouter_api_key.get_secret_value()
-            if not or_key:
-                return None
-            return _cached_llm(
-                entry["model_id"], max_tokens=256,
-                base_url="https://openrouter.ai/api/v1", api_key=or_key,
-            )
+        primary = _build_primary_llm(catalog_key, entry)
+        if primary is None:
+            return None
+        # Local-tier judges don't need an OpenRouter fallback.
+        if entry.get("provider") == "openrouter" or entry.get("tier") == "local":
+            return primary
+        or_model_id = _openrouter_equivalent_model_id(catalog_key, entry)
+        if not or_model_id:
+            return primary  # no fallback available; use primary alone
+        fallback = _build_openrouter_fallback(or_model_id)
+        if fallback is None:
+            return primary
+        return _FallbackLLM(primary, fallback, name=catalog_key)
     except Exception:
         return None
     return None
@@ -764,6 +947,13 @@ def benchmark_model(
 
         import re
         task_scores: list[float] = []
+        # Telemetry: persist one row per (task × judge panel) so the
+        # dashboard can show inter-rater agreement + which panels hit
+        # the OpenRouter fallback (out-of-credits on the direct API).
+        try:
+            from app.llm_judge_telemetry import record_evaluation as _record_judge_eval
+        except Exception:
+            _record_judge_eval = None
         for task in tasks:
             try:
                 response = str(candidate_llm.call(task)).strip()
@@ -777,7 +967,9 @@ def benchmark_model(
                     f'Reply ONLY: {{"score": 0.X}}'
                 )
                 judge_scores: list[float] = []
-                for _, _, judge_llm in eligible:
+                judge_keys_used: list[str] = []
+                fallback_flags: list[bool] = []
+                for jkey, _fam, judge_llm in eligible:
                     try:
                         raw = str(judge_llm.call(judge_prompt)).strip()
                         match = re.search(r'"score"\s*:\s*([\d.]+)', raw)
@@ -785,11 +977,30 @@ def benchmark_model(
                             judge_scores.append(
                                 min(1.0, max(0.0, float(match.group(1)))),
                             )
+                            judge_keys_used.append(jkey)
+                            # ``last_used_fallback`` is only present on
+                            # the _FallbackLLM wrapper. For raw LLMs
+                            # default to False (no wrapper = direct call).
+                            fallback_flags.append(
+                                bool(getattr(judge_llm, "last_used_fallback", False)),
+                            )
                     except Exception:
                         continue
                 task_scores.append(
                     sum(judge_scores) / len(judge_scores) if judge_scores else 0.5,
                 )
+                if _record_judge_eval and judge_keys_used:
+                    try:
+                        _record_judge_eval(
+                            candidate_model=model_id,
+                            judges=judge_keys_used,
+                            scores=judge_scores,
+                            used_fallback=fallback_flags,
+                            rubric="benchmark:accuracy_completeness_clarity",
+                            task_description=task[:500],
+                        )
+                    except Exception:
+                        pass  # telemetry must never break the benchmark
             except Exception:
                 task_scores.append(0.0)
 

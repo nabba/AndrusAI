@@ -966,6 +966,106 @@ export function useUnpinRole() {
   });
 }
 
+// ── Cross-eval judges ───────────────────────────────────────────────────────
+
+export interface JudgeRotationEntry {
+  catalog_key: string;
+  provider_family: string;
+  tier?: string | null;
+  provider?: string | null;
+  reasoning_score?: number | null;
+  pinned: boolean;
+}
+
+export interface JudgePin {
+  provider_family: string;
+  model: string;
+  pinned_by: string;
+  reason?: string | null;
+  pinned_at: string;
+}
+
+export interface JudgeAgreement {
+  evaluations: number;
+  mean_std_dev: number | null;
+  high_disagreement: number;
+  fallback_fired: number;
+  panel_size_avg: number | null;
+}
+
+export interface JudgesReport {
+  rotation: JudgeRotationEntry[];
+  pins: JudgePin[];
+  agreement: JudgeAgreement;
+  updated_at: string;
+  error?: string | null;
+}
+
+export interface JudgeEvaluation {
+  id: number;
+  task_id?: string | null;
+  candidate_model: string;
+  judges: string[];
+  scores: (number | null)[];
+  used_fallback: boolean[];
+  mean_score: number | null;
+  std_dev: number | null;
+  rubric?: string | null;
+  task_description?: string | null;
+  created_at: string;
+}
+
+export interface JudgeEvaluationsReport {
+  evaluations: JudgeEvaluation[];
+  updated_at?: string;
+  error?: string | null;
+}
+
+export function useLlmJudgesQuery() {
+  return useQuery({
+    queryKey: ['llms', 'judges'],
+    queryFn: () => api<JudgesReport>(endpoints.llmJudges()),
+    refetchInterval: POLL.oneMin,
+  });
+}
+
+export function useLlmJudgeEvaluationsQuery(limit = 50, candidateModel?: string) {
+  return useQuery({
+    queryKey: ['llms', 'judge-evaluations', limit, candidateModel ?? ''],
+    queryFn: () =>
+      api<JudgeEvaluationsReport>(endpoints.llmJudgeEvaluations(limit, candidateModel)),
+    refetchInterval: POLL.oneMin,
+  });
+}
+
+export function usePinJudge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { provider_family: string; model: string; reason?: string }) =>
+      api<{ status: string }>(endpoints.llmJudgePin(), {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llms', 'judges'] });
+    },
+  });
+}
+
+export function useUnpinJudge() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { provider_family: string }) =>
+      api<{ status: string; removed: boolean }>(endpoints.llmJudgeUnpin(), {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llms', 'judges'] });
+    },
+  });
+}
+
 // ── Evolution variants / genealogy ──────────────────────────────────────────
 export interface Variant {
   id: string;

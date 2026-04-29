@@ -1384,6 +1384,23 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             logger.debug(f"idle_scheduler: span retention failed: {exc}")
     jobs.append(("spans-retention", _crew_task_spans_retention, JobWeight.LIGHT))
 
+    # ── Judge evaluations: 30-day retention sweep ────────────────────
+    # judge_evaluations grows by ~N rows per benchmark run (one per
+    # (task × candidate)). 30-day window keeps enough data for the
+    # dashboard's agreement trend without unbounded growth.
+    def _judge_evaluations_retention():
+        try:
+            from app.llm_judge_telemetry import purge_old_evaluations
+            removed = purge_old_evaluations(days=30)
+            if removed:
+                logger.info(
+                    f"idle_scheduler: purged {removed} judge_evaluations "
+                    f"older than 30 days"
+                )
+        except Exception as exc:
+            logger.debug(f"idle_scheduler: judge eval retention failed: {exc}")
+    jobs.append(("judge-eval-retention", _judge_evaluations_retention, JobWeight.LIGHT))
+
     # ── Crew-task spans: stale-running watchdog ───────────────────────
     # CrewAI's event bus sometimes doesn't fire the *Finished event when
     # a parent agent crashes — the tool's span is left in 'running'

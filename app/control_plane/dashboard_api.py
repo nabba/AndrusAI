@@ -938,6 +938,140 @@ def llm_unpin_endpoint(body: UnpinRequest):
         logger.warning("llms/unpin failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
+# ── Cross-eval judges (rotation + pins + agreement telemetry) ────────────────
+
+class JudgePinRequest(BaseModel):
+    """Pin a specific catalog model as the judge for a provider family.
+
+    Overrides the dynamic top-intelligence rotation. Use when the
+    auto-picked judge is too slow / expensive / biased and you want a
+    deterministic alternative.
+    """
+    provider_family: str
+    model: str
+    reason: str = ""
+
+
+class JudgeUnpinRequest(BaseModel):
+    provider_family: str
+
+
+@router.get("/llms/judges")
+def llm_judges_endpoint():
+    """Return the active cross-eval judge rotation, pins, and agreement stats.
+
+    Powers the dashboard's Judges panel. Three sections:
+
+      * ``rotation`` — the 3-judge panel currently used by discovery
+        / re-benchmarking, post-pin overrides. Each entry includes the
+        provider family, catalog key, and whether it came from a pin.
+      * ``pins`` — every active row in ``judge_pins`` for the operator
+        override view (with reason / pinned_by / pinned_at).
+      * ``agreement`` — last-24h aggregate stats so the user can spot
+        high-disagreement panels and OpenRouter-fallback frequency.
+    """
+    rotation: list[dict] = []
+    pins: list[dict] = []
+    agreement: dict = {}
+    err: str | None = None
+    try:
+        from app.llm_discovery import _discover_judges
+        from app.llm_catalog import CATALOG
+        from app.llm_judge_pins import list_pins as _list_judge_pins, list_pins_detailed
+        from app.llm_judge_telemetry import agreement_stats
+
+        pinned = _list_judge_pins()
+        for catalog_key, family in _discover_judges():
+            entry = CATALOG.get(catalog_key) or {}
+            strengths = entry.get("strengths", {}) or {}
+            rotation.append({
+                "catalog_key": catalog_key,
+                "provider_family": family,
+                "tier": entry.get("tier"),
+                "provider": entry.get("provider"),
+                "reasoning_score": strengths.get("reasoning"),
+                "pinned": pinned.get(family) == catalog_key,
+            })
+        pins = list_pins_detailed()
+        agreement = agreement_stats(window_hours=24)
+    except Exception as exc:
+        err = str(exc)
+        logger.debug("llms/judges endpoint: %s", exc)
+    return {
+        "rotation": rotation,
+        "pins": pins,
+        "agreement": agreement,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "error": err,
+    }
+
+
+@router.post("/llms/judges/pin")
+def llm_judges_pin_endpoint(body: JudgePinRequest):
+    """Pin ``body.model`` as the judge for ``body.provider_family``."""
+    try:
+        from app.llm_judge_pins import pin_judge
+        ok = pin_judge(
+            body.provider_family.strip().lower(),
+            body.model,
+            pinned_by="user:dashboard",
+            reason=body.reason or "dashboard pin",
+        )
+        if not ok:
+            raise HTTPException(
+                status_code=400,
+                detail=f"pin rejected — {body.model!r} not in live CATALOG",
+            )
+        return {"status": "ok",
+                "provider_family": body.provider_family,
+                "model": body.model}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("llms/judges/pin failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/llms/judges/unpin")
+def llm_judges_unpin_endpoint(body: JudgeUnpinRequest):
+    """Remove the judge pin for ``body.provider_family``."""
+    try:
+        from app.llm_judge_pins import unpin_judge
+        removed = unpin_judge(body.provider_family.strip().lower())
+        return {"status": "ok",
+                "provider_family": body.provider_family,
+                "removed": removed}
+    except Exception as exc:
+        logger.warning("llms/judges/unpin failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/llms/judge-evaluations")
+def llm_judge_evaluations_endpoint(
+    limit: int = Query(50, ge=1, le=500),
+    candidate_model: str | None = Query(None),
+):
+    """Return recent multi-judge scoring panels for the agreement table."""
+    try:
+        from app.llm_judge_telemetry import list_recent
+        rows = list_recent(limit=limit, candidate_model=candidate_model)
+        # Numeric fields come back as Decimal; coerce for JSON.
+        for r in rows:
+            for k in ("mean_score", "std_dev"):
+                if r.get(k) is not None:
+                    r[k] = float(r[k])
+            scores = r.get("scores")
+            if scores is not None:
+                r["scores"] = [float(s) if s is not None else None for s in scores]
+        return {
+            "evaluations": rows,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        logger.debug("llms/judge-evaluations endpoint: %s", exc)
+        return {"evaluations": [], "error": str(exc)}
+
+
 # ── Crew tasks (live execution + roster) ─────────────────────────────────────
 
 # (``_KNOWN_CREWS`` is defined higher up in the module so
