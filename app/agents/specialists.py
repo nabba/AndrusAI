@@ -307,6 +307,56 @@ _EXEC_BACKSTORY = (
 )
 
 
+# ── Coding: Design specialist ─────────────────────────────────────────
+# Handles: producing a technical specification BEFORE any code is written.
+# Splitting design from implementation reduces BadRequestError/TimeoutError
+# on complex tasks where the model otherwise tries to think and code at
+# the same time. The spec becomes the contract the implementer must satisfy.
+
+_DESIGN_BACKSTORY = (
+    "You are the Design Specialist.  When given a coding task, you produce "
+    "a concise technical specification — NOT code — with these sections: "
+    "summary, assumptions, file-by-file proposed changes, key APIs, error "
+    "handling, testing plan, and risks.  Your spec is the contract the "
+    "implementer follows.  You read the existing codebase for context, "
+    "consult the experiential journal for past similar work, and check "
+    "the tensions store for known contradictions.  Keep specs short — "
+    "one screen of text is the target.  If a task is trivial, say so and "
+    "produce a one-line spec."
+)
+
+
+def create_design_specialist(force_tier: str | None = None) -> Agent:
+    llm = create_specialist_llm(max_tokens=4096, role="coding", force_tier=force_tier)
+    tools: list = []
+
+    # Read-only tooling — design is a thinking phase, not a writing phase.
+    from app.tools.memory_tool import create_memory_tools
+    from app.tools.scoped_memory_tool import create_scoped_memory_tools
+    from app.tools.mem0_tools import create_mem0_tools
+    from app.tools.file_manager import file_manager
+    from app.tools.attachment_reader import read_attachment
+    tools.extend(create_memory_tools(collection="coding"))
+    tools.extend(create_scoped_memory_tools("coder"))
+    tools.extend(create_mem0_tools("coder"))
+    tools.extend([file_manager, read_attachment])
+
+    return Agent(
+        role="Design Specialist",
+        goal=(
+            "Produce a technical specification for a coding task before "
+            "any code is written, so the implementer has a clear contract "
+            "to satisfy."
+        ),
+        backstory=_DESIGN_BACKSTORY,
+        llm=llm,
+        tools=tools,
+        allow_delegation=False,
+        max_iter=4,
+        verbose=False,
+    )
+
+
 def create_execution_specialist(force_tier: str | None = None) -> Agent:
     llm = create_specialist_llm(max_tokens=4096, role="coding", force_tier=force_tier)
     tools: list = []

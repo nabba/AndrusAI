@@ -259,6 +259,41 @@ def get_pending_requests() -> list[dict]:
     return [e for e in _load_queue() if e.get("decision") == "pending"]
 
 
+def find_request_by_signal_timestamp(signal_ts: int) -> str | None:
+    """Look up the pending request whose Signal notification has this timestamp.
+
+    Used by the gateway reaction handler so 👍 / 👎 reactions on a borderline
+    notification can be routed back to approve_request / reject_request.
+    Mirrors proposals.find_proposal_by_signal_timestamp.
+
+    Returns the request_id if matched, else None.
+    """
+    if not signal_ts:
+        return None
+    for entry in _load_queue():
+        if entry.get("decision") != "pending":
+            continue
+        if entry.get("signal_timestamp") == signal_ts:
+            return entry.get("request_id")
+    return None
+
+
+def _set_signal_timestamp(request_id: str, signal_ts: int) -> None:
+    """Record the Signal notification timestamp for a pending request.
+
+    Called immediately after the notification is sent so a later reaction
+    can be correlated back to this request_id. Best-effort — never raises.
+    """
+    if not signal_ts:
+        return
+    queue = _load_queue()
+    for entry in queue:
+        if entry.get("request_id") == request_id:
+            entry["signal_timestamp"] = signal_ts
+            _save_queue(queue)
+            return
+
+
 def expire_stale_requests() -> int:
     """Auto-reject pending requests older than _AUTO_REJECT_AFTER_HOURS.
 
@@ -297,9 +332,14 @@ def expire_stale_requests() -> int:
 # ── Notification ─────────────────────────────────────────────────────────────
 
 def _send_approval_notification(request: ApprovalRequest) -> None:
-    """Send Signal message to owner with diff summary. Best-effort."""
+    """Send Signal message to owner with diff summary. Best-effort.
+
+    Uses send_message_blocking so we capture the message timestamp and
+    can correlate later 👍 / 👎 reactions back to this request. The
+    timestamp is persisted on the queue entry via _set_signal_timestamp.
+    """
     try:
-        from app.signal_client import send_message
+        from app.signal_client import send_message_blocking
         from app.config import get_settings
 
         files_summary = "\n".join(
@@ -314,8 +354,11 @@ def _send_approval_notification(request: ApprovalRequest) -> None:
             f"Why borderline: {request.confidence_reason}\n\n"
             f"Hypothesis:\n{request.hypothesis[:200]}\n\n"
             f"Files:\n{files_summary}\n\n"
-            f"Reply with: approve {request.request_id} OR reject {request.request_id}"
+            f"React 👍 to approve or 👎 to reject, or reply "
+            f"'approve {request.request_id}' / 'reject {request.request_id}'."
         )
-        send_message(get_settings().signal_owner_number, msg)
+        signal_ts = send_message_blocking(get_settings().signal_owner_number, msg)
+        if signal_ts:
+            _set_signal_timestamp(request.request_id, signal_ts)
     except Exception as e:
         logger.debug(f"human_gate: notification send failed: {e}")

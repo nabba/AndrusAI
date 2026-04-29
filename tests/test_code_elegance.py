@@ -385,9 +385,12 @@ class TestArchitecturalReview:
         capability_map = {
             "evolution": ["app/evolution.py", "app/avo_operator.py", "app/island_evolution.py"],
         }
-        overlaps = _detect_overlaps(files_after, capability_map)
+        # existing_files marks the proposed file as new — pivots is_new_file=True
+        existing_files = {"app/evolution.py", "app/avo_operator.py", "app/island_evolution.py"}
+        overlaps = _detect_overlaps(files_after, capability_map, existing_files)
         assert len(overlaps) == 1
         assert overlaps[0].capability == "evolution"
+        assert overlaps[0].is_new_file is True
 
     def test_review_summary_includes_findings(self):
         from app.architectural_review import (

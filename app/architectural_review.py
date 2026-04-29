@@ -34,8 +34,18 @@ logger = logging.getLogger(__name__)
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-CENTRALITY_SPIKE_THRESHOLD = 5  # New dependents above this → warn
-CAPABILITY_OVERLAP_THRESHOLD = 2  # Existing files with same capability → warn
+CENTRALITY_SPIKE_THRESHOLD = 5      # Existing dependents above this → warn
+CAPABILITY_OVERLAP_THRESHOLD = 2    # Existing files with same capability → warn
+NEW_FILE_OVERLAP_HARD_THRESHOLD = 3  # New file claiming capability with ≥N owners → HARD reject
+
+# Basenames that legitimately repeat across packages and shouldn't trigger
+# the path-duplication hard reject. Anything else is treated as a strong
+# parallel-implementation signal.
+_DUPLICATION_EXEMPT_BASENAMES: frozenset[str] = frozenset({
+    "__init__", "__main__", "test", "tests", "conftest",
+    "utils", "helpers", "config", "constants", "types",
+    "models", "schema", "schemas",
+})
 
 
 # ── Data structures ──────────────────────────────────────────────────────────
@@ -52,6 +62,7 @@ class OverlapFinding:
     filepath: str
     capability: str
     existing_owners: tuple[str, ...]
+    is_new_file: bool = False  # True when the proposing file did not exist before
 
 
 @dataclass(frozen=True)
@@ -63,25 +74,64 @@ class CentralityFinding:
 
 
 @dataclass(frozen=True)
+class PathDuplicationFinding:
+    """A new file whose basename matches an existing directory or sibling.
+
+    The classic parallel-implementation smell: proposing app/orch/commander.py
+    when app/agents/commander/ is already a package, or app/agents/coding.py
+    when app/crews/coding_crew.py already exists. Always a HARD reject.
+    """
+    new_file: str
+    existing_path: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class ReviewReport:
     """Aggregate output of an architectural review."""
     cycles: tuple[CycleFinding, ...] = ()
     overlaps: tuple[OverlapFinding, ...] = ()
     centrality_spikes: tuple[CentralityFinding, ...] = ()
+    path_duplications: tuple[PathDuplicationFinding, ...] = ()
+
+    @property
+    def hard_overlaps(self) -> tuple[OverlapFinding, ...]:
+        """Overlaps that are severe enough to be hard rejects.
+
+        A NEW file claiming a capability that's already provided by
+        ≥NEW_FILE_OVERLAP_HARD_THRESHOLD existing files is treated as
+        parallel implementation — almost certainly a duplication smell.
+        """
+        return tuple(
+            o for o in self.overlaps
+            if o.is_new_file and len(o.existing_owners) >= NEW_FILE_OVERLAP_HARD_THRESHOLD
+        )
 
     @property
     def has_hard_rejects(self) -> bool:
-        """Cycles are hard rejects — they break Python imports."""
-        return len(self.cycles) > 0
+        """Cycles, path duplications, and severe new-file overlaps are hard rejects.
+
+        - Cycles break Python imports outright
+        - Path duplications introduce parallel modules (the audit-driven
+          smell we missed in exp_202604290007_1172)
+        - New files claiming heavily-shared capabilities almost always
+          duplicate rather than extend
+        """
+        return (
+            len(self.cycles) > 0
+            or len(self.path_duplications) > 0
+            or len(self.hard_overlaps) > 0
+        )
 
     @property
     def has_soft_warnings(self) -> bool:
-        """Overlaps and centrality spikes are advisory."""
-        return len(self.overlaps) > 0 or len(self.centrality_spikes) > 0
+        """Non-hard overlaps and centrality spikes are advisory only."""
+        non_hard_overlaps = [o for o in self.overlaps if o not in self.hard_overlaps]
+        return len(non_hard_overlaps) > 0 or len(self.centrality_spikes) > 0
 
     def summary(self) -> str:
         """Human-readable summary for the critique LLM and logs."""
-        if not (self.cycles or self.overlaps or self.centrality_spikes):
+        if not (self.cycles or self.overlaps or self.centrality_spikes or self.path_duplications):
             return "No architectural concerns"
 
         parts = []
@@ -89,6 +139,14 @@ class ReviewReport:
             parts.append(
                 f"{len(self.cycles)} cycle(s) introduced: "
                 + "; ".join(" → ".join(c.cycle) for c in self.cycles[:3])
+            )
+        if self.path_duplications:
+            parts.append(
+                f"{len(self.path_duplications)} path duplication(s): "
+                + "; ".join(
+                    f"{d.new_file} duplicates {d.existing_path} ({d.reason})"
+                    for d in self.path_duplications[:3]
+                )
             )
         if self.overlaps:
             parts.append(
@@ -187,11 +245,18 @@ def _detect_cycles(
 def _detect_overlaps(
     files_after: dict[str, str],
     capability_map: dict[str, list[str]],
+    existing_files: set[str],
 ) -> list[OverlapFinding]:
-    """Detect new files that claim capabilities already provided by ≥N others.
+    """Detect files that claim capabilities already provided by ≥N others.
 
-    Uses the same regex-based capability detection as self_model — duplicating
-    here keeps this module standalone when self_model is unavailable.
+    Marks each finding with `is_new_file=True` when the file did not exist
+    before this mutation — this distinction matters because a NEW file
+    claiming a heavily-shared capability is almost always a parallel
+    implementation, while modifying an EXISTING file with new capability
+    tags is just normal evolution.
+
+    Uses the same regex-based capability detection as self_model — duplicated
+    here so this module stays standalone when self_model is unavailable.
     """
     try:
         from app.self_model import _extract_capabilities
@@ -200,8 +265,8 @@ def _detect_overlaps(
 
     overlaps: list[OverlapFinding] = []
     for path, source in files_after.items():
-        # Skip files that already exist in the capability map (they're not new claims)
         new_caps = _extract_capabilities(source)
+        is_new = path not in existing_files
         for cap in new_caps:
             existing = [f for f in capability_map.get(cap, []) if f != path]
             if len(existing) >= CAPABILITY_OVERLAP_THRESHOLD:
@@ -209,8 +274,85 @@ def _detect_overlaps(
                     filepath=path,
                     capability=cap,
                     existing_owners=tuple(existing[:5]),
+                    is_new_file=is_new,
                 ))
     return overlaps
+
+
+# ── Path duplication detection ──────────────────────────────────────────────
+
+def _detect_path_duplications(
+    files_after: dict[str, str],
+    existing_paths: set[str],
+) -> list[PathDuplicationFinding]:
+    """Detect new files whose basename collides with an existing module or directory.
+
+    Catches the parallel-implementation smell exemplified by
+    exp_202604290007_1172, which proposed creating ``app/orch/commander.py``
+    when ``app/agents/commander/`` already existed as a package.
+
+    Two collision patterns are flagged:
+
+      1. New file basename matches an existing directory in the codebase
+         (e.g. ``app/orch/commander.py`` while ``app/agents/commander/``
+         is a package directory).
+      2. New file basename matches another module's basename in a different
+         package (e.g. ``app/agents/coding.py`` while ``app/crews/coding.py``
+         already exists).
+
+    Common utility names (``utils``, ``helpers``, ``__init__``, etc.) are
+    exempted since they legitimately repeat across packages.
+    """
+    from pathlib import Path as _Path
+
+    findings: list[PathDuplicationFinding] = []
+
+    # Index existing structure
+    existing_directories: set[str] = set()
+    existing_basenames: dict[str, str] = {}  # basename → first path
+    for ep in existing_paths:
+        parts = ep.split("/")
+        # Each non-leaf segment is a directory in the codebase
+        for segment in parts[:-1]:
+            existing_directories.add(segment)
+        if ep.endswith(".py"):
+            stem = _Path(ep).stem
+            existing_basenames.setdefault(stem, ep)
+
+    for path in files_after:
+        if not path.endswith(".py"):
+            continue
+        if path in existing_paths:
+            continue  # Existing file being modified, not a new one
+
+        stem = _Path(path).stem
+        if stem in _DUPLICATION_EXEMPT_BASENAMES:
+            continue
+
+        # Pattern 1: basename matches an existing directory
+        if stem in existing_directories:
+            findings.append(PathDuplicationFinding(
+                new_file=path,
+                existing_path=f"{stem}/",
+                reason=(
+                    f"basename '{stem}' is an existing package directory "
+                    f"— refactor that package instead of creating a parallel module"
+                ),
+            ))
+            continue
+
+        # Pattern 2: basename matches another module's basename
+        if stem in existing_basenames:
+            findings.append(PathDuplicationFinding(
+                new_file=path,
+                existing_path=existing_basenames[stem],
+                reason=(
+                    f"basename '{stem}' already used by {existing_basenames[stem]} "
+                    f"— refactor or rename to avoid parallel implementations"
+                ),
+            ))
+
+    return findings
 
 
 # ── Centrality spike detection ──────────────────────────────────────────────
@@ -276,14 +418,18 @@ def review_mutation(files_after: dict[str, str]) -> ReviewReport:
     for path, node in model.modules.items():
         forward_graph[path] = [_dotted_to_relative(imp) for imp in node.imports]
 
+    existing_files: set[str] = set(model.modules.keys())
+
     cycles = _detect_cycles(py_files, forward_graph)
-    overlaps = _detect_overlaps(py_files, model.capability_map)
+    overlaps = _detect_overlaps(py_files, model.capability_map, existing_files)
     spikes = _detect_centrality_spikes(py_files, model.dependency_graph)
+    path_dupes = _detect_path_duplications(py_files, existing_files)
 
     report = ReviewReport(
         cycles=tuple(cycles),
         overlaps=tuple(overlaps),
         centrality_spikes=tuple(spikes),
+        path_duplications=tuple(path_dupes),
     )
 
     if report.has_hard_rejects or report.has_soft_warnings:

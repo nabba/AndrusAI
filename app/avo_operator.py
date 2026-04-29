@@ -156,6 +156,36 @@ def _phase_planning(
     except Exception as exc:
         logger.debug(f"AVO Phase 1: pattern library lookup failed: {exc}")
 
+    # Inject existing capability owners so the planner knows what already
+    # exists and can choose to refactor rather than create parallel modules.
+    # This closes the gap exposed by exp_202604290007_1172, which proposed
+    # app/orch/commander.py despite app/agents/commander/ already existing.
+    try:
+        from app.self_model import get_self_model
+        model = get_self_model()
+        cap_lines: list[str] = []
+        # Only show non-trivial capabilities — at most 6, with up to 4 owners each
+        for cap, owners in sorted(model.capability_map.items()):
+            if len(owners) < 2:
+                continue
+            cap_lines.append(
+                f"  - **{cap}**: {', '.join(owners[:4])}"
+                + (f" (+{len(owners) - 4} more)" if len(owners) > 4 else "")
+            )
+            if len(cap_lines) >= 6:
+                break
+        if cap_lines:
+            prompt += (
+                "\n## Existing capability owners\n"
+                "These capabilities are already provided by the listed files. "
+                "Prefer refactoring an existing owner over creating a parallel "
+                "module that duplicates the capability:\n"
+                + "\n".join(cap_lines)
+                + "\n"
+            )
+    except Exception as exc:
+        logger.debug(f"AVO Phase 1: capability map injection failed: {exc}")
+
     try:
         raw = str(llm.call(prompt)).strip()
     except Exception as e:

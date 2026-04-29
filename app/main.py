@@ -964,6 +964,50 @@ async def receive_signal(request: Request):
                     return {"status": "accepted", "proposal_action": action_name, "pid": pid}
             except Exception:
                 logger.debug("Reaction-based proposal handling failed", exc_info=True)
+                # Fall through to human_gate / feedback pipeline below
+
+        # ── Human-gate borderline-mutation approval via reaction ───────
+        # Same pattern as proposals: 👍 routes to human_gate.approve_request,
+        # 👎 to reject_request. Mirrors the message text "React 👍 to approve
+        # or 👎 to reject" produced by human_gate._send_approval_notification.
+        if target_ts and not is_remove and emoji in ("👍", "👎", "+1", "-1"):
+            try:
+                from app.human_gate import (
+                    find_request_by_signal_timestamp,
+                    approve_request, reject_request,
+                )
+                request_id = find_request_by_signal_timestamp(target_ts)
+                if request_id is not None:
+                    is_approve = emoji in ("👍", "+1")
+                    if is_approve:
+                        ok = await asyncio.get_running_loop().run_in_executor(
+                            None, approve_request, request_id, sender,
+                        )
+                        action_name = "approved"
+                    else:
+                        ok = await asyncio.get_running_loop().run_in_executor(
+                            None, reject_request, request_id, sender, "rejected via 👎",
+                        )
+                        action_name = "rejected"
+
+                    logger.info(
+                        f"Reaction {emoji} on human_gate {request_id} → {action_name} (ok={ok})"
+                    )
+                    try:
+                        client = SignalClient()
+                        await client.send(
+                            sender,
+                            f"✅ Mutation {action_name} via reaction.\nID: {request_id}",
+                        )
+                    except Exception:
+                        logger.debug("Failed to send human_gate ack", exc_info=True)
+                    return {
+                        "status": "accepted",
+                        "human_gate_action": action_name,
+                        "request_id": request_id,
+                    }
+            except Exception:
+                logger.debug("Reaction-based human_gate handling failed", exc_info=True)
                 # Fall through to normal feedback pipeline below
 
         try:
