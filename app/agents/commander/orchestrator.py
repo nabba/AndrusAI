@@ -3107,6 +3107,47 @@ class Commander:
                     )
                     final_result = _pre_critic_result
 
+            # ── Capability Recovery Loop (2026-04-28) ──────────────
+            # Last-mile defense: if the final answer looks like a
+            # refusal ("I cannot…", "no access to…"), try alternative
+            # routes before delivering. Off by default; opt in with
+            # RECOVERY_LOOP_ENABLED=true. See app/recovery/ for the
+            # 4-layer pipeline + design rationale.
+            try:
+                from app.recovery import maybe_recover, is_enabled as _recov_enabled
+                if _recov_enabled():
+                    rec = maybe_recover(
+                        final_result, user_input, crew_name,
+                        commander=self, difficulty=difficulty,
+                        used_tier=get_last_tier() or "unknown",
+                        conversation_history=_crew_history,
+                    )
+                    if rec.triggered:
+                        if rec.success and rec.text:
+                            final_result = rec.text
+                            if rec.route_changed and rec.note:
+                                # Append a single-line note so the user
+                                # knows the answer's source changed.
+                                final_result += f"\n\n_{rec.note}_"
+                            logger.info(
+                                f"recovery: SUCCESS via {rec.strategies_tried} "
+                                f"(elapsed={rec.elapsed_s:.1f}s)"
+                            )
+                        else:
+                            # All strategies failed — replace bare refusal
+                            # with the diagnostic answer (forge_queue is
+                            # always last and always succeeds with one).
+                            logger.info(
+                                f"recovery: no strategy succeeded after "
+                                f"{rec.strategies_tried}; keeping original answer"
+                            )
+            except Exception as _rec_exc:
+                logger.debug(
+                    f"recovery: loop raised ({_rec_exc.__class__.__name__}: "
+                    f"{_rec_exc}); preserving original answer",
+                    exc_info=True,
+                )
+
             if _proactive_notes:
                 final_result += "\n\n---\n" + _proactive_notes
             _proactive_done = True
