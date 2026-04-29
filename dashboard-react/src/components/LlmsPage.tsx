@@ -20,6 +20,7 @@ import {
   type TechDiscovery,
   type LlmMode,
 } from '../api/queries';
+import { JudgesPanel } from './JudgesPanel';
 
 // The pin dialog's role + mode dropdowns pull their options from
 // the /llms/catalog response (``roles`` and ``modes`` fields —
@@ -229,6 +230,11 @@ function CatalogTab() {
           </div>
         )}
       </section>
+
+      {/* Cross-eval judges — provider-family rotation + pins +
+          inter-rater agreement panel. Sits between role assignments
+          and promotions so the user sees who's grading what. */}
+      <JudgesPanel />
 
       {/* Global promotions strip — one chip per promoted model with a
           quick "demote" action. Surfaces layer-2 state at the top of

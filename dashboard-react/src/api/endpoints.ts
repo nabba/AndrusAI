@@ -74,6 +74,15 @@ export const endpoints = {
   llmPin: () => `${CP}/llms/pin`,
   llmUnpin: () => `${CP}/llms/unpin`,
 
+  // Cross-eval judges (rotation + pins + agreement telemetry)
+  llmJudges: () => `${CP}/llms/judges`,
+  llmJudgePin: () => `${CP}/llms/judges/pin`,
+  llmJudgeUnpin: () => `${CP}/llms/judges/unpin`,
+  llmJudgeEvaluations: (limit = 50, candidateModel?: string) =>
+    candidateModel
+      ? `${CP}/llms/judge-evaluations?limit=${limit}&candidate_model=${encodeURIComponent(candidateModel)}`
+      : `${CP}/llms/judge-evaluations?limit=${limit}`,
+
   // Evolution genealogy (variants)
   evolutionVariants: (n = 30) => `${CP}/evolution/variants?n=${n}`,
   evolutionVariantLineage: (id: string) => `${CP}/evolution/variants/${encodeURIComponent(id)}/lineage`,
