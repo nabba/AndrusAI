@@ -325,6 +325,10 @@ class TestLoopGating:
 
     def test_enabled_triggers_on_refusal(self, monkeypatch):
         monkeypatch.setenv("RECOVERY_LOOP_ENABLED", "true")
+        # Bigger budget so re_route runs even when direct_tool +
+        # skill_chain fail first (test environment has no real
+        # email config or matching skill).
+        monkeypatch.setenv("RECOVERY_MAX_ATTEMPTS", "5")
         commander = MagicMock()
         commander._run_crew.return_value = (
             "Here are your top emails: 1) ... 2) ... " * 30
@@ -386,7 +390,11 @@ class TestTodaysRegressions:
     def _enable(self, monkeypatch):
         monkeypatch.setenv("RECOVERY_LOOP_ENABLED", "true")
 
-    def test_email_no_access_recovers_via_pim(self):
+    def test_email_no_access_recovers_via_pim(self, monkeypatch):
+        # Larger budget so we don't bail before re_route (direct_tool
+        # runs first and may fail when email tools aren't configured;
+        # re_route is the fallback that the test mocks for success).
+        monkeypatch.setenv("RECOVERY_MAX_ATTEMPTS", "5")
         from app.recovery.loop import maybe_recover
         commander = MagicMock()
         commander._run_crew.return_value = (
@@ -401,8 +409,9 @@ class TestTodaysRegressions:
             commander=commander, difficulty=5,
         )
         assert result.triggered and result.success
-        # First strategy should be re_route → pim
-        assert result.strategies_tried[0] == "re_route"
+        # re_route must be one of the strategies that ran (its place
+        # in the order depends on whether direct_tool was reachable).
+        assert "re_route" in result.strategies_tried
         assert "pim" in (result.note or "").lower()
 
     def test_unknown_capability_falls_to_forge_queue(self, tmp_path, monkeypatch):

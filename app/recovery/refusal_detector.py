@@ -181,7 +181,11 @@ def _detection_threshold() -> float:
 _MIN_DENSITY = 0.005   # 0.5% — a refusal phrase in a tweet-length answer
 
 
-def detect_refusal(response_text: str) -> RefusalSignal | None:
+def detect_refusal(
+    response_text: str,
+    *,
+    force: bool = False,
+) -> RefusalSignal | None:
     """Return a RefusalSignal when ``response_text`` looks like a
     capability refusal we could plausibly recover from. None otherwise.
 
@@ -191,6 +195,13 @@ def detect_refusal(response_text: str) -> RefusalSignal | None:
     Conservative by design — if you're going to bias one way, bias
     toward NOT firing. A missed recovery is the same outcome as
     today; an unjustified recovery wastes tokens.
+
+    ``force=True`` bypasses the policy guard, density check, AND
+    confidence threshold — used by the user-driven force-recover
+    Signal command ("force this") so the user can explicitly request
+    recovery on a response the auto-detector decided to skip.
+    Returns a low-confidence "generic" signal when no other phrase
+    matches, so the loop has SOMETHING to feed the librarian.
     """
     if not response_text or not isinstance(response_text, str):
         return None
@@ -202,14 +213,21 @@ def detect_refusal(response_text: str) -> RefusalSignal | None:
     text_lower = text.lower()
     threshold = _detection_threshold()
 
-    # Hard policy guard — if any policy phrase fires, we DO NOT recover.
-    for phrase, _ in _PHRASES_BY_CATEGORY["policy"]:
-        if phrase in text_lower:
-            logger.debug(
-                "refusal_detector: policy phrase %r matched — respecting refusal",
-                phrase,
-            )
-            return None
+    # Hard policy guard — respected EXCEPT when force=True (user
+    # explicitly requested recovery). Even on force we log so the
+    # audit trail captures it.
+    if not force:
+        for phrase, _ in _PHRASES_BY_CATEGORY["policy"]:
+            if phrase in text_lower:
+                logger.debug(
+                    "refusal_detector: policy phrase %r matched — respecting refusal",
+                    phrase,
+                )
+                return None
+    elif any(p in text_lower for p, _ in _PHRASES_BY_CATEGORY["policy"]):
+        logger.warning(
+            "refusal_detector: force=True overriding policy guard"
+        )
 
     # Find the strongest matching phrase across non-policy categories.
     best: tuple[str, str, float] | None = None  # (category, phrase, base_conf)
@@ -221,13 +239,23 @@ def detect_refusal(response_text: str) -> RefusalSignal | None:
                 if best is None or base_conf > best[2]:
                     best = (category, phrase, base_conf)
     if best is None:
+        if force:
+            # User requested recovery on text with no obvious refusal
+            # phrase. Return a low-confidence generic signal so the
+            # loop has SOMETHING to dispatch the librarian on.
+            return RefusalSignal(
+                category="generic",
+                confidence=0.50,
+                matched_phrase="(force-trigger; no phrase matched)",
+                refusal_density=0.0,
+            )
         return None
 
     category, phrase, base_conf = best
 
     # Density check — how much of the text is actually refusal language?
     density = _refusal_density(text)
-    if density < _MIN_DENSITY:
+    if density < _MIN_DENSITY and not force:
         return None
 
     # Final confidence blends the strongest phrase's confidence with
@@ -240,7 +268,7 @@ def detect_refusal(response_text: str) -> RefusalSignal | None:
     density_factor = min(1.0, math.sqrt(density * 8))  # 0.125 density → 1.0
     confidence = base_conf * density_factor
 
-    if confidence < threshold:
+    if confidence < threshold and not force:
         logger.debug(
             "refusal_detector: confidence %.2f < threshold %.2f for %r — skipping",
             confidence, threshold, phrase,

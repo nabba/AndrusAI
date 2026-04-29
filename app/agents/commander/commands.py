@@ -15,6 +15,22 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
     # Access the shared thread pool from orchestrator
     from app.agents.commander.orchestrator import _ctx_pool
 
+    # ── force-recover (2026-04-28) ─────────────────────────────────
+    # Triggered when the user explicitly says "force this" / "try
+    # harder" / "force recover" right after a refusal-shaped answer.
+    # Looks up the previous (user_input, agent_response) from
+    # conversation history and re-runs the recovery loop with
+    # force=True (bypasses the auto-detector's confidence threshold
+    # AND the policy guard).
+    _FORCE_PATTERNS = (
+        "force this", "force recover", "force-recover",
+        "try harder", "try alternative", "try another way",
+        "find another way",
+    )
+    if lower in _FORCE_PATTERNS or any(lower.startswith(p) for p in _FORCE_PATTERNS):
+        return _handle_force_recover(sender, commander)
+
+
     # "please learn <topic>" / "start learning <topic>" — add to queue AND run now
     _learn_now_match = re.match(
         r"^(?:please\s+)?(?:learn|start\s+learn(?:ing)?)\s+(.+)",
@@ -1211,3 +1227,100 @@ def restore_nl_jobs(scheduler, commander) -> int:
         except Exception:
             logger.debug(f"Failed to restore NL job {job_id}", exc_info=True)
     return restored
+
+
+# ══════════════════════════════════════════════════════════════════════
+# force-recover handler (2026-04-28)
+# ══════════════════════════════════════════════════════════════════════
+
+def _handle_force_recover(sender: str, commander) -> str:
+    """User explicitly asks to retry the previous refusal.
+
+    Walks back through recent conversation history to find the last
+    (user message, agent response) pair, then re-runs the recovery
+    loop with force=True so the auto-detector's confidence threshold
+    is bypassed.
+
+    Returns the recovered text, or a clear "I tried but couldn't
+    find anything to recover" message.
+    """
+    try:
+        from app.recovery import maybe_recover, is_enabled
+    except Exception:
+        return "Recovery loop module not available."
+
+    if not is_enabled():
+        return (
+            "Recovery loop is disabled. Set RECOVERY_LOOP_ENABLED=true "
+            "in .env and restart the gateway."
+        )
+
+    # Look up the last user message + last agent response from
+    # the conversation store. We need both: the agent's last response
+    # is the refusal-shaped text we're trying to recover from; the
+    # user's last actual question (skipping the "force this" message
+    # itself) is the task we want to re-run.
+    try:
+        from app.conversation_store import get_history
+        history = get_history(sender, limit=20)
+    except Exception as exc:
+        return f"Could not load conversation history: {exc}"
+
+    # History is a list of {role, content, ts} ordered chronologically.
+    # We want the last assistant response and the user message that
+    # preceded it (NOT the current "force this" message).
+    last_user_question = None
+    last_assistant_response = None
+    # Walk backward; skip the most recent user message (which is the
+    # force-recover command itself).
+    seen_force_msg = False
+    for entry in reversed(history):
+        role = entry.get("role", "")
+        content = entry.get("content", "") or entry.get("text", "")
+        if not content:
+            continue
+        if role == "user" and not seen_force_msg:
+            seen_force_msg = True
+            continue
+        if role == "assistant" and last_assistant_response is None:
+            last_assistant_response = content
+            continue
+        if role == "user" and last_user_question is None:
+            last_user_question = content
+            break
+
+    if not last_assistant_response or not last_user_question:
+        return (
+            "Couldn't find a previous question + response to recover. "
+            "Send your question fresh and use 'force this' if it refuses."
+        )
+
+    logger.info(
+        "force-recover: replaying last task=%r against response of length %d",
+        last_user_question[:80], len(last_assistant_response),
+    )
+
+    rec = maybe_recover(
+        last_assistant_response,
+        last_user_question,
+        crew_used="research",   # we don't know which crew — research is
+                                # the most permissive default
+        commander=commander,
+        difficulty=6,
+        used_tier="unknown",
+        force=True,
+    )
+
+    if not rec.triggered:
+        return (
+            "Force-recover ran but couldn't find anything to recover "
+            "from the previous response."
+        )
+    if rec.success and rec.text:
+        suffix = f"\n\n_(force-recover: {', '.join(rec.strategies_tried)})_"
+        return rec.text + suffix
+    return (
+        f"Tried {len(rec.strategies_tried)} alternative routes "
+        f"({', '.join(rec.strategies_tried)}) but none produced a "
+        f"better answer. The original response stands."
+    )

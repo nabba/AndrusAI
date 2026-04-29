@@ -52,7 +52,10 @@ class Alternative:
 _CAPABILITY_MAP: dict[str, dict] = {
     "email": {
         "crews": ["pim"],
-        "tools": ["email_tools.read_emails", "email_tools.send_email"],
+        # ``email_tools.check_email`` is the actual tool name registered
+        # by app/tools/email_tools.py:create_email_tools — used by the
+        # direct_tool strategy's recipe table.
+        "tools": ["email_tools.check_email", "email_tools.send_email"],
         "keywords": ("email", "e-mail", "inbox", "mailbox", "gmail", "imap"),
     },
     "calendar": {
@@ -133,6 +136,7 @@ def find_alternatives(
     refusal_category: str,
     used_crew: str,
     used_tier: str | None = None,
+    response_text: str = "",
 ) -> list[Alternative]:
     """Return ranked alternatives for the loop to try.
 
@@ -141,11 +145,53 @@ def find_alternatives(
         refusal_category: from RefusalSignal.category
         used_crew: the crew that produced the refusal
         used_tier: the tier the LLM was at (for tier-escalation logic)
+        response_text: the refused response (used by sandbox_execute to
+            decide whether to extract a code block)
     """
     out: list[Alternative] = []
 
-    # ── Strategy 1: re-route to a crew with relevant tools ─────────
     inferred = _infer_capabilities(task)
+
+    # ── Strategy: direct_tool — bypass LLM, call tool directly ─────
+    # CHEAPEST sync path. Use when the refusal categorically maps to a
+    # specific tool we have wired up (email, calendar, etc.). No LLM
+    # call, no crew spin-up — just regex + tool invocation.
+    for cap_key in inferred:
+        cap = _CAPABILITY_MAP[cap_key]
+        for tool in cap.get("tools", []):
+            # Only for tools that have a recipe in direct_tool's table.
+            # Hard-coded list keeps the librarian from suggesting tools
+            # we don't actually know how to call directly.
+            if tool in ("email_tools.check_email", "calendar_tools.list_events"):
+                out.append(Alternative(
+                    strategy="direct_tool",
+                    tool=tool,
+                    rationale=(
+                        f"Detected '{cap_key}' capability; calling "
+                        f"{tool} directly (no agent layer)."
+                    ),
+                    est_cost_usd=0.0,
+                    est_latency_s=5.0,
+                    sync=True,
+                ))
+
+    # ── Strategy: sandbox_execute — run code from coding-crew dump ──
+    # Only when the response actually contains a Python code block.
+    if response_text and "```" in response_text:
+        import re as _re
+        if _re.search(r"```(?:python|py)", response_text):
+            out.append(Alternative(
+                strategy="sandbox_execute",
+                rationale=(
+                    "Response contains executable Python — run it in "
+                    "the sandbox instead of dumping the raw script."
+                ),
+                est_cost_usd=0.005,
+                est_latency_s=20.0,
+                sync=True,
+            ))
+
+    # ── Strategy: re-route to a crew with relevant tools ───────────
     seen_crews: set[str] = set()
     for cap_key in inferred:
         cap = _CAPABILITY_MAP[cap_key]
@@ -166,7 +212,20 @@ def find_alternatives(
                 sync=True,
             ))
 
-    # ── Strategy 2: escalate model tier (same crew, stronger LLM) ──
+    # ── Strategy: skill_chain — invoke matching library skill ──────
+    # Useful regardless of category — skills are domain-agnostic.
+    out.append(Alternative(
+        strategy="skill_chain",
+        rationale=(
+            "Search the skills library for a known approach to this "
+            "kind of task. Useful even when no crew has the tools."
+        ),
+        est_cost_usd=0.01,
+        est_latency_s=10.0,
+        sync=True,
+    ))
+
+    # ── Strategy: escalate model tier (same crew, stronger LLM) ────
     # Only useful for `generic` refusals — the model gave up, but a
     # stronger one might persist. Don't escalate for missing_tool /
     # auth (no model can fix a missing API key).

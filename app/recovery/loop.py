@@ -82,9 +82,18 @@ def _audit(action: str, **fields: Any) -> None:
 
 def _execute_strategy(alt: Alternative, task: str, ctx: dict):
     """Dispatch to the right strategy module. Returns StrategyResult."""
+    if alt.strategy == "direct_tool":
+        from app.recovery.strategies import direct_tool
+        return direct_tool.execute(task, alt, ctx)
+    if alt.strategy == "sandbox_execute":
+        from app.recovery.strategies import sandbox_execute
+        return sandbox_execute.execute(task, alt, ctx)
     if alt.strategy == "re_route":
         from app.recovery.strategies import re_route
         return re_route.execute(task, alt, ctx)
+    if alt.strategy == "skill_chain":
+        from app.recovery.strategies import skill_chain
+        return skill_chain.execute(task, alt, ctx)
     if alt.strategy == "escalate_tier":
         from app.recovery.strategies import escalate_tier
         return escalate_tier.execute(task, alt, ctx)
@@ -104,6 +113,7 @@ def maybe_recover(
     difficulty: int = 5,
     used_tier: str | None = None,
     conversation_history: str = "",
+    force: bool = False,
 ) -> RecoveryResult:
     """Detect + optionally recover a refusal-shaped response.
 
@@ -130,7 +140,7 @@ def maybe_recover(
 
     t_start = time.monotonic()
     try:
-        signal = detect_refusal(response_text)
+        signal = detect_refusal(response_text, force=force)
     except Exception as exc:
         logger.debug("recovery: detect_refusal raised: %s", exc, exc_info=True)
         return RecoveryResult(triggered=False, success=False)
@@ -153,7 +163,9 @@ def maybe_recover(
 
     try:
         alts = find_alternatives(
-            user_input, signal.category, crew_used, used_tier=used_tier,
+            user_input, signal.category, crew_used,
+            used_tier=used_tier,
+            response_text=response_text,
         )
     except Exception as exc:
         logger.debug("recovery: find_alternatives raised: %s", exc, exc_info=True)
@@ -170,6 +182,7 @@ def maybe_recover(
         "conversation_history": conversation_history,
         "difficulty": difficulty,
         "refusal_category": signal.category,
+        "original_response": response_text,
     }
 
     max_attempts = _max_attempts()

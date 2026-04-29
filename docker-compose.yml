@@ -60,6 +60,17 @@ services:
       # Restart `docker compose up -d gateway` after changing .env.
       APOLLO_API_KEY: ${APOLLO_API_KEY:-}
       PROXYCURL_API_KEY: ${PROXYCURL_API_KEY:-}
+      # ── Capability Recovery Loop ───────────────────────────────────
+      # When the final answer looks like "I cannot…", the system tries
+      # alternative routes (re_route → other crew, escalate_tier →
+      # premium model, sandbox_execute → run extracted code, direct_tool
+      # → bypass LLM, skill_chain → invoke matching skill) before
+      # delivering. Off by default; flip to true once verified.
+      # See app/recovery/ for design.
+      RECOVERY_LOOP_ENABLED: ${RECOVERY_LOOP_ENABLED:-false}
+      RECOVERY_DETECTION_THRESHOLD: ${RECOVERY_DETECTION_THRESHOLD:-0.80}
+      RECOVERY_MAX_ATTEMPTS: ${RECOVERY_MAX_ATTEMPTS:-2}
+      RECOVERY_BUDGET_SECONDS: ${RECOVERY_BUDGET_SECONDS:-90}
       # Host RAM in GB — used by app/llm_registry_scanner to compute the
       # safe-to-pull model size cap. On Docker-Desktop-for-Mac the
       # container's view of /proc/meminfo and Docker /info both return
