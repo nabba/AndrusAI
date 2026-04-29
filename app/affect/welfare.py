@@ -58,8 +58,7 @@ HARD_ENVELOPE: dict[str, float] = {
 }
 
 
-_AFFECT_DIR = Path("/app/workspace/affect")
-_AUDIT_FILE = _AFFECT_DIR / "welfare_audit.jsonl"
+from app.paths import AFFECT_ROOT as _AFFECT_DIR, AFFECT_AUDIT as _AUDIT_FILE  # noqa: E402
 _AUDIT_LOCK = threading.Lock()
 
 
@@ -183,6 +182,178 @@ def read_audit(limit: int = 100, since_ts: str | None = None) -> list[dict]:
         logger.debug("welfare: audit read failed", exc_info=True)
         return []
     return rows[-limit:]
+
+
+# ── Long-window monotonic drift detection (consumes l9_snapshots) ──────────
+#
+# The variance-floor and sustained-negative-duration checks above run on
+# every POST_LLM_CALL window. They catch fast failure modes. Monotonic
+# baseline drift is a SLOW failure mode: the affect baseline gradually
+# shifts toward "always positive, always quiet" over weeks until the
+# system stops registering things it used to register. The reference
+# panel is the per-day check; this function is the long-window companion.
+#
+# Source of truth for daily means: app/workspace/affect/l9_snapshots.jsonl
+# (one record per day, written by app.affect.l9_snapshots.write_daily_snapshot
+# at 04:35 Helsinki). This module READS that file rather than recomputing
+# from the raw trace, so the long-window check is cheap and the
+# observability snapshot becomes a load-bearing input rather than
+# orphaned data.
+
+
+def monotonic_drift_check(
+    *,
+    l9_snapshots_path: "Path | None" = None,
+    window_days: int | None = None,
+    max_points: float | None = None,
+) -> tuple[bool, dict]:
+    """Check the last `window_days` of L9 snapshots for monotonic drift
+    in the affect baseline.
+
+    Compares the mean V_t of the *first* third of the window to the mean
+    V_t of the *last* third. If they differ in absolute terms by more
+    than `max_points`, the function returns (True, diagnostics) — drift
+    detected — and the caller (daily reflection cycle) appends a
+    `monotonic_drift_baseline` welfare breach.
+
+    Returns (drifted, diagnostics). Diagnostics include both means,
+    the difference, the window, and the n of snapshots actually
+    examined. Never raises; missing-file / parse failure returns
+    (False, {"reason": "..."}).
+
+    Why this lives in welfare and not in calibration: the predicate is
+    a HARD-envelope concern (numbness candidate), and the audit it
+    produces flows through the same `audit()` path as the other
+    welfare breaches. Calibration *consults* this predicate during the
+    daily backtest; it doesn't own it.
+    """
+    from pathlib import Path
+    if l9_snapshots_path is None:
+        from app.paths import AFFECT_L9_SNAPSHOTS as l9_snapshots_path
+
+    if window_days is None:
+        window_days = int(HARD_ENVELOPE["monotonic_drift_window_days"])
+    if max_points is None:
+        max_points = float(HARD_ENVELOPE["monotonic_drift_max_points"])
+
+    p = Path(l9_snapshots_path)
+    if not p.exists():
+        return False, {"reason": "no l9 snapshots", "window_days": window_days}
+
+    cutoff_ts = time.time() - window_days * 86400
+    rows: list[tuple[float, float]] = []  # (ts, mean_v)
+    try:
+        with p.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                ts_str = str(row.get("ts", "") or row.get("date", ""))
+                # Snapshot rows carry either an ISO `ts` or a `date` (YYYY-MM-DD).
+                ts: float | None = None
+                if ts_str:
+                    try:
+                        from datetime import datetime as _dt
+                        # Try ISO first, then YYYY-MM-DD.
+                        try:
+                            ts = _dt.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+                        except ValueError:
+                            ts = _dt.strptime(ts_str, "%Y-%m-%d").timestamp()
+                    except Exception:
+                        ts = None
+                if ts is None or ts < cutoff_ts:
+                    continue
+
+                # Mean valence may live at top level or nested under "affect".
+                mv: float | None = None
+                for path in ("mean_valence", "valence_mean"):
+                    v = row.get(path)
+                    if isinstance(v, (int, float)):
+                        mv = float(v)
+                        break
+                if mv is None:
+                    inner = row.get("affect") or {}
+                    if isinstance(inner, dict):
+                        v = inner.get("mean_valence")
+                        if isinstance(v, (int, float)):
+                            mv = float(v)
+                if mv is None:
+                    continue
+                rows.append((ts, mv))
+    except Exception:
+        logger.debug("welfare: monotonic_drift_check read failed", exc_info=True)
+        return False, {"reason": "read failed"}
+
+    if len(rows) < 6:
+        # Need at least 2 buckets of 3 days each for a meaningful comparison.
+        return False, {
+            "reason": "insufficient snapshots",
+            "n": len(rows),
+            "window_days": window_days,
+        }
+
+    rows.sort(key=lambda r: r[0])
+    third = len(rows) // 3
+    first_third = rows[:third] or rows[:1]
+    last_third = rows[-third:] or rows[-1:]
+    first_mean = sum(v for _, v in first_third) / len(first_third)
+    last_mean = sum(v for _, v in last_third) / len(last_third)
+    delta = abs(last_mean - first_mean)
+
+    diags = {
+        "n_snapshots": len(rows),
+        "window_days": window_days,
+        "first_third_mean_v": round(first_mean, 4),
+        "last_third_mean_v": round(last_mean, 4),
+        "abs_delta": round(delta, 4),
+        "max_points": max_points,
+        "direction": ("up" if last_mean > first_mean else
+                      "down" if last_mean < first_mean else "flat"),
+    }
+    return delta > max_points, diags
+
+
+def maybe_audit_monotonic_drift(
+    *,
+    l9_snapshots_path: "Path | None" = None,
+    window_days: int | None = None,
+    max_points: float | None = None,
+) -> dict:
+    """One-shot convenience: run the drift check and, if drift is
+    detected, write a WelfareBreach to the audit log. Used by the daily
+    reflection cycle so the slow-drift signal flows through the same
+    audit pipeline as the fast-failure-mode breaches.
+
+    Returns the diagnostics dict regardless of whether a breach fired.
+    """
+    drifted, diags = monotonic_drift_check(
+        l9_snapshots_path=l9_snapshots_path,
+        window_days=window_days,
+        max_points=max_points,
+    )
+    if drifted:
+        breach = WelfareBreach(
+            kind="monotonic_drift_baseline",
+            severity="warn",
+            message=(
+                f"Affect baseline drifted by {diags['abs_delta']:.3f} "
+                f"({diags['direction']}) over {diags['window_days']} days "
+                f"({diags['first_third_mean_v']:+.3f} → "
+                f"{diags['last_third_mean_v']:+.3f})"
+            ),
+            measured_value=float(diags["abs_delta"]),
+            threshold=float(diags["max_points"]),
+            ts=utc_now_iso(),
+        )
+        audit(breach)
+        diags["audited"] = True
+    else:
+        diags["audited"] = False
+    return diags
 
 
 # ── Healthy-dynamics predicate — used by calibration backtest ──────────────

@@ -23,9 +23,11 @@ from app.affect.schemas import AffectState, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-_AFFECT_DIR = Path("/app/workspace/affect")
-_TRACE_FILE = _AFFECT_DIR / "trace.jsonl"
-_REFLECTIONS_DIR = _AFFECT_DIR / "reflections"
+from app.paths import (  # noqa: E402  workspace-aware paths
+    AFFECT_ROOT as _AFFECT_DIR,
+    AFFECT_TRACE as _TRACE_FILE,
+    AFFECT_REFLECTIONS_DIR as _REFLECTIONS_DIR,
+)
 
 
 # ── Trace replay ────────────────────────────────────────────────────────────
@@ -94,7 +96,11 @@ def run_reflection_cycle(window_hours: int = 24) -> dict:
     Phase 2: calibration deltas are now proposed and (when guardrails pass)
     applied. The 6-guardrail flow lives in calibration_proposals.evaluate_and_apply.
     """
-    from app.affect.welfare import healthy_dynamics_predicate, read_audit
+    from app.affect.welfare import (
+        healthy_dynamics_predicate,
+        maybe_audit_monotonic_drift,
+        read_audit,
+    )
     from app.affect.reference_panel import replay_panel
     from app.affect.calibration_proposals import evaluate_and_apply
 
@@ -135,11 +141,22 @@ def run_reflection_cycle(window_hours: int = 24) -> dict:
         except (ValueError, AttributeError):
             continue
 
+    # Long-window monotonic drift: consume the L9 daily snapshots
+    # written by app.affect.l9_snapshots at 04:35. Closes the loop
+    # between observability (snapshot writer) and welfare (slow-drift
+    # detector), which previously had no consumer.
+    monotonic_drift = {}
+    try:
+        monotonic_drift = maybe_audit_monotonic_drift()
+    except Exception:
+        logger.debug("affect.calibration: monotonic_drift_check failed", exc_info=True)
+
     report = {
         "ts": utc_now_iso(),
         "window_hours": window_hours,
         "stats": stats,
         "healthy_dynamics": {"passes": healthy, "diagnostics": diags},
+        "monotonic_drift": monotonic_drift,
         "reference_panel": {
             "drift_counts": drift_counts,
             "results": [r.to_dict() for r in panel_results],
@@ -153,11 +170,234 @@ def run_reflection_cycle(window_hours: int = 24) -> dict:
     }
 
     _write_report(report)
+
+    # ── Retention / compaction (runs once per day) ─────────────────────
+    # Tied to the daily reflection cycle so we don't need a separate
+    # cron entry. All operations are best-effort + audit-logged; a
+    # rotation failure must never block the reflection report itself.
+    rotation = {}
+    try:
+        rotation["trace"] = rotate_trace_jsonl(retain_days=7, archive=True)
+    except Exception:
+        logger.debug("affect.calibration: trace rotation failed", exc_info=True)
+    try:
+        rotation["phase5_proposals"] = compact_phase5_proposals(
+            stale_pending_days=14, drop_reviewed_after_days=30,
+        )
+    except Exception:
+        logger.debug("affect.calibration: phase5 compaction failed", exc_info=True)
+    if rotation:
+        report["retention"] = rotation
+
     logger.info(
         f"affect.calibration: reflection complete — n={stats.get('n', 0)} healthy={healthy} "
-        f"drift={drift_counts}"
+        f"drift={drift_counts} retention={rotation}"
     )
     return report
+
+
+# ── Retention / compaction helpers ───────────────────────────────────────────
+#
+# These keep the affect persistence files bounded. Every file the affect
+# layer writes accumulates indefinitely without maintenance; the daily
+# reflection cycle is the natural place to do the maintenance because it
+# already loads + analyzes the recent window, so the marginal cost of
+# a single archival pass is small.
+
+
+def rotate_trace_jsonl(
+    retain_days: int = 7,
+    archive: bool = True,
+) -> dict:
+    """Rotate trace.jsonl: keep only the last `retain_days` of entries
+    in the live file, archive the rest as a daily-bucketed gzip.
+
+    Archive layout: AFFECT_ROOT/trace_archive/YYYY-MM.jsonl.gz
+    (one file per UTC month, append-mode so multi-day archives merge).
+
+    Returns a small report dict for the reflection log:
+        {"kept": N, "archived": M, "archive_files": [...], "skipped": "..."}
+
+    Never raises. If the trace file doesn't exist, returns {"skipped": "no trace"}.
+    """
+    if not _TRACE_FILE.exists():
+        return {"skipped": "no trace"}
+
+    cutoff_ts = datetime.now(timezone.utc).timestamp() - retain_days * 86400
+    keep_lines: list[str] = []
+    archive_buckets: dict[str, list[str]] = {}  # YYYY-MM → [lines]
+
+    try:
+        with _TRACE_FILE.open("r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                # Cheap parse: only need the affect.ts to decide.
+                try:
+                    row = json.loads(stripped)
+                    ts_str = row.get("affect", {}).get("ts", "")
+                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+                except (json.JSONDecodeError, ValueError, AttributeError):
+                    # Malformed line — keep it so a human can inspect later.
+                    keep_lines.append(line if line.endswith("\n") else line + "\n")
+                    continue
+                if ts >= cutoff_ts:
+                    keep_lines.append(line if line.endswith("\n") else line + "\n")
+                else:
+                    bucket = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m")
+                    archive_buckets.setdefault(bucket, []).append(
+                        line if line.endswith("\n") else line + "\n"
+                    )
+    except Exception:
+        logger.debug("rotate_trace_jsonl: read failed", exc_info=True)
+        return {"skipped": "read failed"}
+
+    archived_count = sum(len(v) for v in archive_buckets.values())
+    archive_files: list[str] = []
+
+    if archive and archive_buckets:
+        import gzip
+        archive_dir = _AFFECT_DIR / "trace_archive"
+        try:
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            for bucket, lines in archive_buckets.items():
+                target = archive_dir / f"{bucket}.jsonl.gz"
+                # Append-mode gzip: preserves earlier entries from the
+                # same month if rotation runs across multiple days.
+                with gzip.open(target, "ab") as gz:
+                    gz.write("".join(lines).encode("utf-8"))
+                archive_files.append(target.name)
+        except Exception:
+            logger.debug("rotate_trace_jsonl: archive write failed", exc_info=True)
+            # If archiving fails, fall through to NOT rewriting the live
+            # file — preserve everything rather than risk data loss.
+            return {
+                "kept": len(keep_lines),
+                "archived": 0,
+                "skipped": "archive write failed; live file untouched",
+            }
+
+    if archived_count > 0:
+        # Atomic rewrite of trace.jsonl with only the recent entries.
+        try:
+            tmp = _TRACE_FILE.with_suffix(_TRACE_FILE.suffix + ".tmp")
+            tmp.write_text("".join(keep_lines), encoding="utf-8")
+            tmp.replace(_TRACE_FILE)
+        except Exception:
+            logger.debug("rotate_trace_jsonl: live rewrite failed", exc_info=True)
+            return {
+                "kept": "<unknown>",
+                "archived": archived_count,
+                "skipped": "live rewrite failed",
+            }
+
+    return {
+        "kept": len(keep_lines),
+        "archived": archived_count,
+        "archive_files": archive_files,
+        "retain_days": retain_days,
+    }
+
+
+def compact_phase5_proposals(
+    stale_pending_days: int = 14,
+    drop_reviewed_after_days: int = 30,
+) -> dict:
+    """Compact app/affect/phase5_proposals.jsonl.
+
+    Two policies enforced together so the file stays bounded:
+      - Pending proposals older than `stale_pending_days` are flipped
+        to status="auto_deferred" (still kept in the file, but no
+        longer block the queue from progressing).
+      - Reviewed proposals (status not in {"pending"}) older than
+        `drop_reviewed_after_days` are dropped from the file. The
+        decision is preserved in the welfare audit log so the trail
+        survives compaction.
+
+    Returns a report dict; never raises.
+    """
+    from app.paths import AFFECT_PHASE5_PROPOSALS as proposals_file
+    if not proposals_file.exists():
+        return {"skipped": "no proposals file"}
+
+    now_ts = datetime.now(timezone.utc).timestamp()
+    auto_defer_cutoff = now_ts - stale_pending_days * 86400
+    drop_cutoff = now_ts - drop_reviewed_after_days * 86400
+
+    kept: list[dict] = []
+    auto_deferred = 0
+    dropped = 0
+
+    try:
+        with proposals_file.open("r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                try:
+                    row = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                status = str(row.get("status", "pending"))
+                ts_str = str(row.get("ts", "") or row.get("submitted_at", ""))
+                try:
+                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    ts = now_ts  # treat undated as fresh
+
+                if status == "pending" and ts < auto_defer_cutoff:
+                    row["status"] = "auto_deferred"
+                    row["auto_defer_ts"] = utc_now_iso()
+                    row["auto_defer_reason"] = (
+                        f"pending > {stale_pending_days}d without human review"
+                    )
+                    auto_deferred += 1
+                    kept.append(row)
+                    continue
+
+                if status not in ("pending",) and ts < drop_cutoff:
+                    dropped += 1
+                    # Audit-log the drop so the trail survives.
+                    try:
+                        from app.affect.welfare import _AUDIT_FILE  # type: ignore
+                        from threading import Lock as _Lock
+                        with proposals_file.open("a") if False else open(_AUDIT_FILE, "a", encoding="utf-8") as af:
+                            af.write(json.dumps({
+                                "kind": "phase5_proposal_archived",
+                                "severity": "info",
+                                "ts": utc_now_iso(),
+                                "name": row.get("name") or row.get("feature_name", "?"),
+                                "final_status": status,
+                                "submitted": ts_str,
+                            }) + "\n")
+                    except Exception:
+                        pass
+                    continue
+
+                kept.append(row)
+    except Exception:
+        logger.debug("compact_phase5_proposals: read failed", exc_info=True)
+        return {"skipped": "read failed"}
+
+    if auto_deferred or dropped:
+        try:
+            tmp = proposals_file.with_suffix(proposals_file.suffix + ".tmp")
+            with tmp.open("w", encoding="utf-8") as f:
+                for row in kept:
+                    f.write(json.dumps(row, default=str) + "\n")
+            tmp.replace(proposals_file)
+        except Exception:
+            logger.debug("compact_phase5_proposals: rewrite failed", exc_info=True)
+            return {"skipped": "rewrite failed"}
+
+    return {
+        "kept": len(kept),
+        "auto_deferred": auto_deferred,
+        "dropped_reviewed": dropped,
+        "stale_pending_days": stale_pending_days,
+        "drop_reviewed_after_days": drop_reviewed_after_days,
+    }
 
 
 def _check_attachment_at_reflection() -> dict:

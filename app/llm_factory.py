@@ -579,11 +579,42 @@ def get_last_tier() -> str | None:
 
 
 def _sampling(phase: str | None, provider: str) -> tuple[dict, str]:
-    """Return (llm_kwargs, cache_key) for phase+provider. ({}, '') when phase is None."""
+    """Return (llm_kwargs, cache_key) for phase+provider. ({}, '') when phase is None.
+
+    Reads the latest affect snapshot via `app.affect.core.latest_affect()`
+    and forwards it to `build_llm_kwargs` so phase-aware
+    temperature / top_p modulation actually fires on the LLM hot path.
+    Affect import is lazy + exception-safe so the sampling path stays
+    byte-identical to legacy behaviour when the affect layer is
+    disabled or hasn't yet computed an affect frame.
+    """
     if phase is None:
         return {}, ""
     from app.llm_sampling import build_llm_kwargs, sampling_cache_key
-    return build_llm_kwargs(phase, provider), sampling_cache_key(phase, provider)
+
+    affect_state: dict | None = None
+    affect_key_part = ""
+    try:
+        from app.affect.core import latest_affect
+        s = latest_affect()
+        if s is not None:
+            affect_state = s.to_dict()
+            # Coarse cache-key bucket: round V/A to 0.1 so equivalent
+            # affect states share kwargs cache entries instead of
+            # producing per-call uniques. Attractor name is stable
+            # within a band, so include it too.
+            v = round(float(affect_state.get("valence", 0.0)), 1)
+            a = round(float(affect_state.get("arousal", 0.0)), 1)
+            attractor = str(affect_state.get("attractor", "neutral"))[:16]
+            affect_key_part = f"|{attractor}|v={v}|a={a}"
+    except Exception:
+        # Affect layer not installed or first call before any
+        # POST_LLM_CALL — fall through to legacy unmodulated path.
+        pass
+
+    base_key = sampling_cache_key(phase, provider)
+    cache_key = base_key + affect_key_part if base_key else base_key
+    return build_llm_kwargs(phase, provider, affect_state), cache_key
 
 
 # ── Mode pool filters ────────────────────────────────────────────────────────

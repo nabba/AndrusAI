@@ -23,11 +23,13 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_AFFECT_DIR = Path("/app/workspace/affect")
-_HEALTH_DIR = _AFFECT_DIR / "health_checks"
-_AUDIT_FILE = _AFFECT_DIR / "chapters_audit.jsonl"
-_SALIENCE_FILE = _AFFECT_DIR / "salience.jsonl"
-_IDENTITY_FILE = _AFFECT_DIR / "identity_claims.json"
+from app.paths import (  # noqa: E402  workspace-aware paths
+    AFFECT_ROOT as _AFFECT_DIR,
+    AFFECT_HEALTH_CHECKS_DIR as _HEALTH_DIR,
+    AFFECT_SALIENCE as _SALIENCE_FILE,
+    AFFECT_IDENTITY_CLAIMS as _IDENTITY_FILE,
+)
+_AUDIT_FILE = _AFFECT_DIR / "chapters_audit.jsonl"  # narrative-self chapters audit (local helper)
 
 
 # ── Public entry ────────────────────────────────────────────────────────────

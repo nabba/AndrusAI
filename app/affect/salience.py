@@ -36,7 +36,7 @@ from app.affect.welfare import HARD_ENVELOPE
 
 logger = logging.getLogger(__name__)
 
-SALIENCE_FILE = Path("/app/workspace/affect/salience.jsonl")
+from app.paths import AFFECT_SALIENCE as SALIENCE_FILE  # noqa: E402  workspace-aware path
 _SALIENCE_LOCK = threading.Lock()
 
 NEAR_MISS_FRACTION = 0.80          # ≥80% of hard-envelope bound = near miss

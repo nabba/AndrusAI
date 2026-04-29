@@ -37,8 +37,7 @@ from app.affect.schemas import (
 
 logger = logging.getLogger(__name__)
 
-_AFFECT_DIR = Path("/app/workspace/affect")
-_SETPOINTS_FILE = _AFFECT_DIR / "setpoints.json"
+from app.paths import AFFECT_ROOT as _AFFECT_DIR, AFFECT_SETPOINTS as _SETPOINTS_FILE  # noqa: E402
 
 # ── Default set-points and weights ──────────────────────────────────────────
 # Each variable in [0, 1]; setpoint is the homeostatic target.
@@ -216,9 +215,9 @@ def _read_self_continuity() -> tuple[float, str]:
     consistent in agent identity (not erratic role-switching).
     """
     try:
-        from pathlib import Path as _P
         import json as _json
-        jf = _P("/app/workspace/self_awareness_data/journal/JOURNAL.jsonl")
+        from app.paths import SELF_AWARENESS_DATA
+        jf = SELF_AWARENESS_DATA / "journal" / "JOURNAL.jsonl"
         if not jf.exists():
             return 0.60, "default (no journal yet)"
 

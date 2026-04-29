@@ -44,9 +44,11 @@ from app.affect.schemas import utc_now_iso
 logger = logging.getLogger(__name__)
 
 MAX_IDENTITY_CLAIMS = 5
-_AFFECT_DIR = Path("/app/workspace/affect")
-_IDENTITY_FILE = _AFFECT_DIR / "identity_claims.json"
-_CHAPTERS_AUDIT = _AFFECT_DIR / "chapters_audit.jsonl"
+from app.paths import (  # noqa: E402  workspace-aware paths
+    AFFECT_ROOT as _AFFECT_DIR,
+    AFFECT_IDENTITY_CLAIMS as _IDENTITY_FILE,
+)
+_CHAPTERS_AUDIT = _AFFECT_DIR / "chapters_audit.jsonl"  # narrative-self chapters audit (local)
 _IDENTITY_LOCK = threading.Lock()
 
 

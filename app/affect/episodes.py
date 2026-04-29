@@ -34,7 +34,7 @@ from app.affect.salience import (
 logger = logging.getLogger(__name__)
 
 QUIET_THRESHOLD_S = 900            # 15 min — flush after this much quiet if events pending
-_LAST_FLUSH_FILE = Path("/app/workspace/affect/episodes_last_flush.txt")
+from app.paths import AFFECT_LAST_FLUSH as _LAST_FLUSH_FILE  # noqa: E402  workspace-aware path
 _FLUSH_LOCK = threading.Lock()
 
 

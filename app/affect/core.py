@@ -34,7 +34,7 @@ from app.affect.viability import compute_viability_frame
 
 logger = logging.getLogger(__name__)
 
-_TRACE_FILE = Path("/app/workspace/affect/trace.jsonl")
+from app.paths import AFFECT_TRACE as _TRACE_FILE  # noqa: E402  workspace-aware path
 _TRACE_LOCK = threading.Lock()
 
 # Rolling buffer for trend / arousal computation (in-process; trace.jsonl is durable).

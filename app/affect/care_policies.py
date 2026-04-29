@@ -39,8 +39,10 @@ from app.affect.schemas import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-_AFFECT_DIR = Path("/app/workspace/affect")
-_CARE_LEDGER = _AFFECT_DIR / "attachments" / "care_ledger.jsonl"
+from app.paths import (  # noqa: E402  workspace-aware paths
+    AFFECT_ROOT as _AFFECT_DIR,
+    AFFECT_CARE_LEDGER as _CARE_LEDGER,
+)
 
 
 # ── Per-OtherModel daily-budget reset ───────────────────────────────────────

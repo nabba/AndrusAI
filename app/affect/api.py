@@ -150,8 +150,8 @@ async def calibration_history(limit: int = 50) -> dict:
 @router.get("/reflections")
 async def reflections_list() -> dict:
     """List of daily reflection report dates (file basenames)."""
-    from pathlib import Path
-    rd = Path("/app/workspace/affect/reflections")
+    from app.paths import AFFECT_REFLECTIONS_DIR
+    rd = AFFECT_REFLECTIONS_DIR
     if not rd.exists():
         return {"reflections": []}
     files = sorted(rd.glob("*.json"))
@@ -167,11 +167,11 @@ async def reflections_list() -> dict:
 async def reflection_one(date: str) -> dict:
     """Single daily reflection by date (YYYY-MM-DD)."""
     import json
-    from pathlib import Path
+    from app.paths import AFFECT_REFLECTIONS_DIR
     # Whitelist date format to prevent path traversal.
     if not date or not all(c.isdigit() or c == "-" for c in date):
         raise HTTPException(status_code=400, detail="invalid date format")
-    p = Path("/app/workspace/affect/reflections") / f"{date}.json"
+    p = AFFECT_REFLECTIONS_DIR / f"{date}.json"
     if not p.exists():
         raise HTTPException(status_code=404, detail="reflection not found")
     try:

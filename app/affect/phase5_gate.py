@@ -34,8 +34,11 @@ from app.affect.schemas import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-_AFFECT_DIR = Path("/app/workspace/affect")
-_GATE_LOG = _AFFECT_DIR / "phase5_gate.jsonl"
+from app.paths import (  # noqa: E402  workspace-aware paths
+    AFFECT_ROOT as _AFFECT_DIR,
+    AFFECT_PHASE5_GATE as _GATE_LOG,
+    AFFECT_PHASE5_PROPOSALS as _PROPOSALS_FILE_REGISTERED,
+)
 
 
 # ── HARD thresholds — file-edit only. Conservative on purpose. ──────────────
@@ -211,7 +214,7 @@ def evaluate_gate() -> GateStatus:
 # ── Public API: design-time feature proposals ──────────────────────────────
 
 
-_PROPOSALS_FILE = _AFFECT_DIR / "phase5_proposals.jsonl"
+_PROPOSALS_FILE = _PROPOSALS_FILE_REGISTERED
 
 
 def evaluate_feature_proposal(

@@ -69,6 +69,32 @@ CONSCIOUSNESS_STATE = SUBIA_SELF_DIR / "consciousness-state.md"
 HOT_MD = SUBIA_WORKSPACE_DIR / "hot.md"
 SUBIA_INTEGRITY_MANIFEST = WORKSPACE_ROOT / ".subia_integrity.json"
 
+# ── Affect Layer paths ──────────────────────────────────────────────────
+# Mirror the SubIA pattern: every persistence path is registered here so
+# WORKSPACE_ROOT overrides (e.g. dev/test redirection to a tempdir) reach
+# the affect layer too. Modules under app/affect/ MUST import these
+# constants rather than hardcode `/app/workspace/affect/...`.
+AFFECT_ROOT                 = WORKSPACE_ROOT / "affect"
+AFFECT_TRACE                = AFFECT_ROOT / "trace.jsonl"
+AFFECT_AUDIT                = AFFECT_ROOT / "welfare_audit.jsonl"
+AFFECT_SETPOINTS            = AFFECT_ROOT / "setpoints.json"
+AFFECT_CALIBRATION          = AFFECT_ROOT / "calibration.json"
+AFFECT_REFLECTIONS_DIR      = AFFECT_ROOT / "reflections"
+AFFECT_ATTACHMENTS_DIR      = AFFECT_ROOT / "attachments"
+AFFECT_PEERS_DIR            = AFFECT_ATTACHMENTS_DIR / "peers"
+AFFECT_CARE_LEDGER          = AFFECT_ATTACHMENTS_DIR / "care_ledger.jsonl"
+AFFECT_CHECK_INS            = AFFECT_ATTACHMENTS_DIR / "check_in_candidates.jsonl"
+AFFECT_PHASE5_GATE          = AFFECT_ROOT / "phase5_gate.jsonl"
+AFFECT_PHASE5_PROPOSALS     = AFFECT_ROOT / "phase5_proposals.jsonl"
+AFFECT_L9_SNAPSHOTS         = AFFECT_ROOT / "l9_snapshots.jsonl"
+AFFECT_SALIENCE             = AFFECT_ROOT / "salience.jsonl"
+AFFECT_EPISODES_DIR         = AFFECT_ROOT / "episodes"
+AFFECT_LAST_FLUSH           = AFFECT_ROOT / "episodes_last_flush.txt"
+AFFECT_CHAPTERS_DIR         = AFFECT_ROOT / "chapters"
+AFFECT_HEALTH_CHECKS_DIR    = AFFECT_ROOT / "health_checks"
+AFFECT_IDENTITY_CLAIMS      = AFFECT_ROOT / "identity_claims.json"
+AFFECT_KB_TAGS              = AFFECT_ROOT / "episode_affect_tags.jsonl"
+
 # ── System-wide files ────────────────────────────────────────────────────
 SYSTEM_CHRONICLE = WORKSPACE_ROOT / "system_chronicle.md"
 WORKSPACE_LOCK = WORKSPACE_ROOT / ".workspace.lock"
@@ -90,6 +116,13 @@ _MANAGED_DIRS = (
     SUBIA_ROOT,
     SUBIA_SELF_DIR,
     SUBIA_WORKSPACE_DIR,
+    AFFECT_ROOT,
+    AFFECT_REFLECTIONS_DIR,
+    AFFECT_ATTACHMENTS_DIR,
+    AFFECT_PEERS_DIR,
+    AFFECT_EPISODES_DIR,
+    AFFECT_CHAPTERS_DIR,
+    AFFECT_HEALTH_CHECKS_DIR,
     EPISTEME_DIR,
     EPISTEME_TEXTS_DIR,
     EXPERIENTIAL_DIR,

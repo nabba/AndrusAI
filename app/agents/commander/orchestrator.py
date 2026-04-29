@@ -23,6 +23,7 @@ from app.agents.commander.routing import (
 from app.agents.commander.context import (
     _load_relevant_skills, _load_relevant_team_memory,
     _load_world_model_context, _load_policies_for_crew,
+    _load_care_modifiers_context,
     _load_knowledge_base_context, _load_homeostatic_context,
     _load_global_workspace_broadcasts,
     _load_episteme_context, _load_experiential_context,
@@ -1004,6 +1005,11 @@ class Commander:
             f_aesthetic = _ctx_pool.submit(_load_aesthetic_context, crew_task)
             f_tensions = _ctx_pool.submit(_load_tensions_context, crew_task)
             f_narrative = _ctx_pool.submit(_load_narrative_self_context, crew_task)
+            # Care modifiers: relational tone directives from the daily
+            # care-policies cycle. ≤80 chars when at least one modifier
+            # is on, "" otherwise. Closes the loop where care_policies
+            # computed advisory flags that nothing read.
+            f_care = _ctx_pool.submit(_load_care_modifiers_context)
             # Stage 4.1: true concurrent join with a single global deadline.
             # Previous version walked futures in order with per-future timeouts,
             # which compounded waits up to 8 s even though loaders ran in
@@ -1015,7 +1021,7 @@ class Commander:
                 (f_policies, "policies"), (f_world, "world"), (f_state, "state"),
                 (f_episteme, "episteme"), (f_experiential, "experiential"),
                 (f_aesthetic, "aesthetic"), (f_tensions, "tensions"),
-                (f_narrative, "narrative"),
+                (f_narrative, "narrative"), (f_care, "care"),
             ]
             _parts: dict = {lbl: "" for _, lbl in _futs}
             _fut_to_lbl = {f: lbl for f, lbl in _futs}

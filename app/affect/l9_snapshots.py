@@ -22,8 +22,10 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_AFFECT_DIR = Path("/app/workspace/affect")
-_L9_FILE = _AFFECT_DIR / "l9_snapshots.jsonl"
+from app.paths import (  # noqa: E402  workspace-aware paths
+    AFFECT_ROOT as _AFFECT_DIR,
+    AFFECT_L9_SNAPSHOTS as _L9_FILE,
+)
 
 
 def write_daily_snapshot() -> dict | None:

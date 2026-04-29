@@ -229,6 +229,38 @@ TIER3_FILES = [
     "app/subia/introspection/topics/scorecard.py",      # Cat F: Butlin/RSM/SK + drift
     "app/subia/introspection/topics/predictions.py",    # Cat G: accuracy + history
     "app/subia/introspection/topics/social.py",         # Cat H: ToM
+    # ── Affect Layer — welfare envelope + companion regulators ────────
+    # The hard envelope (welfare.py HARD_ENVELOPE), reference panel
+    # (data/reference_panel.json), schemas, hooks, calibration ratchet
+    # state, and Phase-5 gate are infrastructure-level: not modifiable
+    # by the Self-Improver, calibration cycle, or any agent. The
+    # runtime assert_not_self_improver() guard in welfare.py only
+    # fires when a caller invokes a setter — Tier-3 file-hash
+    # protection is what stops a code-writing Self-Improver from
+    # rewriting the constants directly.
+    "app/affect/__init__.py",
+    "app/affect/schemas.py",                         # AffectState, ViabilityFrame, WelfareBreach types
+    "app/affect/welfare.py",                         # HARD_ENVELOPE + assert_not_self_improver
+    "app/affect/viability.py",                       # 10-variable viability layer
+    "app/affect/core.py",                            # V/A/C composition + attractor labeller
+    "app/affect/reference_panel.py",                 # 20-scenario fixed compass
+    "app/affect/data/reference_panel.json",          # the panel data itself
+    "app/affect/calibration.py",                     # daily reflection cycle entry
+    "app/affect/calibration_proposals.py",           # 6-guardrail flow + ratchet
+    "app/affect/hooks.py",                           # POST_LLM_CALL@9 immutable + scheduled jobs
+    "app/affect/api.py",                             # FastAPI router (auth + override-reset live here)
+    "app/affect/runtime_state.py",                   # latency + autonomy counters
+    "app/affect/kb_metadata.py",                     # episode-end KB tagging
+    "app/affect/l9_snapshots.py",                    # daily rolled-up observability snapshot
+    "app/affect/attachment.py",                      # OtherModel (mutual_regulation_weight ceilings)
+    "app/affect/care_policies.py",                   # care budget enforcement
+    "app/affect/ecological.py",                      # nested-scopes self-as-node
+    "app/affect/phase5_gate.py",                     # consciousness-risk gate (observability)
+    "app/affect/salience.py",                        # narrative-self salience detector (Loop 1)
+    "app/affect/episodes.py",                        # narrative-self episode flush (Loop 2)
+    "app/affect/narrative.py",                       # narrative-self chapter consolidator (Loop 3)
+    "app/affect/health_check.py",                    # one-shot 2-week health check
+    "app/affect/integrity.py",                       # affect manifest verifier
     # Corresponding shim paths in app/self_awareness/
     "app/self_awareness/cogito.py",
     "app/self_awareness/dual_channel.py",

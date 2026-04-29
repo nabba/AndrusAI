@@ -29,9 +29,11 @@ from app.affect.welfare import HARD_ENVELOPE, healthy_dynamics_predicate
 
 logger = logging.getLogger(__name__)
 
-_AFFECT_DIR = Path("/app/workspace/affect")
-_CALIBRATION_FILE = _AFFECT_DIR / "calibration.json"
-_SETPOINTS_FILE = _AFFECT_DIR / "setpoints.json"
+from app.paths import (  # noqa: E402  workspace-aware paths
+    AFFECT_ROOT as _AFFECT_DIR,
+    AFFECT_CALIBRATION as _CALIBRATION_FILE,
+    AFFECT_SETPOINTS as _SETPOINTS_FILE,
+)
 
 # ── Per-variable "healthy direction" — used to tell loosening from tightening.
 # +1 means higher-is-healthier (so a higher setpoint is TIGHTER demand).

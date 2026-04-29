@@ -489,6 +489,52 @@ _CONTEXT_BUDGET = {
 }
 
 
+def _load_care_modifiers_context() -> str:
+    """Surface the daily care-policies advisory modifiers as a short
+    directive block in the agent's pre-task context.
+
+    The modifiers are computed in `app.affect.care_policies.current_modifiers()`
+    during the daily reflection cycle (04:30 Helsinki) and reflect
+    relational state — e.g. `prefer_warm_register` is set when the
+    primary user's rolling valence has been negative, and
+    `prioritize_proactive_polish` is set when the user has been silent
+    longer than the separation-trigger window.
+
+    The modifiers are advisory — they do NOT trigger autonomous
+    messages or other side-effects. They only adjust the agent's
+    register and response polish. Pre-fix this gap was an open loop:
+    care_policies computed flags that nothing read.
+
+    Token cost: ≤80 chars when at least one modifier is on; empty
+    string otherwise.
+
+    Returns "" on any failure path so callers stay safe.
+    """
+    try:
+        from app.affect.care_policies import current_modifiers
+        mods = current_modifiers()
+        directives: list[str] = []
+        if getattr(mods, "prefer_warm_register", False):
+            directives.append(
+                "prefer warm register (Finnish/Estonian quiet-courteous, "
+                "not chirpy)"
+            )
+        if getattr(mods, "prioritize_proactive_polish", False):
+            directives.append(
+                "prioritize proactive polish on user-known-interest topics"
+            )
+        if not directives:
+            return ""
+        return (
+            "CARE MODIFIERS (relational tone — advisory, never autonomous):\n- "
+            + "\n- ".join(directives)
+            + "\n\n"
+        )
+    except Exception:
+        logger.debug("care modifiers context load failed", exc_info=True)
+        return ""
+
+
 def _affect_budget_multiplier() -> float:
     """Affect-aware adjustment to the context budget.
 

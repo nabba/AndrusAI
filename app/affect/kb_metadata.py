@@ -29,7 +29,7 @@ from app.affect.schemas import AffectState, utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-_FALLBACK_FILE = Path("/app/workspace/affect/episode_affect_tags.jsonl")
+from app.paths import AFFECT_KB_TAGS as _FALLBACK_FILE  # noqa: E402  workspace-aware path
 
 # Threshold for "memorable" — episodes below this don't earn a KB entry.
 _MIN_INTENSITY = 0.20

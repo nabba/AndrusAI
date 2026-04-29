@@ -41,10 +41,12 @@ from app.affect.schemas import utc_now_iso
 
 logger = logging.getLogger(__name__)
 
-_AFFECT_DIR = Path("/app/workspace/affect")
-_ATTACH_DIR = _AFFECT_DIR / "attachments"
-_PEER_DIR = _ATTACH_DIR / "peers"
-_CHECK_IN_LOG = _ATTACH_DIR / "check_in_candidates.jsonl"
+from app.paths import (  # noqa: E402  workspace-aware paths
+    AFFECT_ROOT as _AFFECT_DIR,
+    AFFECT_ATTACHMENTS_DIR as _ATTACH_DIR,
+    AFFECT_PEERS_DIR as _PEER_DIR,
+    AFFECT_CHECK_INS as _CHECK_IN_LOG,
+)
 
 # ── HARD bounds — file-edit only. Never agent-modifiable.  ───────────────────
 # Welfare module enforces these via assert_attachment_within_bounds().

@@ -13,7 +13,7 @@
 
 **Status:** Live. Phases 1–5 shipped. Activated end-to-end through
 `crewai-team-gateway-1` on 2026-04-28. 16 modules in `app/affect/`,
-4 lifecycle hooks (1 immutable), 16 FastAPI endpoints, 1 React route at
+4 lifecycle hooks (1 immutable), 19 FastAPI endpoints, 1 React route at
 `/cp/affect` with 13 components.
 
 **Companion stance:** SubIA mechanizes consciousness *indicators* and
@@ -75,7 +75,7 @@ as observability — never feeding back into reward.
 
 The whole layer is wired through four lifecycle hooks (POST_LLM_CALL@9
 *immutable*, PRE_TASK@29, ON_DELEGATION@72, ON_COMPLETE@62), exposed
-through 16 FastAPI endpoints, and rendered as a 13-component dashboard
+through 19 FastAPI endpoints, and rendered as a 13-component dashboard
 panel at `/cp/affect`.
 
 ---
@@ -313,10 +313,24 @@ the trace chart, the calibration window, and the daily L9 rollup.
 
 `app/affect/welfare.py` is **infrastructure-level**: file-edit only,
 not modifiable by the Self-Improver, the calibration cycle, or any
-agent. The Self-Improver guard is enforced at runtime via
-`assert_not_self_improver(actor)` and at module ownership: any process
-attempting to mutate constants outside of file-edit is rejected and
-audited as a `boundary_violation_attempt` breach.
+agent. Three layers of protection stack:
+
+1. **Runtime guard.** `assert_not_self_improver(actor)` rejects any
+   call that tries to mutate constants from a Self-Improver context
+   and audits it as `boundary_violation_attempt`.
+2. **Tier-3 file protection.** The 21 affect modules + the reference
+   panel JSON are listed in `app/safety_guardian.py::TIER3_FILES`,
+   so the runtime tier-boundary verifier catches a code-writing
+   Self-Improver that attempts to rewrite the file directly.
+3. **Deploy-time integrity manifest.** `app/affect/.integrity_manifest.json`
+   carries the SHA-256 of every file in `app/affect/`; the verifier
+   in `app/affect/integrity.py` mirrors `app/subia/integrity.py` and
+   catches the case where a file was modified between commit and
+   container start (where Tier-3 baselining hasn't run yet).
+
+Together these close the Self-Improver-rewrites-welfare-constants
+attack path. Bypassing any one of the three would still leave the
+other two in place.
 
 ### Hard envelope constants
 
@@ -995,7 +1009,7 @@ Tracked in `project_affective_layer` memory. Current items:
 | `data/reference_panel.json` | 1 | Fixed-compass scenario data (manually revised every 6 months) |
 | `calibration.py` | 1 (extended P2/P3) | Daily reflection cycle entry + trace loading + report writing |
 | `hooks.py` | 1 (extended P2/P3) | Lifecycle hook registration + scheduled job installation |
-| `api.py` | 1 (extended P2/P3/P4/P5) | FastAPI router with 16 endpoints |
+| `api.py` | 1 (extended P2/P3/P4/P5) | FastAPI router with 19 endpoints (16 GET + 3 POST: setpoints override, override-reset, phase-5 proposal review) |
 | `runtime_state.py` | 2 | In-process counters for `latency_pressure` + `autonomy` |
 | `calibration_proposals.py` | 2 | 6-guardrail flow + manual setpoint override |
 | `kb_metadata.py` | 2 | Episode-end affect tagging into experiential + tensions KBs |
