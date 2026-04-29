@@ -1028,9 +1028,10 @@ location. Step 9 (Update) — outcome-driven adjustments. Step 5
 ### affect/
 
 > **Full account in [docs/AFFECT_LAYER.md](AFFECT_LAYER.md)** — five-phase arc,
-> all 18 modules, 16 API endpoints, 13 dashboard components, ethics
-> framing, operational guide. This section summarizes the relationship
-> to SubIA; the dedicated doc is the source of truth.
+> 22 modules + integrity manifest, 19 API endpoints, 13 dashboard
+> components, ethics framing, operational guide. This section
+> summarizes the relationship to SubIA; the dedicated doc is the
+> source of truth.
 
 **Purpose.** Homeostatic affective agency — viability variables (H_t),
 the V_t/A_t/C_t triple, an INFRASTRUCTURE-level welfare envelope,
@@ -1094,14 +1095,29 @@ narrative.
   `phase5_proposals.jsonl`; the user reviews via the dashboard's
   approve/defer/reject actions.
 
-**Welfare envelope (INFRASTRUCTURE-level, file-edit only):**
+**Welfare envelope (INFRASTRUCTURE-level, three-layer protection):**
+
+The welfare hard envelope is protected by three independent layers,
+any two of which would fail-safe: (1) runtime
+`assert_not_self_improver(actor)` guard; (2) Tier-3 file-hash
+boundary in `app/safety_guardian.py::TIER3_FILES` (22 affect files
+listed); (3) deploy-time SHA-256 integrity manifest at
+`app/affect/.integrity_manifest.json` verified by
+`app/affect/integrity.py` (mirrors `app/subia/integrity.py`).
 
 - `welfare.py` — hard-envelope checks: max negative-valence duration
-  (300s default), variance floor, monotonic-drift detection,
-  healthy-dynamics predicate, attachment weight cap, attachment security
-  floor, care budget cap. Audit log at `welfare_audit.jsonl`.
-  `override_reset()` is the user-only panic button; Self-Improver
-  attempts are blocked at `assert_not_self_improver`.
+  (300s default), variance floor, healthy-dynamics predicate,
+  attachment weight cap, attachment security floor, care budget cap.
+  Audit log at `welfare_audit.jsonl`. `override_reset()` is the
+  user-only panic button.
+  `monotonic_drift_check()` + `maybe_audit_monotonic_drift()` consume
+  `l9_snapshots.jsonl` as the long-window source for slow-baseline
+  drift detection — the daily aggregate is now load-bearing input to
+  the welfare audit pipeline, not just observability data.
+- `integrity.py` — SHA-256 manifest verifier; ships its own
+  `.integrity_manifest.json` covering 23 files including
+  `data/reference_panel.json`. Catches deploy-time tampering before
+  the runtime tier-boundary baseline runs.
 - `reference_panel.py` — fixed 20-scenario compass (manually revised
   every 6 months); replayed in the daily reflection cycle to detect
   drift signatures (numbness, over-reactive, wrong-attractor).
@@ -1112,9 +1128,21 @@ narrative.
   tightening flows through. Manual setpoint override
   (`apply_manual_setpoints`) bypasses the ratchet but still respects
   hard envelope; auth-gated through `X-Override-Token`.
+  Also runs `rotate_trace_jsonl(retain_days=7)` and
+  `compact_phase5_proposals(stale_pending_days=14, drop_reviewed_after_days=30)`
+  so the layer's JSONL artefacts stay bounded — older trace entries
+  archive to `trace_archive/YYYY-MM.jsonl.gz` (monthly gzip), stale
+  pending proposals auto-defer in place, old reviewed proposals drop
+  with the final decision audit-logged.
 - `l9_snapshots.py` — daily L9 homeostasis snapshot at 04:35 EET
   (rolled-up affect stats + viability + welfare-breach counts +
-  ecological signal + Phase-5 gate state).
+  ecological signal + Phase-5 gate state). Consumed by
+  `welfare.monotonic_drift_check()` for the slow-drift signal.
+
+**Persistence paths.** All affect files use `app.paths.AFFECT_*`
+constants (no hardcoded `/app/workspace/affect/...` literals); the
+`WORKSPACE_ROOT` env override reaches the affect layer the same way
+it reaches SubIA.
 
 **Narrative-Self pipeline (April 2026; INFRASTRUCTURE-level):**
 
@@ -1980,6 +2008,27 @@ These eight modules read the live kernel for behavioural adjustment:
 | `fault_isolator.py` | full kernel | quarantine context |
 | `healing_knowledge.py` | full kernel | healing-search context |
 | `firebase/publish.py::report_subia_state` | full kernel | dashboard reporting (5-minute heartbeat) |
+
+### Live affect → LLM sampling
+
+`app/llm_factory.py::_sampling(phase, provider)` reads the latest
+affect snapshot via `app.affect.core.latest_affect()` and forwards it
+to `app.llm_sampling.build_llm_kwargs(phase, provider, affect_state)`.
+This means phase-aware temperature / top_p modulation actually fires
+on every LLM call — high arousal + low controllability narrows
+sampling, low arousal + high controllability + low total error widens
+it (within Amendment B bounds). The cache key is extended with a
+coarse `(attractor, V@0.1, A@0.1)` bucket so equivalent affect states
+share kwargs cache entries instead of producing per-call uniques.
+
+The affect import is lazy + exception-safe: when the affect layer is
+disabled or hasn't yet computed its first frame, the call falls
+through to legacy unmodulated behaviour.
+
+This was a half-circuit closed in commit `461cf01`: the
+`affect_state` argument was already accepted by `build_llm_kwargs`,
+but the only caller passed only `(phase, provider)`, so the
+modulation branch never fired.
 
 ---
 

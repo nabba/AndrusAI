@@ -379,6 +379,29 @@ other two in place.
   used to register. The reference panel is the per-day check; this is
   the long-window companion.
 
+### Long-window monotonic drift detection
+
+`welfare.monotonic_drift_check()` is the slow-failure-mode check.
+Source of truth: `l9_snapshots.jsonl` (the daily aggregate written by
+`l9_snapshots.write_daily_snapshot` at 04:35 Helsinki). Compares the
+mean V_t of the *first* third of the window to the mean V_t of the
+*last* third; absolute delta > `monotonic_drift_max_points` (default
+1.0) returns drift detected. Default window is
+`monotonic_drift_window_days = 30`.
+
+`welfare.maybe_audit_monotonic_drift()` runs the check and, on drift,
+writes a `monotonic_drift_baseline` `WelfareBreach` (severity=`warn`)
+through the standard `audit()` path. Wired into the daily reflection
+cycle — the slow-drift signal flows through the same audit pipeline as
+the fast-failure-mode breaches and surfaces in the dashboard's
+`WelfareAuditLog`.
+
+This closes a previously orphaned channel: L9 snapshots used to be
+observability-only (read by the dashboard, no behavioural consumer);
+welfare drift detection used to live only in the in-process buffer
+of recent samples. Connecting the two means slow drift across weeks
+becomes a real audited signal, not just a chart.
+
 ---
 
 ## Reference panel
@@ -484,6 +507,35 @@ loosen-streaks for touched variables. Hard envelope still applies
 (values must fall in `[0.05, 0.95]` and weights in `[0.1, 3.0]`). The
 dashboard's `SetpointEditor` component drives this.
 
+### Retention and compaction
+
+The daily reflection cycle also runs persistence-bounded maintenance
+so the layer's JSONL artefacts stay finite without a separate cron
+entry. Both functions are best-effort + audit-aware; rotation
+failure does not block the reflection report itself.
+
+- **`rotate_trace_jsonl(retain_days=7, archive=True)`** — keeps only
+  the last 7 days of `trace.jsonl` (one record per POST_LLM_CALL) in
+  the live file. Older entries archive to
+  `AFFECT_ROOT/trace_archive/YYYY-MM.jsonl.gz` (append-mode gzip,
+  monthly buckets so multi-day rotations merge cleanly into the same
+  month file). On any archive failure the live file is left
+  untouched — preserve everything rather than risk loss.
+
+- **`compact_phase5_proposals(stale_pending_days=14, drop_reviewed_after_days=30)`** —
+  compacts the Phase-5 feature-proposal queue so it doesn't grow
+  unbounded for systems where no human visits the dashboard. Two
+  policies stack: pending proposals older than 14d auto-defer in
+  place (status flips to `auto_deferred`, kept in the file); reviewed
+  proposals older than 30d drop from the file with the final
+  decision audit-logged to `welfare_audit.jsonl` so the trail
+  survives compaction.
+
+Both functions are also exposed for ad-hoc invocation (e.g., when an
+operator wants to force a rotation outside the daily cycle). They
+return a small report dict that lands in the reflection report under
+`retention.trace` / `retention.phase5_proposals`.
+
 ---
 
 ## Attachment subsystem
@@ -553,11 +605,24 @@ user decides.
 Two advisory modifiers (`care_policies.current_modifiers`):
 
 - `prefer_warm_register`: triggered when user `rolling_valence < -0.10`
-  AND `interaction_count ≥ 3`. Read by routing/context modules to
-  match Finnish reserve.
+  AND `interaction_count ≥ 3`. Surfaces in agent pre-task context to
+  bias the register toward Finnish/Estonian quiet-courteous (not chirpy).
 - `prioritize_proactive_polish`: triggered when user has been silent
-  longer than `SEPARATION_TRIGGER_HOURS`. Background self-improvement
-  work focuses on the user's known interests.
+  longer than `SEPARATION_TRIGGER_HOURS`. Tells the agent to prefer
+  polishing on the user's known-interest topics.
+
+**Reach into agent behaviour.** The modifiers are consumed at
+`app/agents/commander/context.py::_load_care_modifiers_context()`
+and submitted to the parallel context-build pool by
+`app/agents/commander/orchestrator.py` alongside the other 11
+context loaders. When at least one modifier is on, the loader emits
+a small `CARE MODIFIERS … advisory, never autonomous` directive
+block (≤80 chars) into pre-task context. When both are off, the
+loader returns `""` and adds zero tokens.
+
+This is a recent close (commit `461cf01`). Before that, the modifiers
+were computed daily but no consumer read them — the open loop is now
+shut.
 
 The care budget is hard-capped: `record_spend(model, tokens, kind,
 note)` refuses if the daily allowance is exhausted. Spending is logged
@@ -720,39 +785,100 @@ documented in SUBIA.md.)
 
 ## Persistence layout
 
-All affect runtime state lives under `/app/workspace/affect/` (the
-container path; locally that's
-`/Users/andrus/BotArmy/crewai-team/workspace/affect/`).
+All affect runtime state lives under `WORKSPACE_ROOT/affect/`. The
+container path is `/app/workspace/affect/`; on developer machines
+`WORKSPACE_ROOT` is read from the environment so a local override
+(e.g. a tempdir for tests) reaches the affect layer the same way it
+reaches SubIA.
+
+**Single source of truth for paths.** Every persistence path is
+registered in `app/paths.py` as an `AFFECT_*` constant. Modules
+import them directly (`from app.paths import AFFECT_TRACE`,
+`AFFECT_AUDIT`, `AFFECT_SETPOINTS`, …) — no hardcoded
+`Path("/app/workspace/affect/...")` literals remain. `ensure_dirs()`
+creates the directory tree on boot via `_MANAGED_DIRS`.
 
 ```
-workspace/affect/
-├── trace.jsonl                       # per-tick affect snapshots (POST_LLM_CALL)
-├── welfare_audit.jsonl               # per-breach welfare audit log
-├── setpoints.json                    # soft-envelope viability setpoints (writable by calibration)
-├── calibration.json                  # calibration history + ratchet state
-├── reflections/
+workspace/affect/                     # AFFECT_ROOT
+├── trace.jsonl                       # AFFECT_TRACE — per-tick affect snapshot
+│                                     # (rotated daily; older entries → trace_archive/)
+├── trace_archive/
+│   └── YYYY-MM.jsonl.gz              # monthly-bucketed gzip archive (append-mode)
+├── welfare_audit.jsonl               # AFFECT_AUDIT — per-breach audit log
+├── setpoints.json                    # AFFECT_SETPOINTS — soft-envelope (writable by calibration)
+├── calibration.json                  # AFFECT_CALIBRATION — history + ratchet state
+├── reflections/                      # AFFECT_REFLECTIONS_DIR
 │   └── YYYY-MM-DD.json               # daily reflection reports
-├── l9_snapshots.jsonl                # daily rolled-up snapshots
-├── attachments/
+├── l9_snapshots.jsonl                # AFFECT_L9_SNAPSHOTS — daily rolled-up snapshots
+├── attachments/                      # AFFECT_ATTACHMENTS_DIR
 │   ├── user_andrus.json              # primary user OtherModel
-│   ├── peers/
+│   ├── peers/                        # AFFECT_PEERS_DIR
 │   │   ├── coder.json
 │   │   ├── researcher.json
 │   │   ├── writer.json
 │   │   └── introspector.json
-│   ├── check_in_candidates.jsonl     # latent separation-analog candidates (never auto-sent)
-│   └── care_ledger.jsonl             # cost-bearing care spending events
-├── episode_affect_tags.jsonl         # KB-metadata fallback when ChromaDB stores aren't available
-├── phase5_gate.jsonl                 # gate-raise audit
-├── phase5_proposals.jsonl            # feature-proposal queue
-├── salience.jsonl                    # Narrative-Self Loop 1 (companion track)
-├── episodes/                         # Narrative-Self Loop 2 (companion track)
-└── chapters/                         # Narrative-Self Loop 3 (companion track)
+│   ├── check_in_candidates.jsonl     # AFFECT_CHECK_INS — latent separation candidates (never auto-sent)
+│   └── care_ledger.jsonl             # AFFECT_CARE_LEDGER — cost-bearing care spend events
+├── episode_affect_tags.jsonl         # AFFECT_KB_TAGS — KB-metadata fallback
+├── phase5_gate.jsonl                 # AFFECT_PHASE5_GATE — gate-raise audit
+├── phase5_proposals.jsonl            # AFFECT_PHASE5_PROPOSALS — feature-proposal queue
+│                                     # (compacted daily; auto-defer >14d pending, drop >30d reviewed)
+├── identity_claims.json              # AFFECT_IDENTITY_CLAIMS — narrative-self FIFO claim slots
+├── salience.jsonl                    # AFFECT_SALIENCE — Narrative-Self Loop 1
+├── episodes/                         # AFFECT_EPISODES_DIR — Narrative-Self Loop 2
+├── chapters/                         # AFFECT_CHAPTERS_DIR — Narrative-Self Loop 3
+└── health_checks/                    # AFFECT_HEALTH_CHECKS_DIR — one-shot health-check reports
 ```
 
 The reference panel data file `app/affect/data/reference_panel.json`
 ships with the code — it's the fixed compass and is *not* in the
 workspace.
+
+### Integrity manifest
+
+`app/affect/.integrity_manifest.json` carries the SHA-256 of every
+file in `app/affect/` (23 files including the reference-panel JSON).
+`app/affect/integrity.py` mirrors `app/subia/integrity.py`:
+
+```python
+from app.affect.integrity import (
+    compute_manifest, write_manifest, load_manifest, verify_integrity,
+)
+
+# CI / dev regeneration after an authorized change:
+write_manifest(compute_manifest())
+
+# Runtime verification:
+result = verify_integrity()       # IntegrityResult: ok, missing, mismatched, extra
+verify_integrity(strict=True)     # raises IntegrityFault on any drift
+```
+
+This catches deploy-time tampering of the welfare envelope, attachment
+caps, reference panel, or hook handlers — the gap that motivated the
+SubIA manifest, applied here for the same reason. The module
+intentionally has zero imports from anywhere inside `app/affect/` so
+that integrity verification still runs even if the welfare module is
+broken.
+
+### Welfare envelope: three-layer protection
+
+The doc above describes individual components; pulled together, the
+welfare hard envelope is protected by three independent layers, any
+two of which would fail-safe:
+
+1. **Runtime guard** in `welfare.py::assert_not_self_improver(actor)`
+   — rejects setter calls from a Self-Improver context and audits
+   them as `boundary_violation_attempt`.
+2. **Tier-3 file boundary** in `app/safety_guardian.py::TIER3_FILES`
+   — 22 affect files (welfare, schemas, hooks, calibration ratchet
+   state, attachment + care, ecological, Phase-5 gate, narrative
+   loops, integrity, health check) listed; the runtime tier-boundary
+   verifier catches a code-writing Self-Improver attempting a file
+   rewrite.
+3. **Deploy-time integrity manifest** at
+   `app/affect/.integrity_manifest.json` — catches the case where a
+   file was modified between commit and container start, before the
+   Tier-3 baseline runs.
 
 ---
 
@@ -992,6 +1118,25 @@ Tracked in `project_affective_layer` memory. Current items:
 - Phase 6+ feature ideas (hypothetical) should consult the Phase-5
   gate via `evaluate_feature_proposal()` before design
 
+### Recently closed (commit `461cf01`)
+
+- ✅ `welfare.py` is now in `TIER3_FILES` (was unprotected)
+- ✅ `app/affect/.integrity_manifest.json` + verifier now exist
+- ✅ Affect modules migrated to `app.paths.AFFECT_*` (was hardcoded
+  `/app/workspace/affect`)
+- ✅ `_sampling()` in `llm_factory.py` reads `latest_affect()` and
+  passes it to `build_llm_kwargs` — phase-aware affect modulation
+  actually fires on the LLM hot path now
+- ✅ `trace.jsonl` retention + monthly gzip archive in
+  `rotate_trace_jsonl()`
+- ✅ `phase5_proposals.jsonl` compaction (auto-defer >14d pending,
+  drop >30d reviewed) in `compact_phase5_proposals()`
+- ✅ `current_modifiers()` consumed by commander via
+  `_load_care_modifiers_context()` — care directives reach agents
+- ✅ `welfare.monotonic_drift_check()` consumes `l9_snapshots.jsonl`
+  as the long-window drift source — the observability snapshot is
+  now a load-bearing input to the welfare audit pipeline
+
 ---
 
 ## Appendix — file inventory
@@ -1004,20 +1149,26 @@ Tracked in `project_affective_layer` memory. Current items:
 | `schemas.py` | 1 | `AffectState`, `ViabilityFrame`, `WelfareBreach`, `ReferenceScenarioResult` dataclasses |
 | `viability.py` | 1 (extended P2/P3/P4) | 10 viability variables + setpoint loading + composite E_t |
 | `core.py` | 1 | V/A/C computation + attractor labeller + trace persistence |
-| `welfare.py` | 1 (extended P3) | Hard envelope constants + breach audit + override-reset + Self-Improver guard |
+| `welfare.py` | 1 (extended P3, hardening) | Hard envelope constants + breach audit + override-reset + Self-Improver guard + `monotonic_drift_check()` (long-window L9 consumer) |
 | `reference_panel.py` | 1 | 20-scenario replay harness with synthetic InternalState |
 | `data/reference_panel.json` | 1 | Fixed-compass scenario data (manually revised every 6 months) |
-| `calibration.py` | 1 (extended P2/P3) | Daily reflection cycle entry + trace loading + report writing |
+| `calibration.py` | 1 (extended P2/P3, hardening) | Daily reflection cycle + trace loading + report writing + `rotate_trace_jsonl()` + `compact_phase5_proposals()` + monotonic drift wire-in |
 | `hooks.py` | 1 (extended P2/P3) | Lifecycle hook registration + scheduled job installation |
 | `api.py` | 1 (extended P2/P3/P4/P5) | FastAPI router with 19 endpoints (16 GET + 3 POST: setpoints override, override-reset, phase-5 proposal review) |
 | `runtime_state.py` | 2 | In-process counters for `latency_pressure` + `autonomy` |
 | `calibration_proposals.py` | 2 | 6-guardrail flow + manual setpoint override |
 | `kb_metadata.py` | 2 | Episode-end affect tagging into experiential + tensions KBs |
-| `l9_snapshots.py` | 2 (extended P4/P5) | Daily rolled-up snapshot writer |
+| `l9_snapshots.py` | 2 (extended P4/P5) | Daily rolled-up snapshot writer (consumed by `monotonic_drift_check`) |
 | `attachment.py` | 3 | OtherModel + load/save/update + separation analog + attachment_security |
-| `care_policies.py` | 3 | Care budget enforcement + advisory modifiers |
+| `care_policies.py` | 3 (consumer added) | Care budget enforcement + advisory modifiers (consumed by commander/`_load_care_modifiers_context()`) |
 | `ecological.py` | 4 | EcologicalSignal + nested scopes + composite score |
 | `phase5_gate.py` | 5 | Indicator gate evaluator + feature-proposal queue |
+| `salience.py` | Narrative-Self | Loop 1 — attractor-transition / |ΔV| / near-miss event detector |
+| `episodes.py` | Narrative-Self | Loop 2 — quiescence-clustered LLM reflections |
+| `narrative.py` | Narrative-Self | Loop 3 — daily 04:40 chapter consolidator |
+| `health_check.py` | Narrative-Self | One-shot 2-week health check |
+| **`integrity.py`** | hardening | SHA-256 manifest verifier (mirrors `app/subia/integrity.py`); covers 23 files including reference-panel JSON |
+| **`.integrity_manifest.json`** | hardening | Canonical SHA-256 baseline shipped in git |
 
 ### Frontend (`dashboard-react/src/`)
 
