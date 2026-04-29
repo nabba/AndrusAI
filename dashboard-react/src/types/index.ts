@@ -77,6 +77,7 @@ export interface Budget {
   is_paused: boolean;
   pct_used?: number;
   warning_pct?: number;
+  project_id?: string;
   project_name?: string;
 }
 

@@ -77,7 +77,8 @@ class BudgetEnforcer:
         period = _current_period()
         if project_id:
             rows = execute(
-                """SELECT agent_role, period, limit_usd, spent_usd,
+                """SELECT project_id::text AS project_id,
+                          agent_role, period, limit_usd, spent_usd,
                           limit_tokens, spent_tokens, is_paused,
                           ROUND(spent_usd / NULLIF(limit_usd, 0) * 100, 1) as pct_used
                    FROM control_plane.budgets
@@ -87,7 +88,8 @@ class BudgetEnforcer:
             )
         else:
             rows = execute(
-                """SELECT b.agent_role, b.period, b.limit_usd, b.spent_usd,
+                """SELECT b.project_id::text AS project_id,
+                          b.agent_role, b.period, b.limit_usd, b.spent_usd,
                           b.limit_tokens, b.spent_tokens, b.is_paused,
                           ROUND(b.spent_usd / NULLIF(b.limit_usd, 0) * 100, 1) as pct_used,
                           p.name as project_name
@@ -138,6 +140,35 @@ class BudgetEnforcer:
             resource_type="budget",
             detail={"agent_role": agent_role, "new_limit": new_limit, "period": period},
         )
+
+    def set_paused(self, project_id: str, agent_role: str,
+                   paused: bool, approver: str = "user") -> bool:
+        """Flip is_paused for an agent's current-period row.
+
+        Returns True when a row was updated, False if no matching row
+        existed. Audit-logged so the change shows up on the Audit tab.
+        """
+        period = _current_period()
+        rows = execute(
+            """UPDATE control_plane.budgets
+               SET is_paused = %s, updated_at = NOW()
+               WHERE project_id = %s
+                 AND agent_role = %s
+                 AND period = %s
+               RETURNING id""",
+            (paused, project_id, agent_role, period),
+            fetch=True,
+        ) or []
+        ok = bool(rows)
+        if ok:
+            self.audit.log(
+                actor=approver,
+                action="budget.paused" if paused else "budget.unpaused",
+                project_id=project_id,
+                resource_type="budget",
+                detail={"agent_role": agent_role, "period": period},
+            )
+        return ok
 
     def ensure_default_budgets(self, project_id: str, default_limit: float = 50.0) -> None:
         """Create default budgets for all agents in a project if not exists."""

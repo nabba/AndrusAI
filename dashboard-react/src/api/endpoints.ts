@@ -15,6 +15,7 @@ export const endpoints = {
   budgets: (projectId?: string) =>
     projectId ? `${CP}/budgets?project_id=${encodeURIComponent(projectId)}` : `${CP}/budgets`,
   budgetsOverride: () => `${CP}/budgets/override`,
+  budgetsPause: () => `${CP}/budgets/pause`,
   creditAlerts: () => `${CP}/credit-alerts`,
   creditAlertDismiss: () => `${CP}/credit-alerts/dismiss`,
   audit: (limit = 100, projectId?: string) =>

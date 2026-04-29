@@ -41,6 +41,12 @@ class BudgetOverride(BaseModel):
     new_limit: float
     approver: str = "user"
 
+class BudgetPauseToggle(BaseModel):
+    project_id: str
+    agent_role: str
+    paused: bool
+    approver: str = "user"
+
 class BudgetSet(BaseModel):
     project_id: str
     agent_role: str
@@ -212,6 +218,23 @@ def override_budget(body: BudgetOverride):
     from app.control_plane.budgets import get_budget_enforcer
     get_budget_enforcer().override_budget(body.project_id, body.agent_role, body.new_limit, body.approver)
     return {"status": "overridden"}
+
+@router.post("/budgets/pause")
+def toggle_budget_pause(body: BudgetPauseToggle):
+    """Flip the is_paused flag for an agent's current-period budget row.
+
+    Used by the Pause/Resume button on each Budget card.  Auto-creates
+    the row at the project default limit if missing so a fresh agent
+    can be pre-paused before it ever spends.
+    """
+    from app.control_plane.budgets import get_budget_enforcer
+    enforcer = get_budget_enforcer()
+    ok = enforcer.set_paused(body.project_id, body.agent_role, body.paused, body.approver)
+    if not ok:
+        # No row yet — seed one then flip.
+        enforcer.set_budget(body.project_id, body.agent_role, 50.0)
+        enforcer.set_paused(body.project_id, body.agent_role, body.paused, body.approver)
+    return {"status": "paused" if body.paused else "unpaused"}
 
 # ── Audit ────────────────────────────────────────────────────────────────────
 

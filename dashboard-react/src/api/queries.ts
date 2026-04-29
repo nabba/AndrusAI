@@ -147,6 +147,20 @@ export function useOverrideBudget() {
   });
 }
 
+export function useBudgetPauseToggle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { project_id: string; agent_role: string; paused: boolean }) =>
+      api<{ status: string }>(endpoints.budgetsPause(), {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['budgets'] });
+    },
+  });
+}
+
 // ── Audit ───────────────────────────────────────────────────────────────────
 export function useAuditQuery(limit = 100, projectId?: string, interval: number = POLL.normal) {
   return useQuery({

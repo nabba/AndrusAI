@@ -3,7 +3,7 @@ import { useProject } from '../context/useProject';
 import type { Budget } from '../types';
 import { Skeleton } from './ui/Skeleton';
 import { ErrorPanel } from './ui/ErrorPanel';
-import { useBudgetsQuery, useOverrideBudget } from '../api/queries';
+import { useBudgetsQuery, useOverrideBudget, useBudgetPauseToggle } from '../api/queries';
 import { CreditAlertsPanel } from './CreditAlertsPanel';
 
 function OverrideModal({
@@ -105,6 +105,7 @@ export function BudgetDashboard() {
   const { activeProject } = useProject();
   const [overrideBudget, setOverrideBudget] = useState<Budget | null>(null);
   const { data: budgets, isLoading, error, refetch } = useBudgetsQuery(activeProject?.id);
+  const pauseToggle = useBudgetPauseToggle();
 
   const totalSpent = budgets?.reduce((s, b) => s + b.spent_usd, 0) ?? 0;
   const totalLimit = budgets?.reduce((s, b) => s + b.limit_usd, 0) ?? 0;
@@ -194,12 +195,39 @@ export function BudgetDashboard() {
                       </span>
                     )}
                   </div>
-                  <button
-                    onClick={() => setOverrideBudget(budget)}
-                    className="text-xs px-2.5 py-1 border border-[#1e2738] text-[#7a8599] rounded-lg hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors"
-                  >
-                    Override
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        if (!budget.project_id) return;
+                        pauseToggle.mutate({
+                          project_id: budget.project_id,
+                          agent_role: budget.agent_role,
+                          paused: !budget.is_paused,
+                        });
+                      }}
+                      disabled={!budget.project_id || pauseToggle.isPending}
+                      title={
+                        !budget.project_id
+                          ? 'Select a specific project to toggle pause'
+                          : budget.is_paused
+                            ? 'Resume — allow this agent to spend'
+                            : 'Pause — block all LLM calls for this agent'
+                      }
+                      className={
+                        budget.is_paused
+                          ? 'text-xs px-2.5 py-1 border rounded-lg transition-colors border-[#34d399]/40 text-[#34d399] hover:bg-[#34d399]/10 disabled:opacity-50'
+                          : 'text-xs px-2.5 py-1 border rounded-lg transition-colors border-[#1e2738] text-[#7a8599] hover:border-[#fbbf24] hover:text-[#fbbf24] disabled:opacity-50'
+                      }
+                    >
+                      {budget.is_paused ? 'Resume' : 'Pause'}
+                    </button>
+                    <button
+                      onClick={() => setOverrideBudget(budget)}
+                      className="text-xs px-2.5 py-1 border border-[#1e2738] text-[#7a8599] rounded-lg hover:border-[#60a5fa] hover:text-[#60a5fa] transition-colors"
+                    >
+                      Override
+                    </button>
+                  </div>
                 </div>
 
                 <div className="space-y-1.5">
