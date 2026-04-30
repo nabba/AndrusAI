@@ -504,6 +504,83 @@ pair. Doesn't touch lower-priority auto-promotion artefacts.
 The dashboard surfaces 📌 inline on each role card and exposes a
 "Pin to role" dialog from each model card in the catalog grid.
 
+### 10.4 Registry scanner (local-model proposals)
+
+`app/llm_registry_scanner.py`. Closes the gap exposed by the
+2026-04-25 qwen3.5 incident: the `scan_ollama()` half of discovery
+only sees the **local** Ollama daemon's `/api/tags`, so a
+strictly-better release like `qwen3.5:35b-a3b-q4_K_M` (3 weeks live,
+fixes mem0 function-calling, vision + thinking modes) stayed
+invisible for 21 days because nobody had pulled it yet.
+
+The scanner crawls `ollama.com/library/<family>/tags` for an
+allowlist of families (default: qwen3.5, qwen3, gemma3, llama3.1,
+llama4, deepseek-r1, codestral; tunable via
+`LLM_REGISTRY_FAMILIES`), parses the variant rows, applies a host-
+capacity-aware size cap (auto-detected via `probe_host_capacity()` —
+total RAM minus OS baseline minus Docker overhead, divided by
+`OLLAMA_MAX_LOADED_MODELS` and the KV-cache factor), and emits
+`local_model_pull` governance requests.
+
+**Safety invariant: the scanner NEVER auto-pulls.** Pulls are 5–50 GB
+on disk and hot-load into the same memory as every other Ollama
+model — the `deepseek-r1:32b` SIGKILL spiral happened exactly because
+that ceiling was ignored. Every candidate becomes a governance
+request that the user approves via dashboard or Signal.
+
+After `diff_against_local()` strips already-pulled tags, three
+proposal filters chain in `_scan_registry_and_propose()`. They were
+added 2026-04-30 in response to a 9-of-9 governance rejection storm
+(three model variants × three idle-cycle re-proposals each). All
+three parse a tag like `qwen3.5:35b-a3b-q4_K_M` into structural parts
+via `_parse_model_id()` → `(family, size_b, quant, variants)` and
+degrade gracefully when the parse can't identify the dimension they
+care about (no false-positive blocks).
+
+**Filter 1 — same-family dominance** (`filter_dominated_by_installed`):
+skips a candidate when its family already has a strictly larger
+locally-installed sibling.
+
+```text
+installed: qwen3.5:35b-a3b-q4_K_M (35B)
+proposed:  qwen3.5:4b-q8_0          (4B)  → SKIP — strict downgrade
+proposed:  qwen3.5:122b-a10b        (122B) → KEEP — larger, not dominated
+proposed:  llama3.1:8b              (8B)   → KEEP — different family
+```
+
+**Filter 2 — quantization preference** (`filter_quant_dominated`):
+skips a candidate that's a higher-quant (bigger / more precise)
+version of an installed `(family, size, variants)` triple. Quant
+ranking via `_QUANT_RANK` (`q4_K_M=4 < q5_K_M=5 < q8_0=7 < fp16=9`).
+
+```text
+installed: qwen3.5:35b-a3b-q4_K_M
+proposed:  qwen3.5:35b-a3b-q8_0    → SKIP — q8 doubles disk for marginal quality
+proposed:  qwen3.5:35b-a3b-fp16    → SKIP — even larger, same reason
+
+installed: qwen3.5:35b-a3b-q8_0
+proposed:  qwen3.5:35b-a3b-q4_K_M  → KEEP — leaner alternative
+```
+
+**Filter 3 — rejection learning** (`filter_recently_rejected`):
+reads `control_plane.governance_requests` for `local_model_pull` rows
+with `status='rejected'` in the last 30 days; skips matching
+`model_id`s. DB failure returns an empty set so the scanner stays
+loud-over-silent (proposes; doesn't suppress). Suppression window
+tunable via the `_REJECTION_SUPPRESSION_DAYS` constant.
+
+The three filters cap top-3 candidates per cycle (`new_candidates[:3]`)
+and dedupe against existing pending governance requests
+(`_existing_pull_proposal_models`) so an idle cycle that runs every
+few minutes doesn't flood the queue.
+
+A telemetry log line records when filtering reduces the candidate
+set so operators can audit suppression decisions:
+
+```
+registry_scan: filtered 46 → 41 after dominance/quant/rejection checks
+```
+
 ---
 
 ## 11. External rankings
@@ -670,6 +747,7 @@ Fine-grained event log inside a crew run.
 | `app/llm_role_assignments.py` | DB overlay (hand-pins + auto-promotions) |
 | `app/llm_promotions.py` | Promotion CRUD |
 | `app/llm_discovery.py` | Pareto-dominance discovery + governance gating |
+| `app/llm_registry_scanner.py` | ollama.com crawler + host-capacity probe + 3 proposal filters (dominance/quant/rejection) |
 | `app/llm_external_ranks.py` | AA / OpenRouter / HF blending |
 | `app/llm_benchmarks.py` | Per-call telemetry + score aggregation |
 | `app/llm_rehydrate.py` | Rebuild CATALOG from snapshot at boot |
@@ -762,6 +840,10 @@ Dashboard → Tasks tab → click any row. Drawer opens; toggle 🌳 Tree
 | Vetting hangs | Bounded `llm.call()` timeout (~30 s) | Parent task's soft-timeout still fires |
 | Span never finishes (CrewAI bus crash) | 10-min watchdog `close_stale_spans` marks them failed | Dashboard doesn't show eternally-running spans |
 | Discovery promotes the wrong model | Demote button on dashboard or `demote <model>` Signal | Catalog rehydrates immediately |
+| ollama.com unreachable or HTML format changes | `parse_tags_page()` returns `[]`, no proposals emitted | Degrades silently — local discovery still runs; never raises |
+| `governance_requests` table unreachable for rejection lookup | `get_recently_rejected_models()` returns `set()` | Loud-over-silent: scanner still proposes, user re-rejects if needed |
+| Scanner repeatedly proposes a smaller-family sibling of an installed model | `filter_dominated_by_installed` blocks at source | 2026-04-30 fix; removes the 9-of-9 rejection storm scenario |
+| Host-capacity probe fails (no env, no Docker, no sysctl) | `_DEFAULT_MAX_SIZE_GB_FALLBACK = 16 GB` cap | Strictly conservative — better to under-propose than blow memory |
 
 ---
 
@@ -777,6 +859,7 @@ Dashboard → Tasks tab → click any row. Drawer opens; toggle 🌳 Tree
 | `tests/test_llm_external_ranks.py` | AA / OR / HF fetchers, blend weighting |
 | `tests/test_llm_rebenchmark.py` | Incumbent rotation, judge selection |
 | `tests/test_llm_discovery.py` | Pareto-dominance, governance gating |
+| `tests/test_llm_registry_scanner.py` | Tags-page parser, host-capacity probe, dominance / quant / rejection-learning filters |
 | `tests/test_llm_telemetry.py` | Per-call recording, ContextVar hygiene |
 | `tests/test_vetting_feedback.py` | Vetting failure → tier bump |
 | `tests/test_crew_task_spans.py` | Span persistence, ContextVar correlation, event-map roundtrip |
@@ -809,6 +892,10 @@ pytest tests/test_llm_*.py tests/test_vetting_feedback.py tests/test_crew_task_s
 | **Span watchdog** | `close_stale_spans` — marks spans stuck in `running` past 10 minutes as `failed`. |
 | **Incumbent** | The current top-scoring model for a role + mode pair. Discovery proposes replacements. |
 | **Pareto dominance** | Quality ≥ AND cost ≤ (with at least one strict inequality, mode-weighted). |
+| **Registry scanner** | `app/llm_registry_scanner.py` — crawls ollama.com for new local-model variants, applies host-capacity sizing + three proposal filters, emits governance requests. Never auto-pulls. |
+| **Same-family dominance** | A candidate is "dominated" when its family already has a strictly larger sibling installed (qwen3.5:4b vs qwen3.5:35b). Such proposals are skipped — installing a smaller variant of an existing model is almost always a mistake. |
+| **Quant rank** | Numeric ordering over quantizations (q4_K_M=4, q5_K_M=5, q8_0=7, fp16=9). Used by `filter_quant_dominated` to skip "bigger for marginal gain" variants of an installed base. |
+| **Rejection learning** | `filter_recently_rejected` reads `governance_requests` for `local_model_pull` rejections in the last 30 days and suppresses re-proposing the same `model_id`. Stops the idle-cycle nag loop. |
 
 ---
 
