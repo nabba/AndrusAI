@@ -480,10 +480,212 @@ def create_email_tools(agent_id: str) -> list:
             except Exception as e:
                 return f"Error organizing email: {str(e)[:300]}"
 
+    # ── rank_emails: heuristic importance ranking ─────────────────
+    #
+    # Added 2026-04-30 to give the PIM agent a real signal beyond
+    # recency when the user asks "rank my top N most important emails".
+    # The scorer in app.tools.email_importance combines bulk markers,
+    # personal/threaded markers, action keywords, and an env-driven
+    # allowlist. Output includes per-email reasons so the agent can
+    # explain *why* something ranked where it did.
+
+    class _RankEmailsInput(BaseModel):
+        folder: str = Field(default="INBOX", description="Mailbox folder to rank")
+        top_n: int = Field(
+            default=10,
+            description=(
+                "Number of top-ranked emails to return. Cap at 50 to "
+                "keep the LLM-readable summary compact."
+            ),
+        )
+        hours_back: int = Field(
+            default=0,
+            description=(
+                "If >0, only consider emails received within the last N "
+                "hours. Use this for queries like 'most important emails "
+                "in the last 6 hours'."
+            ),
+        )
+        days_back: int = Field(
+            default=1,
+            description=(
+                "If hours_back is 0, look back this many days (default 1 "
+                "= yesterday + today). Set to 7 for weekly digests etc."
+            ),
+        )
+        include_reasons: bool = Field(
+            default=True,
+            description=(
+                "If True, append a one-line reason summary after each "
+                "ranked email so the user/agent can audit the ranking."
+            ),
+        )
+
+    class RankEmailsTool(BaseTool):
+        name: str = "rank_emails"
+        description: str = (
+            "Rank inbox emails by HEURISTIC IMPORTANCE (not recency). "
+            "Combines bulk-marker analysis (List-Unsubscribe, noreply "
+            "senders, marketing keywords) with personal-marker analysis "
+            "(direct To:, threaded reply, action keywords like 'urgent') "
+            "and an env-curated allowlist (EMAIL_IMPORTANT_SENDERS). "
+            "USE THIS for queries like 'top N most important emails', "
+            "'rank emails by importance', or 'what should I read first'. "
+            "Returns top_n emails sorted by score, with optional reasons "
+            "explaining the rank."
+        )
+        args_schema: Type[BaseModel] = _RankEmailsInput
+
+        def _run(
+            self, folder: str = "INBOX", top_n: int = 10,
+            hours_back: int = 0, days_back: int = 1,
+            include_reasons: bool = True,
+        ) -> str:
+            from app.tools.email_importance import (
+                EmailHeaders, score_email, _parse_allowlist,
+            )
+            from app.config import get_settings
+            try:
+                top_n = max(1, min(50, int(top_n)))
+                conn = _connect_imap(cfg)
+                conn.select(folder, readonly=True)
+
+                # Build a SINCE window. Hours-back uses day granularity in
+                # IMAP, then post-filters on the Date header for precision.
+                since_dt: datetime | None = None
+                if hours_back > 0:
+                    since_dt = datetime.now() - timedelta(hours=hours_back)
+                elif days_back > 0:
+                    since_dt = datetime.now() - timedelta(days=days_back)
+                criteria = "ALL"
+                if since_dt is not None:
+                    criteria = f'SINCE "{since_dt.strftime("%d-%b-%Y")}"'
+                _, msg_nums = conn.search(None, criteria)
+                nums = msg_nums[0].split()
+                if not nums:
+                    conn.close()
+                    conn.logout()
+                    return "No emails to rank in the requested window."
+
+                # Cap how many messages we fetch headers for. 200 is plenty
+                # for daily / weekly triage and bounds IMAP cost.
+                _MAX_FETCH = 200
+                if len(nums) > _MAX_FETCH:
+                    nums = nums[-_MAX_FETCH:]
+
+                # Pull unread set in one shot so we don't hit IMAP per row
+                unread_set: set[bytes] = set()
+                try:
+                    _, _u = conn.search(None, "UNSEEN")
+                    unread_set = set(_u[0].split())
+                except Exception:
+                    pass
+
+                user_address = cfg.get("address", "")
+                allowlist = _parse_allowlist(
+                    get_settings().email_important_senders
+                )
+
+                rows: list[tuple[float, list[str], str, str, str]] = []
+                # Each row: (score, reasons, from, subject, date_str)
+
+                for num in reversed(nums):
+                    _, data = conn.fetch(
+                        num,
+                        "(BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE "
+                        "LIST-UNSUBSCRIBE LIST-ID AUTO-SUBMITTED PRECEDENCE "
+                        "IN-REPLY-TO REFERENCES)])",
+                    )
+                    if not data or not data[0]:
+                        continue
+                    raw = data[0][1]
+                    if isinstance(raw, bytes):
+                        raw = raw.decode("utf-8", errors="replace")
+                    msg_h = email.message_from_string(raw)
+
+                    # Post-filter for sub-day windows
+                    msg_dt = None
+                    date_raw = msg_h.get("Date", "")
+                    try:
+                        msg_dt = email.utils.parsedate_to_datetime(date_raw)
+                    except Exception:
+                        pass
+                    if since_dt is not None and msg_dt is not None:
+                        # Normalise both to naive local for comparison
+                        msg_dt_cmp = msg_dt
+                        if msg_dt_cmp.tzinfo is not None:
+                            msg_dt_cmp = msg_dt_cmp.astimezone().replace(tzinfo=None)
+                        if msg_dt_cmp < since_dt:
+                            continue
+
+                    headers = EmailHeaders(
+                        from_=_decode_header(msg_h.get("From", "")),
+                        to=_decode_header(msg_h.get("To", "")),
+                        cc=_decode_header(msg_h.get("Cc", "")),
+                        subject=_decode_header(msg_h.get("Subject", "")),
+                        list_unsubscribe=msg_h.get("List-Unsubscribe"),
+                        list_id=msg_h.get("List-ID"),
+                        auto_submitted=msg_h.get("Auto-Submitted"),
+                        precedence=msg_h.get("Precedence"),
+                        in_reply_to=msg_h.get("In-Reply-To"),
+                        references=msg_h.get("References"),
+                        date=msg_dt,
+                        unread=(num in unread_set),
+                    )
+                    s = score_email(
+                        headers,
+                        user_address=user_address,
+                        important_senders=allowlist,
+                    )
+                    rows.append((
+                        s.score, s.reasons,
+                        headers.from_ or "(unknown)",
+                        headers.subject or "(no subject)",
+                        date_raw,
+                    ))
+
+                conn.close()
+                conn.logout()
+
+                if not rows:
+                    return "No emails to rank in the requested window."
+
+                # Sort by score desc; tiebreak by recency (date string is
+                # not strictly orderable but rows already came in newest-
+                # first so a stable sort preserves that on equal scores).
+                rows.sort(key=lambda r: r[0], reverse=True)
+                out_rows = rows[:top_n]
+
+                window_desc = (
+                    f"last {hours_back}h" if hours_back > 0
+                    else f"last {days_back}d" if days_back > 0
+                    else "inbox"
+                )
+                lines = [
+                    f"Top {len(out_rows)} most important email(s) "
+                    f"({window_desc}, {len(rows)} considered):",
+                    "",
+                ]
+                for i, (score, reasons, frm, subj, date) in enumerate(out_rows, 1):
+                    lines.append(f"{i}. [score={score:+.1f}] {frm}")
+                    lines.append(f"   Subject: {subj}")
+                    lines.append(f"   Date: {date}")
+                    if include_reasons and reasons:
+                        # Cap reason list so output stays compact for LLM
+                        rs = ", ".join(reasons[:6])
+                        if len(reasons) > 6:
+                            rs += f" (+{len(reasons)-6} more)"
+                        lines.append(f"   Why: {rs}")
+                    lines.append("")
+                return "\n".join(lines).rstrip()
+            except Exception as e:
+                return f"Error ranking emails: {str(e)[:300]}"
+
     return [
         CheckEmailTool(),
         ReadEmailTool(),
         SendEmailTool(),
         SearchEmailTool(),
         OrganizeEmailTool(),
+        RankEmailsTool(),
     ]

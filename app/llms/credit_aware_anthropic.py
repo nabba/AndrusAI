@@ -29,8 +29,11 @@ Behaviour is a single, standard override of ``call()``:
 
   1. If an OpenRouter-backed fallback has already been built on this
      instance, every subsequent call goes straight to it.
-  2. Otherwise: delegate to the parent ``AnthropicCompletion.call()``.
-  3. On a 400 whose message matches the credit-exhausted signature:
+  2. Otherwise: delegate to the parent ``AnthropicCompletion.call()``,
+     wrapped in a wall-clock timeout (``CREDIT_AWARE_CALL_TIMEOUT_SECS``,
+     default 180s).
+  3. On a 400 whose message matches the credit-exhausted signature OR
+     a timeout firing:
        - Trip ``circuit_breaker["anthropic_credits"]`` (process-wide
          authoritative state; all other LLM factories read this).
        - Build the fallback LLM via the injected factory and retry the
@@ -38,6 +41,13 @@ Behaviour is a single, standard override of ``call()``:
   4. All other exceptions propagate unchanged — we don't catch generic
      400s, rate-limits, or network errors, those belong to the existing
      circuit breaker and retry layers.
+
+The timeout (added 2026-04-30 after a 28-min PIM stall during a
+credit-exhausted window) is the second-most-important guardrail: even
+if the credit-exhausted detection misses (e.g. Anthropic returns a
+different shape one day), an unresponsive direct call will fail fast
+and route through OpenRouter rather than block the orchestrator until
+its 15-min soft-timeout fires with zero output.
 
 Thread safety
 -------------
@@ -51,7 +61,10 @@ authoritative "credits exhausted" boolean).
 """
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import logging
+import os
 import threading
 from typing import Any, Callable, Optional
 
@@ -80,6 +93,76 @@ def is_credit_exhausted_error(exc: BaseException) -> bool:
     """
     msg = str(exc).lower()
     return all(marker in msg for marker in _CREDIT_EXHAUSTED_MARKERS)
+
+
+# ── Per-call wall-clock guard ────────────────────────────────────────
+#
+# An Anthropic completion that hangs without ever emitting a response
+# is the worst outage shape: the task pinned a thread, no telemetry
+# fires, the orchestrator's soft-timeout silently kills it 15 minutes
+# later. This timeout caps ``super().call()`` so the credit-aware
+# failover path can fire even when Anthropic returns no response at
+# all (vs. a clean 400).
+#
+# Default 180s gives ~80% margin over the longest legitimate completion
+# (max-output Sonnet ≈ 100s) while staying well under the 15-min
+# orchestrator soft cap. Operators can tune via env if they routinely
+# hit longer completions. Set 0 to disable (disabling reverts to the
+# pre-2026-04-30 behaviour and is NOT recommended).
+
+_DEFAULT_CALL_TIMEOUT_SECS = 180.0
+_TIMEOUT_MARKER = "anthropic-call-timeout"
+
+
+def _resolve_call_timeout() -> float:
+    """Read ``CREDIT_AWARE_CALL_TIMEOUT_SECS`` from env, falling back
+    to the safe default. Re-resolved per call so live env mutations
+    take effect without restart.
+    """
+    raw = os.getenv("CREDIT_AWARE_CALL_TIMEOUT_SECS", "").strip()
+    if not raw:
+        return _DEFAULT_CALL_TIMEOUT_SECS
+    try:
+        val = float(raw)
+        # 0 or negative disables the timeout entirely (escape hatch);
+        # otherwise floor at 5s so a misconfiguration can't make every
+        # call fail instantly.
+        if val <= 0:
+            return 0.0
+        return max(5.0, val)
+    except ValueError:
+        return _DEFAULT_CALL_TIMEOUT_SECS
+
+
+def is_anthropic_timeout(exc: BaseException) -> bool:
+    """Return True iff the exception represents the per-call timeout
+    we synthesise above (sync or async path)."""
+    return _TIMEOUT_MARKER in str(exc)
+
+
+# Single shared executor for sync-path timeouts.  Daemon-threaded so
+# Python shutdown isn't blocked by a stuck Anthropic call. max_workers
+# is generous (32) because individual Anthropic completions can run
+# for a minute+ and we don't want unrelated calls to queue.
+_TIMEOUT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=32,
+    thread_name_prefix="anth-timeout",
+)
+
+
+class _AnthropicCallTimeout(TimeoutError):
+    """Raised when a direct Anthropic call exceeds the wall-clock cap.
+
+    Subclasses :class:`TimeoutError` so any external retry logic that
+    treats timeouts specially still works; the marker substring lets
+    :func:`is_anthropic_timeout` recognise it for failover routing.
+    """
+
+    def __init__(self, secs: float):
+        super().__init__(
+            f"{_TIMEOUT_MARKER}: anthropic direct call exceeded {secs:.0f}s "
+            "wall-clock — failing over to OpenRouter"
+        )
 
 
 class CreditAwareAnthropicCompletion(AnthropicCompletion):
@@ -141,20 +224,22 @@ class CreditAwareAnthropicCompletion(AnthropicCompletion):
             # No fallback configured: try direct and let the error speak.
 
         try:
-            return super().call(*args, **kwargs)
+            return self._call_with_timeout(*args, **kwargs)
         except Exception as exc:
-            if not is_credit_exhausted_error(exc):
+            # Both credit-exhausted 400s AND wall-clock timeouts route
+            # through the same failover path. The timeout case was added
+            # 2026-04-30 after a 28-min PIM stall where a hung Anthropic
+            # call blocked the agent until the orchestrator gave up.
+            if not (is_credit_exhausted_error(exc) or is_anthropic_timeout(exc)):
                 raise
-            # FRESH credit-exhausted signal: trip the breaker once (here,
-            # not inside _ensure_fallback, so we don't reset the cooldown
-            # clock on instances that encounter an already-open breaker).
             circuit_breaker.record_failure("anthropic_credits")
             fallback = self._ensure_fallback()
             if fallback is None:
                 raise
+            cause = "credit-exhausted 400" if is_credit_exhausted_error(exc) else "wall-clock timeout"
             logger.warning(
-                "CreditAwareAnthropicCompletion: credit-exhausted 400 from "
-                "Anthropic — failing over mid-call to OpenRouter Claude."
+                "CreditAwareAnthropicCompletion: %s from Anthropic — "
+                "failing over mid-call to OpenRouter Claude.", cause,
             )
             return fallback.call(*args, **kwargs)
 
@@ -166,19 +251,57 @@ class CreditAwareAnthropicCompletion(AnthropicCompletion):
                 return await fallback.acall(*args, **kwargs)
 
         try:
-            return await super().acall(*args, **kwargs)
+            return await self._acall_with_timeout(*args, **kwargs)
         except Exception as exc:
-            if not is_credit_exhausted_error(exc):
+            if not (is_credit_exhausted_error(exc) or is_anthropic_timeout(exc)):
                 raise
             circuit_breaker.record_failure("anthropic_credits")
             fallback = self._ensure_fallback()
             if fallback is None:
                 raise
+            cause = "credit-exhausted 400" if is_credit_exhausted_error(exc) else "wall-clock timeout"
             logger.warning(
-                "CreditAwareAnthropicCompletion: credit-exhausted 400 from "
-                "Anthropic (async) — failing over mid-call to OpenRouter Claude."
+                "CreditAwareAnthropicCompletion: %s from Anthropic (async) — "
+                "failing over mid-call to OpenRouter Claude.", cause,
             )
             return await fallback.acall(*args, **kwargs)
+
+    # ── Timeout wrappers ────────────────────────────────────────────
+    #
+    # Sync path: submit ``super().call`` to a daemon-thread executor
+    # and wait with a wall-clock timeout. If the future doesn't return
+    # in time, we surface :class:`_AnthropicCallTimeout` so the failover
+    # path triggers. The hung thread keeps running in the background
+    # (Python can't kill threads) but the caller gets control back —
+    # which is what allows the orchestrator to deliver an answer via
+    # OpenRouter instead of pinning a thread for 15+ minutes with zero
+    # progress.
+    #
+    # Async path: ``asyncio.wait_for`` cancels the underlying coroutine
+    # cleanly, which is the right behaviour because async cancellation
+    # actually propagates.
+
+    def _call_with_timeout(self, *args, **kwargs):
+        timeout = _resolve_call_timeout()
+        if timeout <= 0:
+            return super().call(*args, **kwargs)
+        future = _TIMEOUT_EXECUTOR.submit(super().call, *args, **kwargs)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            future.cancel()  # best-effort; the thread keeps running
+            raise _AnthropicCallTimeout(timeout)
+
+    async def _acall_with_timeout(self, *args, **kwargs):
+        timeout = _resolve_call_timeout()
+        if timeout <= 0:
+            return await super().acall(*args, **kwargs)
+        try:
+            return await asyncio.wait_for(
+                super().acall(*args, **kwargs), timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise _AnthropicCallTimeout(timeout)
 
     # ── Internals ───────────────────────────────────────────────────
 

@@ -9,12 +9,25 @@ Handle this personal information management task:
 {user_input}
 
 You have access to:
-- Email (IMAP/SMTP): check inbox, read, send, search, organize.
-  The check_email tool supports hours_back, days_back, and count_only
-  parameters — use them for time-windowed queries like "emails from last
-  3 hours" or count-only questions like "how many emails today".
+- Email (IMAP/SMTP): check inbox, read, send, search, organize, rank.
+  - check_email — list/count by recency. Supports hours_back, days_back,
+    from_sender, subject_contains, count_only. Use for "how many emails
+    today" or "emails from Alice this week".
+  - rank_emails — RANK BY IMPORTANCE (not recency). Combines bulk-marker
+    analysis (List-Unsubscribe, noreply senders, marketing keywords) with
+    personal-marker analysis (direct To:, threaded reply, action keywords)
+    and an env-curated allowlist. USE THIS for "top N most important",
+    "rank emails", "what should I read first", "important emails today".
+  - read_email / search_email — full-content read or query by subject.
+  - send_email — confirm details before executing.
+  - organize_email — mark read/unread, archive, move.
 - Calendar (macOS Calendar): list, create, search, delete events
 - Tasks (local database): create, list, update, complete, search
+
+TOOL SELECTION FOR EMAIL RANKING:
+If the user asks for emails ranked / sorted by importance, use rank_emails,
+NOT check_email. check_email returns recent emails (newest first); it has
+no notion of importance. rank_emails uses the importance scorer.
 
 CRITICAL: You DO have email/calendar/task tools — they are loaded in your
 tool list.  If a tool call fails, report the ACTUAL error message from the

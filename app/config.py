@@ -282,6 +282,14 @@ class Settings(BaseSettings):
     email_address: str = ""
     email_password: SecretStr = SecretStr("")  # Gmail: use App Password
 
+    # Importance ranking (rank_emails tool): comma-separated list of
+    # senders to upweight. Each entry can be a full address
+    # (alice@example.com), a domain (@example.com), or a name fragment
+    # (Alice). Match is case-insensitive substring on the From header.
+    # Empty = no upweight overlay (heuristic still ranks personal mail
+    # above bulk/marketing via header analysis).
+    email_important_senders: str = ""
+
     # ── SEC EDGAR (financial filings API — free, no key) ──────
     sec_edgar_user_agent: str = "BotArmy/1.0 (contact@example.com)"
 
