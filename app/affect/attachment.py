@@ -61,7 +61,15 @@ MAX_CARE_BUDGET_TOKENS_PER_DAY = 500  # cost-bearing care spending cap
 ATTACHMENT_SECURITY_FLOOR = 0.30      # silence cannot drop attachment_security below this
                                       # (Finnish/Estonian quiet style: silence is not absence)
 
-_lock = threading.Lock()
+# RLock (reentrant) is mandatory: ``update_from_interaction`` holds
+# the lock and then calls ``get_user_model`` / ``get_peer_model``,
+# which both reacquire it. With a non-reentrant Lock, every ON_DELEGATION
+# hook firing from the orchestrator deadlocked the commander thread —
+# silently, with no LLM activity, until the orchestrator's 15-min
+# soft-timeout finally fired with zero output. Diagnosed 2026-04-30
+# via py-spy stack dump; the user's "rank top 25 emails" requests
+# stalled for 28+ minutes because of this.
+_lock = threading.RLock()
 
 
 # ── Data model ──────────────────────────────────────────────────────────────
