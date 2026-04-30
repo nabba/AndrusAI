@@ -1652,6 +1652,9 @@ def _scan_registry_and_propose(local_ollama_raw: list[dict]) -> int:
     from app.llm_registry_scanner import (
         scan_ollama_registry,
         diff_against_local,
+        filter_dominated_by_installed,
+        filter_quant_dominated,
+        filter_recently_rejected,
     )
     candidates = scan_ollama_registry()
     if not candidates:
@@ -1661,6 +1664,25 @@ def _scan_registry_and_propose(local_ollama_raw: list[dict]) -> int:
     new_candidates = diff_against_local(candidates, local_names)
     if not new_candidates:
         logger.debug("registry_scan: no new candidates beyond local /api/tags")
+        return 0
+
+    # Three layered filters (added 2026-04-30 after the user rejected 9/9
+    # proposals in two idle cycles — same-family smaller siblings of an
+    # already-installed larger model). Order matters: cheapest checks first.
+    pre = len(new_candidates)
+    new_candidates = filter_dominated_by_installed(new_candidates, local_names)
+    new_candidates = filter_quant_dominated(new_candidates, local_names)
+    new_candidates = filter_recently_rejected(new_candidates)
+    if len(new_candidates) != pre:
+        logger.info(
+            "registry_scan: filtered %d → %d after dominance/quant/rejection checks",
+            pre, len(new_candidates),
+        )
+    if not new_candidates:
+        logger.debug(
+            "registry_scan: all %d candidates filtered out (dominated, quant-dominated, or recently rejected)",
+            pre,
+        )
         return 0
 
     # Dedupe against existing open proposals so an idle cycle that runs

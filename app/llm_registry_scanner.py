@@ -646,6 +646,282 @@ def diff_against_local(
     return [c for c in candidates if c.full_name not in have]
 
 
+# ── Tag-shape parser ──────────────────────────────────────────────────────
+#
+# Three filters added 2026-04-30 (response to user rejecting 9 of 9 pulls
+# the scanner proposed: qwen3:4b-thinking-q8_0, qwen3:4b-instruct-q8_0,
+# qwen3.5:4b-q8_0 × 3 idle-cycle repeats each). The user's rejections
+# were the right call — they already had qwen3.5:35b-a3b-q4_K_M which
+# strictly dominates the 4B siblings on capability. The scanner just
+# didn't know.
+#
+# All three filters parse a model name like
+#   qwen3.5:35b-a3b-q4_K_M
+# into structural parts:
+#   family = "qwen3.5"      (everything before ":")
+#   size_b = 35             (the "<digits>b" token, B-params; None when absent)
+#   variants = ("a3b",)     (-a3b / -a10b / -instruct / -thinking / -coding etc.)
+#   quant = "q4_K_M"        (None when no quant suffix)
+#
+# Two same-family models are "comparable" when they share the same family
+# AND (when both have explicit sizes) one is larger than the other.
+
+_SIZE_RE = re.compile(r"\b([0-9]+(?:\.[0-9]+)?)b\b", re.IGNORECASE)
+_QUANT_RE = re.compile(
+    r"-(?P<q>q\d_\w_\w|q\d_\d|q\d_K_M|q\d_K_S|q\d|fp16|bf16|mxfp\d+|nvfp\d+)$",
+    re.IGNORECASE,
+)
+
+
+@dataclass
+class _ParsedTag:
+    full_name: str
+    family: str
+    size_b: float | None     # numeric param count in B (qwen3.5:35b-a3b → 35.0)
+    quant: str | None        # "q4_K_M", "q8_0", "fp16" — None when absent
+    variants: tuple[str, ...]  # other suffix tokens (a3b, instruct, thinking, ...)
+
+
+def _parse_model_id(name: str) -> _ParsedTag:
+    """Parse an Ollama tag (``qwen3.5:35b-a3b-q4_K_M`` or just ``qwen3.5:35b``)
+    into structural parts. Defensive — unrecognized shapes parse to a tag
+    with everything as ``variants`` so downstream filters degrade gracefully
+    (they only block when they can match POSITIVELY, never when they're
+    confused).
+    """
+    if not name or ":" not in name:
+        return _ParsedTag(full_name=name, family=name or "", size_b=None,
+                          quant=None, variants=())
+    family, rest = name.split(":", 1)
+    family = family.strip().lower()
+    rest_lower = rest.lower()
+    quant_match = _QUANT_RE.search(rest_lower)
+    quant = quant_match.group("q").lower() if quant_match else None
+    if quant_match:
+        rest_lower = rest_lower[: quant_match.start()]
+    # Size token: first "Nb" / "N.Mb" found in the remaining tag
+    size = None
+    size_match = _SIZE_RE.search(rest_lower)
+    if size_match:
+        try:
+            size = float(size_match.group(1))
+        except ValueError:
+            size = None
+        # Strip the size from the remaining variants-bag
+        rest_lower = (
+            rest_lower[: size_match.start()] + rest_lower[size_match.end():]
+        )
+    # Whatever's left, split on '-' and discard empties
+    variants = tuple(
+        v for v in re.split(r"[-_]+", rest_lower)
+        if v and v != "b"
+    )
+    return _ParsedTag(
+        full_name=name, family=family, size_b=size,
+        quant=quant, variants=variants,
+    )
+
+
+# Quant ranking — higher = larger / more precise. Used to decide:
+# "is the proposed quant 'bigger' than the installed one?". When yes
+# AND the rest of the tag (family + size + variants) matches, we skip
+# the proposal (user already has a leaner equivalent).
+_QUANT_RANK = {
+    None:    0,
+    "q2_k":  1, "q2": 1,
+    "q3_k":  2, "q3": 2, "q3_k_m": 2, "q3_k_s": 2,
+    "q4_0":  3,
+    "q4_k_s": 3, "q4_k_m": 4, "q4_k": 4,
+    "q5_k_s": 5, "q5_k_m": 5, "q5_k": 5, "q5_0": 5,
+    "q6_k":  6, "q6": 6,
+    "q8_0":  7, "q8":  7,
+    "fp16":  9, "bf16": 9,
+    "mxfp8": 7, "nvfp4": 4,
+}
+
+
+def _quant_rank(label: str | None) -> int:
+    if not label:
+        return 0
+    return _QUANT_RANK.get(label.lower(), 0)
+
+
+# ── Filter 1: same-family dominance ───────────────────────────────────────
+
+def filter_dominated_by_installed(
+    candidates: list[RegistryCandidate],
+    local_tags: list[str],
+) -> list[RegistryCandidate]:
+    """Skip candidates whose family already has a strictly larger sibling
+    locally installed.
+
+    Example dropped:
+      installed: qwen3.5:35b-a3b-q4_K_M (35B)
+      proposed:  qwen3.5:4b-q8_0         (4B)  → SKIP — strict downgrade
+      proposed:  qwen3.5:4b-instruct-q8_0 (4B) → SKIP — same reason
+
+    Example kept:
+      installed: qwen3.5:35b-a3b-q4_K_M
+      proposed:  llama3.1:70b              → KEEP — different family
+      proposed:  qwen3.5:122b-a10b         → KEEP — larger, not dominated
+
+    When a proposed candidate has no size token (e.g. ``:latest``), we
+    default to allowing it — we can't prove it's smaller.
+    """
+    if not candidates:
+        return candidates
+    installed_by_family: dict[str, float] = {}
+    for tag in local_tags:
+        parsed = _parse_model_id(tag)
+        if parsed.size_b is None:
+            continue
+        prev = installed_by_family.get(parsed.family, 0.0)
+        if parsed.size_b > prev:
+            installed_by_family[parsed.family] = parsed.size_b
+
+    out: list[RegistryCandidate] = []
+    for c in candidates:
+        parsed = _parse_model_id(c.full_name)
+        installed_max = installed_by_family.get(parsed.family)
+        if installed_max is None or parsed.size_b is None:
+            out.append(c)
+            continue
+        # Strict-dominance: candidate is strictly smaller than the
+        # largest already-installed same-family member.
+        if parsed.size_b < installed_max:
+            logger.debug(
+                "registry_scan: skipping %s — %s:%sB already installed (%s:%sB strictly dominated)",
+                c.full_name, parsed.family, installed_max, parsed.family, parsed.size_b,
+            )
+            continue
+        out.append(c)
+    return out
+
+
+# ── Filter 2: quantization preference ─────────────────────────────────────
+
+def filter_quant_dominated(
+    candidates: list[RegistryCandidate],
+    local_tags: list[str],
+) -> list[RegistryCandidate]:
+    """Skip a candidate when an INSTALLED model has the same family +
+    size + variants but a leaner (lower-rank) quantization.
+
+    Example dropped:
+      installed: qwen3.5:35b-a3b-q4_K_M
+      proposed:  qwen3.5:35b-a3b-q8_0    → SKIP — q8_0 doubles disk for marginal quality
+      proposed:  qwen3.5:35b-a3b-fp16    → SKIP — even larger, same reason
+
+    Example kept:
+      installed: qwen3.5:35b-a3b-q8_0
+      proposed:  qwen3.5:35b-a3b-q4_K_M  → KEEP — leaner alternative
+      proposed:  qwen3.5:35b-a3b-q5_K_M  → KEEP — between, plausible
+    """
+    if not candidates:
+        return candidates
+    # Build a lookup of (family, size, variants_set) → max installed quant rank
+    installed_max_rank: dict[tuple, int] = {}
+    for tag in local_tags:
+        p = _parse_model_id(tag)
+        key = (p.family, p.size_b, frozenset(p.variants))
+        rank = _quant_rank(p.quant)
+        installed_max_rank[key] = max(installed_max_rank.get(key, -1), rank)
+
+    out: list[RegistryCandidate] = []
+    for c in candidates:
+        p = _parse_model_id(c.full_name)
+        key = (p.family, p.size_b, frozenset(p.variants))
+        installed = installed_max_rank.get(key)
+        if installed is None:
+            out.append(c)
+            continue
+        cand_rank = _quant_rank(p.quant)
+        # Skip when candidate quant is HIGHER (bigger/more precise) than
+        # the leanest installed equivalent. Equal-rank means we already
+        # have it (caught by diff_against_local); lower-rank is a
+        # cheaper alternative the user might want.
+        if cand_rank > installed:
+            logger.debug(
+                "registry_scan: skipping %s — same base already installed at lower-cost quant (rank %d ≤ %d)",
+                c.full_name, installed, cand_rank,
+            )
+            continue
+        out.append(c)
+    return out
+
+
+# ── Filter 3: rejection learning ──────────────────────────────────────────
+
+# How long after a rejection should we suppress the same model_id from
+# proposals? 30 days = "user clearly doesn't want this; don't keep
+# nagging across idle cycles."
+_REJECTION_SUPPRESSION_DAYS = 30
+
+
+def get_recently_rejected_models(window_days: int = _REJECTION_SUPPRESSION_DAYS) -> set[str]:
+    """Return the set of model full_names rejected via governance in the
+    last ``window_days``.
+
+    Reads ``control_plane.governance_requests`` directly. Best-effort —
+    DB unavailability returns an empty set so the scanner still
+    proposes (loud over silent).
+    """
+    try:
+        from app.control_plane.db import execute
+        rows = execute(
+            """SELECT detail_json
+                 FROM control_plane.governance_requests
+                WHERE request_type = 'local_model_pull'
+                  AND status = 'rejected'
+                  AND reviewed_at > NOW() - (%s || ' days')::interval""",
+            (str(int(window_days)),),
+            fetch=True,
+        ) or []
+        out: set[str] = set()
+        for r in rows:
+            detail = r.get("detail_json") or {}
+            if isinstance(detail, str):
+                try:
+                    import json as _j
+                    detail = _j.loads(detail)
+                except Exception:
+                    detail = {}
+            model = detail.get("model") or detail.get("model_id") or ""
+            if model:
+                out.add(model)
+        return out
+    except Exception as exc:
+        logger.debug("registry_scan: rejection lookup failed: %s", exc)
+        return set()
+
+
+def filter_recently_rejected(
+    candidates: list[RegistryCandidate],
+    *,
+    window_days: int = _REJECTION_SUPPRESSION_DAYS,
+    rejected_set: set[str] | None = None,
+) -> list[RegistryCandidate]:
+    """Skip candidates whose full_name was rejected in the recent window.
+
+    ``rejected_set`` is injectable for tests; in production callers pass
+    None and we fetch from the DB.
+    """
+    if rejected_set is None:
+        rejected_set = get_recently_rejected_models(window_days)
+    if not rejected_set:
+        return candidates
+    out: list[RegistryCandidate] = []
+    for c in candidates:
+        if c.full_name in rejected_set:
+            logger.debug(
+                "registry_scan: skipping %s — rejected via governance in last %d days",
+                c.full_name, window_days,
+            )
+            continue
+        out.append(c)
+    return out
+
+
 def _is_enabled() -> bool:
     val = os.getenv("LLM_REGISTRY_SCAN_ENABLED", "true").strip().lower()
     return val not in ("0", "false", "no", "off")

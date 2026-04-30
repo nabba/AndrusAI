@@ -21,8 +21,13 @@ from app import llm_registry_scanner as scanner
 from app.llm_registry_scanner import (
     HostCapacity,
     RegistryCandidate,
+    _parse_model_id,
+    _quant_rank,
     diff_against_local,
     filter_candidates,
+    filter_dominated_by_installed,
+    filter_quant_dominated,
+    filter_recently_rejected,
     parse_tags_page,
     probe_host_capacity,
     scan_ollama_registry,
@@ -338,3 +343,249 @@ class TestScanOllamaRegistry:
         # The q8_0 (37 GB) and 122b (81 GB) variants always too big
         assert "qwen3.5:35b-a3b-q8_0" not in names
         assert "qwen3.5:122b" not in names
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Tag-shape parser — _parse_model_id + _quant_rank
+# ══════════════════════════════════════════════════════════════════════
+
+class TestParseModelId:
+    """Structural parser used by all three new filters. The filters only
+    block when this parser successfully extracts the dimension they care
+    about — bad parses degrade to "allow"."""
+
+    def test_qwen35_moe_q4(self):
+        p = _parse_model_id("qwen3.5:35b-a3b-q4_K_M")
+        assert p.family == "qwen3.5"
+        assert p.size_b == 35.0
+        assert p.quant == "q4_k_m"
+        assert "a3b" in p.variants
+
+    def test_bare_size_no_quant(self):
+        p = _parse_model_id("qwen3.5:35b")
+        assert p.family == "qwen3.5"
+        assert p.size_b == 35.0
+        assert p.quant is None
+        assert p.variants == ()
+
+    def test_fractional_size(self):
+        p = _parse_model_id("qwen3.5:0.8b")
+        assert p.size_b == 0.8
+
+    def test_no_size_token(self):
+        # Some tags are pure :latest or :instruct — no numeric size.
+        p = _parse_model_id("qwen3.5:latest")
+        assert p.family == "qwen3.5"
+        assert p.size_b is None
+
+    def test_unparseable_returns_safe_default(self):
+        p = _parse_model_id("garbage-no-colon")
+        assert p.size_b is None
+        assert p.quant is None
+
+    def test_empty_string(self):
+        p = _parse_model_id("")
+        assert p.family == ""
+        assert p.size_b is None
+
+    def test_quant_rank_ordering(self):
+        # q4_K_M (4) < q5_K_M (5) < q8_0 (7) < fp16 (9)
+        assert _quant_rank("q4_K_M") < _quant_rank("q5_K_M")
+        assert _quant_rank("q5_K_M") < _quant_rank("q8_0")
+        assert _quant_rank("q8_0") < _quant_rank("fp16")
+
+    def test_quant_rank_unknown_is_zero(self):
+        assert _quant_rank("xyz_made_up") == 0
+        assert _quant_rank(None) == 0
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Filter 1 — same-family dominance
+# ══════════════════════════════════════════════════════════════════════
+
+class TestFilterDominatedByInstalled:
+    """Skip same-family candidates that are strictly smaller than something
+    already installed. The 9-of-9 rejection storm on 2026-04-30 was exactly
+    this case: user had qwen3.5:35b-a3b-q4_K_M, scanner kept proposing
+    qwen3.5:4b-* siblings."""
+
+    def _mk(self, full: str, size_gb: float = 5.0) -> RegistryCandidate:
+        family, tag = full.split(":", 1)
+        return RegistryCandidate(
+            family=family, tag=tag, full_name=full, digest="abc",
+            size_gb=size_gb, context_k=128, modality="Text", features=[],
+        )
+
+    def test_skips_smaller_sibling(self):
+        """Same family, smaller candidate → DROP."""
+        cands = [self._mk("qwen3.5:4b-q8_0", 5.5)]
+        local = ["qwen3.5:35b-a3b-q4_K_M"]
+        kept = filter_dominated_by_installed(cands, local)
+        assert kept == []
+
+    def test_skips_multiple_smaller_siblings(self):
+        """Reproduces the 9-of-9 governance rejection scenario."""
+        cands = [
+            self._mk("qwen3.5:4b-q8_0", 5.5),
+            self._mk("qwen3.5:4b-instruct-q8_0", 5.5),
+            self._mk("qwen3:4b-thinking-q8_0", 5.0),
+        ]
+        local = ["qwen3.5:35b-a3b-q4_K_M", "qwen3:32b"]
+        kept = filter_dominated_by_installed(cands, local)
+        # All three are smaller than their family's installed max → DROP
+        assert kept == []
+
+    def test_keeps_different_family(self):
+        """llama3.1:8b is NOT dominated by qwen3.5:35b — different family."""
+        cands = [self._mk("llama3.1:8b")]
+        local = ["qwen3.5:35b-a3b-q4_K_M"]
+        kept = filter_dominated_by_installed(cands, local)
+        assert {c.full_name for c in kept} == {"llama3.1:8b"}
+
+    def test_keeps_larger_sibling(self):
+        """A 70B candidate is NOT dominated by a 35B installation."""
+        cands = [self._mk("qwen3.5:122b-a10b", 70)]
+        local = ["qwen3.5:35b-a3b-q4_K_M"]
+        kept = filter_dominated_by_installed(cands, local)
+        assert {c.full_name for c in kept} == {"qwen3.5:122b-a10b"}
+
+    def test_keeps_when_family_not_installed(self):
+        """Empty local list → no dominance possible."""
+        cands = [self._mk("qwen3.5:4b-q8_0")]
+        kept = filter_dominated_by_installed(cands, [])
+        assert {c.full_name for c in kept} == {"qwen3.5:4b-q8_0"}
+
+    def test_size_unknown_candidate_passes(self):
+        """No size token in candidate → can't prove dominance → KEEP."""
+        cands = [self._mk("qwen3.5:latest")]
+        local = ["qwen3.5:35b-a3b-q4_K_M"]
+        kept = filter_dominated_by_installed(cands, local)
+        assert {c.full_name for c in kept} == {"qwen3.5:latest"}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Filter 2 — quantization preference
+# ══════════════════════════════════════════════════════════════════════
+
+class TestFilterQuantDominated:
+    """Skip candidates that are higher-quant (bigger/more precise) versions
+    of something already installed at a leaner quant."""
+
+    def _mk(self, full: str, size_gb: float = 20.0) -> RegistryCandidate:
+        family, tag = full.split(":", 1)
+        return RegistryCandidate(
+            family=family, tag=tag, full_name=full, digest="abc",
+            size_gb=size_gb, context_k=128, modality="Text", features=[],
+        )
+
+    def test_skips_higher_quant(self):
+        """Have q4_K_M, proposed q8_0 of same base → DROP (q8 is stricter)."""
+        cands = [self._mk("qwen3.5:35b-a3b-q8_0", 37)]
+        local = ["qwen3.5:35b-a3b-q4_K_M"]
+        kept = filter_quant_dominated(cands, local)
+        assert kept == []
+
+    def test_skips_fp16_when_q4_installed(self):
+        cands = [self._mk("qwen3.5:35b-a3b-fp16", 70)]
+        local = ["qwen3.5:35b-a3b-q4_K_M"]
+        kept = filter_quant_dominated(cands, local)
+        assert kept == []
+
+    def test_keeps_lower_quant(self):
+        """Have q8_0, proposed q4_K_M of same base → KEEP (cheaper alt)."""
+        cands = [self._mk("qwen3.5:35b-a3b-q4_K_M", 20)]
+        local = ["qwen3.5:35b-a3b-q8_0"]
+        kept = filter_quant_dominated(cands, local)
+        assert {c.full_name for c in kept} == {"qwen3.5:35b-a3b-q4_K_M"}
+
+    def test_keeps_intermediate_quant(self):
+        """Have q8_0, proposed q5_K_M → KEEP (still leaner)."""
+        cands = [self._mk("qwen3.5:35b-a3b-q5_K_M", 25)]
+        local = ["qwen3.5:35b-a3b-q8_0"]
+        kept = filter_quant_dominated(cands, local)
+        assert len(kept) == 1
+
+    def test_keeps_when_size_differs(self):
+        """Same family but different size → quant filter doesn't apply."""
+        cands = [self._mk("qwen3.5:122b-a10b-q8_0", 90)]
+        local = ["qwen3.5:35b-a3b-q4_K_M"]
+        kept = filter_quant_dominated(cands, local)
+        assert len(kept) == 1
+
+    def test_keeps_when_variants_differ(self):
+        """Same family/size but different variants → distinct base, KEEP."""
+        cands = [self._mk("qwen3.5:35b-instruct-q8_0", 37)]
+        # MoE variant ('-a3b') vs vanilla — variants set differs, so the
+        # filter treats them as different bases.
+        local = ["qwen3.5:35b-a3b-q4_K_M"]
+        kept = filter_quant_dominated(cands, local)
+        assert len(kept) == 1
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Filter 3 — rejection learning
+# ══════════════════════════════════════════════════════════════════════
+
+class TestFilterRecentlyRejected:
+    """Skip candidates rejected via governance in the last 30 days. Reads
+    from control_plane.governance_requests; injectable for tests."""
+
+    def _mk(self, full: str) -> RegistryCandidate:
+        family, tag = full.split(":", 1)
+        return RegistryCandidate(
+            family=family, tag=tag, full_name=full, digest="abc",
+            size_gb=5.0, context_k=128, modality="Text", features=[],
+        )
+
+    def test_skips_rejected(self):
+        cands = [self._mk("qwen3.5:4b-q8_0")]
+        rejected = {"qwen3.5:4b-q8_0"}
+        kept = filter_recently_rejected(cands, rejected_set=rejected)
+        assert kept == []
+
+    def test_skips_only_matching(self):
+        """Only the rejected one is dropped; others pass."""
+        cands = [
+            self._mk("qwen3.5:4b-q8_0"),
+            self._mk("qwen3.5:4b-instruct-q8_0"),
+            self._mk("qwen3:4b-thinking-q8_0"),
+        ]
+        rejected = {"qwen3.5:4b-q8_0"}  # only one was rejected
+        kept = filter_recently_rejected(cands, rejected_set=rejected)
+        assert {c.full_name for c in kept} == {
+            "qwen3.5:4b-instruct-q8_0",
+            "qwen3:4b-thinking-q8_0",
+        }
+
+    def test_empty_rejected_set_is_passthrough(self):
+        cands = [self._mk("qwen3.5:4b-q8_0")]
+        kept = filter_recently_rejected(cands, rejected_set=set())
+        assert len(kept) == 1
+
+    def test_empty_candidates_is_passthrough(self):
+        kept = filter_recently_rejected([], rejected_set={"x:y"})
+        assert kept == []
+
+    def test_db_failure_is_silent(self, monkeypatch):
+        """If the DB query blows up, scanner should keep proposing — loud
+        over silent. Verifies get_recently_rejected_models swallows.
+
+        Inject a fake ``app.control_plane.db`` module via sys.modules so
+        the lazy import inside ``get_recently_rejected_models`` resolves
+        to a stub whose ``execute()`` raises — independent of whether
+        psycopg2 is installed on the test host.
+        """
+        import sys
+        import types
+        cands = [self._mk("qwen3.5:4b-q8_0")]
+
+        fake = types.ModuleType("app.control_plane.db")
+        def _boom(*a, **kw):  # noqa: ANN001 — test stub
+            raise RuntimeError("db down")
+        fake.execute = _boom  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "app.control_plane.db", fake)
+
+        # Don't pass rejected_set so the function fetches itself
+        kept = filter_recently_rejected(cands)
+        # On DB failure → empty rejected set → all candidates kept
+        assert len(kept) == 1
