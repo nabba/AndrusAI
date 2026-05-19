@@ -1,0 +1,42 @@
+{
+  "drill_name": "local_only",
+  "measurements": {
+    "configured_providers": [
+      "groq"
+    ],
+    "n_providers_ready": 1,
+    "n_providers_total": 6,
+    "ratio": 0.16666666666666666,
+    "ready_providers": [
+      "groq"
+    ]
+  },
+  "notes": "Operator posture: minimal cascade (1+ of 6 providers configured) is intentional.",
+  "ratified_at": "2026-05-19T15:12:11.689318+00:00",
+  "ratified_by": "operator-claude",
+  "tolerances": {
+    "configured_providers": {
+      "rule": "superset_of",
+      "value": [
+        "groq"
+      ]
+    },
+    "n_providers_ready": {
+      "rule": "min",
+      "value": 1
+    },
+    "n_providers_total": {
+      "rule": "exact"
+    },
+    "ratio": {
+      "rule": "min",
+      "value": 0.15
+    },
+    "ready_providers": {
+      "rule": "superset_of",
+      "value": [
+        "groq"
+      ]
+    }
+  }
+}

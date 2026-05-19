@@ -1,0 +1,34 @@
+{
+  "drill_name": "backup_restore",
+  "measurements": {
+    "collections_checked": 19,
+    "collections_passed": 19,
+    "ledger_files_restored": 94,
+    "ledger_hash_mismatches": 0,
+    "overall_ok": true
+  },
+  "notes": "Baseline accepts: full collection round-trip (19 collections, all pass), ledger files restored, zero hash mismatches. If a collection goes missing, ledger files drop sharply, or any hash mismatches, alert.",
+  "ratified_at": "2026-05-19T15:10:20.670376+00:00",
+  "ratified_by": "operator-claude",
+  "tolerances": {
+    "collections_checked": {
+      "rule": "min",
+      "value": 19
+    },
+    "collections_passed": {
+      "rule": "min",
+      "value": 19
+    },
+    "ledger_files_restored": {
+      "rule": "min",
+      "value": 80
+    },
+    "ledger_hash_mismatches": {
+      "rule": "max",
+      "value": 0
+    },
+    "overall_ok": {
+      "rule": "exact"
+    }
+  }
+}

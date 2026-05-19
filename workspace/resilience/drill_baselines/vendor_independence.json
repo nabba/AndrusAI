@@ -1,0 +1,43 @@
+{
+  "drill_name": "vendor_independence",
+  "measurements": {
+    "configured_fallbacks": [
+      "GROQ_API_KEY"
+    ],
+    "n_fallbacks": 1,
+    "ollama_reachable": false,
+    "providers_with_keys": [
+      "anthropic",
+      "groq",
+      "openrouter"
+    ],
+    "selector_has_blocklist": true
+  },
+  "notes": "Operator posture: Anthropic + OpenRouter + Groq cascade is the intentional deployment. Groq is the load-bearing non-dominant fallback.",
+  "ratified_at": "2026-05-19T15:12:11.625840+00:00",
+  "ratified_by": "operator-claude",
+  "tolerances": {
+    "configured_fallbacks": {
+      "rule": "superset_of",
+      "value": [
+        "GROQ_API_KEY"
+      ]
+    },
+    "n_fallbacks": {
+      "rule": "min",
+      "value": 1
+    },
+    "ollama_reachable": {
+      "rule": "exact"
+    },
+    "providers_with_keys": {
+      "rule": "superset_of",
+      "value": [
+        "groq"
+      ]
+    },
+    "selector_has_blocklist": {
+      "rule": "exact"
+    }
+  }
+}

@@ -1,20 +1,20 @@
 {
   "consecutive_code_errors": 0,
-  "consecutive_failures": 3,
+  "consecutive_failures": 0,
   "drill_name": "vendor_independence",
-  "last_failure_at": "2026-05-18T19:35:03.605122+00:00",
-  "last_failure_class": "structural_fail",
-  "last_failure_summary": "cascade_diversity: only 1 non-dominant fallback(s) configured (['GROQ_API_KEY']); cascade has no slack if both Anthropic and OpenRouter become unavailable",
-  "last_run_at": "2026-05-18T19:35:03.605122+00:00",
-  "last_success_at": null,
+  "last_failure_at": "2026-05-19T14:40:06.430748+00:00",
+  "last_failure_class": "",
+  "last_failure_summary": "",
+  "last_run_at": "2026-05-19T15:12:11.805097+00:00",
+  "last_success_at": "2026-05-19T15:12:11.805097+00:00",
   "last_traceback": "",
   "muted_at": null,
   "muted_by": "",
   "muted_until": null,
-  "next_attempt_after": "2026-05-18T21:35:03.605122+00:00",
+  "next_attempt_after": "2026-08-17T15:12:11.805097+00:00",
   "quarantined_at": null,
   "quarantined_reason": "",
-  "state": "degraded",
+  "state": "healthy",
   "transitions": [
     {
       "at": "2026-05-18T18:10:06.734026+00:00",
@@ -35,6 +35,13 @@
       "from_state": "watch",
       "reason": "2 consecutive failures",
       "to_state": "degraded",
+      "triggered_by": "scheduler"
+    },
+    {
+      "at": "2026-05-19T15:12:11.805786+00:00",
+      "from_state": "degraded",
+      "reason": "pass after failure",
+      "to_state": "healthy",
       "triggered_by": "scheduler"
     }
   ],

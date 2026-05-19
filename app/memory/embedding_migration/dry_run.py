@@ -110,10 +110,18 @@ def run_dry_run(
     from app.memory.embedding_migration import shadow_read as sr_mod
 
     # 0. Reset state to IDLE if a previous dry-run left state behind.
+    # ``abort()`` is idempotent on terminal phases (ABORTED /
+    # STANDDOWN_COMPLETE) but only TRANSITIONS to ABORTED from non-
+    # terminal ones. ``adopt_plan`` requires IDLE, so we always
+    # follow with an explicit ABORTED → IDLE transition. Both
+    # transitions are no-ops if state is already IDLE.
     try:
         cur = state_mod.get_state()
         if cur.phase != state_mod.PHASE_IDLE:
             state_mod.abort(reason="dry_run_reset")
+            state_mod.transition(
+                state_mod.PHASE_IDLE, reason="dry_run_reset",
+            )
     except Exception as exc:
         _add(report, "reset_state", False, f"reset failed: {exc}")
         return _finalize(report, started)
