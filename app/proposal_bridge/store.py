@@ -52,7 +52,10 @@ _KNOWN_SOURCES: frozenset[str] = frozenset({
     "capability_gap",
     "library_radar",
     "paper_pipeline",
-    "dependency_radar",  # PROGRAM §48 — Q13.2 (year-2+ resilience #2.3)
+    "dependency_radar",   # PROGRAM §48 — Q13.2 (year-2+ resilience #2.3)
+    "refactor_proposer",  # Phase 2 elegance loop — consumes Phase 1
+                          # signals (elegance_drift + architectural_drift)
+                          # and emits refactor candidates.
 })
 
 _SAFE_SIG_RE = re.compile(r"^[A-Za-z0-9_.-]+$")

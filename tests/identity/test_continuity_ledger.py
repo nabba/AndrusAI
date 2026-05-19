@@ -276,6 +276,9 @@ def test_known_event_kinds_set() -> None:
         "q17_landmark",                 # PROGRAM §52 — Q17 multi-year resilience
         "cloud_migration",              # Productization WP D — local↔cloud migration
         "architectural_debt_drift",     # Phase 1 elegance loop — elegance_drift +
-                                        # architectural_drift monitors
+                                        # architectural_drift monitors;
+                                        # Phase 4 cross_monitor_pattern reuses it.
+        "code_consolidation",           # Phase 3 elegance loop — annual elegance
+                                        # reflection + quarterly code consolidation
     }
     assert cl.IDENTITY_EVENT_KINDS == frozenset(expected)

@@ -46,6 +46,12 @@ from app.library_radar.proposer import (
 # imports so the modules are reachable via attribute access from
 # tests, REST handlers, and the proposer's daemon loop.
 from app.library_radar import trial_runner, trial_state  # noqa: F401
+# Phase 4 elegance loop — PEP/idiom radar. Lives alongside the library
+# proposer because PEPs are language-level adoption signals (same shape
+# as a "new library is interesting" event, different upstream feed).
+# Daemon eager-starts at import via app.library_radar.idiom_radar:start.
+from app.library_radar import idiom_radar  # noqa: F401
+idiom_radar.start()
 
 __all__ = [
     "Discovery",

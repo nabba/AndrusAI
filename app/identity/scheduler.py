@@ -138,6 +138,54 @@ def run_long_term_goal_review() -> None:
         )
 
 
+def run_elegance_reflection() -> None:
+    """Idle-job tick for the Phase 3 annual elegance reflection.
+
+    Deterministic — no LLM call, no phenomenal-language linter needed.
+    Cadence-checks internally via mtime comparison."""
+    try:
+        from app.identity.elegance_reflection import run_one_pass
+    except Exception:
+        logger.debug(
+            "identity scheduler: elegance_reflection import failed", exc_info=True,
+        )
+        return
+    try:
+        result = run_one_pass()
+        if result.status not in ("skipped_recent", "skipped_disabled"):
+            logger.info(
+                "identity scheduler: elegance_reflection status=%s year=%s",
+                result.status, result.year,
+            )
+    except Exception:
+        logger.debug("identity scheduler: elegance_reflection raised", exc_info=True)
+
+
+def run_code_consolidation() -> None:
+    """Idle-job tick for the Phase 3 quarterly code-consolidation digest.
+
+    Deterministic — composes from system_inventory + architectural_baseline.
+    Cadence-checks internally."""
+    try:
+        from app.self_improvement.code_consolidation import run_one_pass
+    except Exception:
+        logger.debug(
+            "identity scheduler: code_consolidation import failed", exc_info=True,
+        )
+        return
+    try:
+        result = run_one_pass()
+        if result.status not in ("skipped_recent", "skipped_disabled"):
+            logger.info(
+                "identity scheduler: code_consolidation status=%s %dQ%d "
+                "shed=%d parallels=%d cycles=%d",
+                result.status, result.year, result.quarter,
+                result.n_shed_candidates, result.n_parallel_clusters, result.n_cycles,
+            )
+    except Exception:
+        logger.debug("identity scheduler: code_consolidation raised", exc_info=True)
+
+
 def get_idle_jobs() -> list[tuple[str, Callable[[], None], str]]:
     """Idle-scheduler job tuples — appended in :func:`app.companion.loop.get_idle_jobs`.
 
@@ -150,4 +198,9 @@ def get_idle_jobs() -> list[tuple[str, Callable[[], None], str]]:
         # Q9.6 (PROGRAM §46.9) — quarterly long-term goal review.
         ("identity-long-term-goal-review",
          run_long_term_goal_review, JobWeight.LIGHT),
+        # Phase 3 elegance loop — annual essay + quarterly digest.
+        ("identity-elegance-reflection",
+         run_elegance_reflection, JobWeight.LIGHT),
+        ("identity-code-consolidation",
+         run_code_consolidation, JobWeight.LIGHT),
     ]
