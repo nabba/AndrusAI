@@ -311,6 +311,10 @@ async def set_runtime_settings_endpoint(request: Request):
         set_drill_secret_rotation_enabled,
         set_drill_kill_the_gateway_enabled,
         set_drill_staleness_monitor_enabled,
+        # task_recovery drill (arXiv:2604.27096 §4.3.4 survey response)
+        set_drill_task_recovery_enabled,
+        set_drill_task_recovery_live_enabled,
+        set_drill_task_recovery_llm_variants_enabled,
         # Q7.1 — architecture-requests
         set_architecture_requests_enabled,
         set_architecture_adoption_monitor_enabled,
@@ -482,6 +486,23 @@ async def set_runtime_settings_endpoint(request: Request):
         if "drill_staleness_monitor_enabled" in payload:
             set_drill_staleness_monitor_enabled(
                 bool(payload["drill_staleness_monitor_enabled"])
+            )
+
+        # task_recovery drill (arXiv:2604.27096 §4.3.4 survey response).
+        # Master + live + LLM-variants switches. ``_live`` is the cost
+        # gate (default OFF) — without it the drill returns SKIPPED.
+        # ``_llm_variants`` is the anti-Goodhart layer (default ON).
+        if "drill_task_recovery_enabled" in payload:
+            set_drill_task_recovery_enabled(
+                bool(payload["drill_task_recovery_enabled"])
+            )
+        if "drill_task_recovery_live_enabled" in payload:
+            set_drill_task_recovery_live_enabled(
+                bool(payload["drill_task_recovery_live_enabled"])
+            )
+        if "drill_task_recovery_llm_variants_enabled" in payload:
+            set_drill_task_recovery_llm_variants_enabled(
+                bool(payload["drill_task_recovery_llm_variants_enabled"])
             )
 
         # Q7.1 (PROGRAM §45.1) — Architecture-request primitive
