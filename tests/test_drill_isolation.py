@@ -116,17 +116,25 @@ def test_version_upgrade_drill_executable() -> None:
 
 def test_compose_image_tags_are_overrideable() -> None:
     """docker-compose.yml must use ${IMAGE:-default} placeholders for
-    the three data services, so version-upgrade-drill.sh's env-var
-    image overrides actually take effect. The default values must
-    preserve the previous hardcoded tags so live-stack behaviour is
-    unchanged unless the operator explicitly sets the env vars."""
+    the data services, so version-upgrade-drill.sh's env-var image
+    overrides actually take effect. The default values must preserve
+    the previous hardcoded tags so live-stack behaviour is unchanged
+    unless the operator explicitly sets the env vars.
+
+    The chromadb service was deliberately removed from
+    docker-compose.yml per PROGRAM §55 (2026-05-17) to fix the
+    dual-writer SQLite corruption. ChromaDB now runs only as a
+    library inside the gateway. The CHROMA_IMAGE placeholder
+    assertion was kept for ~6 months pre-§55 and is no longer
+    expected to be present — see
+    ``test_docker_compose_has_no_chromadb_service`` for the
+    pinning that enforces the removal."""
     p = REPO_ROOT / "docker-compose.yml"
     assert p.is_file()
     src = p.read_text()
     for placeholder in (
         "${POSTGRES_IMAGE:-pgvector/pgvector:pg16}",
         "${NEO4J_IMAGE:-neo4j:5-community}",
-        "${CHROMA_IMAGE:-chromadb/chroma:0.5.23}",
     ):
         assert placeholder in src, (
             f"docker-compose.yml must contain {placeholder} so the "
