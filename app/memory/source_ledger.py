@@ -765,6 +765,13 @@ class ReplayResult:
     collections_seen: list[str] = field(default_factory=list)
     error: str = ""
     duration_s: float = 0.0
+    # 2026-05-19 incident pattern. chromadb 1.5.x in-process clients can wedge
+    # under load (boot-burst saturation, async-loop starvation) so that every
+    # ``client.get_or_create_collection(...)`` raises SQLite error 26 ("file
+    # is not a database") even though the on-disk file is healthy. Cached
+    # collection objects keep working. Counted here so the daemon can route
+    # the alert to "restart the gateway" instead of "replayed successfully".
+    client_wedged_errors: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -776,7 +783,22 @@ class ReplayResult:
             "collections_seen": self.collections_seen,
             "error": self.error,
             "duration_s": round(self.duration_s, 3),
+            "client_wedged_errors": self.client_wedged_errors,
         }
+
+
+# Exception substrings that mean "chromadb client is in a bad in-process state
+# despite the on-disk file being fine" — see the ReplayResult comment above.
+_CLIENT_WEDGED_SIGNATURES = (
+    "file is not a database",
+    "code: 26",
+    "Failed to get segments",
+)
+
+
+def _is_client_wedged_exc(exc: BaseException) -> bool:
+    msg = str(exc)
+    return any(sig in msg for sig in _CLIENT_WEDGED_SIGNATURES)
 
 
 def replay_kb(kb_name: str, since_ts: Optional[float] = None,
@@ -899,6 +921,8 @@ def replay_kb(kb_name: str, since_ts: Optional[float] = None,
                 col_name, exc,
             )
             result.rows_skipped += len(rows)
+            if _is_client_wedged_exc(exc):
+                result.client_wedged_errors += 1
             continue
 
         for batch_start in range(0, len(rows), _REPLAY_BATCH):
@@ -947,6 +971,8 @@ def replay_kb(kb_name: str, since_ts: Optional[float] = None,
                     kb_name, col_name, exc,
                 )
                 result.rows_skipped += len(batch)
+                if _is_client_wedged_exc(exc):
+                    result.client_wedged_errors += 1
                 continue
 
     result.duration_s = time.monotonic() - started

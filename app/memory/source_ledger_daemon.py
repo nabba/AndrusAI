@@ -163,7 +163,29 @@ def _run_one_pass() -> dict:
                 )
                 replay = sl.replay_kb(kb_name)
                 summary["drifts"][kb_name]["replay_result"] = replay.to_dict()
-                _alert_drift_replay(kb_name, drift, replay)
+                # 2026-05-19 incident — chromadb's in-process client can wedge
+                # under boot-burst load and return SQLite code 26 on every
+                # collection open even while the on-disk file is healthy. The
+                # on-disk integrity_check (above) doesn't catch this — it only
+                # inspects the file. Replay sees the symptom: zero upserts
+                # despite a populated ledger, and a wedge-signature error on
+                # every collection. In that shape, ALERTING "Auto-replayed"
+                # would be a lie; route to the wedged-client variant so the
+                # operator gets actionable guidance (restart the gateway).
+                if _looks_client_wedged(replay):
+                    logger.warning(
+                        "source_ledger_daemon: drift replay on %s appears "
+                        "wedged-client (rows_seen=%d, upserted=0, "
+                        "client_wedged_errors=%d) — deferring; operator "
+                        "should restart the gateway",
+                        kb_name, replay.rows_seen, replay.client_wedged_errors,
+                    )
+                    summary["drifts"][kb_name]["replay_deferred"] = (
+                        "client_wedged"
+                    )
+                    _alert_drift_replay_client_wedged(kb_name, drift, replay)
+                else:
+                    _alert_drift_replay(kb_name, drift, replay)
             except Exception:
                 logger.exception(
                     "source_ledger_daemon: drift check raised for %s", kb_name,
@@ -279,6 +301,19 @@ def _run_one_pass() -> dict:
     return summary
 
 
+def _looks_client_wedged(replay) -> bool:
+    """The chromadb in-process client is stuck (boot-burst, async-loop
+    starvation) but the on-disk file is fine. Replay saw rows in the ledger
+    but every collection open / upsert raised the SQLite code-26 signature.
+    Recovery is to restart the gateway, not to keep hammering chromadb.
+    """
+    return (
+        replay.rows_seen > 0
+        and replay.rows_upserted == 0
+        and replay.client_wedged_errors > 0
+    )
+
+
 def _alert_drift_replay(kb_name: str, drift, replay) -> None:
     """Best-effort Signal alert on drift-triggered replay."""
     try:
@@ -292,6 +327,30 @@ def _alert_drift_replay(kb_name: str, drift, replay) -> None:
         )
     except Exception:
         logger.debug("source_ledger_daemon: drift alert failed", exc_info=True)
+
+
+def _alert_drift_replay_client_wedged(kb_name: str, drift, replay) -> None:
+    """Signal alert when replay couldn't run because chromadb's in-process
+    client is wedged. Distinct topic key so the arbiter doesn't dedup with
+    the routine ``source_ledger_drift:<kb>`` channel — this is actionable
+    (operator restarts the gateway), the routine one usually isn't.
+    """
+    try:
+        from app.life_companion._common import send_signal_alert  # type: ignore
+        send_signal_alert(
+            f"⚠️ ChromaDB client wedged on `{kb_name}`: "
+            f"ledger has {drift.ledger_rows} rows, KB read as {drift.kb_rows_total}; "
+            f"replay tried {replay.rows_seen} rows but every collection open "
+            f"raised SQLite code 26 ({replay.client_wedged_errors} wedge "
+            f"errors). On-disk file is healthy — the gateway's in-process "
+            f"chromadb client is stuck. Restart the gateway to recover "
+            f"(`docker compose restart gateway`). See docs/CHROMADB_INTEGRITY.md.",
+            tag=f"source_ledger_client_wedged:{kb_name}",
+        )
+    except Exception:
+        logger.debug(
+            "source_ledger_daemon: wedged-client alert failed", exc_info=True,
+        )
 
 
 def _alert_chain_break(kb_name: str, verify) -> None:
@@ -324,17 +383,22 @@ def _daemon_loop() -> None:
                 b.get("rows_added", 0) for b in summary.get("bootstraps", {}).values()
             )
             replayed = [
-                k for k, d in summary.get("drifts", {}).items() if d.get("replay_result")
+                k for k, d in summary.get("drifts", {}).items()
+                if d.get("replay_result") and not d.get("replay_deferred")
+            ]
+            wedged = [
+                k for k, d in summary.get("drifts", {}).items()
+                if d.get("replay_deferred") == "client_wedged"
             ]
             chain_bad = [
                 k for k, v in summary.get("chain_verifications", {}).items()
                 if not v.get("ok", True)
             ]
-            if n_added or replayed or chain_bad:
+            if n_added or replayed or wedged or chain_bad:
                 logger.info(
                     "source_ledger_daemon: pass complete — bootstrapped %d rows, "
-                    "replayed %s, chain-bad %s",
-                    n_added, replayed, chain_bad,
+                    "replayed %s, wedged %s, chain-bad %s",
+                    n_added, replayed, wedged, chain_bad,
                 )
         except Exception:
             logger.exception("source_ledger_daemon: pass raised")
