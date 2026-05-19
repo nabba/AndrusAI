@@ -27,6 +27,7 @@ import {
 } from '../api/pwa';
 import { PersonCorrelationCard } from './PersonCorrelationCard';
 import { ResilienceDrillsCard } from './ResilienceDrillsCard';
+import { TaskRecoveryDrillCard } from './TaskRecoveryDrillCard';
 import { AnalogyIndexCard } from './AnalogyIndexCard';
 import { ArchitectureRequestsCard } from './ArchitectureRequestsCard';
 import { InlineEvolveCard } from './InlineEvolveCard';
@@ -78,6 +79,10 @@ export function SettingsPage() {
         onSettingsChange={() => settingsQ.refetch()}
       />
       <ResilienceDrillsCard
+        settings={settingsQ.data}
+        onSettingsChange={() => settingsQ.refetch()}
+      />
+      <TaskRecoveryDrillCard
         settings={settingsQ.data}
         onSettingsChange={() => settingsQ.refetch()}
       />
