@@ -1,8 +1,19 @@
 """PROGRAM §44.2 — Q6.2 drill + scheduler + staleness tests.
 
+Q18 (PROGRAM §57) conversion: each drill's ``run()`` no longer
+self-checks ``drill_enabled`` — the orchestrator at
+``app.resilience_drills.runner.invoke_drill`` does. Tests for the
+gate path go through ``invoke_drill`` / ``scheduler.run_once``;
+tests for the drill body call ``run()`` directly and assert on the
+returned bare ``DrillResult``.
+
+The `backup_restore` drill (PR #126 follow-up commit
+``da6f09a6``) reads ``chromadb_results`` from the boot-drill
+report, not the legacy ``collections`` attribute.
+
 Covers:
-  * Each of the 4 drills (skipped-on-disabled, runs with stubbed deps,
-    audit row written, landmark emission)
+  * Each of the 4 drills (gated by the orchestrator when disabled,
+    runs with stubbed deps, audit row written, landmark emission)
   * scheduler.run_once auto-runs LOW/MEDIUM-risk drills
   * scheduler refuses to auto-run HIGH-risk drills
   * drill_staleness monitor alerts past-due drills
@@ -31,20 +42,18 @@ def _load_isolated(name: str, path: str):
     return mod
 
 
-@pytest.fixture
-def protocol():
-    return _load_isolated(
-        "proto_q62", "app/resilience_drills/protocol.py",
-    )
+@pytest.fixture(autouse=True)
+def isolated_workspace(monkeypatch, tmp_path):
+    """Redirect ``WORKSPACE_ROOT`` to ``tmp_path`` so audit / state /
+    baseline / lock files all land in an isolated directory per test.
 
-
-@pytest.fixture
-def audit(monkeypatch, tmp_path):
-    """Load audit module with a tmp_path audit log."""
-    mod = _load_isolated("audit_q62", "app/resilience_drills/audit.py")
-    log = tmp_path / "drill_audit.jsonl"
-    mod._default_audit_path = lambda: log
-    return mod
+    Each affected module reads ``WORKSPACE_ROOT`` from ``app.paths``
+    at call time (e.g. ``audit._default_audit_path``,
+    ``state._state_dir``), so patching the module attribute reaches
+    all of them."""
+    from app import paths as _paths
+    monkeypatch.setattr(_paths, "WORKSPACE_ROOT", tmp_path)
+    yield
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -52,77 +61,76 @@ def audit(monkeypatch, tmp_path):
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_backup_restore_skipped_when_disabled(monkeypatch, tmp_path):
-    """Per-drill switch OFF → SKIPPED."""
-    drill = _load_isolated(
-        "br_q62", "app/sentience_experiments/__init__.py",  # placeholder
-    ) if False else None
-    drill = _load_isolated(
-        "br_q62", "app/resilience_drills/drills/backup_restore.py",
-    )
-    # Stub the audit path so we don't pollute real state.
-    log = tmp_path / "drill_audit.jsonl"
+def test_backup_restore_skipped_when_disabled(monkeypatch):
+    """Q18 contract: master/per-drill switch OFF → orchestrator returns
+    SKIPPED without invoking the drill's runner.
+
+    Pre-Q18 the drill self-checked ``drill_enabled``; post-Q18 the
+    runner is unconditional and the gate lives in the orchestrator.
+    This test exercises the production gate path."""
+    from app.resilience_drills.drills import backup_restore as drill
+    from app.resilience_drills.protocol import DrillStatus
+    from app.resilience_drills.runner import invoke_drill
+
     monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
+        "app.resilience_drills.runner.drill_enabled", lambda spec: False,
     )
-    # Per-drill OFF.
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: False)
-    result = drill.run(dry_run=True)
-    assert result.status.value == "skipped"
+    invoked = [False]
+
+    def _runner(*, dry_run=True):
+        invoked[0] = True
+        return drill.run(dry_run=dry_run)
+
+    result = invoke_drill(
+        drill.SPEC, _runner, dry_run=True, triggered_by="scheduler",
+    )
+    assert result.status == DrillStatus.SKIPPED
+    assert invoked[0] is False  # runner never reached
 
 
-def test_backup_restore_passes_when_boot_drill_ok(monkeypatch, tmp_path):
-    """boot_drill.run_drill returning overall_ok=True → drill PASS."""
-    drill = _load_isolated(
-        "br_q62b", "app/resilience_drills/drills/backup_restore.py",
-    )
-    log = tmp_path / "drill_audit.jsonl"
-    monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
-    )
-    # Patch the drill module's OWN reference (imported via `from ... import`)
-    # rather than the source module's — Python `from X import Y` copies
-    # the binding, so patching the source doesn't affect the importer.
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: True)
-    # Stub boot_drill.run_drill.
+def test_backup_restore_passes_when_boot_drill_ok(monkeypatch):
+    """boot_drill.run_drill returning overall_ok=True → drill PASS.
+
+    Post-PR-#126 (commit ``da6f09a6``): the drill reads
+    ``chromadb_results`` (a list of per-collection result objects
+    with ``.ok`` flags), not the old ``collections`` attribute."""
+    from app.resilience_drills.drills import backup_restore as drill
+    from app.resilience_drills.protocol import DrillStatus
+
     fake_report = MagicMock()
     fake_report.tarball = "/path/x.tar.gz"
     fake_report.overall_ok = True
-    fake_report.collections = [MagicMock(), MagicMock()]  # 2 collections
+    # Two passing collection results — each must expose an ``ok`` flag
+    # for ``collections_passed`` to count it.
+    res1, res2 = MagicMock(), MagicMock()
+    res1.ok, res2.ok = True, True
+    fake_report.chromadb_results = [res1, res2]
     fake_report.fresh_export = False
     fake_report.errors = []
     monkeypatch.setattr(
         "app.dr.boot_drill.run_drill", lambda **kw: fake_report,
     )
     result = drill.run(dry_run=True)
-    assert result.status.value == "pass"
+    assert result.status == DrillStatus.PASS
     assert result.detail["collections_checked"] == 2
     assert result.detail["tarball"] == "/path/x.tar.gz"
 
 
-def test_backup_restore_fails_when_boot_drill_not_ok(monkeypatch, tmp_path):
-    drill = _load_isolated(
-        "br_q62c", "app/resilience_drills/drills/backup_restore.py",
-    )
-    log = tmp_path / "drill_audit.jsonl"
-    monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
-    )
-    # Patch the drill module's OWN reference (imported via `from ... import`)
-    # rather than the source module's — Python `from X import Y` copies
-    # the binding, so patching the source doesn't affect the importer.
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: True)
+def test_backup_restore_fails_when_boot_drill_not_ok(monkeypatch):
+    from app.resilience_drills.drills import backup_restore as drill
+    from app.resilience_drills.protocol import DrillStatus
+
     fake_report = MagicMock()
     fake_report.tarball = "/path/x.tar.gz"
     fake_report.overall_ok = False
-    fake_report.collections = []
+    fake_report.chromadb_results = []
     fake_report.fresh_export = False
     fake_report.errors = ["verifier ng"]
     monkeypatch.setattr(
         "app.dr.boot_drill.run_drill", lambda **kw: fake_report,
     )
     result = drill.run(dry_run=True)
-    assert result.status.value == "fail"
+    assert result.status == DrillStatus.FAIL
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -130,18 +138,10 @@ def test_backup_restore_fails_when_boot_drill_not_ok(monkeypatch, tmp_path):
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_embedding_migration_passes_on_all_steps_ok(monkeypatch, tmp_path):
-    drill = _load_isolated(
-        "em_q62", "app/resilience_drills/drills/embedding_migration.py",
-    )
-    log = tmp_path / "drill_audit.jsonl"
-    monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
-    )
-    # Patch the drill module's OWN reference (imported via `from ... import`)
-    # rather than the source module's — Python `from X import Y` copies
-    # the binding, so patching the source doesn't affect the importer.
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: True)
+def test_embedding_migration_passes_on_all_steps_ok(monkeypatch):
+    from app.resilience_drills.drills import embedding_migration as drill
+    from app.resilience_drills.protocol import DrillStatus
+
     fake_report = MagicMock()
     fake_report.steps = [
         {"name": "plan_round_trip", "ok": True},
@@ -149,36 +149,30 @@ def test_embedding_migration_passes_on_all_steps_ok(monkeypatch, tmp_path):
         {"name": "dual_write", "ok": True},
     ]
     monkeypatch.setattr(
-        "app.memory.embedding_migration.dry_run.run_dry_run", lambda **kw: fake_report,
+        "app.memory.embedding_migration.dry_run.run_dry_run",
+        lambda **kw: fake_report,
     )
     result = drill.run(dry_run=True)
-    assert result.status.value == "pass"
+    assert result.status == DrillStatus.PASS
     assert result.detail["n_steps_ok"] == 3
     assert result.detail["n_steps_total"] == 3
 
 
-def test_embedding_migration_fails_on_step_fail(monkeypatch, tmp_path):
-    drill = _load_isolated(
-        "em_q62b", "app/resilience_drills/drills/embedding_migration.py",
-    )
-    log = tmp_path / "drill_audit.jsonl"
-    monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
-    )
-    # Patch the drill module's OWN reference (imported via `from ... import`)
-    # rather than the source module's — Python `from X import Y` copies
-    # the binding, so patching the source doesn't affect the importer.
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: True)
+def test_embedding_migration_fails_on_step_fail(monkeypatch):
+    from app.resilience_drills.drills import embedding_migration as drill
+    from app.resilience_drills.protocol import DrillStatus
+
     fake_report = MagicMock()
     fake_report.steps = [
         {"name": "plan_round_trip", "ok": True},
         {"name": "shadow_read", "ok": False},
     ]
     monkeypatch.setattr(
-        "app.memory.embedding_migration.dry_run.run_dry_run", lambda **kw: fake_report,
+        "app.memory.embedding_migration.dry_run.run_dry_run",
+        lambda **kw: fake_report,
     )
     result = drill.run(dry_run=True)
-    assert result.status.value == "fail"
+    assert result.status == DrillStatus.FAIL
     assert "shadow_read" in result.errors[0]
 
 
@@ -187,20 +181,12 @@ def test_embedding_migration_fails_on_step_fail(monkeypatch, tmp_path):
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_secret_rotation_passes_on_clean_checks(monkeypatch, tmp_path):
-    drill = _load_isolated(
-        "sr_q62", "app/resilience_drills/drills/secret_rotation.py",
-    )
-    log = tmp_path / "drill_audit.jsonl"
-    monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
-    )
-    # Patch the drill module's OWN reference (imported via `from ... import`)
-    # rather than the source module's — Python `from X import Y` copies
-    # the binding, so patching the source doesn't affect the importer.
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: True)
+def test_secret_rotation_passes_on_clean_checks():
+    from app.resilience_drills.drills import secret_rotation as drill
+    from app.resilience_drills.protocol import DrillStatus
+
     result = drill.run(dry_run=True)
-    assert result.status.value == "pass"
+    assert result.status == DrillStatus.PASS
     # All four checks should appear in the detail.
     checks = result.detail["checks"]
     assert checks["gateway_secret_generation"] is True
@@ -209,25 +195,16 @@ def test_secret_rotation_passes_on_clean_checks(monkeypatch, tmp_path):
     assert checks["vendor_key_patterns"] is True
 
 
-def test_secret_rotation_never_leaks_secret_values(monkeypatch, tmp_path):
+def test_secret_rotation_never_leaks_secret_values():
     """LOAD-BEARING: the audit row must NEVER contain a generated
     candidate secret. Format-check booleans only."""
-    drill = _load_isolated(
-        "sr_q62b", "app/resilience_drills/drills/secret_rotation.py",
-    )
-    log = tmp_path / "drill_audit.jsonl"
-    monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
-    )
-    # Patch the drill module's OWN reference (imported via `from ... import`)
-    # rather than the source module's — Python `from X import Y` copies
-    # the binding, so patching the source doesn't affect the importer.
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: True)
+    from app.resilience_drills.drills import secret_rotation as drill
+
     result = drill.run(dry_run=True)
     serialized = json.dumps(result.to_dict())
     # No actual generated candidate tokens should appear.
     # We verify by checking that the serialized result is short
-    # (< 2KB) and contains no obvious secret-like substrings.
+    # (< 4KB) and contains no obvious secret-like substrings.
     assert len(serialized) < 4000, "audit row suspiciously large"
     # The detail block legitimately contains the WORD 'sk-ant-' or
     # 'sk-' as pattern documentation, but should NOT contain
@@ -240,19 +217,10 @@ def test_secret_rotation_never_leaks_secret_values(monkeypatch, tmp_path):
             )
 
 
-def test_secret_rotation_always_dry_run(monkeypatch, tmp_path):
+def test_secret_rotation_always_dry_run():
     """The drill must ALWAYS report dry_run=True regardless of caller."""
-    drill = _load_isolated(
-        "sr_q62c", "app/resilience_drills/drills/secret_rotation.py",
-    )
-    log = tmp_path / "drill_audit.jsonl"
-    monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
-    )
-    # Patch the drill module's OWN reference (imported via `from ... import`)
-    # rather than the source module's — Python `from X import Y` copies
-    # the binding, so patching the source doesn't affect the importer.
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: True)
+    from app.resilience_drills.drills import secret_rotation as drill
+
     # Even when caller passes dry_run=False, the drill must enforce True.
     result = drill.run(dry_run=False)
     assert result.dry_run is True
@@ -263,54 +231,52 @@ def test_secret_rotation_always_dry_run(monkeypatch, tmp_path):
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_kill_the_gateway_skipped_when_disabled(monkeypatch, tmp_path):
-    drill = _load_isolated(
-        "ktg_q62", "app/resilience_drills/drills/kill_the_gateway.py",
-    )
-    log = tmp_path / "drill_audit.jsonl"
+def test_kill_the_gateway_skipped_when_disabled(monkeypatch):
+    """Q18 contract: per-drill switch OFF → orchestrator returns SKIPPED.
+
+    Pre-Q18 the drill self-checked ``drill_enabled`` and embedded an
+    "opt in" reason in detail; post-Q18 the orchestrator emits the
+    SKIPPED row with ``detail["skip_reason"]`` ('master switch off')."""
+    from app.resilience_drills.drills import kill_the_gateway as drill
+    from app.resilience_drills.protocol import DrillStatus
+    from app.resilience_drills.runner import invoke_drill
+
     monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
+        "app.resilience_drills.runner.drill_enabled", lambda spec: False,
     )
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: False)
-    result = drill.run(dry_run=True)
-    assert result.status.value == "skipped"
-    assert "opt in" in result.detail.get("reason", "")
+    invoked = [False]
+
+    def _runner(*, dry_run=True):
+        invoked[0] = True
+        return drill.run(dry_run=dry_run)
+
+    result = invoke_drill(
+        drill.SPEC, _runner, dry_run=True, triggered_by="scheduler",
+    )
+    assert result.status == DrillStatus.SKIPPED
+    assert invoked[0] is False  # runner never reached
+    # Orchestrator populates a skip_reason for operator visibility.
+    assert "skip_reason" in result.detail
 
 
-def test_kill_the_gateway_passes_when_ready(monkeypatch, tmp_path):
-    drill = _load_isolated(
-        "ktg_q62b", "app/resilience_drills/drills/kill_the_gateway.py",
-    )
-    log = tmp_path / "drill_audit.jsonl"
-    monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
-    )
-    # Patch the drill module's OWN reference (imported via `from ... import`)
-    # rather than the source module's — Python `from X import Y` copies
-    # the binding, so patching the source doesn't affect the importer.
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: True)
+def test_kill_the_gateway_passes_when_ready(monkeypatch):
+    from app.resilience_drills.drills import kill_the_gateway as drill
+    from app.resilience_drills.protocol import DrillStatus
+
     # Stub the three readiness checks to pass.
     monkeypatch.setattr(drill, "_check_dr_backup_recent", lambda **kw: (True, None))
     monkeypatch.setattr(drill, "_check_no_active_tier3_monitoring", lambda: (True, None))
     monkeypatch.setattr(drill, "_check_persistent_stores_healthy", lambda: (True, None))
     result = drill.run(dry_run=True)
-    assert result.status.value == "pass"
+    assert result.status == DrillStatus.PASS
     assert result.detail["mode"] == "pre_drill_check"
     assert "next_step" in result.detail
 
 
-def test_kill_the_gateway_fails_when_backup_stale(monkeypatch, tmp_path):
-    drill = _load_isolated(
-        "ktg_q62c", "app/resilience_drills/drills/kill_the_gateway.py",
-    )
-    log = tmp_path / "drill_audit.jsonl"
-    monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
-    )
-    # Patch the drill module's OWN reference (imported via `from ... import`)
-    # rather than the source module's — Python `from X import Y` copies
-    # the binding, so patching the source doesn't affect the importer.
-    monkeypatch.setattr(drill, "drill_enabled", lambda spec: True)
+def test_kill_the_gateway_fails_when_backup_stale(monkeypatch):
+    from app.resilience_drills.drills import kill_the_gateway as drill
+    from app.resilience_drills.protocol import DrillStatus
+
     monkeypatch.setattr(
         drill, "_check_dr_backup_recent",
         lambda **kw: (False, "no tarball"),
@@ -318,7 +284,7 @@ def test_kill_the_gateway_fails_when_backup_stale(monkeypatch, tmp_path):
     monkeypatch.setattr(drill, "_check_no_active_tier3_monitoring", lambda: (True, None))
     monkeypatch.setattr(drill, "_check_persistent_stores_healthy", lambda: (True, None))
     result = drill.run(dry_run=True)
-    assert result.status.value == "fail"
+    assert result.status == DrillStatus.FAIL
 
 
 def test_kill_the_gateway_ingest_external_report(monkeypatch, tmp_path):
@@ -362,44 +328,97 @@ def test_kill_the_gateway_ingest_external_report(monkeypatch, tmp_path):
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_scheduler_skips_high_risk_drills(monkeypatch, tmp_path):
-    """HIGH-risk drills must NEVER auto-run from the scheduler.
-    Operator runs the external script."""
-    sch = _load_isolated(
-        "sch_q62", "app/resilience_drills/scheduler.py",
+def test_scheduler_skips_high_risk_drills(monkeypatch):
+    """Q18: HIGH-risk drills must NEVER auto-run from the scheduler.
+    Operator runs the external script (pinned by
+    ``scheduler.py:140-143``).
+
+    Pattern: ensure the production specs are in the registry, snapshot
+    each runner, replace with tracking stubs (so we don't actually
+    invoke boot_drill / embedding dry_run / etc.), run the scheduler,
+    then restore. The scheduler should invoke the LOW/MEDIUM-risk
+    drills' stubs and refuse to invoke the HIGH-risk kill_the_gateway
+    stub."""
+    import importlib
+
+    from app.resilience_drills.scheduler import run_once
+    from app.resilience_drills.protocol import (
+        DrillResult,
+        DrillStatus,
+        get_registry,
     )
-    log = tmp_path / "drill_audit.jsonl"
-    monkeypatch.setattr(
-        "app.resilience_drills.audit._default_audit_path", lambda: log,
-    )
-    monkeypatch.setattr(sch, "master_enabled", lambda: True)
-    # Force-import the drills package so registry populates.
-    import app.resilience_drills.drills  # noqa: F401
-    # Stub days_since_last_success → past due for all drills.
-    monkeypatch.setattr(sch, "days_since_last_success", lambda name: 200.0)
-    # Stub drill_enabled → True for all.
-    monkeypatch.setattr(sch, "drill_enabled", lambda spec: True)
-    # Stub the registry's runners so we can detect calls.
-    from app.resilience_drills.protocol import get_registry, DrillStatus, DrillResult
+
+    # Make sure the registry is populated. If a prior test cleared
+    # it, reload each drill module so its module-level register()
+    # fires again.
     reg = get_registry()
+    if not reg.list_specs():
+        for sub in (
+            "app.resilience_drills.drills.backup_restore",
+            "app.resilience_drills.drills.embedding_migration",
+            "app.resilience_drills.drills.secret_rotation",
+            "app.resilience_drills.drills.kill_the_gateway",
+        ):
+            if sub in sys.modules:
+                importlib.reload(sys.modules[sub])
+            else:
+                importlib.import_module(sub)
+    else:
+        # Ensure base set is present (cached imports keep modules but
+        # may pre-date the test if registry was cleared mid-run).
+        import app.resilience_drills.drills  # noqa: F401
+
     calls: dict[str, int] = {}
+    original_runners: dict[str, object] = {}
+
     def make_stub(name):
         def _run(*, dry_run=True):
             calls[name] = calls.get(name, 0) + 1
             return DrillResult(
-                drill_name=name, status=DrillStatus.PASS,
-                started_at="x", completed_at="y", duration_s=0.0,
+                drill_name=name,
+                status=DrillStatus.PASS,
+                started_at=datetime.now(timezone.utc).isoformat(),
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                duration_s=0.0,
                 dry_run=dry_run,
             )
         return _run
+
+    # Snapshot + replace each drill's runner with a tracking stub.
+    # Restored in the finally below so downstream tests see the
+    # production runners.
     for spec in reg.list_specs():
+        original_runners[spec.name] = reg.runner_for(spec.name)
         reg.register(spec, make_stub(spec.name))
-    # Stub notify so we don't import the full notify chain.
+
+    # Force enablement so the HIGH-risk skip is the only thing keeping
+    # kill_the_gateway from running. The runner imports drill_enabled
+    # via ``from app.resilience_drills.protocol import drill_enabled``
+    # — patch the runner module's binding directly.
+    monkeypatch.setattr(
+        "app.resilience_drills.runner.drill_enabled", lambda spec: True,
+    )
+    monkeypatch.setattr(
+        "app.resilience_drills.scheduler.drill_enabled", lambda spec: True,
+    )
+    monkeypatch.setattr(
+        "app.resilience_drills.scheduler._maybe_notify_high_risk_due",
+        lambda spec: None,
+    )
     monkeypatch.setattr("app.notify.notify", lambda **kw: None)
-    summary = sch.run_once()
-    assert summary["auto_ran"] >= 1   # LOW/MEDIUM ones ran
-    # The HIGH-risk one (kill_the_gateway) MUST NOT be auto-run.
-    assert calls.get("kill_the_gateway", 0) == 0
+
+    try:
+        summary = run_once()
+        # LOW/MEDIUM-risk drills should have run.
+        assert summary["ran"] >= 1
+        # The HIGH-risk one (kill_the_gateway) MUST NOT be auto-invoked.
+        assert calls.get("kill_the_gateway", 0) == 0
+    finally:
+        # Restore production runners so downstream tests work.
+        for name, runner in original_runners.items():
+            spec = reg.get(name)
+            if spec is not None and runner is not None:
+                reg.register(spec, runner)
 
 
 def test_scheduler_skipped_when_master_off(monkeypatch):
