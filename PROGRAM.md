@@ -12191,3 +12191,174 @@ observations.
 * **NEW** 6 test files (66 tests)
 
 Total ~3500 LOC + ~1100 LOC tests. No TIER_IMMUTABLE files touched.
+
+# §61 — Elegance plan (Phases 1–4, 2026-05-18 → 2026-05-19)
+
+Four-phase shift from monotonic codebase growth toward net-zero. The
+loop measures elegance, proposes refactors, reflects on whether the
+loop is winning, and meta-detects convergent debt across monitors —
+all observational or operator-gated; never destructive.
+
+Full spec: [docs/ELEGANCE_PLAN.md](docs/ELEGANCE_PLAN.md). Per-phase
+spec docs: [docs/CODE_HEALTH_OBSERVATION.md](docs/CODE_HEALTH_OBSERVATION.md),
+[docs/REFACTOR_PROPOSER.md](docs/REFACTOR_PROPOSER.md),
+[docs/CONSOLIDATION_RHYTHM.md](docs/CONSOLIDATION_RHYTHM.md),
+[docs/PHASE4_ELEGANCE_FOLLOWUPS.md](docs/PHASE4_ELEGANCE_FOLLOWUPS.md).
+
+## §61.1 — Phase 1 (continuous observation, default ON)
+
+Wires the existing mutation-gate primitives (`app/code_quality.py`,
+`app/architectural_review.py` — both pre-existing but undocumented in
+CLAUDE.md) into continuous post-merge loops.
+
+* `app/system_inventory/` — AST-only weekly walk →
+  `workspace/system_inventory/snapshot.json`. Closes the meta-gap
+  behind CLAUDE.md drifting from actual capabilities. Agents query
+  via `query_inventory(kind=…, capability=…, keyword=…)`.
+* `app/healing/monitors/elegance_drift.py` (41st monitor) — per-file
+  `QualityScore` with 8-week rolling-median regression detector.
+  Alerts on ≥10% composite drop. Same threshold (0.10) as the
+  mutation gate; "regression" is single-sourced.
+* `app/healing/monitors/architectural_drift.py` (42nd monitor) —
+  Tarjan SCC + capability-owner + reverse-degree baseline diff over
+  the full forward import graph. Three alert kinds (new small cycle,
+  new parallel capability, centrality spike) + systemic-SCC growth
+  signal. Systemic SCCs (>20 files) excluded from actionable alerts —
+  they're coupling shapes, not refactor candidates.
+
+New IDENTITY_EVENT_KIND `architectural_debt_drift`; auto-surfaces in
+the annual reflection via `summarise_drift.by_kind`.
+
+## §61.2 — Phase 2 (refactor-proposal producer, default OFF)
+
+4th producer in `app.proposal_bridge` (alongside `capability_gap`,
+`library_radar`, `paper_pipeline`, `dependency_radar`).
+
+* `app/refactoring/proposer.py` — three detectors:
+  * `complexity_hotspot` — composite ≤0.65 AND complexity_score ≤0.40
+    (corresponds to McCabe ≥~19). Two-threshold filter avoids
+    surfacing files whose low composite comes purely from missing
+    docstrings.
+  * `import_cycle` — 2-20-member SCCs from the architectural_drift
+    baseline. Systemic SCCs (>20) excluded.
+  * `parallel_capability` — capabilities owned by ≥3 distinct files.
+    Body explicitly invites consolidate / rename / document-as-meta-tag
+    so legitimate meta-tags aren't forced into rewrites.
+
+Each candidate carries a `coding_session_spec` scaffold (intent /
+files / acceptance / expected_duration_min). 14-day bridge cooldown +
+3-per-detector cap per pass. Default OFF — operator opts in after
+reviewing Phase 1 baselines.
+
+## §61.3 — Phase 3 (consolidation rhythm, default ON)
+
+Calendar-driven deterministic digests. No LLM call (objective code
+metrics don't need narrative prose); reproducible outputs; zero
+phenomenal-language risk.
+
+* `app/identity/elegance_reflection.py` — annual essay at
+  `wiki/self/elegance_reflections/<year>.md`, 350-day cadence.
+  Six sections + a one-line verdict (`shedding` / `stable` /
+  `growing`).
+* `app/self_improvement/code_consolidation.py` — quarterly digest at
+  `wiki/self/code_consolidation/<year>_q<n>.md`, 85-day cadence.
+  Lists shed candidates (`LOC < 200` AND `≤1 importer` AND
+  `has_tests=False` AND not in foundational-hub allowlist), parallel
+  clusters, persisting small cycles.
+
+Both wired as LIGHT idle jobs in `app/identity/scheduler.py`. Both
+emit a new IDENTITY_EVENT_KIND `code_consolidation`.
+
+The quarterly digest is deliberately **informational, not a CR**:
+actionable proposals come from Phase 2's `refactor_proposer`. The
+two compose — operator reads quarterly digest to prioritise Phase 2
+CRs.
+
+## §61.4 — Phase 4 (meta-detection + new-tech upstream, mixed)
+
+Three originally-deferred items.
+
+* **§61.4.1 PEP/idiom radar** (`app/library_radar/idiom_radar.py`,
+  default OFF) — weekly Python PEP feed scan via existing
+  `fetch_python_peps`. Keyword filter (`match`, `dataclass`, `async`,
+  `walrus`, `f-string`, `structural pattern`, `typing`, `protocol`,
+  `slots`, `type parameter`, `exception group`, `sub-interpreter`).
+  Stages markdown via `proposal_bridge` with `source="library_radar"`;
+  per-keyword migration hints. PEP idioms are library-class adoption
+  signals — no new bridge source.
+* **§61.4.2 Lessons-learned universal consultation** — *already
+  shipped 2026-05-09* as Phase F #5. Lines 272-285 of
+  `app/change_requests/lifecycle.py` call
+  `lessons_learned.check_against` on every CR and prepend a
+  `⚠️ Matches rejected-pattern lesson` banner. The "extend to all
+  CR paths" gap was closed before Phase 4 started.
+* **§61.4.3 Cross-monitor pattern detector**
+  (`app/healing/monitors/cross_monitor_pattern.py`, 43rd monitor,
+  default ON) — reads continuity-ledger events in the last 14 days,
+  groups by `detail.path`, alerts when ≥3 distinct event KINDS
+  converge on the same path. Reuses `architectural_debt_drift` kind
+  for its own emissions (a convergent cluster IS architectural debt).
+  Cluster fingerprint = `(path, sorted(kinds))`; 30-day dedup window
+  so re-detecting the same fingerprint stays silent until composition
+  changes.
+
+## §61.5 — Discipline carried across all four phases
+
+1. **Default-OFF for CR-emitters; default-ON for observers.** Two
+   producers ship OFF (`refactor_proposer`, `pep_idiom_radar`); five
+   observers ship ON.
+2. **TIER_IMMUTABLE absolute.** Every proposal validates against
+   `change_requests.validator` at stage time. Pinned by
+   `test_target_paths_pass_change_request_validator`.
+3. **Reuse the gate, don't rebuild it.** All proposals route through
+   `proposal_bridge → operator CR gate → 60-min auto-revert`. No
+   phase introduced a new approval surface.
+4. **Single-sourced "regression".** Phase 1's `elegance_drift` uses
+   the same `QUALITY_REGRESSION_THRESHOLD = 0.10` constant as the
+   mutation gate.
+5. **Deterministic where the domain is metrics.** Phase 3 reflections
+   compose from JSON — no LLM call, tests assert exact substrings.
+6. **Minimal new event kinds.** One new kind added across all four
+   phases (`code_consolidation`); Phase 4's meta-detector reuses
+   Phase 1's `architectural_debt_drift`.
+
+## §61.6 — Live first-run findings
+
+* 1,206 modules, 251,887 LOC, 0.933 avg composite, 89% fully-typed,
+  61% fully-documented, 20% with tests by name-match.
+* 5 actionable small import cycles surfaced; 1 systemic SCC of 585
+  files (correctly excluded from actionable alerts).
+* 2 parallel-capability clusters (`registers-tool` meta-tag,
+  `renders-pdf` 3-owner worth investigating).
+* 20 shed candidates in first quarterly digest — nearly all 18-LOC
+  shim modules under `app/consciousness/` and `app/self_awareness/`.
+* Annual reflection verdict on first run: `shedding`.
+
+## §61.7 — Tests
+
+56 new tests across 8 files. Full Phase 1+2+3+4 + adjacent slice
+(proposal_bridge, continuity_ledger pinning): **128 tests pass,
+0 fail**.
+
+| Phase | Test files | Count |
+|---|---|---|
+| 1 | `test_system_inventory`, `test_elegance_drift`, `test_architectural_drift` | 28 |
+| 2 | `test_refactor_proposer` | 13 |
+| 3 | `test_elegance_reflection`, `test_code_consolidation` | 24 |
+| 4 | `test_idiom_radar`, `test_cross_monitor_pattern` | 28 |
+
+## §61.8 — Deliberate non-decisions
+
+* **No `coding_session/refactor_verify.py`** — semantic-equivalence
+  gate for refactor sessions; deferred because existing tests +
+  operator review at the CR gate catches behaviour breakage today.
+  Natural next ship when refactor-CR volume justifies it.
+* **No `duplication_cluster`, `dead_code`, `single_use_abstraction`,
+  `centrality_drift` detectors** — each is a one-detector additive
+  change against Phase 2's producer skeleton when needed.
+* **No auto-apply for any proposer.** Every CR goes through the
+  operator gate. The auto-apply infrastructure exists (PROGRAM §38.3)
+  but its allowlist deliberately ships empty.
+* **No CLAUDE.md edits.** Per the original Phase 1 analysis, CLAUDE.md
+  stays the stable narrative; `system_inventory` is the live truth
+  agents query at runtime.
