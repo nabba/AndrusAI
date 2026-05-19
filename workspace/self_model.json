@@ -340,7 +340,7 @@
         "self_improvement_describe",
         "self_improvement_health"
       ],
-      "line_count": 2985,
+      "line_count": 3008,
       "is_hot_path": true,
       "capability_tags": [
         "memory",
@@ -366,6 +366,7 @@
         "get_annual_privacy_review_enabled",
         "get_answer_regression_enabled",
         "get_answer_regression_llm_enabled",
+        "get_architectural_drift_monitor_enabled",
         "get_architecture_adoption_monitor_enabled",
         "get_architecture_requests_enabled",
         "get_aviationstack_api_key",
@@ -387,9 +388,11 @@
         "get_chromadb_source_ledger_enabled",
         "get_chromadb_wal_enforcement_enabled",
         "get_claude_md_compaction_enabled",
+        "get_code_consolidation_enabled",
         "get_companion_accuracy_log_enabled",
         "get_concierge_persona_enabled",
         "get_conversation_memory_enabled",
+        "get_cross_monitor_pattern_monitor_enabled",
         "get_dependency_radar_enabled",
         "get_drill_backup_restore_enabled",
         "get_drill_embedding_migration_enabled",
@@ -399,8 +402,13 @@
         "get_drill_secret_rotation_enabled",
         "get_drill_source_ledger_replay_enabled",
         "get_drill_staleness_monitor_enabled",
+        "get_drill_task_recovery_enabled",
+        "get_drill_task_recovery_live_enabled",
+        "get_drill_task_recovery_llm_variants_enabled",
         "get_drill_vendor_independence_enabled",
         "get_drill_vendor_independence_live_enabled",
+        "get_elegance_drift_monitor_enabled",
+        "get_elegance_reflection_enabled",
         "get_embedding_drift_monitor_enabled",
         "get_embedding_migration_cutover_enabled",
         "get_embedding_migration_dual_write_enabled",
@@ -436,6 +444,7 @@
         "get_oauth_token_freshness_monitor_enabled",
         "get_operator_anomaly_monitor_enabled",
         "get_operator_transition_enabled",
+        "get_pep_idiom_radar_enabled",
         "get_person_centrality_enabled",
         "get_person_centrality_formula",
         "get_person_correlation_decay_months",
@@ -448,7 +457,9 @@
         "get_philosophy_panel_enabled",
         "get_post_amendment_restart_claims",
         "get_recovery_loop_enabled",
+        "get_refactor_proposer_enabled",
         "get_resilience_drills_enabled",
+        "get_schema_drift_monitor_enabled",
         "get_self_improvement_velocity_enabled",
         "get_sentience_ae2_enabled",
         "get_sentience_hot1_enabled",
@@ -465,6 +476,7 @@
         "get_subia_introspection_enabled",
         "get_subia_live_enabled",
         "get_synthesis_pass_enabled",
+        "get_system_inventory_enabled",
         "get_tier3_amendment_enabled",
         "get_tool_supervisor_enabled",
         "get_tripit_ical_url",
@@ -491,6 +503,7 @@
         "set_annual_privacy_review_enabled",
         "set_answer_regression_enabled",
         "set_answer_regression_llm_enabled",
+        "set_architectural_drift_monitor_enabled",
         "set_architecture_adoption_monitor_enabled",
         "set_architecture_requests_enabled",
         "set_aviationstack_api_key",
@@ -511,9 +524,11 @@
         "set_chromadb_source_ledger_enabled",
         "set_chromadb_wal_enforcement_enabled",
         "set_claude_md_compaction_enabled",
+        "set_code_consolidation_enabled",
         "set_companion_accuracy_log_enabled",
         "set_concierge_persona_enabled",
         "set_conversation_memory_enabled",
+        "set_cross_monitor_pattern_monitor_enabled",
         "set_dependency_radar_enabled",
         "set_drill_backup_restore_enabled",
         "set_drill_embedding_migration_enabled",
@@ -523,8 +538,13 @@
         "set_drill_secret_rotation_enabled",
         "set_drill_source_ledger_replay_enabled",
         "set_drill_staleness_monitor_enabled",
+        "set_drill_task_recovery_enabled",
+        "set_drill_task_recovery_live_enabled",
+        "set_drill_task_recovery_llm_variants_enabled",
         "set_drill_vendor_independence_enabled",
         "set_drill_vendor_independence_live_enabled",
+        "set_elegance_drift_monitor_enabled",
+        "set_elegance_reflection_enabled",
         "set_embedding_drift_monitor_enabled",
         "set_embedding_migration_cutover_enabled",
         "set_embedding_migration_dual_write_enabled",
@@ -559,6 +579,7 @@
         "set_oauth_token_freshness_monitor_enabled",
         "set_operator_anomaly_monitor_enabled",
         "set_operator_transition_enabled",
+        "set_pep_idiom_radar_enabled",
         "set_person_centrality_enabled",
         "set_person_centrality_formula",
         "set_person_correlation_decay_months",
@@ -570,7 +591,9 @@
         "set_philosophy_digest_enabled",
         "set_philosophy_panel_enabled",
         "set_recovery_loop_enabled",
+        "set_refactor_proposer_enabled",
         "set_resilience_drills_enabled",
+        "set_schema_drift_monitor_enabled",
         "set_self_improvement_velocity_enabled",
         "set_sentience_ae2_enabled",
         "set_sentience_hot1_enabled",
@@ -587,6 +610,7 @@
         "set_subia_introspection_enabled",
         "set_subia_live_enabled",
         "set_synthesis_pass_enabled",
+        "set_system_inventory_enabled",
         "set_tier3_amendment_enabled",
         "set_tool_supervisor_enabled",
         "set_tripit_ical_url",
@@ -604,7 +628,7 @@
         "set_wiki_staleness_monitor_enabled",
         "snapshot"
       ],
-      "line_count": 2463,
+      "line_count": 2668,
       "is_hot_path": false,
       "capability_tags": [
         "agent",
@@ -701,6 +725,25 @@
         "safety",
         "error_handling",
         "llm"
+      ]
+    },
+    "app/deploy_staging.py": {
+      "path": "app/deploy_staging.py",
+      "imports": [
+        "app.paths"
+      ],
+      "exports": [
+        "stage_for_deploy",
+        "unstage"
+      ],
+      "line_count": 122,
+      "is_hot_path": false,
+      "capability_tags": [
+        "evolution",
+        "memory",
+        "agent",
+        "safety",
+        "deploy"
       ]
     },
     "app/paths.py": {
@@ -1716,6 +1759,7 @@
       "path": "app/auto_deployer.py",
       "imports": [],
       "exports": [
+        "DeployEvidence",
         "ProtectionTier",
         "get_deploy_log",
         "get_protection_tier",
@@ -1724,7 +1768,7 @@
         "validate_mutation_for_tier",
         "validate_proposal_paths"
       ],
-      "line_count": 902,
+      "line_count": 1044,
       "is_hot_path": false,
       "capability_tags": [
         "safety",
@@ -2303,7 +2347,7 @@
       "exports": [
         "CanaryDeployer"
       ],
-      "line_count": 219,
+      "line_count": 243,
       "is_hot_path": false,
       "capability_tags": [
         "evaluation",
@@ -2369,7 +2413,7 @@
         "create_training_data_hook",
         "get_pipeline"
       ],
-      "line_count": 667,
+      "line_count": 675,
       "is_hot_path": false,
       "capability_tags": [
         "evaluation",
@@ -2583,7 +2627,7 @@
         "run_evolution_cycle",
         "run_evolution_session"
       ],
-      "line_count": 1606,
+      "line_count": 1629,
       "is_hot_path": false,
       "capability_tags": [
         "evolution",
@@ -2647,7 +2691,7 @@
         "start_phil_queue_poller",
         "start_tensions_queue_poller"
       ],
-      "line_count": 926,
+      "line_count": 930,
       "is_hot_path": true,
       "capability_tags": [
         "error_handling",
@@ -4655,7 +4699,7 @@
         "companion_tick",
         "get_idle_jobs"
       ],
-      "line_count": 332,
+      "line_count": 346,
       "is_hot_path": false,
       "capability_tags": [
         "error_handling"
@@ -5425,12 +5469,13 @@
       "exports": [
         "log_crew_dispatch",
         "log_request_received",
+        "log_response_failed",
         "log_response_sent",
         "log_security_event",
         "log_tool_blocked",
         "log_tool_call"
       ],
-      "line_count": 152,
+      "line_count": 172,
       "is_hot_path": false,
       "capability_tags": []
     },
@@ -6433,6 +6478,24 @@
         "error_handling"
       ]
     },
+    "app/library_radar/idiom_radar.py": {
+      "path": "app/library_radar/idiom_radar.py",
+      "imports": [],
+      "exports": [
+        "IdiomCandidate",
+        "detect_idiom_peps",
+        "run_one_pass",
+        "start",
+        "stop"
+      ],
+      "line_count": 383,
+      "is_hot_path": false,
+      "capability_tags": [
+        "agent",
+        "error_handling",
+        "llm"
+      ]
+    },
     "app/library_radar/trial_state.py": {
       "path": "app/library_radar/trial_state.py",
       "imports": [],
@@ -6477,7 +6540,7 @@
         "app.library_radar.proposer"
       ],
       "exports": [],
-      "line_count": 58,
+      "line_count": 64,
       "is_hot_path": false,
       "capability_tags": [
         "evaluation",
@@ -7629,7 +7692,7 @@
         "main",
         "run_drill"
       ],
-      "line_count": 517,
+      "line_count": 526,
       "is_hot_path": false,
       "capability_tags": [
         "memory",
@@ -8941,7 +9004,7 @@
         "start",
         "stop"
       ],
-      "line_count": 353,
+      "line_count": 383,
       "is_hot_path": false,
       "capability_tags": [
         "memory"
@@ -8957,12 +9020,13 @@
         "enforce_wal_mode",
         "integrity_check",
         "integrity_summary",
+        "kb_integrity_check",
         "latest_snapshot",
         "list_snapshots",
         "quarantine_kb",
         "replay_from_postgres"
       ],
-      "line_count": 838,
+      "line_count": 853,
       "is_hot_path": false,
       "capability_tags": [
         "memory",
@@ -9012,6 +9076,7 @@
         "ledger_path",
         "list_history",
         "list_kbs",
+        "open_history",
         "read_all",
         "read_since",
         "replay_kb",
@@ -9019,7 +9084,7 @@
         "verify_chain",
         "verify_chain_incremental"
       ],
-      "line_count": 1565,
+      "line_count": 1697,
       "is_hot_path": false,
       "capability_tags": [
         "memory"
@@ -9060,6 +9125,37 @@
         "memory",
         "error_handling",
         "subia"
+      ]
+    },
+    "app/refactoring/__init__.py": {
+      "path": "app/refactoring/__init__.py",
+      "imports": [
+        "app.refactoring.proposer"
+      ],
+      "exports": [],
+      "line_count": 84,
+      "is_hot_path": false,
+      "capability_tags": [
+        "evaluation",
+        "agent"
+      ]
+    },
+    "app/refactoring/proposer.py": {
+      "path": "app/refactoring/proposer.py",
+      "imports": [],
+      "exports": [
+        "RefactorCandidate",
+        "detect_complexity_hotspots",
+        "detect_import_cycles",
+        "detect_parallel_capabilities",
+        "run_one_pass",
+        "start",
+        "stop"
+      ],
+      "line_count": 557,
+      "is_hot_path": false,
+      "capability_tags": [
+        "evaluation"
       ]
     },
     "app/mcp/registry.py": {
@@ -10447,6 +10543,19 @@
         "error_handling"
       ]
     },
+    "app/self_improvement/code_consolidation.py": {
+      "path": "app/self_improvement/code_consolidation.py",
+      "imports": [],
+      "exports": [
+        "ConsolidationResult",
+        "run_one_pass"
+      ],
+      "line_count": 406,
+      "is_hot_path": false,
+      "capability_tags": [
+        "knowledge"
+      ]
+    },
     "app/self_improvement/metrics.py": {
       "path": "app/self_improvement/metrics.py",
       "imports": [],
@@ -10647,17 +10756,22 @@
       "imports": [],
       "exports": [
         "consciousness_indicators",
+        "drill_detail",
         "drills_audit",
+        "drills_mute",
         "drills_posture",
+        "drills_ratify_baseline",
         "drills_registry",
         "drills_run",
+        "drills_unmute",
+        "drills_unquarantine",
         "sentience_ae2_associations",
         "sentience_hot1_patterns",
         "sentience_hot4_flagged",
         "sentience_rpt1_calibration",
         "sentience_scorecard_pinning"
       ],
-      "line_count": 280,
+      "line_count": 483,
       "is_hot_path": false,
       "capability_tags": [
         "error_handling",
@@ -10776,7 +10890,7 @@
         "companion_tensions_resolve",
         "notify_fatigue"
       ],
-      "line_count": 320,
+      "line_count": 321,
       "is_hot_path": false,
       "capability_tags": [
         "error_handling",
@@ -10872,7 +10986,7 @@
         "system_status",
         "tech_radar"
       ],
-      "line_count": 920,
+      "line_count": 921,
       "is_hot_path": false,
       "capability_tags": [
         "monitoring"
@@ -10974,7 +11088,7 @@
         "llm_role_assignments_endpoint",
         "llm_unpin_endpoint"
       ],
-      "line_count": 424,
+      "line_count": 425,
       "is_hot_path": false,
       "capability_tags": [
         "error_handling",
@@ -11141,7 +11255,7 @@
         "transfer_memory_top",
         "transfer_memory_worst"
       ],
-      "line_count": 104,
+      "line_count": 105,
       "is_hot_path": false,
       "capability_tags": [
         "memory",
@@ -11151,146 +11265,18 @@
     "app/control_plane/dashboard_api.py": {
       "path": "app/control_plane/dashboard_api.py",
       "imports": [
-        "app.control_plane.auth_dep"
+        "app.control_plane.auth_dep",
+        "app.control_plane.dashboard_routes_budgets_costs",
+        "app.control_plane.dashboard_routes_companion",
+        "app.control_plane.dashboard_routes_governance_ops",
+        "app.control_plane.dashboard_routes_llms",
+        "app.control_plane.dashboard_routes_ops_misc",
+        "app.control_plane.dashboard_routes_projects_tickets",
+        "app.control_plane.dashboard_routes_sentience_drills",
+        "app.control_plane.dashboard_routes_transfer_memory"
       ],
-      "exports": [
-        "BudgetOverride",
-        "BudgetPauseToggle",
-        "BudgetSet",
-        "ChatSendBody",
-        "CommentCreate",
-        "CreditAlertDismiss",
-        "DelegationUpdate",
-        "DemoteRequest",
-        "DiscoveryRun",
-        "DissolveBody",
-        "JudgePinRequest",
-        "JudgeUnpinRequest",
-        "MetaAgentUpdate",
-        "PairMuteBody",
-        "PathQueryBody",
-        "PersonAction",
-        "PinRequest",
-        "ProjectCreate",
-        "PromoteRequest",
-        "ProposalAction",
-        "TensionCreate",
-        "TensionResolve",
-        "TicketCreate",
-        "TicketUpdate",
-        "UnpinRequest",
-        "acknowledge_anomaly",
-        "add_comment",
-        "apply_proposal_action",
-        "approve_governance",
-        "audit_costs",
-        "budgets_forecast",
-        "chat_messages",
-        "chat_send",
-        "companion_cross_modal_patterns",
-        "companion_people",
-        "companion_people_centrality",
-        "companion_people_forget",
-        "companion_people_forget_all",
-        "companion_people_graph",
-        "companion_people_graph_communities",
-        "companion_people_graph_dissolve",
-        "companion_people_graph_forget",
-        "companion_people_graph_mute_pair",
-        "companion_people_graph_path",
-        "companion_people_graph_path_optout",
-        "companion_people_graph_structural",
-        "companion_people_mute",
-        "companion_people_mute_sug",
-        "companion_people_suggestions",
-        "companion_people_unmute",
-        "companion_tensions",
-        "companion_tensions_create",
-        "companion_tensions_resolve",
-        "consciousness_indicators",
-        "control_plane_health",
-        "costs_by_agent",
-        "costs_by_crew",
-        "costs_by_internal_agent",
-        "costs_daily",
-        "costs_trends",
-        "create_project",
-        "create_ticket",
-        "credit_alerts",
-        "dismiss_credit_alert",
-        "drills_audit",
-        "drills_posture",
-        "drills_registry",
-        "drills_run",
-        "embedding_migration_status",
-        "error_audit",
-        "get_audit_log",
-        "get_budgets",
-        "get_crew_tasks",
-        "get_delegation_settings",
-        "get_meta_agent_settings",
-        "get_org_chart_api",
-        "get_project",
-        "get_task_timeline",
-        "get_ticket",
-        "list_idle_jobs",
-        "list_projects",
-        "list_tickets",
-        "llm_catalog",
-        "llm_demote_endpoint",
-        "llm_discovery_run",
-        "llm_discovery_status",
-        "llm_judge_evaluations_endpoint",
-        "llm_judges_endpoint",
-        "llm_judges_pin_endpoint",
-        "llm_judges_unpin_endpoint",
-        "llm_pin_endpoint",
-        "llm_pins_endpoint",
-        "llm_promote_endpoint",
-        "llm_promotions_endpoint",
-        "llm_role_assignments_endpoint",
-        "llm_unpin_endpoint",
-        "notify_fatigue",
-        "observability_snapshot_kinds",
-        "observability_snapshot_latest",
-        "observability_snapshot_recent",
-        "override_budget",
-        "pending_governance",
-        "pool_diagnostics",
-        "project_status",
-        "recent_anomalies",
-        "recent_deploys",
-        "recent_errors",
-        "reject_governance",
-        "research_adapter_status",
-        "sentience_ae2_associations",
-        "sentience_hot1_patterns",
-        "sentience_hot4_flagged",
-        "sentience_rpt1_calibration",
-        "sentience_scorecard_pinning",
-        "set_budget",
-        "set_delegation_setting",
-        "set_meta_agent_setting",
-        "signal_commands",
-        "source_ledger_state",
-        "system_status",
-        "tech_radar",
-        "ticket_board",
-        "toggle_budget_pause",
-        "token_usage",
-        "transfer_memory_by_source_kind",
-        "transfer_memory_negative_transfer",
-        "transfer_memory_overview",
-        "transfer_memory_promote",
-        "transfer_memory_promotion_candidates",
-        "transfer_memory_recent",
-        "transfer_memory_sanitizer_stats",
-        "transfer_memory_source_target_matrix",
-        "transfer_memory_top",
-        "transfer_memory_worst",
-        "update_ticket"
-      ],
-      "line_count": 2998,
+      "exports": [],
+      "line_count": 79,
       "is_hot_path": false,
       "capability_tags": [
         "monitoring"
@@ -11473,7 +11459,7 @@
         "set_delegation_setting",
         "set_meta_agent_setting"
       ],
-      "line_count": 288,
+      "line_count": 289,
       "is_hot_path": false,
       "capability_tags": [
         "agent",
@@ -11499,7 +11485,7 @@
         "ticket_board",
         "update_ticket"
       ],
-      "line_count": 203,
+      "line_count": 204,
       "is_hot_path": false,
       "capability_tags": [
         "monitoring"
@@ -11940,6 +11926,53 @@
         "knowledge"
       ]
     },
+    "app/resilience_drills/baseline.py": {
+      "path": "app/resilience_drills/baseline.py",
+      "imports": [],
+      "exports": [
+        "Baseline",
+        "ComparisonResult",
+        "Observation",
+        "Regression",
+        "compare",
+        "list_all_baselines",
+        "load",
+        "ratify_from_observation",
+        "reset_for_tests",
+        "save"
+      ],
+      "line_count": 424,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling"
+      ]
+    },
+    "app/resilience_drills/state.py": {
+      "path": "app/resilience_drills/state.py",
+      "imports": [],
+      "exports": [
+        "DrillState",
+        "DrillStateRecord",
+        "StateTransition",
+        "is_runnable_now",
+        "is_warming_up",
+        "list_all_state_records",
+        "load",
+        "load_or_initialize",
+        "mute",
+        "record_failure",
+        "record_pass",
+        "reset_for_tests",
+        "save",
+        "unmute",
+        "unquarantine"
+      ],
+      "line_count": 602,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling"
+      ]
+    },
     "app/resilience_drills/__init__.py": {
       "path": "app/resilience_drills/__init__.py",
       "imports": [],
@@ -11985,12 +12018,13 @@
         "DrillRisk",
         "DrillSpec",
         "DrillStatus",
+        "FailureClass",
         "drill_enabled",
         "get_registry",
         "master_enabled",
         "register"
       ],
-      "line_count": 208,
+      "line_count": 262,
       "is_hot_path": false,
       "capability_tags": [
         "error_handling"
@@ -12006,6 +12040,23 @@
       "is_hot_path": false,
       "capability_tags": [
         "error_handling"
+      ]
+    },
+    "app/resilience_drills/runner.py": {
+      "path": "app/resilience_drills/runner.py",
+      "imports": [
+        "app.resilience_drills",
+        "app.resilience_drills.audit",
+        "app.resilience_drills.protocol"
+      ],
+      "exports": [
+        "invoke_drill",
+        "invoke_drill_by_name"
+      ],
+      "line_count": 306,
+      "is_hot_path": false,
+      "capability_tags": [
+        "safety"
       ]
     },
     "app/resilience_drills/posture.py": {
@@ -12025,13 +12076,14 @@
     "app/resilience_drills/scheduler.py": {
       "path": "app/resilience_drills/scheduler.py",
       "imports": [
-        "app.resilience_drills.audit",
-        "app.resilience_drills.protocol"
+        "app.resilience_drills",
+        "app.resilience_drills.protocol",
+        "app.resilience_drills.runner"
       ],
       "exports": [
         "run_once"
       ],
-      "line_count": 177,
+      "line_count": 240,
       "is_hot_path": false,
       "capability_tags": [
         "error_handling"
@@ -12460,7 +12512,7 @@
         "RiskClass",
         "Status"
       ],
-      "line_count": 220,
+      "line_count": 245,
       "is_hot_path": false,
       "capability_tags": [
         "agent",
@@ -12517,7 +12569,7 @@
         "mark_timeout",
         "reject"
       ],
-      "line_count": 745,
+      "line_count": 840,
       "is_hot_path": false,
       "capability_tags": [
         "agent",
@@ -12560,6 +12612,23 @@
       "is_hot_path": false,
       "capability_tags": [
         "memory"
+      ]
+    },
+    "app/change_requests/spam_cleanup.py": {
+      "path": "app/change_requests/spam_cleanup.py",
+      "imports": [
+        "app.change_requests",
+        "app.change_requests.lifecycle",
+        "app.change_requests.models"
+      ],
+      "exports": [
+        "consolidate"
+      ],
+      "line_count": 211,
+      "is_hot_path": false,
+      "capability_tags": [
+        "tool",
+        "safety"
       ]
     },
     "app/health/idle_job.py": {
@@ -12730,11 +12799,12 @@
         "main",
         "write_baseline"
       ],
-      "line_count": 267,
+      "line_count": 281,
       "is_hot_path": false,
       "capability_tags": [
         "evaluation",
-        "safety"
+        "safety",
+        "monitoring"
       ]
     },
     "app/tools/currency_tools.py": {
@@ -14731,7 +14801,7 @@
         "record_event",
         "summarise_drift"
       ],
-      "line_count": 292,
+      "line_count": 309,
       "is_hot_path": false,
       "capability_tags": [
         "agent",
@@ -14787,6 +14857,21 @@
       "is_hot_path": false,
       "capability_tags": []
     },
+    "app/identity/elegance_reflection.py": {
+      "path": "app/identity/elegance_reflection.py",
+      "imports": [],
+      "exports": [
+        "EleganceReflectionResult",
+        "run_one_pass"
+      ],
+      "line_count": 432,
+      "is_hot_path": false,
+      "capability_tags": [
+        "evaluation",
+        "llm",
+        "knowledge"
+      ]
+    },
     "app/identity/annual_reflection.py": {
       "path": "app/identity/annual_reflection.py",
       "imports": [
@@ -14813,10 +14898,12 @@
       "exports": [
         "get_idle_jobs",
         "run_annual_reflection",
+        "run_code_consolidation",
+        "run_elegance_reflection",
         "run_legacy_essay",
         "run_long_term_goal_review"
       ],
-      "line_count": 154,
+      "line_count": 207,
       "is_hot_path": false,
       "capability_tags": [
         "error_handling",
@@ -15112,6 +15199,49 @@
         "error_handling"
       ]
     },
+    "app/system_inventory/scanner.py": {
+      "path": "app/system_inventory/scanner.py",
+      "imports": [],
+      "exports": [
+        "InventorySnapshot",
+        "ModuleEntry",
+        "build_snapshot"
+      ],
+      "line_count": 218,
+      "is_hot_path": false,
+      "capability_tags": []
+    },
+    "app/system_inventory/__init__.py": {
+      "path": "app/system_inventory/__init__.py",
+      "imports": [
+        "app.system_inventory.scanner",
+        "app.system_inventory.store"
+      ],
+      "exports": [],
+      "line_count": 52,
+      "is_hot_path": false,
+      "capability_tags": [
+        "llm",
+        "monitoring"
+      ]
+    },
+    "app/system_inventory/store.py": {
+      "path": "app/system_inventory/store.py",
+      "imports": [
+        "app.system_inventory.scanner"
+      ],
+      "exports": [
+        "get_snapshot",
+        "inventory_summary",
+        "persist_snapshot",
+        "query_inventory"
+      ],
+      "line_count": 162,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling"
+      ]
+    },
     "app/proposal_bridge/promoter.py": {
       "path": "app/proposal_bridge/promoter.py",
       "imports": [
@@ -15151,7 +15281,7 @@
         "stage",
         "update_proposal"
       ],
-      "line_count": 377,
+      "line_count": 380,
       "is_hot_path": false,
       "capability_tags": []
     },
@@ -15366,7 +15496,7 @@
         "reingest_fiction",
         "upload_fiction_text"
       ],
-      "line_count": 242,
+      "line_count": 247,
       "is_hot_path": true,
       "capability_tags": [
         "monitoring"
@@ -15559,7 +15689,7 @@
         "web_push_test",
         "web_push_unsubscribe"
       ],
-      "line_count": 1087,
+      "line_count": 1108,
       "is_hot_path": true,
       "capability_tags": [
         "llm",
@@ -15967,13 +16097,12 @@
     "app/resilience_drills/drills/vendor_independence.py": {
       "path": "app/resilience_drills/drills/vendor_independence.py",
       "imports": [
-        "app.resilience_drills.audit",
         "app.resilience_drills.protocol"
       ],
       "exports": [
         "run"
       ],
-      "line_count": 539,
+      "line_count": 525,
       "is_hot_path": false,
       "capability_tags": [
         "error_handling",
@@ -15983,13 +16112,12 @@
     "app/resilience_drills/drills/backup_restore.py": {
       "path": "app/resilience_drills/drills/backup_restore.py",
       "imports": [
-        "app.resilience_drills.audit",
         "app.resilience_drills.protocol"
       ],
       "exports": [
         "run"
       ],
-      "line_count": 143,
+      "line_count": 122,
       "is_hot_path": false,
       "capability_tags": [
         "memory"
@@ -15998,13 +16126,12 @@
     "app/resilience_drills/drills/secret_rotation.py": {
       "path": "app/resilience_drills/drills/secret_rotation.py",
       "imports": [
-        "app.resilience_drills.audit",
         "app.resilience_drills.protocol"
       ],
       "exports": [
         "run"
       ],
-      "line_count": 308,
+      "line_count": 270,
       "is_hot_path": false,
       "capability_tags": [
         "agent",
@@ -16014,13 +16141,12 @@
     "app/resilience_drills/drills/local_only.py": {
       "path": "app/resilience_drills/drills/local_only.py",
       "imports": [
-        "app.resilience_drills.audit",
         "app.resilience_drills.protocol"
       ],
       "exports": [
         "run"
       ],
-      "line_count": 291,
+      "line_count": 293,
       "is_hot_path": false,
       "capability_tags": [
         "error_handling",
@@ -16033,20 +16159,21 @@
         "app.resilience_drills.drills"
       ],
       "exports": [],
-      "line_count": 19,
+      "line_count": 21,
       "is_hot_path": false,
-      "capability_tags": []
+      "capability_tags": [
+        "error_handling"
+      ]
     },
     "app/resilience_drills/drills/embedding_migration.py": {
       "path": "app/resilience_drills/drills/embedding_migration.py",
       "imports": [
-        "app.resilience_drills.audit",
         "app.resilience_drills.protocol"
       ],
       "exports": [
         "run"
       ],
-      "line_count": 157,
+      "line_count": 135,
       "is_hot_path": false,
       "capability_tags": [
         "memory"
@@ -16055,28 +16182,47 @@
     "app/resilience_drills/drills/embedding_rotation.py": {
       "path": "app/resilience_drills/drills/embedding_rotation.py",
       "imports": [
-        "app.resilience_drills.audit",
         "app.resilience_drills.protocol"
       ],
       "exports": [
         "run"
       ],
-      "line_count": 390,
+      "line_count": 359,
       "is_hot_path": false,
       "capability_tags": [
         "memory"
       ]
     },
-    "app/resilience_drills/drills/source_ledger_replay.py": {
-      "path": "app/resilience_drills/drills/source_ledger_replay.py",
+    "app/resilience_drills/drills/task_recovery.py": {
+      "path": "app/resilience_drills/drills/task_recovery.py",
       "imports": [
-        "app.resilience_drills.audit",
+        "app.resilience_drills.fixtures.task_recovery_crew",
+        "app.resilience_drills.fixtures.variant_generator",
         "app.resilience_drills.protocol"
       ],
       "exports": [
         "run"
       ],
-      "line_count": 308,
+      "line_count": 496,
+      "is_hot_path": false,
+      "capability_tags": [
+        "evaluation",
+        "agent",
+        "tool",
+        "error_handling",
+        "llm",
+        "monitoring"
+      ]
+    },
+    "app/resilience_drills/drills/source_ledger_replay.py": {
+      "path": "app/resilience_drills/drills/source_ledger_replay.py",
+      "imports": [
+        "app.resilience_drills.protocol"
+      ],
+      "exports": [
+        "run"
+      ],
+      "line_count": 271,
       "is_hot_path": false,
       "capability_tags": [
         "memory",
@@ -16093,9 +16239,55 @@
         "ingest_external_report",
         "run"
       ],
-      "line_count": 315,
+      "line_count": 284,
       "is_hot_path": false,
       "capability_tags": [
+        "error_handling"
+      ]
+    },
+    "app/resilience_drills/fixtures/__init__.py": {
+      "path": "app/resilience_drills/fixtures/__init__.py",
+      "imports": [],
+      "exports": [],
+      "line_count": 9,
+      "is_hot_path": false,
+      "capability_tags": [
+        "agent"
+      ]
+    },
+    "app/resilience_drills/fixtures/variant_generator.py": {
+      "path": "app/resilience_drills/fixtures/variant_generator.py",
+      "imports": [
+        "app.resilience_drills.fixtures.task_recovery_crew"
+      ],
+      "exports": [
+        "generate_variant"
+      ],
+      "line_count": 264,
+      "is_hot_path": false,
+      "capability_tags": [
+        "evolution",
+        "agent",
+        "error_handling",
+        "llm",
+        "monitoring"
+      ]
+    },
+    "app/resilience_drills/fixtures/task_recovery_crew.py": {
+      "path": "app/resilience_drills/fixtures/task_recovery_crew.py",
+      "imports": [],
+      "exports": [
+        "build_drill_crew",
+        "current_injection",
+        "fallback_variant",
+        "reset_injection",
+        "set_injection"
+      ],
+      "line_count": 311,
+      "is_hot_path": false,
+      "capability_tags": [
+        "agent",
+        "tool",
         "error_handling"
       ]
     },
@@ -16559,7 +16751,7 @@
         "main",
         "run_dry_run"
       ],
-      "line_count": 310,
+      "line_count": 318,
       "is_hot_path": false,
       "capability_tags": [
         "memory",
@@ -16585,7 +16777,7 @@
         "shadow_read_enabled",
         "transition"
       ],
-      "line_count": 313,
+      "line_count": 321,
       "is_hot_path": false,
       "capability_tags": []
     },
@@ -16996,7 +17188,7 @@
       "exports": [
         "Commander"
       ],
-      "line_count": 3672,
+      "line_count": 3675,
       "is_hot_path": false,
       "capability_tags": [
         "agent",
@@ -19703,6 +19895,32 @@
         "error_handling"
       ]
     },
+    "app/healing/monitors/architectural_drift.py": {
+      "path": "app/healing/monitors/architectural_drift.py",
+      "imports": [],
+      "exports": [
+        "run"
+      ],
+      "line_count": 509,
+      "is_hot_path": false,
+      "capability_tags": [
+        "monitoring"
+      ]
+    },
+    "app/healing/monitors/cross_monitor_pattern.py": {
+      "path": "app/healing/monitors/cross_monitor_pattern.py",
+      "imports": [],
+      "exports": [
+        "detect_convergent_clusters",
+        "run"
+      ],
+      "line_count": 316,
+      "is_hot_path": false,
+      "capability_tags": [
+        "error_handling",
+        "monitoring"
+      ]
+    },
     "app/healing/monitors/feedback_loop_drift.py": {
       "path": "app/healing/monitors/feedback_loop_drift.py",
       "imports": [],
@@ -19758,6 +19976,19 @@
         "monitoring"
       ]
     },
+    "app/healing/monitors/schema_drift.py": {
+      "path": "app/healing/monitors/schema_drift.py",
+      "imports": [],
+      "exports": [
+        "run"
+      ],
+      "line_count": 392,
+      "is_hot_path": false,
+      "capability_tags": [
+        "safety",
+        "monitoring"
+      ]
+    },
     "app/healing/monitors/host_substrate_health.py": {
       "path": "app/healing/monitors/host_substrate_health.py",
       "imports": [],
@@ -19780,7 +20011,7 @@
         "start",
         "stop"
       ],
-      "line_count": 715,
+      "line_count": 768,
       "is_hot_path": false,
       "capability_tags": [
         "evolution",
@@ -19912,6 +20143,21 @@
       "line_count": 101,
       "is_hot_path": false,
       "capability_tags": [
+        "error_handling",
+        "monitoring"
+      ]
+    },
+    "app/healing/monitors/elegance_drift.py": {
+      "path": "app/healing/monitors/elegance_drift.py",
+      "imports": [],
+      "exports": [
+        "run"
+      ],
+      "line_count": 280,
+      "is_hot_path": false,
+      "capability_tags": [
+        "evolution",
+        "evaluation",
         "error_handling",
         "monitoring"
       ]
@@ -20553,6 +20799,7 @@
       "app/evo_memory.py",
       "app/benchmarks.py",
       "app/main.py",
+      "app/deploy_staging.py",
       "app/paths.py",
       "app/reference_tasks.py",
       "app/version_manifest.py",
@@ -20810,6 +21057,7 @@
       "app/runtime_settings.py",
       "app/governance_notifier.py",
       "app/cascade_evaluator.py",
+      "app/deploy_staging.py",
       "app/reference_tasks.py",
       "app/failure_taxonomy.py",
       "app/evolve_blocks.py",
@@ -20897,11 +21145,13 @@
       "app/philosophy/__init__.py",
       "app/philosophy/api.py",
       "app/philosophy/dialectics_tool.py",
+      "app/resilience_drills/runner.py",
       "app/experiential/journal_writer.py",
       "app/substrate/migration_runner.py",
       "app/governance_amendment/eligibility.py",
       "app/governance_amendment/self_quarantine.py",
       "app/change_requests/auto_revert.py",
+      "app/change_requests/spam_cleanup.py",
       "app/tools/gee_tool.py",
       "app/tools/structural_inventory.py",
       "app/tools/request_tier3_amendment.py",
@@ -20958,7 +21208,8 @@
       "app/subia/scene/personality_workspace.py",
       "app/subia/scene/broadcast.py",
       "app/subia/homeostasis/state.py",
-      "app/subia/homeostasis/engine.py"
+      "app/subia/homeostasis/engine.py",
+      "app/healing/monitors/schema_drift.py"
     ],
     "monitoring": [
       "app/creative_mode.py",
@@ -21118,6 +21369,7 @@
       "app/health/store.py",
       "app/health/types.py",
       "app/health/import_apple.py",
+      "app/tools/structural_inventory.py",
       "app/tools/request_tier3_amendment.py",
       "app/tools/web_search.py",
       "app/tools/control_plane_tickets_tool.py",
@@ -21139,6 +21391,7 @@
       "app/personality/validation.py",
       "app/personality/creativity_scoring.py",
       "app/workflows/__init__.py",
+      "app/system_inventory/__init__.py",
       "app/transfer_memory/promotion.py",
       "app/transfer_memory/attribution.py",
       "app/api/fiction.py",
@@ -21147,6 +21400,8 @@
       "app/api/config_api.py",
       "app/api/files_api.py",
       "app/api/health.py",
+      "app/resilience_drills/drills/task_recovery.py",
+      "app/resilience_drills/fixtures/variant_generator.py",
       "app/recovery/strategies/forge_queue.py",
       "app/self_improvement/meta_agent/amendment.py",
       "app/self_improvement/meta_agent/feature_flag.py",
@@ -21168,10 +21423,13 @@
       "app/healing/monitors/wiki_staleness.py",
       "app/healing/monitors/listener_heartbeat.py",
       "app/healing/monitors/retention.py",
+      "app/healing/monitors/architectural_drift.py",
+      "app/healing/monitors/cross_monitor_pattern.py",
       "app/healing/monitors/feedback_loop_drift.py",
       "app/healing/monitors/signal_keepalive.py",
       "app/healing/monitors/drill_staleness.py",
       "app/healing/monitors/oauth_token_freshness.py",
+      "app/healing/monitors/schema_drift.py",
       "app/healing/monitors/host_substrate_health.py",
       "app/healing/monitors/__init__.py",
       "app/healing/monitors/restore_drill.py",
@@ -21182,6 +21440,7 @@
       "app/healing/monitors/log_archival.py",
       "app/healing/monitors/version_upgrade_drill.py",
       "app/healing/monitors/audit_chain_check.py",
+      "app/healing/monitors/elegance_drift.py",
       "app/healing/monitors/crypto_rotation_drill.py",
       "app/healing/monitors/db_backup.py",
       "app/healing/monitors/tz_drift.py",
@@ -21268,6 +21527,7 @@
       "app/self_improvement/__init__.py",
       "app/self_improvement/consolidator.py",
       "app/self_improvement/evaluator.py",
+      "app/self_improvement/code_consolidation.py",
       "app/self_improvement/metrics.py",
       "app/self_improvement/types.py",
       "app/skills/registry.py",
@@ -21306,6 +21566,7 @@
       "app/identity/legacy_essay.py",
       "app/identity/__init__.py",
       "app/identity/long_term_goal_review.py",
+      "app/identity/elegance_reflection.py",
       "app/identity/annual_reflection.py",
       "app/personality/concierge_wrapper.py",
       "app/personality/creativity_scoring.py",
@@ -21365,6 +21626,7 @@
       "app/crew_checkpointer.py",
       "app/benchmarks.py",
       "app/cascade_evaluator.py",
+      "app/deploy_staging.py",
       "app/reference_tasks.py",
       "app/adaptive_ensemble.py",
       "app/map_elites.py",
@@ -21430,6 +21692,7 @@
       "app/transfer_memory/__init__.py",
       "app/transfer_memory/types.py",
       "app/api/evolution_api.py",
+      "app/resilience_drills/fixtures/variant_generator.py",
       "app/recovery/strategies/sandbox_execute.py",
       "app/agents/commander/command_registry.py",
       "app/subia/tsal/evolution_feasibility.py",
@@ -21440,6 +21703,7 @@
       "app/subia/social/salience_boost.py",
       "app/subia/scene/strategic_scan.py",
       "app/healing/monitors/__init__.py",
+      "app/healing/monitors/elegance_drift.py",
       "app/healing/monitors/cron_liveness.py",
       "app/healing/handlers/multi_router.py",
       "app/healing/handlers/code_drift.py"
@@ -21457,6 +21721,7 @@
       "app/runtime_settings.py",
       "app/governance_notifier.py",
       "app/llm_context.py",
+      "app/deploy_staging.py",
       "app/reference_tasks.py",
       "app/map_elites.py",
       "app/failure_taxonomy.py",
@@ -21553,6 +21818,7 @@
       "app/policies/policy_loader.py",
       "app/self_awareness/emergent_infrastructure.py",
       "app/self_awareness/prosocial_learning.py",
+      "app/library_radar/idiom_radar.py",
       "app/library_radar/proposer.py",
       "app/sentience_experiments/ae2_causal_credit.py",
       "app/sentience_experiments/hot4_metacog_monitor.py",
@@ -21608,6 +21874,7 @@
       "app/brainstorm/report.py",
       "app/memory/scoped_memory.py",
       "app/memory/belief_state.py",
+      "app/refactoring/__init__.py",
       "app/mcp/server.py",
       "app/mcp/tool_adapter.py",
       "app/mcp/client.py",
@@ -21748,6 +22015,10 @@
       "app/dossier/adapters/sec_edgar.py",
       "app/dossier/adapters/wikipedia.py",
       "app/resilience_drills/drills/secret_rotation.py",
+      "app/resilience_drills/drills/task_recovery.py",
+      "app/resilience_drills/fixtures/__init__.py",
+      "app/resilience_drills/fixtures/variant_generator.py",
+      "app/resilience_drills/fixtures/task_recovery_crew.py",
       "app/recovery/strategies/re_route.py",
       "app/recovery/strategies/__init__.py",
       "app/recovery/strategies/sandbox_execute.py",
@@ -21948,6 +22219,7 @@
       "app/notify/arbiter.py",
       "app/notify/__init__.py",
       "app/notify/fatigue.py",
+      "app/library_radar/idiom_radar.py",
       "app/library_radar/trial_state.py",
       "app/library_radar/trial_runner.py",
       "app/dependency_radar/__init__.py",
@@ -22071,6 +22343,8 @@
       "app/knowledge_base/ingestion.py",
       "app/philosophy/panel_digest.py",
       "app/philosophy/dialectics.py",
+      "app/resilience_drills/baseline.py",
+      "app/resilience_drills/state.py",
       "app/resilience_drills/__init__.py",
       "app/resilience_drills/audit.py",
       "app/resilience_drills/protocol.py",
@@ -22162,6 +22436,7 @@
       "app/agreement_self_model/agreement_ledger.py",
       "app/workflows/store.py",
       "app/workflows/executor.py",
+      "app/system_inventory/store.py",
       "app/transfer_memory/llm_scope.py",
       "app/transfer_memory/attribution.py",
       "app/transfer_memory/prompts.py",
@@ -22180,8 +22455,12 @@
       "app/tools/research_adapters/__init__.py",
       "app/resilience_drills/drills/vendor_independence.py",
       "app/resilience_drills/drills/local_only.py",
+      "app/resilience_drills/drills/__init__.py",
+      "app/resilience_drills/drills/task_recovery.py",
       "app/resilience_drills/drills/source_ledger_replay.py",
       "app/resilience_drills/drills/kill_the_gateway.py",
+      "app/resilience_drills/fixtures/variant_generator.py",
+      "app/resilience_drills/fixtures/task_recovery_crew.py",
       "app/recovery/strategies/skill_chain.py",
       "app/recovery/strategies/re_route.py",
       "app/recovery/strategies/__init__.py",
@@ -22267,6 +22546,7 @@
       "app/healing/monitors/lock_housekeeper.py",
       "app/healing/monitors/wiki_staleness.py",
       "app/healing/monitors/kb_contradiction.py",
+      "app/healing/monitors/cross_monitor_pattern.py",
       "app/healing/monitors/__init__.py",
       "app/healing/monitors/chromadb_integrity.py",
       "app/healing/monitors/embedding_drift.py",
@@ -22274,6 +22554,7 @@
       "app/healing/monitors/notify_suppression_review.py",
       "app/healing/monitors/log_archival.py",
       "app/healing/monitors/audit_chain_check.py",
+      "app/healing/monitors/elegance_drift.py",
       "app/healing/monitors/db_backup.py",
       "app/healing/monitors/tz_drift.py",
       "app/healing/monitors/interest_ossification.py",
@@ -22367,6 +22648,8 @@
       "app/conversation_memory/retrieval.py",
       "app/brainstorm/idea_evolution.py",
       "app/brainstorm/report.py",
+      "app/refactoring/__init__.py",
+      "app/refactoring/proposer.py",
       "app/episteme/paper_pipeline.py",
       "app/operations_suite/__init__.py",
       "app/self_improvement/gap_detector.py",
@@ -22388,9 +22671,11 @@
       "app/retrieval/orchestrator.py",
       "app/retrieval/reranker.py",
       "app/retrieval/temporal.py",
+      "app/identity/elegance_reflection.py",
       "app/personality/validation.py",
       "app/transfer_memory/scorer.py",
       "app/api/qos_api.py",
+      "app/resilience_drills/drills/task_recovery.py",
       "app/recovery/strategies/skill_chain.py",
       "app/recovery/strategies/__init__.py",
       "app/self_improvement/meta_agent/selector.py",
@@ -22407,6 +22692,7 @@
       "app/subia/wonder/detector.py",
       "app/subia/scene/buffer.py",
       "app/healing/monitors/architecture_adoption.py",
+      "app/healing/monitors/elegance_drift.py",
       "app/healing/monitors/interest_ossification.py",
       "app/healing/monitors/operator_anomaly.py",
       "app/companion/graph_features/communities.py",
@@ -22518,6 +22804,7 @@
       "app/notify/arbiter.py",
       "app/notify/__init__.py",
       "app/notify/api.py",
+      "app/library_radar/idiom_radar.py",
       "app/sentience_experiments/rpt1_self_calibration.py",
       "app/sentience_experiments/ae2_causal_credit.py",
       "app/healing/health_remediator.py",
@@ -22624,6 +22911,7 @@
       "app/retrieval/__init__.py",
       "app/retrieval/decomposer.py",
       "app/identity/long_term_goal_review.py",
+      "app/identity/elegance_reflection.py",
       "app/identity/annual_reflection.py",
       "app/identity/scheduler.py",
       "app/personality/probes.py",
@@ -22632,6 +22920,7 @@
       "app/personality/creativity_scoring.py",
       "app/personality/signal_context.py",
       "app/personality/evaluation.py",
+      "app/system_inventory/__init__.py",
       "app/transfer_memory/scorer.py",
       "app/transfer_memory/llm_scope.py",
       "app/transfer_memory/attribution.py",
@@ -22652,6 +22941,8 @@
       "app/resilience_drills/drills/vendor_independence.py",
       "app/resilience_drills/drills/secret_rotation.py",
       "app/resilience_drills/drills/local_only.py",
+      "app/resilience_drills/drills/task_recovery.py",
+      "app/resilience_drills/fixtures/variant_generator.py",
       "app/recovery/strategies/direct_tool.py",
       "app/recovery/strategies/escalate_tier.py",
       "app/self_improvement/meta_agent/__init__.py",
@@ -22805,6 +23096,7 @@
       "app/philosophy/__init__.py",
       "app/philosophy/dialectics_tool.py",
       "app/change_requests/lifecycle.py",
+      "app/change_requests/spam_cleanup.py",
       "app/tools/gmail_tools.py",
       "app/tools/gee_tool.py",
       "app/tools/tool_search.py",
@@ -22872,6 +23164,8 @@
       "app/api/files_api.py",
       "app/dossier/adapters/sec_edgar.py",
       "app/dossier/adapters/__init__.py",
+      "app/resilience_drills/drills/task_recovery.py",
+      "app/resilience_drills/fixtures/task_recovery_crew.py",
       "app/recovery/strategies/sandbox_execute.py",
       "app/recovery/strategies/direct_tool.py",
       "app/self_improvement/meta_agent/apply.py",
@@ -23128,6 +23422,7 @@
       "app/healing/monitors/bit_rot_scan.py"
     ],
     "deploy": [
+      "app/deploy_staging.py",
       "app/version_manifest.py",
       "app/workspace_versioning.py",
       "app/auditor.py",
@@ -23372,6 +23667,7 @@
     ],
     "app/paths.py": [
       "app/runtime_settings.py",
+      "app/deploy_staging.py",
       "app/governance_signal_bridge.py",
       "app/google_workspace/auth.py",
       "app/affect/calibration.py",
@@ -24357,6 +24653,9 @@
       "app/memory/wiki_index_reconciler.py",
       "app/tools/wiki_tool_registry.py"
     ],
+    "app/refactoring/proposer.py": [
+      "app/refactoring/__init__.py"
+    ],
     "app/mcp/client.py": [
       "app/mcp/registry.py"
     ],
@@ -24552,7 +24851,8 @@
       "app/tool_registry/decorator.py"
     ],
     "app/control_plane/dashboard_routes_budgets_costs.py": [
-      "app/control_plane/dashboard_routes_ops_misc.py"
+      "app/control_plane/dashboard_routes_ops_misc.py",
+      "app/control_plane/dashboard_api.py"
     ],
     "app/json_store.py": [
       "app/control_plane/projects.py"
@@ -24583,6 +24883,27 @@
     ],
     "app/architecture_requests/scaffolder.py": [
       "app/control_plane/architecture_requests_api.py"
+    ],
+    "app/control_plane/dashboard_routes_companion.py": [
+      "app/control_plane/dashboard_api.py"
+    ],
+    "app/control_plane/dashboard_routes_governance_ops.py": [
+      "app/control_plane/dashboard_api.py"
+    ],
+    "app/control_plane/dashboard_routes_llms.py": [
+      "app/control_plane/dashboard_api.py"
+    ],
+    "app/control_plane/dashboard_routes_ops_misc.py": [
+      "app/control_plane/dashboard_api.py"
+    ],
+    "app/control_plane/dashboard_routes_projects_tickets.py": [
+      "app/control_plane/dashboard_api.py"
+    ],
+    "app/control_plane/dashboard_routes_sentience_drills.py": [
+      "app/control_plane/dashboard_api.py"
+    ],
+    "app/control_plane/dashboard_routes_transfer_memory.py": [
+      "app/control_plane/dashboard_api.py"
     ],
     "app/subia/inquiry/questions.py": [
       "app/control_plane/inquiries_api.py",
@@ -24620,6 +24941,7 @@
     ],
     "app/resilience_drills/protocol.py": [
       "app/resilience_drills/audit.py",
+      "app/resilience_drills/runner.py",
       "app/resilience_drills/scheduler.py",
       "app/resilience_drills/drills/vendor_independence.py",
       "app/resilience_drills/drills/backup_restore.py",
@@ -24627,19 +24949,16 @@
       "app/resilience_drills/drills/local_only.py",
       "app/resilience_drills/drills/embedding_migration.py",
       "app/resilience_drills/drills/embedding_rotation.py",
+      "app/resilience_drills/drills/task_recovery.py",
       "app/resilience_drills/drills/source_ledger_replay.py",
       "app/resilience_drills/drills/kill_the_gateway.py"
     ],
     "app/resilience_drills/audit.py": [
-      "app/resilience_drills/scheduler.py",
-      "app/resilience_drills/drills/vendor_independence.py",
-      "app/resilience_drills/drills/backup_restore.py",
-      "app/resilience_drills/drills/secret_rotation.py",
-      "app/resilience_drills/drills/local_only.py",
-      "app/resilience_drills/drills/embedding_migration.py",
-      "app/resilience_drills/drills/embedding_rotation.py",
-      "app/resilience_drills/drills/source_ledger_replay.py",
+      "app/resilience_drills/runner.py",
       "app/resilience_drills/drills/kill_the_gateway.py"
+    ],
+    "app/resilience_drills/runner.py": [
+      "app/resilience_drills/scheduler.py"
     ],
     "app/experiential/tools.py": [
       "app/experiential/__init__.py"
@@ -24674,13 +24993,15 @@
       "app/change_requests/__init__.py"
     ],
     "app/change_requests/lifecycle.py": [
-      "app/change_requests/__init__.py"
+      "app/change_requests/__init__.py",
+      "app/change_requests/spam_cleanup.py"
     ],
     "app/change_requests/models.py": [
       "app/change_requests/__init__.py",
       "app/change_requests/apply.py",
       "app/change_requests/lifecycle.py",
-      "app/change_requests/store.py"
+      "app/change_requests/store.py",
+      "app/change_requests/spam_cleanup.py"
     ],
     "app/change_requests/signal.py": [
       "app/change_requests/__init__.py"
@@ -24905,6 +25226,13 @@
     "app/workflows/executor.py": [
       "app/workflows/queue.py"
     ],
+    "app/system_inventory/scanner.py": [
+      "app/system_inventory/__init__.py",
+      "app/system_inventory/store.py"
+    ],
+    "app/system_inventory/store.py": [
+      "app/system_inventory/__init__.py"
+    ],
     "app/proposal_bridge/store.py": [
       "app/proposal_bridge/promoter.py",
       "app/proposal_bridge/__init__.py"
@@ -24945,6 +25273,13 @@
       "app/browse/readers/chromium.py",
       "app/browse/readers/safari.py",
       "app/browse/readers/firefox.py"
+    ],
+    "app/resilience_drills/fixtures/task_recovery_crew.py": [
+      "app/resilience_drills/drills/task_recovery.py",
+      "app/resilience_drills/fixtures/variant_generator.py"
+    ],
+    "app/resilience_drills/fixtures/variant_generator.py": [
+      "app/resilience_drills/drills/task_recovery.py"
     ],
     "app/self_improvement/meta_agent/policy_gap.py": [
       "app/self_improvement/meta_agent/amendment.py",
@@ -25108,8 +25443,8 @@
       "app/forge/runtime/declarative.py"
     ]
   },
-  "built_at": 1779123369.1349263,
-  "build_duration_s": 3.439549001999694,
-  "module_count": 1193,
+  "built_at": 1779206757.815685,
+  "build_duration_s": 2.957706500994391,
+  "module_count": 1214,
   "hot_path_count": 32
 }

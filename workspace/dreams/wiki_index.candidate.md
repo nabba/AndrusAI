@@ -8,11 +8,11 @@ sections:
   self: 2
 title: AndrusAI Wiki — Master Index
 total_pages: 69
-updated_at: '2026-05-18T16:56:05Z'
+updated_at: '2026-05-19T16:05:55Z'
 ---
 # AndrusAI Knowledge Wiki — Master Index
 
-Total pages: 69 | Last updated: 2026-05-18
+Total pages: 69 | Last updated: 2026-05-19
 
 ## Meta (Cross-Venture)
 - [[meta/1-1ca80e91]] — **1. **

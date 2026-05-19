@@ -17,3 +17,7 @@
 {"elapsed_ms": 83.44, "resource": "map_elites/researcher/state.json", "ts": 1779054947.1048586}
 {"elapsed_ms": 53.05, "resource": "memory/.source_ledger.jsonl", "ts": 1779058556.036685}
 {"elapsed_ms": 70.52, "resource": "manifests/v0.1.10.json", "ts": 1779092237.05994}
+{"elapsed_ms": 278.35, "resource": "manifests/current.txt", "ts": 1779206465.0352414}
+{"elapsed_ms": 73.33, "resource": "atlas/competence/competence_map.json", "ts": 1779206559.3084016}
+{"elapsed_ms": 170.92, "resource": "atlas/competence/competence_map.json", "ts": 1779206578.3879}
+{"elapsed_ms": 126.25, "resource": "map_elites/commander/state.json", "ts": 1779206715.3493316}

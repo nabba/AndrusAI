@@ -1,11 +1,11 @@
 ---
 title: Hot Cache
-updated_at: "2026-05-18T16:56:09Z"
+updated_at: "2026-05-19T16:05:57Z"
 ---
 
 # Wiki Hot Cache
 
-*Auto-generated 2026-05-18T16:56:09Z. Read this for quick context.*
+*Auto-generated 2026-05-19T16:05:57Z. Read this for quick context.*
 
 ## Recent Wiki Changes
   | 2026-04-24T12:00:58Z | idle_scheduler.wiki_synthesis | CREATE | meta/missing-import-detection-and-resolution | Created: Missing Import Detection and Resolution |
@@ -24,7 +24,7 @@ updated_at: "2026-05-18T16:56:09Z"
   None.
 
 ## Knowledge Gaps
-  - archibal: no pages yet
-  - kaicart: no pages yet
   - philosophy: no pages yet
+  - kaicart: no pages yet
   - plg: no pages yet
+  - archibal: no pages yet

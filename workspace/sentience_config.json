@@ -1,9 +1,9 @@
 {
-  "certainty_high_threshold": 0.6449999999999999,
-  "certainty_low_threshold": 0.5100000000000001,
+  "certainty_high_threshold": 0.6399999999999999,
+  "certainty_low_threshold": 0.5200000000000001,
   "valence_positive_threshold": 0.2,
   "valence_negative_threshold": -0.2,
-  "slow_path_trigger_threshold": 0.2899999999999999,
+  "slow_path_trigger_threshold": 0.2799999999999999,
   "slow_path_variance_threshold": 0.03,
   "reassessment_cooldown_steps": 3
 }
