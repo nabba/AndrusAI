@@ -59,12 +59,37 @@ def run(*, dry_run: bool = True) -> DrillResult:
         report = _run_boot_drill(export_fresh=False, keep_target=False)
         detail["tarball"] = getattr(report, "tarball", None)
         detail["overall_ok"] = getattr(report, "overall_ok", False)
-        detail["collections_checked"] = len(
-            getattr(report, "collections", []) or [],
+        # NB: the DrillReport attribute is ``chromadb_results``, not
+        # ``collections`` — getting that wrong silently reports 0
+        # collections regardless of the actual run.
+        chromadb_results = getattr(report, "chromadb_results", []) or []
+        detail["collections_checked"] = len(chromadb_results)
+        detail["collections_passed"] = sum(
+            1 for r in chromadb_results if getattr(r, "ok", False)
+        )
+        # Dataclass fields are ``kb`` + ``collection`` + ``error``.
+        # Render as "kb/collection — error" so the operator sees WHICH
+        # collection failed and WHY.
+        detail["collections_failed"] = [
+            (
+                f"{getattr(r, 'kb', '?')}/{getattr(r, 'collection', '?')}"
+                f" — {getattr(r, 'error', None) or 'rows mismatch'}"
+            )
+            for r in chromadb_results
+            if not getattr(r, "ok", False)
+        ][:10]
+        detail["ledger_files_restored"] = getattr(
+            report, "ledger_files_restored", 0
+        )
+        detail["ledger_hash_mismatches"] = getattr(
+            report, "ledger_hash_mismatches", 0
         )
         detail["fresh_export"] = getattr(report, "fresh_export", False)
         observation["overall_ok"] = detail["overall_ok"]
         observation["collections_checked"] = detail["collections_checked"]
+        observation["collections_passed"] = detail["collections_passed"]
+        observation["ledger_files_restored"] = detail["ledger_files_restored"]
+        observation["ledger_hash_mismatches"] = detail["ledger_hash_mismatches"]
         report_errors = list(getattr(report, "errors", []) or [])
         if report_errors:
             errors.extend(report_errors[:10])

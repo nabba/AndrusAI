@@ -66,8 +66,16 @@ _VALID_TRANSITIONS: dict[str, set[str]] = {
     PHASE_READY: {PHASE_CUTOVER, PHASE_ABORTED, PHASE_SHADOW_READ},
     PHASE_CUTOVER: {PHASE_APPLIED, PHASE_ABORTED, PHASE_READY},
     PHASE_APPLIED: {PHASE_STANDDOWN_COMPLETE, PHASE_ABORTED},
-    PHASE_STANDDOWN_COMPLETE: set(),
-    PHASE_ABORTED: set(),
+    # Both terminal-shaped phases (STANDDOWN_COMPLETE, ABORTED) get a
+    # one-way exit back to IDLE so an operator (or the dry_run drill)
+    # can recover the state machine without manually editing
+    # ``workspace/runtime_settings.json``. Semantically clean: both
+    # phases mean "nothing happening"; IDLE means "nothing happening,
+    # ready for next attempt". The transition is operator-initiated
+    # only — there's no production automation that fires it, and the
+    # dry_run drill explicitly reasons "dry_run_reset".
+    PHASE_STANDDOWN_COMPLETE: {PHASE_IDLE},
+    PHASE_ABORTED: {PHASE_IDLE},
 }
 
 

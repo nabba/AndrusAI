@@ -1,20 +1,20 @@
 {
   "consecutive_code_errors": 0,
-  "consecutive_failures": 3,
+  "consecutive_failures": 0,
   "drill_name": "backup_restore",
   "last_failure_at": "2026-05-18T19:35:03.556562+00:00",
-  "last_failure_class": "structural_fail",
+  "last_failure_class": "",
   "last_failure_summary": "",
-  "last_run_at": "2026-05-18T19:35:03.556562+00:00",
-  "last_success_at": null,
+  "last_run_at": "2026-05-19T15:10:20.631042+00:00",
+  "last_success_at": "2026-05-19T15:10:20.631042+00:00",
   "last_traceback": "",
   "muted_at": null,
   "muted_by": "",
   "muted_until": null,
-  "next_attempt_after": "2026-05-18T21:35:03.556562+00:00",
+  "next_attempt_after": "2026-08-17T15:10:20.631042+00:00",
   "quarantined_at": null,
   "quarantined_reason": "",
-  "state": "degraded",
+  "state": "healthy",
   "transitions": [
     {
       "at": "2026-05-18T18:10:06.598647+00:00",
@@ -35,6 +35,13 @@
       "from_state": "watch",
       "reason": "2 consecutive failures",
       "to_state": "degraded",
+      "triggered_by": "scheduler"
+    },
+    {
+      "at": "2026-05-19T14:40:06.382558+00:00",
+      "from_state": "degraded",
+      "reason": "pass after failure",
+      "to_state": "healthy",
       "triggered_by": "scheduler"
     }
   ],

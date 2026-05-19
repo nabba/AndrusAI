@@ -135,6 +135,16 @@ IDENTITY_EVENT_KINDS: frozenset[str] = frozenset({
                                  # (new cycles / parallel capabilities /
                                  # centrality spikes). Auto-surfaces in
                                  # annual reflection via summarise_drift.
+                                 # Phase 4: cross_monitor_pattern reuses
+                                 # this kind for convergent-cluster
+                                 # alerts (≥3 distinct monitor kinds on
+                                 # the same path).
+    "code_consolidation",        # Phase 3 elegance loop — emitted by
+                                 # elegance_reflection (annual) +
+                                 # code_consolidation (quarterly) digests.
+                                 # Records the year's / quarter's
+                                 # trajectory verdict (shedding / stable /
+                                 # growing) for posterity.
 })
 
 

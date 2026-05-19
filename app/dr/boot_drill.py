@@ -153,7 +153,13 @@ def _drill_chromadb_collection(
         try:
             sample = col.peek(1)
             embs = sample.get("embeddings") if sample else None
-            if embs and len(embs) > 0 and embs[0]:
+            # NB: chromadb 1.5+ returns numpy arrays for embeddings, so
+            # ``if embs`` or ``if embs[0]`` triggers "ambiguous truth
+            # value of array". Use explicit length checks instead. This
+            # bug silently failed every collection check from the
+            # chromadb 1.5 upgrade until the Q18 drill conversion
+            # surfaced it.
+            if embs is not None and len(embs) > 0 and len(embs[0]) > 0:
                 res.peek_dim = len(embs[0])
         except Exception as exc:
             res.error = f"peek failed: {exc}"
@@ -164,8 +170,11 @@ def _drill_chromadb_collection(
             try:
                 # Use the actual peeked embedding rather than a synthesised
                 # one — guarantees dim match without depending on Ollama.
-                if embs and embs[0]:
-                    out = col.query(query_embeddings=[embs[0]], n_results=1)
+                if embs is not None and len(embs) > 0 and len(embs[0]) > 0:
+                    # chromadb expects a Python list, not a numpy array,
+                    # for query_embeddings.
+                    query_vec = list(embs[0])
+                    out = col.query(query_embeddings=[query_vec], n_results=1)
                     res.smoke_retrieve_ok = bool(out.get("documents", [[]])[0])
             except Exception as exc:
                 res.error = f"query failed: {exc}"

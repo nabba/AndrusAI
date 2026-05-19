@@ -608,6 +608,22 @@ def _defaults() -> dict[str, Any]:
         "system_inventory_enabled": True,
         "elegance_drift_monitor_enabled": True,
         "architectural_drift_monitor_enabled": True,
+
+        # ── Phase 2 — refactor-proposal producer ─────────────────────────
+        # 4th producer in `app.proposal_bridge`. Default OFF.
+        "refactor_proposer_enabled": False,
+
+        # ── Phase 3 — consolidation rhythm ───────────────────────────────
+        # Two deterministic (no-LLM) digests. Both emit
+        # `code_consolidation` continuity-ledger events.
+        "elegance_reflection_enabled": True,
+        "code_consolidation_enabled": True,
+
+        # ── Phase 4 — PEP/idiom radar + cross-monitor pattern detector ──
+        # pep_idiom_radar — weekly Python PEPs scan; default OFF.
+        # cross_monitor_pattern — 43rd healing monitor, default ON.
+        "pep_idiom_radar_enabled": False,
+        "cross_monitor_pattern_monitor_enabled": True,
     }
 
 
@@ -2596,3 +2612,56 @@ def get_architectural_drift_monitor_enabled() -> bool:
 
 def set_architectural_drift_monitor_enabled(value: bool) -> None:
     _update({"architectural_drift_monitor_enabled": bool(value)})
+
+
+def get_refactor_proposer_enabled() -> bool:
+    """Master switch for ``app.refactoring.proposer`` — 4th producer
+    in proposal_bridge. Default OFF."""
+    return bool(_ensure_initialized().get("refactor_proposer_enabled", False))
+
+
+def set_refactor_proposer_enabled(value: bool) -> None:
+    _update({"refactor_proposer_enabled": bool(value)})
+
+
+def get_elegance_reflection_enabled() -> bool:
+    """Master switch for ``app.identity.elegance_reflection`` — annual
+    deterministic essay. Default ON."""
+    return bool(_ensure_initialized().get("elegance_reflection_enabled", True))
+
+
+def set_elegance_reflection_enabled(value: bool) -> None:
+    _update({"elegance_reflection_enabled": bool(value)})
+
+
+def get_code_consolidation_enabled() -> bool:
+    """Master switch for ``app.self_improvement.code_consolidation`` —
+    quarterly deterministic digest. Default ON."""
+    return bool(_ensure_initialized().get("code_consolidation_enabled", True))
+
+
+def set_code_consolidation_enabled(value: bool) -> None:
+    _update({"code_consolidation_enabled": bool(value)})
+
+
+def get_pep_idiom_radar_enabled() -> bool:
+    """Master switch for ``app.library_radar.idiom_radar`` — weekly
+    Python PEP feed scan for idiom-class proposals. Default OFF."""
+    return bool(_ensure_initialized().get("pep_idiom_radar_enabled", False))
+
+
+def set_pep_idiom_radar_enabled(value: bool) -> None:
+    _update({"pep_idiom_radar_enabled": bool(value)})
+
+
+def get_cross_monitor_pattern_monitor_enabled() -> bool:
+    """Master switch for ``app.healing.monitors.cross_monitor_pattern``
+    — weekly meta-detector reading the identity continuity ledger.
+    Default ON."""
+    return bool(_ensure_initialized().get(
+        "cross_monitor_pattern_monitor_enabled", True,
+    ))
+
+
+def set_cross_monitor_pattern_monitor_enabled(value: bool) -> None:
+    _update({"cross_monitor_pattern_monitor_enabled": bool(value)})

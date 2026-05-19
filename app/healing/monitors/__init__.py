@@ -112,6 +112,9 @@ _DEFAULT_CADENCE_S = {
     # internal weekly cadence inside each monitor.
     "elegance_drift": 24 * 3600,
     "architectural_drift": 24 * 3600,
+    # Phase 4 — convergent-cluster meta-detector over the continuity
+    # ledger. Daily probe; internal weekly cadence.
+    "cross_monitor_pattern": 24 * 3600,
 }
 
 _WARMUP_S = 120  # don't run anything in the first 2 min after import.
@@ -677,6 +680,17 @@ def _driver() -> None:
         ))
     except Exception:
         logger.debug("monitors: architectural_drift import failed", exc_info=True)
+    # Phase 4 — convergent-cluster meta-detector over the continuity
+    # ledger. Catches multi-monitor convergence the per-monitor alerts
+    # miss (e.g., 3+ distinct subsystems unhappy with the same file).
+    try:
+        from app.healing.monitors import cross_monitor_pattern
+        monitors.append((
+            "cross_monitor_pattern", cross_monitor_pattern.run,
+            _DEFAULT_CADENCE_S["cross_monitor_pattern"], 0.0,
+        ))
+    except Exception:
+        logger.debug("monitors: cross_monitor_pattern import failed", exc_info=True)
 
     if not monitors:
         logger.warning("healing.monitors: no monitors loaded; driver exiting")
