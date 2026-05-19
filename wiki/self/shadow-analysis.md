@@ -235,3 +235,15 @@ _Days covered: 30_
 
 ### Attentional Biases
 - **over_attention:User requested a graphic about the change of forest age distribution over time i** — User requested a graphic about the change of forest age distribution over time i receives 1.9x normalized focal attention
+
+## Shadow analysis — 2026-05-19T16:40:02.388427+00:00
+_Days covered: 30_
+
+### Attentional Biases
+- **over_attention:User requested a graphic about the change of forest age distribution over time i** — User requested a graphic about the change of forest age distribution over time i receives 1.9x normalized focal attention
+
+## Shadow analysis — 2026-05-19T16:58:56.643082+00:00
+_Days covered: 30_
+
+### Attentional Biases
+- **over_attention:User requested a graphic about the change of forest age distribution over time i** — User requested a graphic about the change of forest age distribution over time i receives 1.9x normalized focal attention

@@ -1,0 +1,38 @@
+{
+  "body_hash": "d100e9f4c04d50348d22f1d47ad4585867f7b9ce4ff44b9c0827184368a358b6",
+  "coding_session_spec": {
+    "acceptance": [
+      "pip install -r requirements.txt",
+      "pytest tests/library_trials/test_google_adk_smoke.py -v",
+      "verify license is compatible with the project license"
+    ],
+    "expected_duration_min": 30,
+    "files": [
+      {
+        "action": "edit",
+        "path": "requirements.txt",
+        "purpose": "add the chosen package (candidates: google | development | building) with a version pin",
+        "size_estimate": "+1 line"
+      },
+      {
+        "action": "create",
+        "path": "tests/library_trials/test_google_adk_smoke.py",
+        "purpose": "smoke-import test that imports the package + verifies a top-level public symbol works",
+        "size_estimate": "~25 LOC"
+      }
+    ],
+    "intent": "Trial adoption of Google ADK (frameworks)"
+  },
+  "cooldown_days": 7,
+  "cr_filed_at": null,
+  "cr_id": null,
+  "expired_at": null,
+  "notes": {},
+  "resolved_at": null,
+  "signature": "d73c15803170",
+  "source": "library_radar",
+  "staged_at": "2026-05-19T22:38:30.492355+00:00",
+  "status": "staged",
+  "target_path": "docs/proposed_libraries/d73c15803170-google_adk.md",
+  "title": "Google ADK"
+}

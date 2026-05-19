@@ -1,0 +1,38 @@
+{
+  "body_hash": "3b276d63244f2a95e16c2e2b3c255680a48a1953ef985dfa4e6cd1e7fe707320",
+  "coding_session_spec": {
+    "acceptance": [
+      "pip install -r requirements.txt",
+      "pytest tests/library_trials/test_openrouter_tool_calling_integr_smoke.py -v",
+      "verify license is compatible with the project license"
+    ],
+    "expected_duration_min": 30,
+    "files": [
+      {
+        "action": "edit",
+        "path": "requirements.txt",
+        "purpose": "add the chosen package (candidates: openrouter | tool-calling | integration) with a version pin",
+        "size_estimate": "+1 line"
+      },
+      {
+        "action": "create",
+        "path": "tests/library_trials/test_openrouter_tool_calling_integr_smoke.py",
+        "purpose": "smoke-import test that imports the package + verifies a top-level public symbol works",
+        "size_estimate": "~25 LOC"
+      }
+    ],
+    "intent": "Trial adoption of OpenRouter Tool-Calling Integration (tools)"
+  },
+  "cooldown_days": 7,
+  "cr_filed_at": null,
+  "cr_id": null,
+  "expired_at": null,
+  "notes": {},
+  "resolved_at": null,
+  "signature": "4402de5825d3",
+  "source": "library_radar",
+  "staged_at": "2026-05-19T22:38:30.490388+00:00",
+  "status": "staged",
+  "target_path": "docs/proposed_libraries/4402de5825d3-openrouter_tool_calling_integration.md",
+  "title": "OpenRouter Tool-Calling Integration"
+}

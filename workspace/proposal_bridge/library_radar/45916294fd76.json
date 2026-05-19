@@ -1,0 +1,38 @@
+{
+  "body_hash": "963743e0a0fec5228d7542d2d2399d7d9c6b957bfc9b77ca560c94f4f1a9226e",
+  "coding_session_spec": {
+    "acceptance": [
+      "pip install -r requirements.txt",
+      "pytest tests/library_trials/test_smolagents_agno_upsonic_portia_smoke.py -v",
+      "verify license is compatible with the project license"
+    ],
+    "expected_duration_min": 30,
+    "files": [
+      {
+        "action": "edit",
+        "path": "requirements.txt",
+        "purpose": "add the chosen package (candidates: smolagents | upsonic | portia) with a version pin",
+        "size_estimate": "+1 line"
+      },
+      {
+        "action": "create",
+        "path": "tests/library_trials/test_smolagents_agno_upsonic_portia_smoke.py",
+        "purpose": "smoke-import test that imports the package + verifies a top-level public symbol works",
+        "size_estimate": "~25 LOC"
+      }
+    ],
+    "intent": "Trial adoption of Smolagents / Agno / Upsonic / Portia AI (frameworks)"
+  },
+  "cooldown_days": 7,
+  "cr_filed_at": null,
+  "cr_id": null,
+  "expired_at": null,
+  "notes": {},
+  "resolved_at": null,
+  "signature": "45916294fd76",
+  "source": "library_radar",
+  "staged_at": "2026-05-19T16:16:48.413078+00:00",
+  "status": "staged",
+  "target_path": "docs/proposed_libraries/45916294fd76-smolagents_agno_upsonic_portia_ai.md",
+  "title": "Smolagents / Agno / Upsonic / Portia AI"
+}

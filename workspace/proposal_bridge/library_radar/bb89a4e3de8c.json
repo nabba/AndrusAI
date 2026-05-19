@@ -1,0 +1,38 @@
+{
+  "body_hash": "e98b37554484c39d270a26a8773869d9241a312411e6cf02577cdf2308d6fb85",
+  "coding_session_spec": {
+    "acceptance": [
+      "pip install -r requirements.txt",
+      "pytest tests/library_trials/test_openrouter_tool_calling_model__smoke.py -v",
+      "verify license is compatible with the project license"
+    ],
+    "expected_duration_min": 30,
+    "files": [
+      {
+        "action": "edit",
+        "path": "requirements.txt",
+        "purpose": "add the chosen package (candidates: openrouter | tool-calling | rankings) with a version pin",
+        "size_estimate": "+1 line"
+      },
+      {
+        "action": "create",
+        "path": "tests/library_trials/test_openrouter_tool_calling_model__smoke.py",
+        "purpose": "smoke-import test that imports the package + verifies a top-level public symbol works",
+        "size_estimate": "~25 LOC"
+      }
+    ],
+    "intent": "Trial adoption of OpenRouter Tool-Calling Model Rankings (tools)"
+  },
+  "cooldown_days": 7,
+  "cr_filed_at": null,
+  "cr_id": null,
+  "expired_at": null,
+  "notes": {},
+  "resolved_at": null,
+  "signature": "bb89a4e3de8c",
+  "source": "library_radar",
+  "staged_at": "2026-05-19T16:16:48.426429+00:00",
+  "status": "staged",
+  "target_path": "docs/proposed_libraries/bb89a4e3de8c-openrouter_tool_calling_model_rankings.md",
+  "title": "OpenRouter Tool-Calling Model Rankings"
+}

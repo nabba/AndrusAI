@@ -1,0 +1,38 @@
+{
+  "body_hash": "0a04da28aa9209fc911f5752d6e8deca1c7c370cd571dde946962dd6ce666022",
+  "coding_session_spec": {
+    "acceptance": [
+      "pip install -r requirements.txt",
+      "pytest tests/library_trials/test_mastra_smoke.py -v",
+      "verify license is compatible with the project license"
+    ],
+    "expected_duration_min": 30,
+    "files": [
+      {
+        "action": "edit",
+        "path": "requirements.txt",
+        "purpose": "add the chosen package (candidates: mastra | emerging | identified) with a version pin",
+        "size_estimate": "+1 line"
+      },
+      {
+        "action": "create",
+        "path": "tests/library_trials/test_mastra_smoke.py",
+        "purpose": "smoke-import test that imports the package + verifies a top-level public symbol works",
+        "size_estimate": "~25 LOC"
+      }
+    ],
+    "intent": "Trial adoption of Mastra (frameworks)"
+  },
+  "cooldown_days": 7,
+  "cr_filed_at": null,
+  "cr_id": null,
+  "expired_at": null,
+  "notes": {},
+  "resolved_at": null,
+  "signature": "9d5859207aea",
+  "source": "library_radar",
+  "staged_at": "2026-05-19T22:38:30.494271+00:00",
+  "status": "staged",
+  "target_path": "docs/proposed_libraries/9d5859207aea-mastra.md",
+  "title": "Mastra"
+}
