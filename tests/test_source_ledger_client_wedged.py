@@ -278,14 +278,18 @@ def test_recycle_client_drops_memory_default_and_clears_caches():
     client object and would otherwise leak stale handles.
     """
     import app.memory.chromadb_manager as mgr
-    mgr._client = "stale-client-sentinel"  # arbitrary truthy non-None
+    mgr._client = "stale-client-sentinel"  # arbitrary truthy non-None — no close()
     mgr._collections["alpha"] = object()
     mgr._collections["beta"] = object()
     mgr._count_cache["alpha"] = 42
 
     info = mgr.recycle_client("memory")
 
-    assert info == {"recycled": "memory", "collections_cleared": 2}
+    assert info == {
+        "recycled": "memory",
+        "collections_cleared": 2,
+        "closed": False,  # sentinel string has no close() — best-effort fails open
+    }
     assert mgr._client is None
     assert mgr._collections == {}
     assert mgr._count_cache == {}
@@ -303,7 +307,11 @@ def test_recycle_client_drops_non_memory_kb_only():
 
     info = mgr.recycle_client("philosophy")
 
-    assert info == {"recycled": "philosophy", "collections_cleared": 0}
+    assert info == {
+        "recycled": "philosophy",
+        "collections_cleared": 0,
+        "closed": False,
+    }
     assert mgr._client == "default-sentinel"
     assert "x" in mgr._collections
     assert "philosophy" not in mgr._kb_clients
@@ -328,6 +336,46 @@ def test_recycle_client_empty_name_recycles_default():
     info = mgr.recycle_client("")
     assert info["recycled"] == "memory"
     mgr._client = None
+
+
+def test_recycle_client_calls_close_when_available():
+    """When the cached client exposes ``close()`` (chromadb 1.5.x does),
+    recycle must call it BEFORE dropping the reference. Per chromadb's
+    own docs, this releases the underlying System's SQLite handles —
+    "particularly important for PersistentClient to avoid SQLite file
+    locking issues", i.e. the wedge symptom this whole path recovers.
+    """
+    import app.memory.chromadb_manager as mgr
+
+    closed = {"called": False}
+
+    class _ClientWithClose:
+        def close(self):
+            closed["called"] = True
+
+    mgr._client = _ClientWithClose()
+    info = mgr.recycle_client("memory")
+    assert closed["called"] is True
+    assert info["closed"] is True
+    assert mgr._client is None
+
+
+def test_recycle_client_swallows_close_exception():
+    """A close() that raises must not block the recycle — the cached
+    reference still gets dropped so the next access creates a fresh
+    client. Returns ``closed: False`` so the caller can observe that
+    close went sideways.
+    """
+    import app.memory.chromadb_manager as mgr
+
+    class _ClientWithBadClose:
+        def close(self):
+            raise RuntimeError("simulated chromadb close failure")
+
+    mgr._client = _ClientWithBadClose()
+    info = mgr.recycle_client("memory")
+    assert info["closed"] is False
+    assert mgr._client is None  # reference dropped regardless
 
 
 def _install_fake_chromadb_manager_attrs(monkeypatch, *, client, recycle_calls):

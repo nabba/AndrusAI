@@ -276,28 +276,63 @@ def recycle_client(kb_name: str | None = None) -> dict:
     in-process recovery action; the caller decides when to invoke it
     (see ``source_ledger_daemon``).
 
+    Calls ``client.close()`` first when the chromadb version exposes it
+    (1.5.x does). Per chromadb's own docs, ``close()`` decrements the
+    System reference count and is "particularly important for
+    PersistentClient to avoid SQLite file locking issues" — i.e. the
+    exact failure mode this recycle is recovering from. If ``close()``
+    raises or is absent we still drop the cached reference so a fresh
+    client is created on next access.
+
     Args:
         kb_name: ``None`` / ``""`` / ``"memory"`` recycles the default
             client and clears the collection/count caches (those are
             scoped to the default client only). Any other value recycles
             just that entry in ``_kb_clients``.
 
-    Returns ``{"recycled": str, "collections_cleared": int}``.
-
-    chromadb 1.5.x does not expose ``close()`` on ``PersistentClient`` —
-    we drop our references and rely on GC + OS for FD reclamation.
+    Returns ``{"recycled": str, "collections_cleared": int, "closed": bool}``.
+    ``closed`` is True when ``client.close()`` ran cleanly, False when
+    the method was missing or raised (best-effort behavior).
     """
     global _client
     target = (kb_name or "").strip()
     with _client_lock:
         if not target or target == "memory":
+            closed = _safe_close(_client)
             _client = None
             cleared = len(_collections)
             _collections.clear()
             _count_cache.clear()
-            return {"recycled": "memory", "collections_cleared": cleared}
-        _kb_clients.pop(target, None)
-        return {"recycled": target, "collections_cleared": 0}
+            return {
+                "recycled": "memory",
+                "collections_cleared": cleared,
+                "closed": closed,
+            }
+        closed = _safe_close(_kb_clients.pop(target, None))
+        return {
+            "recycled": target,
+            "collections_cleared": 0,
+            "closed": closed,
+        }
+
+
+def _safe_close(client) -> bool:
+    """Best-effort ``client.close()``. Returns True when close ran without
+    raising. False covers three cases: client was None, has no ``close``
+    attribute (older chromadb), or close() raised. Failure must never
+    block the recycle — the cached reference still gets dropped.
+    """
+    if client is None:
+        return False
+    closer = getattr(client, "close", None)
+    if closer is None:
+        return False
+    try:
+        closer()
+        return True
+    except Exception:
+        logger.debug("recycle_client: close() raised", exc_info=True)
+        return False
 
 
 def _get_col(name: str):
