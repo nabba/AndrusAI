@@ -120,14 +120,24 @@ The in-process chromadb `PersistentClient` got stuck returning
 fresh client on the same file works perfectly.
 
 **Auto-recovery** (2026-05-22) attempts to fix this in-process: the
-daemon drops the cached `PersistentClient` via
-`chromadb_manager.recycle_client(kb_name)`, retries the replay once,
-and only escalates to this operator-restart alert if the recycled
-client is **also** wedged.
+daemon calls `chromadb_manager.recycle_client(kb_name)`, which:
+
+1. Calls `client.close()` on the cached `PersistentClient` (per
+   chromadb's own docs, this is "particularly important for
+   PersistentClient to avoid SQLite file locking issues" — i.e. the
+   exact symptom we're recovering from).
+2. Drops the cached reference so the next access creates a fresh
+   `PersistentClient` on the same file.
+3. Clears the dependent `_collections` + `_count_cache` (those held
+   collection objects that pointed at the now-dead client).
+
+The daemon then retries the replay once. Only if the freshly-recycled
+client is **also** wedged does it escalate to this operator-restart
+alert.
 
 If you got this alert, the in-process recovery didn't work — the bug
-is deeper than the cached client object (chromadb module globals,
-process-wide SQLite state, etc.). Restart the gateway:
+is deeper than the cached client object (chromadb's Rust binding's
+internal state, process-wide SQLite locks, etc.). Restart the gateway:
 
 ```bash
 docker compose restart gateway

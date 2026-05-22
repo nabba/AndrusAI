@@ -140,12 +140,15 @@ Client-wedged means the file is fine but the long-running in-process
 returns SQLite code 26 (`"file is not a database"`). A fresh client on
 the same file works.
 
-Auto-recovery (2026-05-22): on detection, the daemon drops the cached
-`PersistentClient` via `chromadb_manager.recycle_client(kb_name)` and
-retries the replay once. This alert only fires when the recycled client
-is ALSO wedged — meaning the bug is deeper than the cached object
-(chromadb module globals / process-wide SQLite state). Recovery: restart
-the gateway. See `docs/SOURCE_LEDGER.md` operator runbook for details.
+Auto-recovery (2026-05-22): on detection, the daemon calls
+`chromadb_manager.recycle_client(kb_name)`, which invokes `client.close()`
+(chromadb 1.5.x flags this as "particularly important for PersistentClient
+to avoid SQLite file locking issues"), drops the cached reference, and
+the daemon retries the replay once. This alert only fires when the
+freshly-recycled client is ALSO wedged — meaning the bug is deeper than
+the cached client object (chromadb Rust binding state / process-wide
+SQLite locks). Recovery: restart the gateway. See
+`docs/SOURCE_LEDGER.md` operator runbook for details.
 
 ### Manually run an integrity check
 
