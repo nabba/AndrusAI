@@ -111,6 +111,40 @@ for kb in list_kbs():
 "
 ```
 
+### "ChromaDB client wedged on `<kb>`" Signal alert
+
+The in-process chromadb `PersistentClient` got stuck returning
+`SQLite code 26 / "file is not a database"` on
+`get_or_create_collection(name)` calls — even though
+`list_collections()` works, `PRAGMA integrity_check` is `ok`, and a
+fresh client on the same file works perfectly.
+
+**Auto-recovery** (2026-05-22) attempts to fix this in-process: the
+daemon drops the cached `PersistentClient` via
+`chromadb_manager.recycle_client(kb_name)`, retries the replay once,
+and only escalates to this operator-restart alert if the recycled
+client is **also** wedged.
+
+If you got this alert, the in-process recovery didn't work — the bug
+is deeper than the cached client object (chromadb module globals,
+process-wide SQLite state, etc.). Restart the gateway:
+
+```bash
+docker compose restart gateway
+```
+
+The boot-time integrity scan + the first drift-replay pass will
+confirm whether the restart cleared it. To check whether the recycle
+was attempted before this alert:
+
+```bash
+docker compose logs gateway --since 30m | grep "wedge detected on"
+```
+
+To disable the recycle attempt entirely (the auto-recovery falls
+through silently and the operator-restart alert fires immediately):
+`POST /api/cp/settings {"chromadb_client_recycle_on_wedge_enabled": false}`.
+
 ### "Source-ledger hash chain broken" Signal alert
 
 **Critical** — the ledger itself has been damaged or tampered with.
@@ -215,6 +249,7 @@ A passing drill emits a row like:
 | `chromadb_source_ledger_enabled` | ON | Master kill switch for §56 |
 | `chromadb_ledger_bootstrap_enabled` | ON | Daily back-fill from chromadb |
 | `chromadb_ledger_drift_replay_enabled` | ON | Auto-replay on detected drift |
+| `chromadb_client_recycle_on_wedge_enabled` | ON | Drop cached `PersistentClient` and retry replay once when the in-process client returns SQLite code 26 (2026-05-22 wedge mitigation) |
 | `chromadb_ledger_s3_upload_enabled` | OFF | S3 off-host (needs creds) |
 | `chromadb_ledger_gdrive_upload_enabled` | OFF | Google Drive off-host (needs OAuth) |
 | `drill_source_ledger_replay_enabled` | ON | Quarterly rebuild drill |

@@ -169,10 +169,40 @@ def _run_one_pass() -> dict:
                 # on-disk integrity_check (above) doesn't catch this — it only
                 # inspects the file. Replay sees the symptom: zero upserts
                 # despite a populated ledger, and a wedge-signature error on
-                # every collection. In that shape, ALERTING "Auto-replayed"
-                # would be a lie; route to the wedged-client variant so the
-                # operator gets actionable guidance (restart the gateway).
+                # every collection.
                 if _looks_client_wedged(replay):
+                    # 2026-05-22 — try in-process recovery before bothering
+                    # the operator. The 2026-05-22 investigation isolated the
+                    # wedge to the long-running cached PersistentClient's
+                    # state: a fresh PersistentClient on the same file works.
+                    # Dropping our reference forces ``get_kb_client`` to
+                    # recreate it on the next call.
+                    recycled = None
+                    if _gate("chromadb_client_recycle_on_wedge_enabled"):
+                        recycled = _try_recycle_chromadb_client(kb_name)
+                    if recycled:
+                        summary["drifts"][kb_name]["recycle_attempted"] = recycled
+                        logger.warning(
+                            "source_ledger_daemon: wedge detected on %s — "
+                            "recycled chromadb client (%r); retrying replay",
+                            kb_name, recycled,
+                        )
+                        retry = sl.replay_kb(kb_name)
+                        summary["drifts"][kb_name]["replay_retry"] = retry.to_dict()
+                        if not _looks_client_wedged(retry):
+                            # Recovery worked. Overwrite replay_result with
+                            # the successful retry and fire the routine drift
+                            # alert (not the operator-restart one).
+                            summary["drifts"][kb_name]["replay_result"] = retry.to_dict()
+                            logger.warning(
+                                "source_ledger_daemon: client recycle recovered "
+                                "%s — second replay upserted %d rows in %.1fs",
+                                kb_name, retry.rows_upserted, retry.duration_s,
+                            )
+                            _alert_drift_replay(kb_name, drift, retry)
+                            continue
+                    # Recycle disabled, failed, or didn't help — surface the
+                    # actionable operator-restart alert.
                     logger.warning(
                         "source_ledger_daemon: drift replay on %s appears "
                         "wedged-client (rows_seen=%d, upserted=0, "
@@ -299,6 +329,37 @@ def _run_one_pass() -> dict:
         logger.debug("source_ledger_daemon: gdrive backend import failed", exc_info=True)
 
     return summary
+
+
+def _try_recycle_chromadb_client(kb_name: str):
+    """Drop the cached chromadb ``PersistentClient`` for ``kb_name`` so the
+    next access creates a fresh one. Returns the recycle info dict on
+    success, ``None`` on failure (e.g. ``chromadb_manager`` unimportable in
+    test environments).
+
+    Late import so test fixtures that replace ``app.memory.chromadb_manager``
+    with a fake (the existing test pattern) still work — they just won't
+    have ``recycle_client`` and we'll fall through silently.
+    """
+    try:
+        from app.memory import chromadb_manager  # late import
+    except Exception:
+        logger.debug(
+            "source_ledger_daemon: chromadb_manager unimportable for recycle",
+            exc_info=True,
+        )
+        return None
+    recycle = getattr(chromadb_manager, "recycle_client", None)
+    if recycle is None:
+        return None
+    try:
+        return recycle(kb_name)
+    except Exception:
+        logger.exception(
+            "source_ledger_daemon: chromadb client recycle raised for %s",
+            kb_name,
+        )
+        return None
 
 
 def _looks_client_wedged(replay) -> bool:

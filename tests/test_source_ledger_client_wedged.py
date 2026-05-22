@@ -265,3 +265,285 @@ def test_alerts_have_distinct_topic_keys(daemon_module, monkeypatch):
                        if r["tag"] == "source_ledger_client_wedged:memory")
     assert "Auto-replayed" not in wedged_body
     assert "Restart the gateway" in wedged_body
+
+
+# ────────────────────────────────────────────────────────────────────
+#   2026-05-22 — In-process wedge recovery via PersistentClient recycle
+# ────────────────────────────────────────────────────────────────────
+
+
+def test_recycle_client_drops_memory_default_and_clears_caches():
+    """Recycling the default (memory) client must clear _client AND
+    _collections + _count_cache — those caches reference the dropped
+    client object and would otherwise leak stale handles.
+    """
+    import app.memory.chromadb_manager as mgr
+    mgr._client = "stale-client-sentinel"  # arbitrary truthy non-None
+    mgr._collections["alpha"] = object()
+    mgr._collections["beta"] = object()
+    mgr._count_cache["alpha"] = 42
+
+    info = mgr.recycle_client("memory")
+
+    assert info == {"recycled": "memory", "collections_cleared": 2}
+    assert mgr._client is None
+    assert mgr._collections == {}
+    assert mgr._count_cache == {}
+
+
+def test_recycle_client_drops_non_memory_kb_only():
+    """Recycling a KB-rooted client must NOT touch the default _client
+    or _collections (which are scoped to the memory KB only).
+    """
+    import app.memory.chromadb_manager as mgr
+    mgr._client = "default-sentinel"
+    mgr._collections["x"] = object()
+    mgr._kb_clients["philosophy"] = object()
+    mgr._kb_clients["episteme"] = object()
+
+    info = mgr.recycle_client("philosophy")
+
+    assert info == {"recycled": "philosophy", "collections_cleared": 0}
+    assert mgr._client == "default-sentinel"
+    assert "x" in mgr._collections
+    assert "philosophy" not in mgr._kb_clients
+    assert "episteme" in mgr._kb_clients  # untouched
+
+    # cleanup module state
+    mgr._client = None
+    mgr._collections.clear()
+    mgr._kb_clients.clear()
+
+
+def test_recycle_client_empty_name_recycles_default():
+    """``recycle_client(None)`` and ``recycle_client("")`` must both
+    target the default client (matches the ``get_kb_client`` empty-name
+    convention).
+    """
+    import app.memory.chromadb_manager as mgr
+    mgr._client = "stale"
+    info = mgr.recycle_client(None)
+    assert info["recycled"] == "memory"
+    mgr._client = "stale"
+    info = mgr.recycle_client("")
+    assert info["recycled"] == "memory"
+    mgr._client = None
+
+
+def _install_fake_chromadb_manager_attrs(monkeypatch, *, client, recycle_calls):
+    """Patch the SPECIFIC functions on the real ``app.memory.chromadb_manager``
+    module. Avoids the sys.modules-vs-attribute-cache issue that bites
+    ``monkeypatch.setitem(sys.modules, ...)`` once a parent package has
+    already cached the submodule as an attribute.
+    """
+    import app.memory.chromadb_manager as mgr
+
+    def fake_get_kb_client(name):
+        return client["current"]
+
+    def fake_embed(text):
+        return [0.0] * 384
+
+    def fake_recycle(name):
+        recycle_calls.append(name)
+        client["current"] = client["after_recycle"]
+        return {"recycled": name or "memory", "collections_cleared": 5}
+
+    monkeypatch.setattr(mgr, "get_kb_client", fake_get_kb_client)
+    monkeypatch.setattr(mgr, "embed", fake_embed)
+    monkeypatch.setattr(mgr, "recycle_client", fake_recycle, raising=False)
+
+
+class _OkClient:
+    """Mirror of the production happy path — every collection opens
+    cleanly, upsert succeeds.
+    """
+    def get_or_create_collection(self, name):
+        class _Col:
+            def upsert(self, *, ids, documents, metadatas, embeddings):
+                return None
+        return _Col()
+
+
+def test_daemon_helper_returns_recycle_info_on_success(daemon_module, monkeypatch):
+    """``_try_recycle_chromadb_client`` proxies to chromadb_manager and
+    returns the recycle info dict on success.
+    """
+    import app.memory.chromadb_manager as mgr
+
+    def fake_recycle(name):
+        return {"recycled": name or "memory", "collections_cleared": 3}
+
+    monkeypatch.setattr(mgr, "recycle_client", fake_recycle, raising=False)
+    result = daemon_module._try_recycle_chromadb_client("memory")
+    assert result == {"recycled": "memory", "collections_cleared": 3}
+
+
+def test_daemon_helper_returns_none_when_recycle_missing(daemon_module, monkeypatch):
+    """If ``chromadb_manager`` exists but lacks ``recycle_client`` (older
+    test fakes that pre-date the 2026-05-22 fix), the helper must return
+    None — never raise.
+    """
+    import app.memory.chromadb_manager as mgr
+    monkeypatch.delattr(mgr, "recycle_client", raising=False)
+    assert daemon_module._try_recycle_chromadb_client("memory") is None
+
+
+def test_daemon_helper_returns_none_when_recycle_raises(daemon_module, monkeypatch):
+    """Exceptions from recycle_client must be swallowed — auto-recovery
+    must never break the daemon loop.
+    """
+    import app.memory.chromadb_manager as mgr
+
+    def boom(name):
+        raise RuntimeError("simulated chromadb manager failure")
+
+    monkeypatch.setattr(mgr, "recycle_client", boom, raising=False)
+    assert daemon_module._try_recycle_chromadb_client("memory") is None
+
+
+def _patch_runtime_settings_gate(monkeypatch, *, recycle_enabled=True):
+    """Patch the runtime_settings getter the daemon's `_gate` helper calls.
+    Other gates are left at their real defaults — they're either Truthy by
+    default or unread in the test path.
+    """
+    import app.runtime_settings as rs
+    monkeypatch.setattr(
+        rs,
+        "get_chromadb_client_recycle_on_wedge_enabled",
+        lambda: recycle_enabled,
+        raising=False,
+    )
+
+
+def _patch_signal_sink(monkeypatch):
+    """Replace the Signal alert sender with an in-memory list. Returns
+    the list — every alert during the test appends a dict to it.
+    """
+    sent: list[dict] = []
+
+    def fake_send(body, *, tag):
+        sent.append({"body": body, "tag": tag})
+
+    import app.life_companion._common as common
+    monkeypatch.setattr(common, "send_signal_alert", fake_send, raising=False)
+    return sent
+
+
+def test_recycle_path_recovers_when_second_client_is_healthy(
+    daemon_module, tmp_path, monkeypatch,
+):
+    """Full integration of the wedge recovery path: first replay wedges,
+    daemon recycles, second replay (with the healthy post-recycle client)
+    succeeds. The routine drift alert fires — NOT the operator-restart
+    one.
+    """
+    # First client is wedged on every collection open; after recycle,
+    # the next call returns the healthy client.
+    state = {"current": _WedgedClient(), "after_recycle": _OkClient()}
+    recycle_calls: list[str] = []
+    _install_fake_chromadb_manager_attrs(
+        monkeypatch, client=state, recycle_calls=recycle_calls,
+    )
+    _patch_runtime_settings_gate(monkeypatch, recycle_enabled=True)
+    sent = _patch_signal_sink(monkeypatch)
+
+    # Build a minimal ledger with rows that will trigger drift on memory.
+    import app.paths as paths
+    monkeypatch.setattr(paths, "WORKSPACE_ROOT", tmp_path)
+    import importlib
+    import app.memory.source_ledger as sl
+    importlib.reload(sl)
+    importlib.reload(daemon_module)
+    _make_kb(tmp_path, "memory")
+    for i in range(3):
+        sl.append_row("memory", "alpha", f"d{i}", f"text-{i}", {})
+
+    # Run one daemon pass.
+    summary = daemon_module._run_one_pass()
+
+    # Recycle was attempted exactly once.
+    assert recycle_calls == ["memory"]
+    drift = summary["drifts"]["memory"]
+    assert drift["recycle_attempted"]["recycled"] == "memory"
+    assert "replay_retry" in drift
+    # The successful retry must NOT be flagged as deferred.
+    assert drift.get("replay_deferred") != "client_wedged"
+    # The routine drift alert fires, not the operator-restart one.
+    tags = [r["tag"] for r in sent]
+    assert "source_ledger_drift:memory" in tags
+    assert "source_ledger_client_wedged:memory" not in tags
+
+
+def test_recycle_path_falls_through_when_second_client_also_wedged(
+    daemon_module, tmp_path, monkeypatch,
+):
+    """If even the freshly-recycled client is wedged, the daemon must
+    fall through to the existing operator-restart alert — recycle did
+    its best, but a fresh client also failing is the signal that
+    something deeper is wrong.
+    """
+    # Both clients are wedged — recycle doesn't help.
+    state = {"current": _WedgedClient(), "after_recycle": _WedgedClient()}
+    recycle_calls: list[str] = []
+    _install_fake_chromadb_manager_attrs(
+        monkeypatch, client=state, recycle_calls=recycle_calls,
+    )
+    _patch_runtime_settings_gate(monkeypatch, recycle_enabled=True)
+    sent = _patch_signal_sink(monkeypatch)
+
+    import app.paths as paths
+    monkeypatch.setattr(paths, "WORKSPACE_ROOT", tmp_path)
+    import importlib
+    import app.memory.source_ledger as sl
+    importlib.reload(sl)
+    importlib.reload(daemon_module)
+    _make_kb(tmp_path, "memory")
+    for i in range(3):
+        sl.append_row("memory", "alpha", f"d{i}", f"text-{i}", {})
+
+    summary = daemon_module._run_one_pass()
+
+    assert recycle_calls == ["memory"]
+    drift = summary["drifts"]["memory"]
+    assert drift["replay_deferred"] == "client_wedged"
+    tags = [r["tag"] for r in sent]
+    assert "source_ledger_client_wedged:memory" in tags
+    # The routine alert must NOT fire when the recycled client also wedged.
+    assert "source_ledger_drift:memory" not in tags
+
+
+def test_recycle_path_skipped_when_master_switch_off(
+    daemon_module, tmp_path, monkeypatch,
+):
+    """When ``chromadb_client_recycle_on_wedge_enabled=False``, the
+    daemon must NOT attempt recycle — operator-restart alert fires
+    directly. This is the kill switch for the auto-recovery path.
+    """
+    state = {"current": _WedgedClient(), "after_recycle": _OkClient()}
+    recycle_calls: list[str] = []
+    _install_fake_chromadb_manager_attrs(
+        monkeypatch, client=state, recycle_calls=recycle_calls,
+    )
+    _patch_runtime_settings_gate(monkeypatch, recycle_enabled=False)
+    sent = _patch_signal_sink(monkeypatch)
+
+    import app.paths as paths
+    monkeypatch.setattr(paths, "WORKSPACE_ROOT", tmp_path)
+    import importlib
+    import app.memory.source_ledger as sl
+    importlib.reload(sl)
+    importlib.reload(daemon_module)
+    _make_kb(tmp_path, "memory")
+    for i in range(3):
+        sl.append_row("memory", "alpha", f"d{i}", f"text-{i}", {})
+
+    summary = daemon_module._run_one_pass()
+
+    # Even though both clients were prepared, recycle is NEVER attempted.
+    assert recycle_calls == []
+    drift = summary["drifts"]["memory"]
+    assert drift["replay_deferred"] == "client_wedged"
+    assert "recycle_attempted" not in drift
+    tags = [r["tag"] for r in sent]
+    assert "source_ledger_client_wedged:memory" in tags

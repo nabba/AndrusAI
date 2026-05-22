@@ -130,6 +130,23 @@ cp workspace/<kb>/.sqlite_snapshots/<ts>.db workspace/<kb>/chroma.sqlite3
 docker compose up -d gateway
 ```
 
+### "ChromaDB client wedged on `<kb>`" Signal alert (different class!)
+
+**This is NOT the same as the integrity-failure alert above.** Integrity
+failures mean the on-disk SQLite file is structurally damaged.
+Client-wedged means the file is fine but the long-running in-process
+`PersistentClient` got stuck — `list_collections` works,
+`PRAGMA integrity_check` passes, but `get_or_create_collection(name)`
+returns SQLite code 26 (`"file is not a database"`). A fresh client on
+the same file works.
+
+Auto-recovery (2026-05-22): on detection, the daemon drops the cached
+`PersistentClient` via `chromadb_manager.recycle_client(kb_name)` and
+retries the replay once. This alert only fires when the recycled client
+is ALSO wedged — meaning the bug is deeper than the cached object
+(chromadb module globals / process-wide SQLite state). Recovery: restart
+the gateway. See `docs/SOURCE_LEDGER.md` operator runbook for details.
+
 ### Manually run an integrity check
 
 ```bash

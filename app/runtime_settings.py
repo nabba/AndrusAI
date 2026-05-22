@@ -550,6 +550,15 @@ def _defaults() -> dict[str, Any]:
         "chromadb_ledger_s3_upload_enabled": False,
         "chromadb_ledger_gdrive_upload_enabled": False,
         "chromadb_ledger_compaction_enabled": True,
+        # 2026-05-22 — when source_ledger_daemon detects a wedged
+        # in-process chromadb client (code 26 on every collection
+        # open while the on-disk file is healthy), drop the cached
+        # PersistentClient and retry once before alerting the
+        # operator to restart the gateway. ON by default — the
+        # retry only fires on detected wedge so it adds no work on
+        # the happy path. Flip OFF if the retry path itself ever
+        # misbehaves (e.g. masking a real corruption).
+        "chromadb_client_recycle_on_wedge_enabled": True,
         "drill_source_ledger_replay_enabled": True,
         "drill_embedding_rotation_enabled": True,
         # Survey response to arXiv:2604.27096 §4.3.4 — task-layer
@@ -2430,6 +2439,22 @@ def get_chromadb_source_ledger_enabled() -> bool:
 
 def set_chromadb_source_ledger_enabled(value: bool) -> None:
     _update({"chromadb_source_ledger_enabled": bool(value)})
+
+
+def get_chromadb_client_recycle_on_wedge_enabled() -> bool:
+    """Read by ``app.memory.source_ledger_daemon``. When the drift-replay
+    sees the wedge signature (rows_seen>0, upserted=0, client_wedged_errors>0)
+    AND this switch is ON, the daemon drops the cached PersistentClient
+    and retries the replay once before alerting the operator to restart
+    the gateway. Default ON.
+    """
+    return bool(_ensure_initialized().get(
+        "chromadb_client_recycle_on_wedge_enabled", True
+    ))
+
+
+def set_chromadb_client_recycle_on_wedge_enabled(value: bool) -> None:
+    _update({"chromadb_client_recycle_on_wedge_enabled": bool(value)})
 
 
 def get_chromadb_ledger_bootstrap_enabled() -> bool:

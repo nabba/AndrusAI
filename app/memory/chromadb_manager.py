@@ -264,6 +264,42 @@ _collections: dict[str, object] = {}
 _count_cache: dict[str, int] = {}
 
 
+def recycle_client(kb_name: str | None = None) -> dict:
+    """Drop the cached ``PersistentClient`` for ``kb_name`` so the next
+    ``get_client()`` / ``get_kb_client()`` opens a fresh one.
+
+    The 2026-05-22 wedge incident showed that the long-running in-process
+    client can get stuck returning ``SQLite code 26 / "file is not a
+    database"`` on ``get_or_create_collection`` even while ``list_collections``
+    works and the on-disk file passes ``PRAGMA integrity_check``. A fresh
+    ``PersistentClient`` on the same file recovers. This function is the
+    in-process recovery action; the caller decides when to invoke it
+    (see ``source_ledger_daemon``).
+
+    Args:
+        kb_name: ``None`` / ``""`` / ``"memory"`` recycles the default
+            client and clears the collection/count caches (those are
+            scoped to the default client only). Any other value recycles
+            just that entry in ``_kb_clients``.
+
+    Returns ``{"recycled": str, "collections_cleared": int}``.
+
+    chromadb 1.5.x does not expose ``close()`` on ``PersistentClient`` —
+    we drop our references and rely on GC + OS for FD reclamation.
+    """
+    global _client
+    target = (kb_name or "").strip()
+    with _client_lock:
+        if not target or target == "memory":
+            _client = None
+            cleared = len(_collections)
+            _collections.clear()
+            _count_cache.clear()
+            return {"recycled": "memory", "collections_cleared": cleared}
+        _kb_clients.pop(target, None)
+        return {"recycled": target, "collections_cleared": 0}
+
+
 def _get_col(name: str):
     """Get a ChromaDB collection, caching the object for reuse.
 
