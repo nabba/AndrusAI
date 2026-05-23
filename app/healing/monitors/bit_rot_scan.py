@@ -3,6 +3,15 @@
 Daily probe, weekly internal cadence. Walks an 11-path identity-
 critical set. Records SHA-256 + 1MB-prefix hash + line count per
 file. Detects: shrunk / inplace_mutated / prefix_mutated.
+
+Rotation-aware: some watched files (affect/trace.jsonl,
+resilience/drill_audit.jsonl, …) are managed by
+``jsonl_retention.append_with_archive_rotate`` and the calibration
+job's ``rotate_trace_jsonl``. Rotation legitimately shrinks the
+live file or invalidates its prefix hash. The classifier suppresses
+those cases when corroborated by BOTH a ``.<name>.rotation_lock``
+sidecar AND an archive directory whose mtime postdates the baseline.
+Files lacking that witness still alert loudly.
 """
 from __future__ import annotations
 
@@ -104,14 +113,58 @@ def _file_fingerprint(path: Path) -> dict[str, Any]:
     }
 
 
+def _archive_dirs_for(path: Path) -> list[Path]:
+    """Archive directories the rotation primitives use for ``path``.
+
+    Two conventions ship in the codebase:
+      * ``<parent>/archive/`` — ``jsonl_retention.append_with_archive_rotate``
+        default. Used by ``resilience/drill_audit.jsonl``,
+        ``affect/salience.jsonl``, etc.
+      * ``<parent>/<stem>_archive/`` — ``affect.calibration.rotate_trace_jsonl``
+        for ``affect/trace.jsonl`` (gzip-per-month archive).
+    Either may exist for a given file; we check both.
+    """
+    parent = path.parent
+    stem = path.name.split(".", 1)[0] if "." in path.name else path.name
+    return [parent / "archive", parent / f"{stem}_archive"]
+
+
+def _rotation_witnessed(path: Path, prev_mtime: float) -> bool:
+    """Two-signal corroboration of rotation:
+      (a) ``<parent>/.<name>.rotation_lock`` sidecar exists, AND
+      (b) at least one known archive directory has an mtime newer
+          than the recorded baseline mtime.
+    Both required so a stale sidecar alone cannot silently suppress
+    a corruption alert. Loosely coupled — never reads the rotation
+    primitive's internals."""
+    sidecar = path.parent / f".{path.name}.rotation_lock"
+    try:
+        if not sidecar.exists():
+            return False
+    except OSError:
+        return False
+    for d in _archive_dirs_for(path):
+        try:
+            if d.exists() and d.stat().st_mtime > prev_mtime:
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def _classify_change(prev: dict[str, Any], cur: dict[str, Any], path: Path | None = None) -> str:
     if prev is None:
         return "new"
+    prev_mtime = float(prev.get("mtime") or 0.0)
     if cur["size"] < prev["size"]:
+        if path is not None and _rotation_witnessed(path, prev_mtime):
+            return "rotated"
         return "shrunk"
     if (prev.get("line_count") is not None
             and cur.get("line_count") is not None
             and cur["line_count"] < prev["line_count"]):
+        if path is not None and _rotation_witnessed(path, prev_mtime):
+            return "rotated"
         return "shrunk"
     if cur["size"] == prev["size"]:
         if prev.get("sha256_full") and cur.get("sha256_full"):
@@ -128,6 +181,8 @@ def _classify_change(prev: dict[str, Any], cur: dict[str, Any], path: Path | Non
             recomputed_prefix = _sha256_of_bytes(old_size_bytes[:old_prefix_window])
             ref_prefix = prev.get("sha256_full") if prev["size"] <= _PREFIX_HASH_BYTES else prev.get("sha256_prefix")
             if ref_prefix is not None and recomputed_prefix != ref_prefix:
+                if _rotation_witnessed(path, prev_mtime):
+                    return "rotated"
                 return "prefix_mutated"
             return "append_ok"
         except OSError:
@@ -218,7 +273,7 @@ def _cadence_due(state: dict[str, Any]) -> bool:
 def run() -> dict[str, Any]:
     summary: dict[str, Any] = {
         "checked": False, "n_files": 0, "n_new": 0, "n_append_ok": 0,
-        "n_ok": 0, "alerts": [], "errors": 0,
+        "n_ok": 0, "n_rotated": 0, "alerts": [], "errors": 0,
     }
     if not _enabled():
         summary["skipped"] = True
@@ -252,6 +307,9 @@ def run() -> dict[str, Any]:
                 baseline[key] = cur
             elif change == "ok":
                 summary["n_ok"] += 1
+                baseline[key] = cur
+            elif change == "rotated":
+                summary["n_rotated"] += 1
                 baseline[key] = cur
             else:
                 summary["alerts"].append({"path": key, "change": change, "prev_size": prev.get("size"), "cur_size": cur.get("size")})

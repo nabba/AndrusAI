@@ -256,6 +256,114 @@ def test_bit_rot_disabled_skips(monkeypatch, tmp_path) -> None:
     assert out.get("skipped") is True
 
 
+def _bump_archive_mtime(archive_dir: Path) -> None:
+    """Force archive dir mtime newer than the baseline write. ``time.sleep``
+    keeps the witness check robust on filesystems with 1-second mtime
+    resolution (macOS HFS+, some Docker bind-mounts)."""
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    time.sleep(1.05)
+    (archive_dir / "2026-05_drill_audit.jsonl").write_text("archived\n", encoding="utf-8")
+    os.utime(archive_dir, None)
+
+
+def test_bit_rot_rotation_induced_shrink_is_silent(monkeypatch, tmp_path) -> None:
+    """Rotation-managed file (sidecar + archive present) shrinks → 'rotated',
+    silent, baseline refreshed. Regression pin for the 2026-05-23
+    `affect/trace.jsonl` false-positive."""
+    mod = _load_bit_rot(monkeypatch, tmp_path)
+    _stub_runtime_settings(monkeypatch, get_bit_rot_scan_enabled=True)
+    _stub_notify(monkeypatch)
+    ledger = _stub_ledger(monkeypatch)
+    (tmp_path / "resilience").mkdir()
+    p = tmp_path / "resilience" / "drill_audit.jsonl"
+    p.write_text("a\nb\nc\nd\ne\n", encoding="utf-8")
+    mod.run()  # establish baseline
+    state_p = tmp_path / "healing" / "bit_rot_state.json"
+    s = json.loads(state_p.read_text())
+    s["last_run"] = 0
+    state_p.write_text(json.dumps(s))
+    # Simulate rotation: sidecar + archive dir present, live shrinks.
+    (p.parent / ".drill_audit.jsonl.rotation_lock").write_text("", encoding="utf-8")
+    _bump_archive_mtime(p.parent / "archive")
+    p.write_text("d\ne\n", encoding="utf-8")
+    out = mod.run()
+    assert out["checked"] is True
+    assert out["alerts"] == [], f"rotation must not alert: {out['alerts']}"
+    assert out.get("n_rotated", 0) >= 1
+    assert not any(e.get("kind") == "q17_landmark" for e in ledger)
+
+
+def test_bit_rot_rotation_induced_prefix_mutation_is_silent(monkeypatch, tmp_path) -> None:
+    """Rotation kept_fraction tail then appended → live grows, baseline
+    prefix no longer matches the new file head. Must classify as
+    'rotated', not 'prefix_mutated'. Regression pin for the 2026-05-23
+    `resilience/drill_audit.jsonl` false-positive."""
+    mod = _load_bit_rot(monkeypatch, tmp_path)
+    _stub_runtime_settings(monkeypatch, get_bit_rot_scan_enabled=True)
+    _stub_notify(monkeypatch)
+    _stub_ledger(monkeypatch)
+    (tmp_path / "resilience").mkdir()
+    p = tmp_path / "resilience" / "drill_audit.jsonl"
+    p.write_text("old_a\nold_b\nold_c\n", encoding="utf-8")
+    mod.run()
+    state_p = tmp_path / "healing" / "bit_rot_state.json"
+    s = json.loads(state_p.read_text())
+    s["last_run"] = 0
+    state_p.write_text(json.dumps(s))
+    # Post-rotation: oldest two lines archived, last kept + many appended.
+    (p.parent / ".drill_audit.jsonl.rotation_lock").write_text("", encoding="utf-8")
+    _bump_archive_mtime(p.parent / "archive")
+    p.write_text("old_c\nnew_d\nnew_e\nnew_f\nnew_g\nnew_h\n", encoding="utf-8")
+    out = mod.run()
+    assert out["alerts"] == [], f"rotation prefix-shift must not alert: {out['alerts']}"
+    assert out.get("n_rotated", 0) >= 1
+
+
+def test_bit_rot_genuine_mutation_on_nonrotating_file_still_alerts(monkeypatch, tmp_path) -> None:
+    """Files NOT under the rotation primitive must still alert loudly
+    when content is silently flipped. Sidecar absent → no suppression."""
+    mod = _load_bit_rot(monkeypatch, tmp_path)
+    _stub_runtime_settings(monkeypatch, get_bit_rot_scan_enabled=True)
+    _stub_notify(monkeypatch)
+    ledger = _stub_ledger(monkeypatch)
+    (tmp_path / "subia").mkdir()
+    p = tmp_path / "subia" / "integrity_manifest.json"
+    p.write_text('{"n_files": 164, "ok": true}\n', encoding="utf-8")
+    mod.run()
+    state_p = tmp_path / "healing" / "bit_rot_state.json"
+    s = json.loads(state_p.read_text())
+    s["last_run"] = 0
+    state_p.write_text(json.dumps(s))
+    # In-place byte flip, identical size — bit-rot's archetype.
+    p.write_text('{"n_files": 999, "ok": true}\n', encoding="utf-8")
+    out = mod.run()
+    assert any(a["change"] == "inplace_mutated" for a in out["alerts"])
+    assert any(e.get("kind") == "q17_landmark" for e in ledger)
+
+
+def test_bit_rot_stale_sidecar_alone_does_not_suppress(monkeypatch, tmp_path) -> None:
+    """Defense against a typo / leftover sidecar masquerading as rotation
+    on a non-rotating file. Sidecar exists but archive dir does NOT —
+    the two-signal witness must reject and the alert must still fire."""
+    mod = _load_bit_rot(monkeypatch, tmp_path)
+    _stub_runtime_settings(monkeypatch, get_bit_rot_scan_enabled=True)
+    _stub_notify(monkeypatch)
+    _stub_ledger(monkeypatch)
+    (tmp_path / "change_requests").mkdir()
+    p = tmp_path / "change_requests" / "audit.jsonl"
+    p.write_text("a\nb\nc\nd\ne\n", encoding="utf-8")
+    mod.run()
+    state_p = tmp_path / "healing" / "bit_rot_state.json"
+    s = json.loads(state_p.read_text())
+    s["last_run"] = 0
+    state_p.write_text(json.dumps(s))
+    # Sidecar present but NO archive directory → witness fails.
+    (p.parent / ".audit.jsonl.rotation_lock").write_text("", encoding="utf-8")
+    p.write_text("a\n", encoding="utf-8")  # genuine shrinkage
+    out = mod.run()
+    assert any(a["change"] == "shrunk" for a in out["alerts"])
+
+
 # ── Q17.4 operator_transition ──────────────────────────────────────────
 
 
