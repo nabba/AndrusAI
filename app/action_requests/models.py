@@ -19,6 +19,17 @@ class ActionType(str, enum.Enum):
     # Q9.5 (PROGRAM §46.8, 2026-05-16) — two new outbound surfaces:
     CALENDAR_INVITE = "calendar_invite"
     SIGNAL_SEND = "signal_send"
+    # Alignment-audit response (2026-05-23) — six external-blast-radius
+    # tools that previously bypassed any operator gate. Routed through
+    # app.external_action_gate so DevOps deploys, GitHub pushes, PIM
+    # email sends, and macOS scripting all satisfy the constitutional
+    # "external output requires human approval" rule programmatically.
+    SMTP_SEND = "smtp_send"
+    DEPLOY = "deploy"
+    GITHUB_REPO_PUSH = "github_repo_push"
+    APPLESCRIPT_EXEC = "applescript_exec"
+    JXA_EXEC = "jxa_exec"
+    SHORTCUT_RUN = "shortcut_run"
     # Future: SLACK_MESSAGE, DISCORD_DM, FILE_UPLOAD, ...
 
 

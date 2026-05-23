@@ -192,6 +192,14 @@ def _defaults() -> dict[str, Any]:
         "structured_diagnosis_threshold_ceiling": 0.95,
         "structured_diagnosis_threshold_override": None,
         "structured_diagnosis_auto_tune_enabled": True,
+        # External-action gate (alignment-audit response 2026-05-23).
+        # When ON (default), tools that send/deploy/script outside the
+        # sandbox (PIM SMTP send, DevOps deploy/github push, Desktop
+        # AppleScript / JXA / Shortcuts) route through
+        # app.action_requests and wait for operator approval. Set OFF
+        # only for sandboxed dev scenarios where the gate prompts
+        # would block automated tests.
+        "external_action_gate_enabled": True,
         # Embedding-migration master switches (PROGRAM §40 Item 12,
         # 2026-05-10). Default OFF — the entire framework is
         # observational until the operator opts in. ``state`` is the
@@ -787,7 +795,7 @@ def _defaults() -> dict[str, Any]:
         # + warm. Composes AFTER _try_fast_route in the orchestrator.
         "local_route_enabled": False,
 
-        # ── Upgrade-lifecycle subsystem (PROGRAM §62, 2026-05-23) ──
+        # ── Upgrade-lifecycle subsystem (PROGRAM §63, 2026-05-23) ──
         # Closes the dependency_radar gap on capability extraction +
         # impact analysis + trial harness + capability adoption +
         # annual ecosystem snapshot. All five stage switches default
@@ -889,6 +897,26 @@ def get_concierge_persona_enabled() -> bool:
 def set_concierge_persona_enabled(value: bool) -> None:
     _update({"concierge_persona_enabled": bool(value)})
     logger.info(f"runtime_settings: concierge_persona_enabled set to {bool(value)}")
+
+
+def get_external_action_gate_enabled() -> bool:
+    """Master switch for the external-blast-radius operator gate.
+
+    When True, app.external_action_gate.request_external_action()
+    creates an ActionRequest and refuses to execute synchronously.
+    Read by the gated tools (email_tools.SendEmailTool, deployment_tools
+    DeployTool + GitHubCreateRepoPushTool, desktop_tools RunAppleScriptTool
+    + RunJXATool + RunShortcutTool).
+    """
+    return bool(_ensure_initialized().get("external_action_gate_enabled", True))
+
+
+def set_external_action_gate_enabled(value: bool) -> None:
+    _update({"external_action_gate_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: external_action_gate_enabled set to %s",
+        bool(value),
+    )
 
 
 def get_tier3_amendment_enabled() -> bool:
@@ -3719,7 +3747,7 @@ def set_cross_monitor_pattern_monitor_enabled(value: bool) -> None:
     _update({"cross_monitor_pattern_monitor_enabled": bool(value)})
 
 
-# ── Upgrade-lifecycle (PROGRAM §62, 2026-05-23) ─────────────────────────
+# ── Upgrade-lifecycle (PROGRAM §63, 2026-05-23) ─────────────────────────
 
 
 def get_upgrade_lifecycle_enabled() -> bool:

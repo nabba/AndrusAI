@@ -48,20 +48,30 @@ def create_desktop_tools(agent_id: str) -> list:
         name: str = "run_applescript"
         description: str = (
             "Execute AppleScript code on the macOS host. "
-            "Use this to control any scriptable application (Finder, Safari, "
-            "Mail, Calendar, System Events, etc.). Returns script output."
+            "AppleScript can control any scriptable application (Finder, "
+            "Safari, Mail, Calendar, System Events). All invocations are "
+            "routed through the operator gate (app.external_action_gate): "
+            "the script is queued as a pending action_request until the "
+            "operator approves via Signal 👍/👎 or React /cp/changes."
         )
         args_schema: Type[BaseModel] = _AppleScriptInput
 
         def _run(self, script: str) -> str:
-            result = bridge.execute(["osascript", "-e", script])
-            if "error" in result:
-                return f"Error: {result.get('detail', result['error'])}"
-            output = result.get("stdout", "").strip()
-            stderr = result.get("stderr", "").strip()
-            if stderr and not output:
-                return f"AppleScript error: {stderr[:500]}"
-            return output if output else "Script executed successfully (no output)."
+            from app.action_requests.models import ActionType
+            from app.external_action_gate import request_external_action
+
+            first_line = script.strip().split("\n", 1)[0][:80]
+            return request_external_action(
+                requestor=f"desktop:{agent_id}",
+                action_type=ActionType.APPLESCRIPT_EXEC,
+                summary=f"🍎 AppleScript: {first_line}",
+                data={"script": script},
+                reason=(
+                    "Desktop run_applescript — AppleScript can drive Mail, "
+                    "System Events, and other apps with external blast radius. "
+                    "Operator approval required per constitution."
+                ),
+            )
 
     class _JXAInput(BaseModel):
         script: str = Field(
@@ -72,20 +82,27 @@ def create_desktop_tools(agent_id: str) -> list:
         name: str = "run_jxa"
         description: str = (
             "Execute JavaScript for Automation (JXA) on macOS. "
-            "JXA is Apple's JavaScript-based alternative to AppleScript. "
-            "Use for complex automation with modern syntax."
+            "JXA has identical blast radius to AppleScript. Routed through "
+            "the operator gate (app.external_action_gate)."
         )
         args_schema: Type[BaseModel] = _JXAInput
 
         def _run(self, script: str) -> str:
-            result = bridge.execute(["osascript", "-l", "JavaScript", "-e", script])
-            if "error" in result:
-                return f"Error: {result.get('detail', result['error'])}"
-            output = result.get("stdout", "").strip()
-            stderr = result.get("stderr", "").strip()
-            if stderr and not output:
-                return f"JXA error: {stderr[:500]}"
-            return output if output else "Script executed successfully (no output)."
+            from app.action_requests.models import ActionType
+            from app.external_action_gate import request_external_action
+
+            first_line = script.strip().split("\n", 1)[0][:80]
+            return request_external_action(
+                requestor=f"desktop:{agent_id}",
+                action_type=ActionType.JXA_EXEC,
+                summary=f"🍎 JXA: {first_line}",
+                data={"script": script},
+                reason=(
+                    "Desktop run_jxa — JXA can drive Mail, System Events, "
+                    "and other apps with external blast radius. Operator "
+                    "approval required per constitution."
+                ),
+            )
 
     class _ScreenCaptureInput(BaseModel):
         filename: str = Field(
@@ -159,21 +176,27 @@ def create_desktop_tools(agent_id: str) -> list:
     class RunShortcutTool(BaseTool):
         name: str = "run_shortcut"
         description: str = (
-            "Run an Apple Shortcut by name. "
-            "Shortcuts are automations created in the macOS Shortcuts app. "
-            "Optionally pass text input to the shortcut."
+            "Run an Apple Shortcut by name. Shortcuts can chain external "
+            "actions (send messages, post to socials, run scripts). "
+            "Routed through the operator gate (app.external_action_gate)."
         )
         args_schema: Type[BaseModel] = _ShortcutInput
 
         def _run(self, name: str, input_text: str = "") -> str:
-            cmd = ["shortcuts", "run", name]
-            if input_text:
-                cmd.extend(["--input-path", "-"])
-            result = bridge.execute(cmd)
-            if "error" in result:
-                return f"Error: {result.get('detail', result['error'])}"
-            output = result.get("stdout", "").strip()
-            return output if output else f"Shortcut '{name}' executed."
+            from app.action_requests.models import ActionType
+            from app.external_action_gate import request_external_action
+
+            return request_external_action(
+                requestor=f"desktop:{agent_id}",
+                action_type=ActionType.SHORTCUT_RUN,
+                summary=f"⚡ Shortcut: {name}",
+                data={"shortcut_name": name, "input": input_text},
+                reason=(
+                    "Desktop run_shortcut — Shortcuts can chain external "
+                    "actions (Mail send, Messages, Web requests). Operator "
+                    "approval required per constitution."
+                ),
+            )
 
     class _OpenInput(BaseModel):
         target: str = Field(

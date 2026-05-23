@@ -323,31 +323,34 @@ def create_email_tools(agent_id: str) -> list:
     class SendEmailTool(BaseTool):
         name: str = "send_email"
         description: str = (
-            "Send an email via SMTP. Provide recipient, subject, and body."
+            "Send an email via SMTP. Provide recipient, subject, and body. "
+            "Routed through the operator gate (app.external_action_gate): "
+            "the message is queued as a pending action_request and only "
+            "delivered after the operator approves via Signal 👍/👎 or "
+            "React /cp/changes."
         )
         args_schema: Type[BaseModel] = _SendEmailInput
 
         def _run(self, to: str, subject: str, body: str, html: bool = False) -> str:
-            try:
-                msg = MIMEMultipart("alternative")
-                msg["From"] = cfg["address"]
-                msg["To"] = to
-                msg["Subject"] = subject
-                msg["Date"] = email.utils.formatdate(localtime=True)
+            from app.action_requests.models import ActionType
+            from app.external_action_gate import request_external_action
 
-                content_type = "html" if html else "plain"
-                msg.attach(MIMEText(body, content_type, "utf-8"))
-
-                with smtplib.SMTP(cfg["smtp_host"], cfg["smtp_port"]) as server:
-                    server.ehlo()
-                    server.starttls()
-                    server.ehlo()
-                    server.login(cfg["address"], cfg["password"])
-                    server.send_message(msg)
-
-                return f"Email sent to {to}: {subject}"
-            except Exception as e:
-                return f"Error sending email: {str(e)[:300]}"
+            return request_external_action(
+                requestor=f"pim:{agent_id}",
+                action_type=ActionType.SMTP_SEND,
+                summary=f"📧 SMTP send to {to} — “{subject[:80]}”",
+                data={
+                    "to": to,
+                    "subject": subject,
+                    "body": body,
+                    "html": bool(html),
+                },
+                reason=(
+                    "PIM agent send_email tool — external email transmission "
+                    "requires operator approval (constitution: any output "
+                    "sent externally needs human escalation)."
+                ),
+            )
 
     class _SearchEmailInput(BaseModel):
         query: str = Field(

@@ -50,43 +50,34 @@ def create_deployment_tools(agent_id: str) -> list:
         name: str = "github_create_and_push"
         description: str = (
             "Create a new GitHub repository and optionally push a local project to it. "
-            "Requires 'gh' CLI authenticated on the host."
+            "Routed through the operator gate (app.external_action_gate): "
+            "creating an external GitHub repo is an irreversible external action "
+            "and is queued as a pending action_request until the operator approves."
         )
         args_schema: Type[BaseModel] = _GitHubRepoInput
 
         def _run(self, name: str, description: str = "", private: bool = False, project_path: str = "") -> str:
-            # Create repo
-            cmd = ["gh", "repo", "create", name, "--confirm"]
-            if private:
-                cmd.append("--private")
-            else:
-                cmd.append("--public")
-            if description:
-                cmd.extend(["--description", description])
+            from app.action_requests.models import ActionType
+            from app.external_action_gate import request_external_action
 
-            result = bridge.execute(cmd)
-            if "error" in result:
-                return f"Error creating repo: {result.get('detail', result['error'])}"
-
-            repo_url = result.get("stdout", "").strip()
-
-            # Push local project if provided
-            if project_path:
-                commands = [
-                    f"cd {project_path}",
-                    "git init 2>/dev/null",
-                    "git add -A",
-                    'git commit -m "Initial commit" 2>/dev/null',
-                    f"git remote add origin https://github.com/{name}.git 2>/dev/null || git remote set-url origin https://github.com/{name}.git",
-                    "git branch -M main",
-                    "git push -u origin main",
-                ]
-                push_result = bridge.execute(["sh", "-c", " && ".join(commands)])
-                if "error" in push_result:
-                    return f"Repo created but push failed: {push_result.get('detail', push_result['error'])}"
-                return f"Repository created and code pushed: {repo_url}"
-
-            return f"Repository created: {repo_url}"
+            action = "create+push" if project_path else "create"
+            visibility = "private" if private else "public"
+            return request_external_action(
+                requestor=f"devops:{agent_id}",
+                action_type=ActionType.GITHUB_REPO_PUSH,
+                summary=f"🐙 GitHub {action} {visibility}: {name}",
+                data={
+                    "name": name,
+                    "description": description,
+                    "private": bool(private),
+                    "project_path": project_path,
+                },
+                reason=(
+                    "DevOps github_create_and_push — creating an external "
+                    "GitHub repo (and optionally pushing code) is an "
+                    "irreversible external action requiring operator approval."
+                ),
+            )
 
     class _DockerBuildInput(BaseModel):
         project_path: str = Field(description="Path to directory containing Dockerfile")
@@ -128,7 +119,10 @@ def create_deployment_tools(agent_id: str) -> list:
     class DeployTool(BaseTool):
         name: str = "deploy"
         description: str = (
-            "Deploy a project to a cloud target. Supports: fly.io, GitHub Pages, SSH."
+            "Deploy a project to a cloud target (fly.io, GitHub Pages, or SSH). "
+            "Routed through the operator gate (app.external_action_gate): "
+            "deployments transmit data externally and are queued as a pending "
+            "action_request until the operator approves."
         )
         args_schema: Type[BaseModel] = _DeployInput
 
@@ -139,29 +133,30 @@ def create_deployment_tools(agent_id: str) -> list:
             host: str = "",
             deploy_command: str = "",
         ) -> str:
-            if target == "fly":
-                result = bridge.execute(
-                    ["sh", "-c", f"cd {project_path} && fly deploy 2>&1"]
-                )
-            elif target == "ghpages":
-                result = bridge.execute(
-                    ["sh", "-c", f"cd {project_path} && npx gh-pages -d . 2>&1"]
-                )
-            elif target == "ssh" and host:
-                project_name = project_path.split("/")[-1]
-                # Upload via rsync then run deploy command
-                cmds = [f"rsync -avz {project_path}/ {host}:~/{project_name}/"]
-                if deploy_command:
-                    cmds.append(f"ssh {host} '{deploy_command}'")
-                result = bridge.execute(["sh", "-c", " && ".join(cmds)])
-            else:
-                return f"Unknown target: {target}. Use: fly, ghpages, ssh."
+            from app.action_requests.models import ActionType
+            from app.external_action_gate import request_external_action
 
-            if "error" in result:
-                return f"Deployment error: {result.get('detail', result['error'])}"
-            output = result.get("stdout", "")
-            stderr = result.get("stderr", "")
-            return (output + ("\n" + stderr if stderr else ""))[:2000]
+            if target not in ("fly", "ghpages", "ssh"):
+                return f"Unknown target: {target}. Use: fly, ghpages, ssh."
+            if target == "ssh" and not host:
+                return "host (user@host) is required for ssh target"
+
+            host_part = f" → {host}" if target == "ssh" else ""
+            return request_external_action(
+                requestor=f"devops:{agent_id}",
+                action_type=ActionType.DEPLOY,
+                summary=f"🚀 deploy {target}{host_part}: {project_path}",
+                data={
+                    "project_path": project_path,
+                    "target": target,
+                    "host": host,
+                    "deploy_command": deploy_command,
+                },
+                reason=(
+                    f"DevOps deploy to {target} — external transmission "
+                    "of code/build artifact requires operator approval."
+                ),
+            )
 
     return [
         GitHubCreateRepoPushTool(),

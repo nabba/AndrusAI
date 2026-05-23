@@ -12596,3 +12596,156 @@ monitor tests need `pydantic_settings`). Regression: `proposal_bridge`
 * `dashboard-react/src/components/UpgradeLifecycleCard.tsx`.
 * `app/healing/monitors/{upgrade_lifecycle_health,python_eol_proximity}.py`.
 
+
+# §64 — Alignment-audit response: external-action gate + concierge label preservation (2026-05-23)
+
+The weekly LLM alignment audit (`app/alignment_audit.py`) returned
+drift score **0.40** (right at the critical threshold) with three
+concrete findings:
+
+1. **DevOps + Desktop tool inventories bypass the sandbox**. The
+   constitution forbids "executing code or commands that modify
+   systems outside the designated sandbox"; the DevOps `deploy` /
+   `github_create_and_push` and Desktop `run_applescript` /
+   `run_jxa` / `run_shortcut` tools called the host bridge
+   synchronously with no operator gate.
+2. **The "external output needs human approval" rule was prose only**.
+   PIM's `send_email` called `smtplib.SMTP(...)` directly.
+3. **Concierge wrapper risked stripping epistemic labels**. The
+   Haiku-driven rewriter at `app/personality/concierge_wrapper.py`
+   had no instruction to preserve `[Inference]` / `[Speculation]` /
+   `[Unverified]`, and no post-validation guard analogous to the
+   existing 2× length guard. A "natural-sounding" rewrite could
+   silently drop the safety-critical labels.
+
+All three findings shipped end-to-end in one pass — no operator
+toggle required to activate (the gate defaults ON; the concierge
+guards run whenever the existing toggle is on).
+
+## §64.1 — External-action gate
+
+**New module** `app/external_action_gate.py` (~210 LOC) — single
+public entry point `request_external_action(requestor, action_type,
+summary, data, reason) → str`. Three return paths:
+
+* **Gated** (default) — creates a PENDING `ActionRequest` via the
+  existing `app/action_requests/` primitive (the same gate
+  `email_draft` / `calendar_invite` / `signal_send` use). Returns
+  `"🔒 Queued for operator approval — action_request <id>..."`.
+* **Pre-approved** — when `(action_type, data)` matches an entry
+  in `workspace/external_action_allowlist.json`, dispatches the
+  handler synchronously. Allowlist is required-key-subset match,
+  default empty.
+* **Master switch off** — `external_action_gate_enabled = false`
+  bypasses entirely (legacy direct-execute). Default ON; pinned by
+  a regression test so a future refactor cannot silently flip it
+  to OFF.
+
+**Six new `ActionType` enum values** + **six new handlers** in
+`app/action_requests/handlers/`:
+
+| ActionType         | Wraps                                  |
+| ------------------ | -------------------------------------- |
+| `SMTP_SEND`        | `smtplib.SMTP` direct send (PIM)       |
+| `DEPLOY`           | `fly deploy` / `npx gh-pages` / rsync+ssh (DevOps) |
+| `GITHUB_REPO_PUSH` | `gh repo create` + `git push` (DevOps) |
+| `APPLESCRIPT_EXEC` | `osascript -e <script>` (Desktop)      |
+| `JXA_EXEC`         | `osascript -l JavaScript -e <script>` (Desktop) |
+| `SHORTCUT_RUN`     | `shortcuts run <name>` (Desktop)       |
+
+Each handler's `apply()` replays the exact transport call the
+original tool made — the gate postpones execution, it doesn't
+change semantics.
+
+**Three tool files modified** to call the gate instead of executing:
+
+* `app/tools/email_tools.py:323` — `SendEmailTool._run` no longer
+  touches `smtplib`; calls `request_external_action(action_type=
+  SMTP_SEND, ...)`.
+* `app/tools/deployment_tools.py:49,128` — both `DeployTool` and
+  `GitHubCreateRepoPushTool` route through the gate.
+* `app/tools/desktop_tools.py:47,71,159` —
+  `RunAppleScriptTool`, `RunJXATool`, `RunShortcutTool` route
+  through the gate.
+
+**Intentionally not gated** (per audit-scope decision): `docker_build`
+(local build, no push), `screen_capture`, `clipboard`,
+`manage_window`, `open_on_mac`, and the IMAP read tools — none of
+these transmit outside the sandbox.
+
+## §64.2 — Concierge epistemic-label preservation
+
+**Two-layer defense** in `app/personality/concierge_wrapper.py`:
+
+1. `_SYSTEM_PROMPT` extended with a non-negotiable rule: "PRESERVE
+   EPISTEMIC LABELS — `[Inference]`, `[Speculation]`, and
+   `[Unverified]` are safety-critical markers from the constitution.
+   Every occurrence in the input MUST appear in the output, in the
+   same position relative to the claim it modifies."
+2. New `_epistemic_labels_preserved(original, rewritten) → bool`
+   post-validator that counts each label (case-insensitive,
+   count-based not presence-based) in input vs output. On any drop,
+   `_rewrite_with_llm` falls back to the original — same pattern
+   as the existing `2× length` guard at line 225 and immediately
+   after it.
+
+Both pre-existing concierge fallback paths (length guard, empty
+response, API error) compose with the new label guard — the
+function returns `text` whenever ANY of them trip.
+
+## §64.3 — Master switches
+
+| Setting                                | Default | File                       | Effect                                                   |
+| -------------------------------------- | ------- | -------------------------- | -------------------------------------------------------- |
+| `external_action_gate_enabled`         | **ON**  | `app/runtime_settings.py`  | OFF → tools execute directly (legacy / dev-only).        |
+| `concierge_persona_enabled` (existing) | OFF     | `app/runtime_settings.py`  | OFF → rewriter never runs → labels are passthrough.      |
+
+The default-ON for the gate is part of the safety story —
+default-OFF would silently re-open audit findings 1+2 on every fresh
+deployment. Pinned by `test_external_action_gate_master_switch_defaults_on`.
+
+## §64.4 — Tests
+
+* `tests/test_external_action_gate.py` (11 tests): gate creates PENDING request, allowlist bypass, master-switch-off bypass, invalid-payload refusal, end-to-end PIM `send_email` route, allowlist resilience (corrupted JSON, required-key matching).
+* `tests/test_concierge_label_preservation.py` (10 tests): helper unit cases (preserve / drop / count-based / case-insensitive / multi-kind / passthrough-no-labels) + end-to-end fallback behavior.
+* `tests/test_alignment_audit_2026_05_23_findings_closed.py` (13 **regression pins**): per-tool "tool MUST NOT call transport directly" + "all six handlers registered" + "concierge prompt names all three labels" + "validator function exists and works" + "validator is called from rewrite path" + end-to-end drop-triggers-fallback + master-switch-defaults-ON. Every failure message starts with `ALIGNMENT AUDIT 2026-05-23 REGRESSION:` so a future dev tripping the pin lands directly on the audit context.
+
+Cumulative pass after §64: **95 pass** (21 new + 13 regression pins + 61 pre-existing concierge / action_requests tests).
+
+## §64.5 — Deliberate non-decisions
+
+* **No Tier-3 amendment.** None of the changes touch
+  TIER_IMMUTABLE files. The gate is additive on top of existing
+  primitives; the concierge guard extends an existing fallback
+  pattern.
+* **No constitution edit.** The audit found a gap between the
+  constitution and the code; the fix was to align code with
+  constitution, not the reverse.
+* **No agent removed.** DevOps and Desktop agents still exist —
+  their tools just route through the gate now. The audit's
+  alternative ("strict read: remove the raw-script tools") was
+  explicitly rejected per operator decision; gating preserves the
+  capability while satisfying the constraint.
+* **No allowlist seeding.** `workspace/external_action_allowlist.json`
+  ships absent — every external action is gated until the operator
+  consciously decides which patterns to pre-approve.
+* **No automated alignment-audit re-run.** The next weekly audit
+  cycle will pick up the changes; this commit doesn't force a
+  recompute. The regression pins are what guarantee the gate stays
+  in place between audit cycles.
+* **No new healing monitor.** The gate is a control-plane mechanism,
+  not an observability one. The existing `action_requests` audit
+  trail surfaces gate activity via the standard `/cp/changes` UI.
+
+## §64.6 — Cross-references
+
+* `crewai-team/docs/EXTERNAL_ACTION_GATE.md` — operator-facing
+  contract, allowlist format, workflow, adding-a-gated-action
+  recipe.
+* `crewai-team/app/external_action_gate.py` (~210 LOC).
+* `crewai-team/app/action_requests/{models.py,handlers/{smtp_send,deploy,github_repo_push,applescript_exec,jxa_exec,shortcut_run}.py}` — 6 new ActionTypes + 6 handlers.
+* `crewai-team/app/tools/{email_tools.py,deployment_tools.py,desktop_tools.py}` — three tool files routed through gate.
+* `crewai-team/app/personality/concierge_wrapper.py` — label-preservation guard.
+* `crewai-team/app/runtime_settings.py` — `external_action_gate_enabled` getter/setter.
+* `crewai-team/tests/test_alignment_audit_2026_05_23_findings_closed.py` — 13 regression pins.
+

@@ -129,6 +129,13 @@ suitable for a Signal direct message read on a phone.
 
 Rules — non-negotiable:
 - Keep ALL facts, numbers, links, file paths, and proper nouns unchanged.
+- **PRESERVE EPISTEMIC LABELS** — `[Inference]`, `[Speculation]`, and
+  `[Unverified]` are safety-critical markers from the constitution.
+  Every occurrence in the input MUST appear in the output, in the same
+  position relative to the claim it modifies. Never drop, rename, or
+  paraphrase these labels (no "I think", "perhaps", "I suspect" — keep
+  the bracketed form verbatim). Bolded variants (`**[Inference]**`)
+  preserve their markdown too.
 - Don't add information that isn't in the original.
 - Don't soften error messages into vagueness — if something failed, keep it clear.
 - Match the original's length within ~20%; don't pad.
@@ -141,6 +148,12 @@ Output ONLY the rewritten message, no preface, no quotation marks, no
 explanation. If the original is already conversational and clear, return
 it almost verbatim.
 """
+
+# Epistemic labels mandated by app/souls/constitution.md ("Labeling
+# Protocol"). The wrapper post-validates that every label present in
+# the input is also present in the rewrite; missing labels trigger a
+# fallback to the original (same pattern as the 2× length guard).
+_EPISTEMIC_LABELS = ("[Inference]", "[Speculation]", "[Unverified]")
 
 
 def _rewrite_with_llm(text: str, *, model: str, tone_hint: str = "") -> str:
@@ -213,4 +226,33 @@ def _rewrite_with_llm(text: str, *, model: str, tone_hint: str = "") -> str:
         logger.info("concierge_wrapper: rewrite exceeded 2x length, using original")
         return text
 
+    # Safety guard: every epistemic label in the input must survive the
+    # rewrite. Dropping `[Inference]` / `[Speculation]` / `[Unverified]`
+    # would smuggle uncertain content out as if it were verified — a
+    # constitutional violation. Better the blunt original than a polished
+    # falsehood.
+    if not _epistemic_labels_preserved(text, rewritten):
+        logger.warning(
+            "concierge_wrapper: rewrite dropped epistemic label(s); using original"
+        )
+        return text
+
     return rewritten
+
+
+def _epistemic_labels_preserved(original: str, rewritten: str) -> bool:
+    """Return True when every epistemic label occurrence in ``original``
+    is also present in ``rewritten`` (count-based, case-insensitive,
+    tolerant of markdown bolding like ``**[Inference]**``).
+
+    Count-based rather than presence-based because the constitution
+    requires per-claim labeling: a response with three `[Inference]`
+    claims must still have three `[Inference]` claims after rewriting.
+    """
+    orig_lower = original.lower()
+    rewritten_lower = rewritten.lower()
+    for label in _EPISTEMIC_LABELS:
+        needle = label.lower()
+        if orig_lower.count(needle) > rewritten_lower.count(needle):
+            return False
+    return True

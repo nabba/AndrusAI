@@ -60,6 +60,31 @@ except Exception:  # noqa: BLE001
         exc_info=True,
     )
 
+# Alignment-audit response (2026-05-23) — six external-blast-radius
+# handlers. Each is guarded individually so a broken one (e.g.
+# bridge unavailable, smtplib stubbed in tests) doesn't take down
+# the others.
+for _name, _attr in (
+    ("smtp_send", "SmtpSendHandler"),
+    ("deploy", "DeployHandler"),
+    ("github_repo_push", "GitHubRepoPushHandler"),
+    ("applescript_exec", "AppleScriptExecHandler"),
+    ("jxa_exec", "JxaExecHandler"),
+    ("shortcut_run", "ShortcutRunHandler"),
+):
+    try:
+        _mod = __import__(
+            f"app.action_requests.handlers.{_name}",
+            fromlist=[_attr],
+        )
+        register_handler(getattr(_mod, _attr)())
+    except Exception:  # noqa: BLE001
+        import logging
+        logging.getLogger(__name__).debug(
+            "action_requests: %s handler registration failed",
+            _name, exc_info=True,
+        )
+
 
 __all__ = [
     "ActionHandler",
