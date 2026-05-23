@@ -13277,6 +13277,22 @@ surfaced these in §63's working-tree state):
 3. **Briefing section for linter rejections + HOT-1 patterns** —
    surface the new telemetry to the daily briefing.
 
+**All three shipped same-day (2026-05-23):**
+
+| Chip | Commit | Files |
+|---|---|---|
+| 1 — Tier-3 early-bail + apply-failure ledger | `3b09a998` | `app/upgrade_lifecycle/capability_adoption.py` + `apply_hook.py` |
+| 2 — CVE source divergence ledger event | `3b09a998` | `app/upgrade_lifecycle/cve_sources.py` + 13 tests |
+| 3 — Briefing sections (HOT-1 patterns by kind + linter rejections) | THIS COMMIT | `app/life_companion/briefing_sections/{hot1_patterns_by_kind,linter_rejections}.py` + 7 tests |
+
+The chip-3 sections are auto-discovered by `briefing_evolution.catalog`
+(no registration step needed); they pass the standard
+`ID / DISPLAY_NAME / DESCRIPTION / gather() -> list[str]` contract and
+auto-hide on empty data. The `briefing_evolution` lifecycle then puts
+them through the same `proposed → trial → adopted | dropped` path
+every other section follows, with operator 👍/👎 reactions from the
+morning briefing routing through `feedback_bridge.py`.
+
 ## §65.7 — Cross-references
 
 * `crewai-team/docs/SUBIA_AUDIT_2026_05_23.md` — full per-finding

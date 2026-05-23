@@ -248,11 +248,19 @@ working-tree state):
    surface the new telemetry to the daily briefing via the
    `briefing_evolution` proposal/trial/adopted lifecycle.
 
+**Chip status (closure):** all three shipped same-day. Chips 1 + 2
+landed in `3b09a998` (`fix(upgrade_lifecycle): Round 2 audit
+follow-ups — ledger visibility + Tier-3 early-bail`); chip 3 lands
+in the commit attached to this doc amendment as
+`app/life_companion/briefing_sections/hot1_patterns_by_kind.py` +
+`linter_rejections.py` + `tests/test_briefing_sections_2026_05_23.py`.
+
 ## Cross-references
 
 - Round 1 commit: `7560d067`
 - Round 2 commit: `e42d2616`
 - §63 commit (operator): `d11dced8` (absorbed 3 of my Round 3 files)
 - Round 3 commit: `954ce3eb`
+- Round 2 follow-up (chips 1+2): `3b09a998`
 - Related: `crewai-team/docs/SUBIA.md`, `crewai-team/docs/CONSCIOUSNESS_ROADMAP.md`, `crewai-team/docs/CONSCIOUSNESS_HOT1_OBSERVATIONS.md`
 - PROGRAM.md §65 — change-log entry summarizing this audit
