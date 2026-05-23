@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.architecture_requests import store
 from app.architecture_requests.models import (
@@ -134,6 +134,33 @@ def create_request(
         return req
 
     store.save(req, audit_event="created")
+
+    # RPT-1 producer (2026-05-23 audit follow-up) — register a forecast
+    # "this architecture request will reach COMPLETED (vs the terminal-
+    # reject family)". Architecture requests resolve over weeks, not
+    # minutes — 14 days matches the natural review-and-scaffold cadence
+    # the operator works at.
+    try:
+        from app.sentience_experiments.rpt1_self_calibration import (
+            register_prediction,
+        )
+        register_prediction(
+            claim_kind="architecture_request_apply",
+            claim_text=(
+                f"architecture request {req.id[:8]} ({intent[:60]}) "
+                f"by {requestor} will COMPLETE"
+            ),
+            predicted_p=0.5,
+            resolution_at=datetime.now(timezone.utc) + timedelta(days=14),
+            scorer_ref="architecture_request_apply",
+            scorer_args={"request_id": req.id},
+        )
+    except Exception:
+        logger.debug(
+            "arch_req create_request: RPT-1 forecast registration failed",
+            exc_info=True,
+        )
+
     return req
 
 

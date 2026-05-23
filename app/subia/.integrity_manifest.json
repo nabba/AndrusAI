@@ -197,8 +197,8 @@
       "size": 2814
     },
     "app/subia/inquiry/__init__.py": {
-      "sha256": "44a769321bf50f416c57c4aee98f85c49b8ed2020a7d281ad2c5f45f8771e79b",
-      "size": 2491
+      "sha256": "c86a1e5981529b733f9c62f28c75fcb2b81c4feb57f42c7cd59545b75386e649",
+      "size": 3038
     },
     "app/subia/inquiry/composer.py": {
       "sha256": "071315781d9e041041179ffb4c94b1d1b135b9b9c76fbd92960484e6beb37154",
@@ -375,6 +375,14 @@
     "app/subia/prediction/surprise_routing.py": {
       "sha256": "af36d5e61c57b55d814a6b16978d4de112b74c84faebc7e02228e13f4153a7ea",
       "size": 5044
+    },
+    "app/subia/probe_proposals/__init__.py": {
+      "sha256": "bdd69194d4b632b1cfba5a31d5fca53d35aa670966ed104d6665e5e9258abc9a",
+      "size": 2543
+    },
+    "app/subia/probe_proposals/proposer.py": {
+      "sha256": "cbd13b2f77530b610ad8f683eca25ff2bb2c6f0f23e8d1160f7561ecee14f8cb",
+      "size": 18081
     },
     "app/subia/probes/__init__.py": {
       "sha256": "3eefc5064cfe5fc1c1aa03f8b5b6570196083cec3e540f8e7f689d8304b58576",

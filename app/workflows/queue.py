@@ -27,7 +27,7 @@ import logging
 import threading
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +82,33 @@ def enqueue(
         inputs=dict(inputs or {}),
     )
     _persist_run(run)
+
+    # RPT-1 producer (2026-05-23 audit follow-up) — register a forecast
+    # "this workflow run will SUCCEED (vs FAIL/CANCELLED)". Workflows
+    # resolve within minutes; 1h window gives ample slack for slow
+    # sequential templates. Uniform 0.5 prior.
+    try:
+        from app.sentience_experiments.rpt1_self_calibration import (
+            register_prediction,
+        )
+        register_prediction(
+            claim_kind="workflow_run_success",
+            claim_text=(
+                f"workflow run {run.id[:8]} of template "
+                f"{template.id} ({getattr(template, 'name', '')[:40]}) "
+                f"will succeed"
+            ),
+            predicted_p=0.5,
+            resolution_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            scorer_ref="workflow_run_success",
+            scorer_args={"run_id": run.id},
+        )
+    except Exception:
+        logger.debug(
+            "workflow enqueue: RPT-1 forecast registration failed",
+            exc_info=True,
+        )
+
     fut = _get_executor().submit(
         _run_worker, template, run, tool_dispatcher,
     )

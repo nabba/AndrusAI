@@ -218,6 +218,20 @@ def escalate_blocker(
     if ts:
         register_signal_ts(signal_ts=str(ts), run_id=run_id)
 
+    # HOT-1 affect-hook (2026-05-23 audit follow-up) — emit an affect
+    # snapshot timestamped at the BLOCKED transition so HOT-1's
+    # pattern detectors see the event in workspace/affect/trace.jsonl.
+    # ``compute_affect(persist=True)`` re-reads current viability and
+    # writes a new row; the timestamp marks the event boundary.
+    # Failure-isolated end-to-end.
+    try:
+        from app.affect.core import compute_affect
+        compute_affect(persist=True)
+    except Exception:
+        logger.debug(
+            "escalation: affect snapshot at BLOCKED failed", exc_info=True,
+        )
+
 
 # ── Resume ──────────────────────────────────────────────────────────
 

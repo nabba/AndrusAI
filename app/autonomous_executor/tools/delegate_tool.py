@@ -159,6 +159,32 @@ def delegate_goal(
             "delegate_goal: audit emission failed", exc_info=True,
         )
 
+    # RPT-1 producer (2026-05-23 audit follow-up) — register a forecast
+    # "this executor run will reach COMPLETED (vs FAILED / BUDGET_
+    # EXHAUSTED / ABORTED)". Resolution window 7 days — long enough
+    # for multi-step plans, short enough to catch stuck runs.
+    try:
+        from datetime import datetime, timedelta, timezone
+        from app.sentience_experiments.rpt1_self_calibration import (
+            register_prediction,
+        )
+        register_prediction(
+            claim_kind="executor_run_success",
+            claim_text=(
+                f"executor run {run_id[:12]} (goal preview: {g[:80]}) "
+                f"by {req} will COMPLETE"
+            ),
+            predicted_p=0.5,
+            resolution_at=datetime.now(timezone.utc) + timedelta(days=7),
+            scorer_ref="executor_run_success",
+            scorer_args={"run_id": run_id},
+        )
+    except Exception:
+        logger.debug(
+            "delegate_goal: RPT-1 forecast registration failed",
+            exc_info=True,
+        )
+
     return {
         "ok": True, "run_id": run_id, "error": "",
     }

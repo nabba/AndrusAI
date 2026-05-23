@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.threads import store
 from app.threads.models import (
@@ -97,6 +97,29 @@ def create_thread(*, title: str, description: str = "") -> Thread:
             logger.debug(
                 "thread create: notify failed", exc_info=True,
             )
+
+    # RPT-1 producer (2026-05-23 audit follow-up) — register a forecast
+    # "this thread will reach RESOLVED (vs ABANDONED) within 90 days".
+    # Threads are long-horizon by design; resolution window matches the
+    # 90d auto-DORMANT decay used elsewhere in companion. Uniform 0.5
+    # prior — there's no per-title history to lean on.
+    try:
+        from app.sentience_experiments.rpt1_self_calibration import (
+            register_prediction,
+        )
+        register_prediction(
+            claim_kind="thread_resolve",
+            claim_text=f"thread {thread.id[:8]} ({thread.title[:60]}) will resolve",
+            predicted_p=0.5,
+            resolution_at=datetime.now(timezone.utc) + timedelta(days=90),
+            scorer_ref="thread_resolve",
+            scorer_args={"thread_id": thread.id},
+        )
+    except Exception:
+        logger.debug(
+            "thread create: RPT-1 forecast registration failed", exc_info=True,
+        )
+
     return thread
 
 
@@ -312,12 +335,28 @@ def _distill_on_closure_safely(thread: Thread) -> None:
     """Q8.2 hook — call the approaches-tried distiller after the
     closure transition has been persisted. Failure-isolated: the
     thread is already saved as RESOLVED/ABANDONED before we get here,
-    so a broken distiller never rolls back the lifecycle change."""
+    so a broken distiller never rolls back the lifecycle change.
+
+    2026-05-23 audit follow-up — also emits an affect snapshot at the
+    closure boundary so HOT-1's pattern detectors see thread closures
+    in workspace/affect/trace.jsonl. The snapshot timestamp marks the
+    event; HOT-1 reads the resulting trace row at next pattern-pass.
+    """
     try:
         from app.threads.approaches import distill_on_closure
         distill_on_closure(thread)
     except Exception:
         logger.debug("thread closure distill failed", exc_info=True)
+
+    # HOT-1 affect-hook — failure-isolated. Same pattern as the
+    # executor BLOCKED hook in app/autonomous_executor/escalation.py.
+    try:
+        from app.affect.core import compute_affect
+        compute_affect(persist=True)
+    except Exception:
+        logger.debug(
+            "thread closure: affect snapshot failed", exc_info=True,
+        )
 
 
 def link_crew_task(thread_id: str, crew_task_id: str) -> Thread:

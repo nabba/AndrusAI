@@ -199,9 +199,29 @@ def _llm_distill(thread: Thread, body_text: str) -> str:
         ]
         out = "".join(text_parts).strip()
         # Guard against the model returning JSON or other garbage.
-        if out and len(out) <= 1500:
-            return out
-        return ""
+        if not out or len(out) > 1500:
+            return ""
+        # PhenomenalLanguageLinter HARD_FAIL guard (2026-05-23 audit
+        # follow-up). The prompt already says "no first-person voice"
+        # but a mechanical second-guard catches phenomenal claims that
+        # slip through. Failure-isolated — if the linter package
+        # isn't importable, fall back to trusting the prompt.
+        try:
+            from app.subia.inquiry.linter import PhenomenalLanguageLinter
+            result = PhenomenalLanguageLinter().lint(out)
+            if not result.ok:
+                logger.debug(
+                    "approaches: linter HARD_FAIL on LLM distill — "
+                    "falling back to deterministic body. violations=%s",
+                    [v.matched_text for v in result.hard_fails],
+                )
+                return ""
+        except Exception:
+            logger.debug(
+                "approaches: linter unavailable, returning LLM output unfiltered",
+                exc_info=True,
+            )
+        return out
     except Exception:
         logger.debug("approaches: LLM distill failed", exc_info=True)
         return ""

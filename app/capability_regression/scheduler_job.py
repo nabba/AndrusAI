@@ -72,16 +72,21 @@ def _maybe_emit_landmark(report: RegressionReport) -> None:
     if not report.has_regression:
         return
     try:
-        from app.identity.continuity_ledger import emit_event
-        emit_event(
+        from app.identity.continuity_ledger import record_event
+        n_tools = len(report.tools_deleted) if report.tools_deleted else 0
+        n_models = (
+            len(report.models_truly_deleted) if report.models_truly_deleted else 0
+        )
+        record_event(
             kind="capability_regression",
-            payload={
+            actor="capability_regression",
+            summary=f"capability regression: {n_tools} tools, {n_models} models deleted",
+            detail={
                 "tools_deleted": report.tools_deleted,
                 "models_truly_deleted": report.models_truly_deleted,
                 "prev_captured_at": report.prev_captured_at,
                 "curr_captured_at": report.curr_captured_at,
             },
-            source_module="capability_regression",
         )
     except Exception:
         logger.debug(

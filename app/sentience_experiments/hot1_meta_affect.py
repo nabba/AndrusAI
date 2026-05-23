@@ -249,7 +249,22 @@ def _load_breaches(window_days: int) -> list[dict]:
 
 def _load_trace_points(window_days: int) -> list[dict]:
     """Q5.4.1 — read the full affect trace within the window. Each
-    row carries V/A/C + attractor + ts. Failure-isolated."""
+    row carries V/A/C + attractor + ts. Failure-isolated.
+
+    Bug fix 2026-05-23 audit follow-up — the parser was reading
+    ``row.get("ts")`` / ``row.get("valence")`` at TOP LEVEL, but the
+    canonical producer (``app.affect.core._append_trace``) writes
+    rows shaped::
+
+        {"affect": {"valence": ..., "arousal": ..., "ts": ..., ...},
+         "viability": {...}}
+
+    So every well-formed row failed the top-level extraction and was
+    silently skipped — HOT-1 was reading zero points from a trace
+    file with thousands of rows since Q5 shipped (2026-05-13). The
+    fix is to read the canonical nested shape first, and fall back
+    to flat for backward compatibility with any historical row that
+    happens to be flat (e.g. from a different test path)."""
     path = _default_trace_path()
     if not path.exists():
         return []
@@ -265,19 +280,24 @@ def _load_trace_points(window_days: int) -> list[dict]:
                     row = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                ts_str = row.get("ts") or ""
+                # Canonical producer-shape: {"affect": {...}, "viability": {...}}.
+                # Older / test rows may be flat — prefer nested.
+                affect_block = row.get("affect")
+                if isinstance(affect_block, dict):
+                    source = affect_block
+                else:
+                    source = row
+                ts_str = source.get("ts") or ""
                 try:
                     ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
                 except (ValueError, TypeError):
                     continue
                 if ts < cutoff:
                     continue
-                # Extract V/A/C — robust to schema variations across
-                # decentered.py / affect.schemas.
                 try:
-                    valence = float(row.get("valence", 0.0))
-                    arousal = float(row.get("arousal", 0.0))
-                    controllability = float(row.get("controllability", 0.5))
+                    valence = float(source.get("valence", 0.0))
+                    arousal = float(source.get("arousal", 0.0))
+                    controllability = float(source.get("controllability", 0.5))
                 except (TypeError, ValueError):
                     continue
                 out.append({
@@ -285,7 +305,7 @@ def _load_trace_points(window_days: int) -> list[dict]:
                     "valence": valence,
                     "arousal": arousal,
                     "controllability": controllability,
-                    "attractor": str(row.get("attractor") or "unknown"),
+                    "attractor": str(source.get("attractor") or "unknown"),
                 })
     except OSError:
         return []

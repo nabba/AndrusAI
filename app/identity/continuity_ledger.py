@@ -162,6 +162,23 @@ IDENTITY_EVENT_KINDS: frozenset[str] = frozenset({
                                  # so delegate-and-forget activity becomes
                                  # visible in the identity-drift narrative
                                  # without bespoke instrumentation.
+    "ecosystem_snapshot",        # PROGRAM §63 — upgrade-lifecycle annual
+                                 # snapshot landmark + per-requirements
+                                 # bump record. Producers wrap the call
+                                 # in try/except so the kind being absent
+                                 # would silently drop emissions; this
+                                 # entry registers it.
+    "chromadb_corruption",       # PROGRAM §55 — chromadb integrity
+                                 # quarantine landmark (dual-writer
+                                 # SQLite corruption detected at boot
+                                 # or daily monitor; the kb is renamed
+                                 # to <kb>.corrupt_<ts>/ and replayed
+                                 # from postgres source-of-truth).
+    "capability_regression",     # capability_regression scheduler job —
+                                 # landmark when the curated capability
+                                 # surface (tools / models) loses items
+                                 # vs. the prior snapshot; quarterly
+                                 # cadence; surfaces in annual reflection.
 })
 
 

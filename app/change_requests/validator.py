@@ -69,6 +69,27 @@ _BLOCKED_NAME_PATTERNS: tuple[str, ...] = (
 )
 
 
+# Path prefixes that no agent path can write through this validator,
+# regardless of operator approval — equivalent to the TIER_IMMUTABLE
+# rule but expressed as a prefix-match so the consciousness layer
+# (which is many files under one root) doesn't have to be enumerated
+# file-by-file in ``auto_deployer.TIER_IMMUTABLE``.
+#
+# Mirrors ``architecture_requests/validator._FORBIDDEN_PACKAGE_PREFIXES``.
+# Edits under these prefixes go through the Tier-3 amendment protocol.
+_FORBIDDEN_PATH_PREFIXES: tuple[str, ...] = (
+    "app/subia/",
+)
+
+
+# Individual files that are categorically refused but don't live under
+# any of the prefix roots above. Mirrors
+# ``architecture_requests/validator._FORBIDDEN_INDIVIDUAL_FILES``.
+_FORBIDDEN_INDIVIDUAL_FILES: frozenset[str] = frozenset({
+    "app/affect/goal_emitter.py",
+})
+
+
 @dataclass(frozen=True)
 class ValidationResult:
     ok: bool
@@ -166,6 +187,35 @@ def validate(
                 f"path {path!r} is in TIER_IMMUTABLE — no agent path "
                 f"can modify it, regardless of human approval. Operator "
                 f"must edit directly via PR."
+            ),
+            is_tier_immutable=True,
+        )
+
+    # 7. Categorical prefix refusal — the consciousness layer + the
+    # Tier-3 anchor at app/affect/goal_emitter.py. Same blast-radius
+    # rationale as TIER_IMMUTABLE: an agent that can rewrite the
+    # subjective-integration kernel can rewrite its own evaluators.
+    # Edits under these paths route through Tier-3 amendment, not the
+    # standard change-request gate.
+    for forbidden in _FORBIDDEN_PATH_PREFIXES:
+        if path.startswith(forbidden):
+            return ValidationResult(
+                ok=False,
+                reason=(
+                    f"path {path!r} is under {forbidden!r} — no agent "
+                    f"path can modify the consciousness layer through "
+                    f"the standard change-request gate, regardless of "
+                    f"human approval. Route through Tier-3 amendment."
+                ),
+                is_tier_immutable=True,
+            )
+    if path in _FORBIDDEN_INDIVIDUAL_FILES:
+        return ValidationResult(
+            ok=False,
+            reason=(
+                f"path {path!r} is a Tier-3 anchor — no agent path can "
+                f"modify it through the standard change-request gate. "
+                f"Route through Tier-3 amendment."
             ),
             is_tier_immutable=True,
         )

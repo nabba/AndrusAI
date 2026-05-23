@@ -274,29 +274,183 @@ def _scorer_tier3_approval(args: dict) -> bool | None:
 
 
 def _scorer_cr_apply(args: dict) -> bool | None:
-    """Resolve a CR-apply forecast. args = {"cr_id": str}."""
+    """Resolve a CR-apply forecast. args = {"cr_id": str}.
+
+    True if status==APPLIED; False on terminal-non-apply states
+    (REJECTED / ROLLED_BACK / TIMEOUT / APPLY_FAILED); None if still
+    in flight (PENDING / APPROVED).
+
+    Bug fix 2026-05-23 audit follow-up — the original imported a
+    nonexistent ``load_request`` from ``lifecycle`` and read ``.state``
+    instead of ``.status``. Both were swallowed by the try/except so
+    every cr_apply forecast silently returned None since the scorer
+    shipped. The CR lookup is in ``app.change_requests.store.get``
+    and the field is ``status``."""
     cr_id = args.get("cr_id")
     if not cr_id:
         return None
     try:
-        from app.change_requests.lifecycle import load_request
-        cr = load_request(cr_id)
+        from app.change_requests.store import get
+        cr = get(cr_id)
         if cr is None:
             return None
-        state = getattr(cr, "state", None)
-        sv = (state.value if hasattr(state, "value") else str(state)).lower()
+        status = getattr(cr, "status", None)
+        sv = (status.value if hasattr(status, "value") else str(status)).lower()
         if sv == "applied":
             return True
-        if sv in ("rejected", "rolled_back", "timeout"):
+        if sv in ("rejected", "rolled_back", "timeout", "apply_failed"):
             return False
         return None
     except Exception:
         return None
 
 
+def _scorer_thread_resolve(args: dict) -> bool | None:
+    """Resolve a long-horizon thread forecast.
+
+    args = {"thread_id": str}.
+    True if the thread reached RESOLVED, False if ABANDONED, None if
+    still in flight (OPEN / IN_PROGRESS / BLOCKED).
+
+    Registered 2026-05-23 audit follow-up — gives RPT-1 calibration
+    data on the Q8.1 threads primitive."""
+    thread_id = args.get("thread_id")
+    if not thread_id:
+        return None
+    try:
+        from app.threads.store import get
+        from app.threads.models import ThreadStatus
+        thread = get(thread_id)
+        if thread is None:
+            return None
+        status = getattr(thread, "status", None)
+        if status is ThreadStatus.RESOLVED:
+            return True
+        if status is ThreadStatus.ABANDONED:
+            return False
+        return None
+    except Exception:
+        return None
+
+
+def _scorer_workflow_run_success(args: dict) -> bool | None:
+    """Resolve a workflow-run forecast.
+
+    args = {"run_id": str}.
+    True if status==SUCCEEDED, False if FAILED/CANCELLED, None if
+    still QUEUED or RUNNING.
+
+    Registered 2026-05-23 audit follow-up — gives RPT-1 calibration
+    data on the Q8.3 workflow primitive."""
+    run_id = args.get("run_id")
+    if not run_id:
+        return None
+    try:
+        from app.workflows.queue import get_run
+        from app.workflows.models import RunStatus
+        run = get_run(run_id)
+        if run is None:
+            return None
+        status = getattr(run, "status", None)
+        if status is RunStatus.SUCCEEDED:
+            return True
+        if status in (RunStatus.FAILED, RunStatus.CANCELLED):
+            return False
+        return None
+    except Exception:
+        return None
+
+
+def _scorer_architecture_request_apply(args: dict) -> bool | None:
+    """Resolve an architecture-request forecast.
+
+    args = {"request_id": str}.
+    True if status==COMPLETED; False on the terminal-reject family
+    (REJECTED / TIER_IMMUTABLE_REFUSED / TIMEOUT / ABANDONED); None
+    if still in flight (PROPOSED / APPROVED / SCAFFOLDED /
+    IMPLEMENTING).
+
+    Registered 2026-05-23 audit follow-up — gives RPT-1 calibration
+    data on the §32.4 architecture-request primitive."""
+    request_id = args.get("request_id")
+    if not request_id:
+        return None
+    try:
+        from app.architecture_requests.store import get
+        from app.architecture_requests.models import ArchStatus
+        req = get(request_id)
+        if req is None:
+            return None
+        status = getattr(req, "status", None)
+        if status is ArchStatus.COMPLETED:
+            return True
+        if status in (
+            ArchStatus.REJECTED,
+            ArchStatus.TIER_IMMUTABLE_REFUSED,
+            ArchStatus.TIMEOUT,
+            ArchStatus.ABANDONED,
+        ):
+            return False
+        return None
+    except Exception:
+        return None
+
+
+def _scorer_executor_run_success(args: dict) -> bool | None:
+    """Resolve an autonomous-executor run forecast.
+
+    args = {"run_id": str}.
+    True if status==COMPLETED; False on the terminal-failure family
+    (FAILED / BUDGET_EXHAUSTED / ABORTED); None if still in flight
+    (CREATED / PLANNING / RUNNING / BLOCKED).
+
+    Registered 2026-05-23 audit follow-up — gives RPT-1 calibration
+    data on the §62 autonomous-executor primitive."""
+    run_id = args.get("run_id")
+    if not run_id:
+        return None
+    try:
+        from app.autonomous_executor.store import get
+        from app.autonomous_executor.models import ExecutorStatus
+        run = get(run_id)
+        if run is None:
+            return None
+        status = getattr(run, "status", None)
+        if status is ExecutorStatus.COMPLETED:
+            return True
+        if status in (
+            ExecutorStatus.FAILED,
+            ExecutorStatus.BUDGET_EXHAUSTED,
+            ExecutorStatus.ABORTED,
+        ):
+            return False
+        return None
+    except Exception:
+        return None
+
+
+def _scorer_capability_adoption_apply(args: dict) -> bool | None:
+    """Resolve a capability-adoption forecast.
+
+    args = {"cr_id": str}.
+    Same semantics as cr_apply but tracked under a distinct
+    claim_kind so RPT-1's calibration curve separates
+    adoption-CRs from generic CRs (different operator
+    predisposition).
+
+    Registered 2026-05-23 audit follow-up — gives RPT-1 calibration
+    data on the §63 upgrade-lifecycle adoption flow."""
+    return _scorer_cr_apply(args)
+
+
 # Register built-ins so they're always available.
 register_scorer("tier3_approval", _scorer_tier3_approval)
 register_scorer("cr_apply", _scorer_cr_apply)
+register_scorer("thread_resolve", _scorer_thread_resolve)
+register_scorer("workflow_run_success", _scorer_workflow_run_success)
+register_scorer("architecture_request_apply", _scorer_architecture_request_apply)
+register_scorer("executor_run_success", _scorer_executor_run_success)
+register_scorer("capability_adoption_apply", _scorer_capability_adoption_apply)
 
 
 # ── Public API: registration ──────────────────────────────────────────────

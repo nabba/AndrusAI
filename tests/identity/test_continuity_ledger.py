@@ -280,5 +280,20 @@ def test_known_event_kinds_set() -> None:
                                         # Phase 4 cross_monitor_pattern reuses it.
         "code_consolidation",           # Phase 3 elegance loop — annual elegance
                                         # reflection + quarterly code consolidation
+        "briefing_section_decision",    # 2026-05-23 — dynamically-evolving morning
+                                        # briefing operator adopt/drop verdicts
+        "executor_milestone",           # PROGRAM §62 — autonomous executor step +
+                                        # status transition landmarks
+        "ecosystem_snapshot",           # PROGRAM §63 — upgrade-lifecycle annual
+                                        # snapshot + per-requirements bump records
+                                        # (registered 2026-05-23 audit follow-up)
+        "chromadb_corruption",          # PROGRAM §55 — chromadb integrity quarantine
+                                        # landmark (registered 2026-05-23 audit
+                                        # follow-up to close a silently-failing
+                                        # emit_event call site)
+        "capability_regression",        # capability_regression scheduler job —
+                                        # quarterly landmark when curated tools /
+                                        # models surface shrinks (registered
+                                        # 2026-05-23 audit follow-up)
     }
     assert cl.IDENTITY_EVENT_KINDS == frozenset(expected)

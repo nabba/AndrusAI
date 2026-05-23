@@ -349,10 +349,10 @@ def _emit_ledger_event(kind: str, summary: str, detail: dict[str, Any], actor: s
     because ``summarise_drift.by_kind`` is dynamic.
     """
     try:
-        from app.identity.continuity_ledger import append_event  # type: ignore
-        append_event(
+        from app.identity.continuity_ledger import record_event
+        record_event(
             kind=kind, actor=actor, summary=summary,
-            detail=detail, ts=datetime.now(timezone.utc).isoformat(),
+            detail=detail, now=datetime.now(timezone.utc),
         )
     except Exception:
         logger.debug("chromadb_integrity: ledger emission failed", exc_info=True)
