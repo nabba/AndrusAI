@@ -13656,3 +13656,168 @@ verify pass — same surface as the incident this fix closes.
 * PROGRAM §55 — chromadb file-level integrity (the protection layer this incident did NOT exercise).
 * PROGRAM §56 iter-3 — compaction-time race fix; same mechanism class, different code path.
 
+
+# §69 — interest_model collector unblock + Insights tab repair (2026-05-24)
+
+Operator-reported user-facing bug: the **Insights** sub-tab under
+`/cp/ops → Workspace Companion → Insights` was empty, and the weekly
+`notify_suppression_review` Signal alert linked to a non-existent
+`/cp/companion → Insights` route. Diagnostic walk traced the empty
+surface backwards: `CrossModalPatternsCard` → `list_recent_patterns`
+→ `workspace/companion/cross_modal_patterns.jsonl` (didn't exist)
+→ `detect_patterns` (saw 0 candidates above `modalities ≥ 3` threshold)
+→ `interest_model.current_profile()` (5 topics, **all from one
+modality**). Four of the six configured collectors had been silently
+returning zero items for the entire lifetime of the subsystem.
+
+The collectors all failed silently for the same structural reason —
+each is wrapped in a broad `try/except Exception: return` that buries
+the underlying schema mismatch as a debug log nobody reads. With
+only `events` (Google Calendar) feeding the model, `flight`,
+`helsinki`, `tallinn` were the entire universe of topics the operator
+appeared to care about.
+
+## §69.1 — Three real bugs in `app/companion/interest_model.py`
+
+**`_conversations_text` (line 107)** — queried `created_at` column on
+`conversations.db` `messages`. Actual schema is `ts TEXT` (ISO-8601 with
+timezone). `OperationalError: no such column: created_at` was swallowed
+on every pass; 1,146 messages invisible since the schema was last
+migrated. Fix: rewrite the query to use `ts >= ?` with an ISO-8601
+cutoff string (lexicographic comparison is correct on ISO-8601 with
+fixed timezone suffix).
+
+**`_email_subject_text` (line 146)** — read key `recent_top_subjects`
+from `workspace/life_companion/email_monitor.json`. Writer at
+[crewai-team/app/life_companion/email_monitor.py:241](app/life_companion/email_monitor.py:241)
+only writes `last_top`. The key `recent_top_subjects` does not appear
+anywhere in the codebase except this reader — never written. Fix: prefer
+`last_top`, fall back to `recent_top_subjects` for forward-compat with
+the older key name in case any historical state file survives.
+
+**`_affect_topics_text` (lines 271, 279)** — two compounding bugs.
+
+  1. Line 279 cast `row.get("ts", 0)` to `float`. The writer at
+     [crewai-team/app/affect/kb_metadata.py:54](app/affect/kb_metadata.py:54)
+     stores `ts` as an ISO-8601 string (e.g.
+     `"2026-05-23T18:07:20.691694+00:00"`). `float(...)` raised
+     `ValueError` on the **first** row; the outer `try/except` aborted
+     the whole loop. Every affect row was invisible regardless of which
+     topic key was checked.
+  2. Line 271 read `row.get("topic") or row.get("subject")`. The writer
+     stores `task_preview`. Neither `topic` nor `subject` appears
+     anywhere in the `episode_affect_tags.jsonl` rows.
+
+Fix: parse `ts` defensively (accept both `int`/`float` and ISO-8601
+string), and add `task_preview` to the topic-extraction key chain after
+`topic`/`subject` (preserves the original chain as forward-compat).
+
+## §69.2 — Two non-bug silent collectors (recorded for completeness)
+
+**`_feedback_events_text`** — collector works correctly; reads
+`EventType.FEEDBACK` events from `events.iter_all_workspaces`. Verified
+live the API finds other event kinds (`SEED_DERIVED`, etc.) fine. The
+data is simply absent — the operator has never clicked enough 👍/👎 on
+companion surfaces to generate any FEEDBACK events. Not a code bug.
+
+**`_browse_topics_text`** — collector works correctly; reads daily LLM
+topic batches from `app/browse/topic_extraction`. The `browse`
+subsystem (PROGRAM §50 Q15) is opt-in default OFF and requires a host
+LaunchAgent install (`scripts/install_browse_collector.sh`) to actually
+collect Safari/Chromium/Firefox history. Not a code bug — it's an
+operator setup step that hasn't been taken.
+
+## §69.3 — Stale alert link in `notify_suppression_review`
+
+The 27th healing monitor's weekly Signal alert body contained
+`Review at /cp/companion → Insights, …`. No top-level `/cp/companion`
+route exists in
+[crewai-team/dashboard-react/src/App.tsx](dashboard-react/src/App.tsx) —
+the `CompanionTab` component renders only as a sub-tab inside
+`/cp/ops`. The alert string was written when a top-level mount was
+planned; the mount never happened, the alert string never updated.
+Fix: rewrite to `Review at /cp/ops → Workspace Companion → Insights, …`.
+
+## §69.4 — Regression tests
+
+Three new tests in
+[crewai-team/tests/companion/test_interest_model.py](tests/companion/test_interest_model.py)
+pin each fixed collector against the actual writer schema, so the next
+drift surfaces in CI rather than as a silently empty surface:
+
+* `test_conversations_collector_reads_ts_column` — fixture creates a
+  `messages` table with the production schema (`ts TEXT`), seeds one
+  row inside the 14-day window and one outside, asserts the collector
+  reads the fresh row only.
+* `test_email_collector_reads_last_top_key` — fixture writes the
+  `last_top` shape, asserts both subjects flow through.
+* `test_affect_collector_reads_task_preview_key` — fixture writes both
+  ISO-8601-`ts` (the real writer shape) and numeric-`ts` (forward-compat)
+  rows, asserts both fresh rows flow through and the stale row is
+  excluded.
+
+All 11 tests in the file pass (8 pre-existing + 3 new). No regressions
+in adjacent `tests/browse/test_interest_model_wiring.py`.
+
+## §69.5 — Live verification (post-rebuild)
+
+Per-collector yield counts inside the gateway container, 14-day window:
+
+| Modality | Pre-fix | Post-fix |
+|---|---|---|
+| `convs` | 0 (SQL error swallowed) | **73** |
+| `emails` | 0 (wrong key) | **1** |
+| `events` | 8 | 8 (unchanged — collector was healthy) |
+| `affect` | 0 (ts ValueError on first row) | **34** |
+| `feedback` | 0 | 0 — no events recorded; not a code bug |
+| `browse` | 0 | 0 — opt-in OFF; not a code bug |
+
+Forced `compile_interest_profile()` produced **30 topics** (was 5).
+Forced `cross_modal_patterns.run()` produced **19 persisted patterns**
+at `workspace/companion/cross_modal_patterns.jsonl` (was missing
+entirely). Top three by strength: `flight` (0.86, 4 modalities,
+12 hits), `bucharest` (0.83, 4 modalities, 11 hits), `forest` (0.75,
+3 modalities, 50 hits) — all real signals consistent with the
+operator's travel + workspace context (Q4 Eesti mets workstream).
+
+REST endpoint `GET /api/cp/companion/cross-modal-patterns?n=5` verified
+returning a populated array. Insights tab populates on next browser
+refresh.
+
+## §69.6 — Known follow-up (out of scope)
+
+Generic connective tokens (`time`, `data`, `tomorrow`, `please`,
+`about`, `age`) show up in the top-19 patterns alongside genuinely
+meaningful ones (`flight`, `bucharest`, `forest`, `hotel`, `workspace`).
+The math is correct — those tokens do cross modalities — but they're
+noise from the convs + affect collectors yielding raw message/task
+text without finer-grained noun-phrase extraction. The existing
+`_STOPWORDS` set doesn't catch them. Decision space:
+
+* **Option A**: extend `_STOPWORDS` with the generic-connective short
+  list. Cheap, but the stopword list will need ongoing curation.
+* **Option B**: raise the `_MIN_STRENGTH` threshold from 0.7 to 0.8.
+  Cleaner cutoff, but the bucharest-grade signal at 0.83 stays while
+  the time-grade signal at 0.75 drops — would need a sample run to
+  pick the right number.
+* **Option C**: introduce a "topic IDF" multiplier that down-weights
+  terms appearing in too many distinct sources. Most principled, most
+  work.
+
+Deferred. The current state is a faithful display of "the system sees
+your modalities now"; refinement is a separate productisation question.
+
+## §69.7 — Master-switch surface
+
+This is a bug fix; no new master switches, no Tier-3 amendments, no
+new IDENTITY_EVENT_KIND, no new healing monitor. The four collectors
+that were already part of the interest_model surface are now actually
+contributing data instead of silently failing — closer to the
+documented Phase B #1 design.
+
+## §69.8 — Cross-references
+
+* `crewai-team/docs/COMPANION_FEEDBACK_LOOP.md` — describes interest_model's role in the topic-weight bias loop; reader assumes the collectors work.
+* `crewai-team/docs/QOS_AND_COMPANION_DEPTH.md` — Q4#15 cross-modal pattern detector (the consumer that was empty).
+* PROGRAM §41 (Q4) — the cross_modal_patterns + arbiter ship that this fix retroactively unblocks for the live operator.
+

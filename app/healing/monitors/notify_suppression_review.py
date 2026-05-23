@@ -113,7 +113,7 @@ def run() -> None:
         f"(ceiling 30%)."
     )
     body_parts.append(
-        "\n  Review at /cp/companion → Insights, or query "
+        "\n  Review at /cp/ops → Workspace Companion → Insights, or query "
         "`GET /api/cp/notify/fatigue` to drill into the raw events."
     )
     body = "\n".join(body_parts)

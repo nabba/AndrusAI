@@ -123,3 +123,142 @@ def test_run_respects_cadence(tmp_path, monkeypatch):
     interest_model.run()
     interest_model.run()  # second within cadence — skipped
     assert len(calls) == 1
+
+
+# ── Collector regression pins (2026-05-24) ───────────────────────────────
+#
+# These three tests pin the schemas the collectors depend on. Before
+# 2026-05-24 the three silent collectors were quietly mismatched against
+# the actual writers — see _conversations_text (created_at vs ts column),
+# _email_subject_text (recent_top_subjects vs last_top key), and
+# _affect_topics_text (topic/subject vs task_preview key). All three
+# failed silently because their except blocks swallow the schema error.
+# These tests trip in CI if a future writer drifts again.
+
+
+def test_conversations_collector_reads_ts_column(tmp_path, monkeypatch):
+    """Regression: conversation_store.messages uses ``ts`` not ``created_at``.
+
+    Mirrors the real schema in app/conversation_store.py — keeping this
+    test in sync requires whoever changes the messages table to also
+    update this fixture, which surfaces the dependency.
+    """
+    import sqlite3
+    from app.companion import interest_model
+
+    db_path = tmp_path / "conversations.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.executescript("""
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            ts TEXT NOT NULL
+        );
+    """)
+    # 1 row inside the 14-day window, 1 row outside.
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    inside = (now - timedelta(days=2)).isoformat()
+    outside = (now - timedelta(days=60)).isoformat()
+    conn.execute(
+        "INSERT INTO messages (sender_id, role, content, ts) VALUES (?,?,?,?)",
+        ("u1", "user", "forest carbon recent", inside),
+    )
+    conn.execute(
+        "INSERT INTO messages (sender_id, role, content, ts) VALUES (?,?,?,?)",
+        ("u1", "user", "ancient unrelated content", outside),
+    )
+    conn.commit()
+
+    class _Stub:
+        @staticmethod
+        def _get_conn():
+            return conn
+
+    monkeypatch.setattr(interest_model, "conversation_store", _Stub, raising=False)
+    # The collector imports lazily inside the function, so patch the
+    # module-level import path it uses.
+    import sys
+    sys.modules["app.conversation_store"] = _Stub  # type: ignore[assignment]
+    try:
+        rows = list(interest_model._conversations_text(14))
+    finally:
+        sys.modules.pop("app.conversation_store", None)
+    assert len(rows) == 1
+    text, age = rows[0]
+    assert "forest carbon recent" in text
+    assert 1.0 < age < 3.0
+
+
+def test_email_collector_reads_last_top_key(tmp_path, monkeypatch):
+    """Regression: email_monitor writes ``last_top``, not ``recent_top_subjects``."""
+    import json
+    from app.companion import interest_model
+
+    state_path = tmp_path / "email_monitor.json"
+    state_path.write_text(json.dumps({
+        "last_top": [
+            {"subject": "Re: AI certification", "from": "alice@example.com"},
+            {"subject": "Quarterly forest data", "from": "bob@example.com"},
+        ],
+    }), encoding="utf-8")
+
+    monkeypatch.setattr(
+        interest_model.Path,
+        "exists",
+        lambda self: True if str(self).endswith("email_monitor.json") else Path.exists(self),
+        raising=False,
+    )
+
+    # Simpler: monkeypatch the path constant the collector reads.
+    import app.companion.interest_model as im
+    orig = im.Path
+    def _path(p):
+        if str(p).endswith("/email_monitor.json"):
+            return state_path
+        return orig(p)
+    monkeypatch.setattr(im, "Path", _path)
+
+    rows = list(interest_model._email_subject_text(14))
+    subjects = [r[0] for r in rows]
+    assert "Re: AI certification" in subjects
+    assert "Quarterly forest data" in subjects
+
+
+def test_affect_collector_reads_task_preview_key(tmp_path, monkeypatch):
+    """Regression: app/affect/kb_metadata.py writes ``task_preview`` and an
+    ISO-8601 ``ts`` string. Both shapes must work — the original
+    ``float(row.get("ts", 0))`` aborted on the first ISO row."""
+    import json
+    import time
+    from datetime import datetime, timezone, timedelta
+    from app.companion import interest_model
+
+    tags_path = tmp_path / "episode_affect_tags.jsonl"
+    now = datetime.now(timezone.utc)
+    fresh_iso = (now - timedelta(days=1)).isoformat()       # ISO-8601 (real writer shape)
+    fresh_numeric = time.time() - 2 * 86400                  # forward-compat numeric
+    stale_iso = (now - timedelta(days=60)).isoformat()
+    tags_path.write_text(
+        json.dumps({"ts": fresh_iso, "task_preview": "forest carbon flux estonia"}) + "\n"
+        + json.dumps({"ts": fresh_numeric, "task_preview": "tallinn vantaa ferry"}) + "\n"
+        + json.dumps({"ts": stale_iso, "task_preview": "ancient unrelated content"}) + "\n",
+        encoding="utf-8",
+    )
+
+    import app.companion.interest_model as im
+    orig = im.Path
+    def _path(p):
+        if str(p).endswith("/episode_affect_tags.jsonl"):
+            return tags_path
+        return orig(p)
+    monkeypatch.setattr(im, "Path", _path)
+
+    rows = list(interest_model._affect_topics_text(14))
+    texts = [r[0] for r in rows]
+    # Both fresh rows yielded; stale row excluded.
+    assert "forest carbon flux estonia" in texts
+    assert "tallinn vantaa ferry" in texts
+    assert "ancient unrelated content" not in texts

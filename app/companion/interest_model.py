@@ -111,23 +111,31 @@ def _conversations_text(lookback_days: int) -> Iterable[tuple[str, float]]:
         conn = conversation_store._get_conn()
     except Exception:
         return
-    cutoff = datetime.now(timezone.utc).timestamp() - lookback_days * 86400
+    now_dt = datetime.now(timezone.utc)
+    cutoff_iso = (
+        datetime.fromtimestamp(
+            now_dt.timestamp() - lookback_days * 86400, tz=timezone.utc,
+        ).isoformat()
+    )
+    # Schema: messages(id, sender_id, role, content, ts TEXT ISO-8601).
+    # ISO-8601 with timezone suffix sorts lexicographically by time, so
+    # a string compare on ``ts`` is correct.
     try:
         rows = conn.execute(
-            "SELECT content, created_at FROM messages "
-            "WHERE created_at >= datetime(?, 'unixepoch') "
-            "ORDER BY created_at DESC LIMIT 1000",
-            (cutoff,),
+            "SELECT content, ts FROM messages "
+            "WHERE ts >= ? "
+            "ORDER BY ts DESC LIMIT 1000",
+            (cutoff_iso,),
         ).fetchall()
     except Exception:
         logger.debug("interest_model: conversations.db scan failed", exc_info=True)
         return
-    now = datetime.now(timezone.utc).timestamp()
-    for content, created_at_iso in rows:
+    now = now_dt.timestamp()
+    for content, ts_iso in rows:
         if not content:
             continue
         try:
-            ts = datetime.fromisoformat(str(created_at_iso).replace(" ", "T")).timestamp()
+            ts = datetime.fromisoformat(str(ts_iso).replace(" ", "T")).timestamp()
         except Exception:
             ts = now
         age_days = max(0.0, (now - ts) / 86400)
@@ -143,7 +151,10 @@ def _email_subject_text(lookback_days: int) -> Iterable[tuple[str, float]]:
         data = json.loads(state_path.read_text(encoding="utf-8"))
     except Exception:
         return
-    items = (data.get("recent_top_subjects") or [])
+    # Writer (life_companion/email_monitor.py) stores the latest top-N
+    # under ``last_top``. The earlier key ``recent_top_subjects`` was
+    # never written — silently yielded nothing for the first year.
+    items = (data.get("last_top") or data.get("recent_top_subjects") or [])
     for entry in items:
         subject = entry.get("subject") if isinstance(entry, dict) else str(entry)
         if subject:
@@ -265,10 +276,33 @@ def _affect_topics_text(lookback_days: int) -> Iterable[tuple[str, float]]:
                     row = json.loads(line)
                 except Exception:
                     continue
-                ts = float(row.get("ts", 0))
+                # Writer (app/affect/kb_metadata.py) stores ``ts`` as an
+                # ISO-8601 string (e.g. "2026-05-23T18:07:20.691694+00:00").
+                # The original ``float(row.get("ts", 0))`` raised ValueError
+                # on the very first row and the outer try/except aborted
+                # the whole loop — every affect row was invisible.
+                ts_raw = row.get("ts", 0)
+                try:
+                    if isinstance(ts_raw, (int, float)):
+                        ts = float(ts_raw)
+                    else:
+                        ts = datetime.fromisoformat(
+                            str(ts_raw).replace(" ", "T"),
+                        ).timestamp()
+                except Exception:
+                    continue
                 if ts < cutoff:
                     continue
-                topic = (row.get("topic") or row.get("subject") or "").strip()
+                # Writer (app/affect/kb_metadata.py) appends rows with
+                # ``task_preview``; ``topic``/``subject`` were never
+                # populated. Preserve those keys as forward-compat
+                # fallthroughs in case a future writer adds them.
+                topic = (
+                    row.get("topic")
+                    or row.get("subject")
+                    or row.get("task_preview")
+                    or ""
+                ).strip()
                 if topic:
                     age_days = max(0.0, (time.time() - ts) / 86400)
                     yield (topic, age_days)
