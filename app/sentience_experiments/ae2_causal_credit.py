@@ -132,6 +132,30 @@ def _default_audit_log_path() -> Path:
         return Path("/app/workspace/audit_log.jsonl")
 
 
+def _default_executor_audit_path() -> Path:
+    """Round 2 audit follow-up (2026-05-23). The autonomous executor
+    keeps its own hash-chained audit ledger that AE-2 was structurally
+    blind to. Adding it as a fourth outcome source lets AE-2 spot
+    rare patterns like ``run_created → escalation_emitted within 1h``."""
+    try:
+        from app.paths import WORKSPACE_ROOT
+        return Path(WORKSPACE_ROOT) / "autonomous_executor" / "audit.jsonl"
+    except Exception:
+        return Path("/app/workspace/autonomous_executor/audit.jsonl")
+
+
+def _default_drill_audit_path() -> Path:
+    """Round 2 audit follow-up (2026-05-23). Resilience drills have
+    their own audit JSONL — pass/fail/error/skipped per drill run.
+    Drill failures are exactly the rare outcomes AE-2 was designed
+    to surface."""
+    try:
+        from app.paths import WORKSPACE_ROOT
+        return Path(WORKSPACE_ROOT) / "resilience" / "drill_audit.jsonl"
+    except Exception:
+        return Path("/app/workspace/resilience/drill_audit.jsonl")
+
+
 def _default_associations_path() -> Path:
     try:
         from app.paths import WORKSPACE_ROOT
@@ -325,6 +349,68 @@ def _outcome_kind_from_audit(row: dict) -> str | None:
     return None
 
 
+def _outcome_kind_from_executor(row: dict) -> str | None:
+    """Round 2 audit follow-up (2026-05-23). Map autonomous-executor
+    audit rows to coarse outcome kinds. Routine ``run_created`` and
+    successful ``transition`` rows are ignored — only the rare,
+    salient outcomes feed AE-2. Returns None for non-outcome rows.
+
+    Coarse buckets:
+      * ``executor:blocked``        — run hit BLOCKED (operator-intervention required)
+      * ``executor:failed``         — terminal FAILED transition
+      * ``executor:aborted``        — terminal ABORTED transition
+      * ``executor:budget_exhausted`` — terminal BUDGET_EXHAUSTED
+      * ``executor:step_failed``    — individual step failed (step audit kind)
+    """
+    kind = (row.get("kind") or "").lower()
+    payload = row.get("payload") or {}
+    # transition rows carry the from/to state pair
+    if kind == "transition":
+        to_state = str(payload.get("to") or "").lower()
+        if to_state == "blocked":
+            return "executor:blocked"
+        if to_state == "failed":
+            return "executor:failed"
+        if to_state == "aborted":
+            return "executor:aborted"
+        if to_state == "budget_exhausted":
+            return "executor:budget_exhausted"
+        return None  # benign transitions (running, planning, completed)
+    if kind == "escalation_emitted":
+        return "executor:blocked"
+    if kind == "step_failed":
+        return "executor:step_failed"
+    return None
+
+
+def _outcome_kind_from_drill(row: dict) -> str | None:
+    """Round 2 audit follow-up (2026-05-23). Map resilience-drill
+    audit rows to coarse outcome kinds. Pass is ignored (common,
+    expected); fail / error are the rare events AE-2 should spot.
+
+    Coarse buckets:
+      * ``drill:fail``  — structural / baseline-regression finding
+      * ``drill:error`` — drill itself errored (CODE_ERROR class)
+
+    SKIPPED rows are ignored — they're disabled / muted drills,
+    not outcomes.
+    """
+    status = (row.get("status") or "").lower()
+    name = (row.get("drill_name") or "").lower()
+    if status == "fail":
+        return f"drill:fail:{name}" if name else "drill:fail"
+    if status == "error":
+        return f"drill:error:{name}" if name else "drill:error"
+    return None
+
+
+def _drill_ts_from_row(row: dict) -> datetime | None:
+    """Drill rows carry ``completed_at`` rather than ``ts``."""
+    return _ts_parse(row.get("completed_at", "")) or _ts_parse(
+        row.get("started_at", "")
+    )
+
+
 # ── Aggregation ───────────────────────────────────────────────────────────
 
 
@@ -393,6 +479,46 @@ def detect_associations(
         if kind is None:
             continue
         outcomes.append((ts, kind))
+
+    # Round 2 audit follow-up (2026-05-23) — autonomous-executor
+    # audit ledger. Rare outcomes only (BLOCKED, terminal failures);
+    # routine transitions filtered by the adapter.
+    for row in _iter_jsonl(_default_executor_audit_path(), since_iso=since_iso):
+        ts = _ts_parse(row.get("ts", ""))
+        if ts is None:
+            continue
+        kind = _outcome_kind_from_executor(row)
+        if kind is None:
+            continue
+        outcomes.append((ts, kind))
+
+    # Round 2 audit follow-up (2026-05-23) — resilience-drill audit.
+    # Drill rows use ``completed_at`` (not ``ts``), so we walk the
+    # file directly rather than via ``_iter_jsonl`` (which filters
+    # on a ``ts`` field). Same since_iso semantics. Failure-isolated.
+    drill_path = _default_drill_audit_path()
+    if drill_path.exists():
+        try:
+            with drill_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    ts = _drill_ts_from_row(row)
+                    if ts is None:
+                        continue
+                    if ts.isoformat() < since_iso:
+                        continue
+                    kind = _outcome_kind_from_drill(row)
+                    if kind is None:
+                        continue
+                    outcomes.append((ts, kind))
+        except OSError:
+            pass
 
     if not outcomes:
         return []

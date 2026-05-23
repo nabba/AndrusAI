@@ -109,6 +109,17 @@ def _default_usage_path() -> Path:
         return Path("/app/workspace/observability/loadable_agent_usage.jsonl")
 
 
+def _default_executor_telemetry_path() -> Path:
+    """Round 2 audit follow-up (2026-05-23) — parallel input source
+    for autonomous_executor step telemetry. Same schema as
+    ``loadable_agent_usage.jsonl`` so the reader can fold both."""
+    try:
+        from app.paths import WORKSPACE_ROOT
+        return Path(WORKSPACE_ROOT) / "observability" / "executor_step_calls.jsonl"
+    except Exception:
+        return Path("/app/workspace/observability/executor_step_calls.jsonl")
+
+
 def _default_signals_path() -> Path:
     try:
         from app.paths import WORKSPACE_ROOT
@@ -142,30 +153,37 @@ class MetacogSignal:
 
 
 def _iter_telemetry(window_days: int) -> Iterator[dict]:
-    path = _default_usage_path()
-    if not path.exists():
-        return
+    """Walk telemetry rows from the LoadableAgent stream and (since
+    2026-05-23 Round 2 audit) the parallel autonomous-executor stream.
+
+    Both files share the same row schema (``ts``, ``agent_id``,
+    ``iteration``, ``model``, ``*_tokens``). Rows are folded together
+    and the consumer's per-agent-baseline computation naturally
+    keeps each agent's history separate."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                ts_str = row.get("ts") or ""
-                try:
-                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    continue
-                if ts < cutoff:
-                    continue
-                yield row
-    except OSError:
-        return
+    for path in (_default_usage_path(), _default_executor_telemetry_path()):
+        if not path.exists():
+            continue
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    ts_str = row.get("ts") or ""
+                    try:
+                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    except (ValueError, TypeError):
+                        continue
+                    if ts < cutoff:
+                        continue
+                    yield row
+        except OSError:
+            continue
 
 
 # ── Signal computation ────────────────────────────────────────────────────

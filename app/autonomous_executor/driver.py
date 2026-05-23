@@ -414,6 +414,19 @@ def _execute_step(
             exc, exc_info=True,
         )
 
+    # HOT-4 visibility hook (2026-05-23 Round 2 audit follow-up). Emit
+    # one telemetry row per step into the parallel observability
+    # stream so HOT-4's metacognitive monitor can see executor LLM
+    # activity. Failure-isolated end-to-end.
+    try:
+        from app.autonomous_executor.hot4_telemetry import emit_step_telemetry
+        emit_step_telemetry(run, step)
+    except Exception as exc:
+        logger.debug(
+            "autonomous_executor: HOT-4 telemetry emit failed: %s",
+            exc, exc_info=True,
+        )
+
 
 def _finalise(run: ExecutorRun) -> ExecutorRun:
     """No more pending steps — pick a terminal outcome based on the
