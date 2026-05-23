@@ -13169,3 +13169,117 @@ Cumulative pass after §64: **95 pass** (21 new + 13 regression pins + 61 pre-ex
 * `crewai-team/app/runtime_settings.py` — `external_action_gate_enabled` getter/setter.
 * `crewai-team/tests/test_alignment_audit_2026_05_23_findings_closed.py` — 13 regression pins.
 
+
+
+
+# §65 — SubIA wiring audit (2026-05-23 three-round)
+
+Three-round audit of the SubIA boundary + producer/consumer wiring
+across the past 14 days of substantial new functionality (PROGRAM
+§44–§64). Full per-finding writeup in
+`crewai-team/docs/SUBIA_AUDIT_2026_05_23.md`. This change-log entry
+is the brief landing record.
+
+## §65.1 — Commit chain
+
+| Round | Commit | Theme |
+|---|---|---|
+| 1 | `7560d067` | Boundary leak + broken ledger + RPT-1 forecasts + HOT-1 parser bug |
+| 2 | `e42d2616` | Defense-in-depth apply-time re-validation |
+| 3a | `d11dced8` (operator's §63 sweep) | Linter telemetry + HOT-4 telemetry emitter + threads wire (3 files bundled into §63) |
+| 3b | `954ce3eb` | HOT-4 reader fold + AE-2 outcome reader extension |
+
+## §65.2 — High-severity findings closed
+
+1. **`app/subia/*` reachable through the standard CR gate** — was
+   only refused by the ~95-entry TIER_IMMUTABLE exact-match list, no
+   `app/subia/*` was on it. Added prefix-match refusal at both
+   `create_request` and `apply_change` boundaries (defense-in-depth).
+2. **Four broken ledger emissions** swallowed by `try/except logger.debug`
+   for weeks: `chromadb_integrity` used `append_event` (doesn't
+   exist), `capability_regression` + 2× `upgrade_lifecycle` used
+   `emit_event` (also doesn't exist). The intended kinds
+   (`chromadb_corruption`, `capability_regression`, `ecosystem_snapshot`)
+   were ALSO missing from `IDENTITY_EVENT_KINDS`. Double bug. All
+   four fixed; three new kinds registered.
+3. **`cr_apply` scorer broken since Q5 (2026-05-13)** — imported
+   nonexistent `load_request` from `change_requests/lifecycle` and
+   read `.state` instead of `.status`. Every cr_apply forecast
+   resolved to None; RPT-1's primary calibration channel was empty.
+4. **HOT-1 trace parser broken since Q5** — read top-level
+   `ts/valence/etc.` but the canonical producer writes nested under
+   `affect`/`viability`. Was reading 0 of thousands of rows. All
+   four pattern detectors silently no-op'd over the trace path.
+
+## §65.3 — Coverage expansions
+
+* **RPT-1 scorers**: 2 → 7 (`thread_resolve`, `workflow_run_success`,
+  `architecture_request_apply`, `executor_run_success`,
+  `capability_adoption_apply` added). Five new forecast call sites
+  wired into each lifecycle's create/enqueue/start entry point.
+* **HOT-1 affect snapshots**: new hooks in
+  `autonomous_executor/escalation.escalate_blocker` and
+  `threads/lifecycle._distill_on_closure_safely` — both call
+  `compute_affect(persist=True)` after the lifecycle transition.
+* **PhenomenalLanguageLinter coverage**: added to
+  `threads/approaches._llm_distill` (identity-adjacent LLM output
+  landing in lessons_learned KB) with rejection telemetry via
+  `app/threads/linter_telemetry.py`.
+* **HOT-4 input streams**: 1 → 2 (now reads
+  `loadable_agent_usage.jsonl` AND
+  `observability/executor_step_calls.jsonl` written by
+  `autonomous_executor/hot4_telemetry.emit_step_telemetry`).
+* **AE-2 outcome streams**: 4 → 6 (added
+  `autonomous_executor/audit.jsonl` and
+  `resilience/drill_audit.jsonl` via two new adapter functions
+  filtering routine transitions and surfacing only rare actionable
+  events).
+
+## §65.4 — Safety invariants
+
+* `app/auto_deployer.TIER_IMMUTABLE` unchanged.
+* No files under `app/subia/` modified (the regenerated
+  `.integrity_manifest.json` is itself the boundary refresh —
+  emits `integrity_regen` ledger landmark automatically).
+* No Tier-3 amendment needed; no new master switches.
+* `test_q5_does_not_change_butlin_scorecard` still passes — Q5
+  modules (AE-2, HOT-1, HOT-4, RPT-1) remain ABSENT in the Butlin
+  scorecard. Anti-Goodhart guarantee intact.
+* `IDENTITY_EVENT_KINDS` frozenset: 25 → 28.
+* SubIA integrity manifest: 166 files, ok=True, drift=0.
+
+## §65.5 — Tests
+
+57 new pinning tests across 8 files:
+* `tests/test_change_requests_subia_refusal.py` (13)
+* `tests/test_continuity_ledger_kinds_2026_05_23.py` (7)
+* `tests/test_rpt1_new_lifecycle_forecasts.py` (9)
+* `tests/test_threads_approaches_linter.py` (3)
+* `tests/test_hot1_trace_wiring_2026_05_23.py` (7)
+* `tests/test_apply_change_revalidation_2026_05_23.py` (4)
+* `tests/test_threads_linter_telemetry.py` (7)
+* `tests/test_hot4_ae2_visibility_2026_05_23.py` (7)
+
+Adjacent regression: 185 pass / 0 fail across Q5 + sentience + CR +
+apply suites.
+
+## §65.6 — Spawn-task follow-ups (operator chips)
+
+Three follow-up chips spawned for operator review (Round 2 + 3
+surfaced these in §63's working-tree state):
+
+1. **Path guard for `capability_adoption.py`** — early-bail on
+   `app/subia/*` candidates before LLM budget spend. Plus
+   `apply_hook.py` failure ledger event for AE-2 visibility.
+2. **CVE source divergence event** — emit
+   `record_event(kind="ecosystem_snapshot", subkind="cve_source_divergence")`
+   in `cve_sources.py` when OSV and GitHub advisories disagree.
+3. **Briefing section for linter rejections + HOT-1 patterns** —
+   surface the new telemetry to the daily briefing.
+
+## §65.7 — Cross-references
+
+* `crewai-team/docs/SUBIA_AUDIT_2026_05_23.md` — full per-finding
+  writeup with file:line references.
+* `crewai-team/CLAUDE.md` — brief landing entry under
+  "Architecture (read on demand)".
