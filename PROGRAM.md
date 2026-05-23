@@ -13372,3 +13372,168 @@ the existing observability-daemon pattern (`gateway_watchdog`,
 * `crewai-team/docs/SIGNAL_RESILIENCE.md` — host-side watchdog
   context (the layer this primitive provides forensic data to).
 * `app/healing/__init__.py` — boot anchor for the probe daemon.
+
+# §67 — Settings-dispatcher pinning tests (2026-05-23)
+
+CI-side safety net for the silent-drop bug class that today's
+upgrade-lifecycle wiring fix (commit `a5bbc30f`) addressed at the
+single-subsystem level. The bug shape: a React settings card
+POSTs `{key: value}` to `/api/cp/settings`, the dispatcher in
+`app/api/config_api.py:set_runtime_settings_endpoint` has no
+`if "<key>" in payload: set_<key>(...)` branch, the request
+returns **200 OK with no state change**, and the operator's
+toggle silently no-ops — indistinguishable from a working flip
+unless they refresh and notice. Today's pass found 12 such keys
+under PROGRAM §62; the test catches every future occurrence.
+
+## §67.1 — Test design
+
+Single test file at `tests/test_settings_dispatcher_pinning.py`
+(7 tests, all passing on host without docker via stdlib stubs +
+mini-FastAPI app patterns from
+`tests/test_widening_decisions_and_api.py`). The harness
+mounts only the `config_api` + `settings_alias_api` routers,
+sidestepping `app.main`'s gateway-side init (scheduler,
+healing daemons, tool supervisor). Rate-limiter monkeypatched
+to `lambda: True`; `_STATE_PATH` + `_cache` rebound to
+`tmp_path` so writes never touch the read-only host
+`/app/workspace/` path that's baked in at module-import time
+when sibling suites run first.
+
+## §67.2 — Why React-side-of-truth (not setter-side)
+
+You cannot walk every `def set_*` in `runtime_settings.py` and
+assert each is dispatchable through `/api/cp/settings` — some
+setters legitimately route through OTHER endpoints:
+
+* `llm_mode` → `POST /llm_mode`
+* `creative_run_budget_usd` → `POST /creative_mode`
+* `background_tasks` → `POST /background_tasks`
+* `governance ratchet` → `POST /governance_ratchet/{set,relax}`
+* `runbook_settings` → `POST /runbook_settings`
+
+The extractor scans `dashboard-react/src/components/*.tsx`,
+selects files containing any of the canonical POST URLs OR the
+`useUpdateRuntimeSettings` hook, and pulls identifier keys from
+five literal patterns:
+
+1. `JSON.stringify({KEY: …})` — inline body
+2. `update(…)` / `save(…)` / `mutate(…)` / `mutateAsync(…)` —
+   patch callback args
+3. `` [`prefix${var}`]: v `` — template-literal computed keys
+   (zone thresholds in `VerificationExtensionCard`)
+4. `key: 'IDENTIFIER'` — `stageSwitches` list shape used by
+   `UpgradeLifecycleCard` + `RecentSubsystemsCard`
+5. `'<suffix-matching-string>'` arguments — catches
+   `updateSwitch('upgrade_lifecycle_enabled', …)` where the key
+   is passed as a function arg, not an object literal
+
+Extracted keys are intersected with the live runtime_settings
+snapshot — false positives (style fields, type-def keys, auth
+phrases) drop silently.
+
+## §67.3 — Seven tests
+
+* `test_extractor_finds_react_keys` — sanity: ≥10 cards, four
+  must-have keys present. Catches "extractor silently returns
+  empty" when the components directory moves.
+* `test_react_post_keys_round_trip_through_dispatcher` —
+  load-bearing. Every React-extracted key NOT in
+  `KNOWN_SILENTLY_DROPPED_KEYS` must round-trip POST→GET. New
+  silent drops fail CI with `sent=X got_back=Y` per key.
+* `test_known_silently_dropped_keys_list_stays_honest` — keeps
+  the bug-ledger accurate in BOTH directions: every listed key
+  must still drop AND still be POSTed by React. Fixing the
+  dispatcher without un-listing → fail; deleting a React card
+  without un-listing → fail.
+* `test_upgrade_lifecycle_dispatcher_keys_explicit_pin` — named
+  per-key pin for today's 12 keys. Failure message points
+  directly at the `§62` marker in `config_api.py` to short-
+  circuit the diagnostic path on regression.
+* `test_validation_rejection_returns_400` — proves out-of-range
+  values come back as 400, not 200. Pinned example: U5 budget
+  `> $500` and negative both reject; `42.5` accepts + persists.
+* `test_goodhart_hard_gate_safety_round_trip` — flips both
+  gate bools with `try/finally` restore documented as the
+  load-bearing safety pattern; copy to any future
+  Goodhart-touching test.
+* `test_upgrade_lifecycle_state_switches_are_all_dispatchable`
+  (stretch goal) — walks `GET /api/cp/upgrade-lifecycle/
+  state["switches"]` and asserts every key there round-trips
+  through `/api/cp/settings`. Catches the GET-side half of
+  today's bug (operator adds a key to switches dict, forgets
+  the POST branch).
+
+## §67.4 — Pre-existing silent drops surfaced
+
+15 keys in `KNOWN_SILENTLY_DROPPED_KEYS` documenting bugs the
+test catches but that are out of scope for this ship:
+
+* `ConnectorBudgetCard.tsx`: `connector_budgets_enabled`,
+  `connector_budget_overrides`
+* `CapabilityRegressionCard.tsx`: `capability_regression_enabled`
+* `BenchmarksPage.tsx` + `RecentSubsystemsCard.tsx`:
+  `iterate_loop_enabled`, `benchmarks_enabled`
+* `SourceLedgerCard.tsx` (8): `chromadb_source_ledger_enabled`,
+  `chromadb_ledger_bootstrap_enabled`,
+  `chromadb_ledger_drift_replay_enabled`,
+  `chromadb_ledger_compaction_enabled`,
+  `chromadb_ledger_s3_upload_enabled`,
+  `chromadb_ledger_gdrive_upload_enabled`,
+  `drill_source_ledger_replay_enabled`,
+  `drill_embedding_rotation_enabled`
+* `SettingsPage.tsx` cloud-hardening section (3):
+  `gcp_bootstrap_enabled`, `hardening_profile`, `binauthz_mode`
+
+Each entry is a follow-up CR slot for an operator who wants to
+restore the React surface's promise — the dispatcher branch is
+a one-liner per key. The honest-list test fails when the bug is
+fixed without un-listing, forcing the documentation to stay
+honest.
+
+## §67.5 — Mutation verification
+
+Verified live by temporarily removing the
+`upgrade_lifecycle_enabled` dispatch branch from
+`set_runtime_settings_endpoint`. Both `test_upgrade_lifecycle_
+dispatcher_keys_explicit_pin` and
+`test_react_post_keys_round_trip_through_dispatcher` failed
+with messages naming the key + sent vs. got-back value. Branch
+restored → all 7 green. The 2026-05-23 regression IS the
+shape the test catches.
+
+## §67.6 — Deliberate non-decisions
+
+* **No refactor of the dispatcher itself** — task scope is
+  CI-side safety net, not bug-fix. The honest-list mechanism
+  documents what's broken without blocking other work.
+* **No tests for setters routed through other endpoints** —
+  governance-ratchet, runbook_settings, llm_mode, creative_mode
+  all have their own POST handlers with their own validation
+  and audit shape; covering them needs separate test files
+  scoped per-endpoint.
+* **No assertion on extractor pattern stability** — the regex
+  catches false positives the snapshot intersection filters
+  out; over-extraction is safe and lets the test stay robust
+  against React refactors that change patch shape.
+* **No fixture in `conftest.py`** — the harness is tightly
+  coupled to two routers; lifting it to a shared fixture would
+  invite reuse for tests that need full `app.main` boot, which
+  fails on host without docker.
+
+## §67.7 — Cross-references
+
+* `app/api/config_api.py:set_runtime_settings_endpoint` — the
+  dispatcher this test pins.
+* `app/control_plane/settings_alias_api.py` — the
+  `/api/cp/settings` alias that forwards to the canonical
+  `/config/runtime_settings` handler.
+* `app/control_plane/upgrade_lifecycle_api.py:
+  upgrade_lifecycle_state` — the GET endpoint whose
+  `switches` dict the stretch test pins.
+* `dashboard-react/src/components/UpgradeLifecycleCard.tsx` +
+  `AbsencePolicyCard.tsx` — the cards that triggered today's
+  investigation.
+* PROGRAM §62 — the upgrade-lifecycle subsystem whose
+  dispatcher branches the test pins.
+
