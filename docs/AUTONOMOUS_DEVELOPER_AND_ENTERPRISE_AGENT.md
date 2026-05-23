@@ -1,4 +1,4 @@
-# Verified Implementation Plan — Devin-class autonomy
+# Autonomous Developer & Enterprise Agent
 
 **Status:** Delivered (2026-05-23)
 **Scope:** Phases A–E + Gap closures 1–6 + Risk #4 + Gaps A–F + Gaps E–F

@@ -2,7 +2,7 @@
 
 **Status**: **APPLIED** — operator-approved 2026-05-23
 **Target file**: `app/tool_registry/capabilities.py` (TIER_IMMUTABLE)
-**Verified Implementation Plan Gap #6** (2026-05-22)
+**Autonomous Developer & Enterprise Agent Gap #6** (2026-05-22) — see `docs/AUTONOMOUS_DEVELOPER_AND_ENTERPRISE_AGENT.md`
 **Proposal author**: AndrusAI agent (machine-drafted; operator-approved + applied 2026-05-23)
 
 ---

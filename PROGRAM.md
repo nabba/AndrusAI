@@ -12363,18 +12363,18 @@ Three originally-deferred items.
   stays the stable narrative; `system_inventory` is the live truth
   agents query at runtime.
 
-# §62 — Verified Implementation Plan delivery (Phases A–E + Gap closures 1–6 + Risk #4 + Gaps A–F + Gaps E–F, 2026-05-22 → 2026-05-23)
+# §62 — Autonomous Developer & Enterprise Agent delivery (Phases A–E + Gap closures 1–6 + Risk #4 + Gaps A–F + Gaps E–F, 2026-05-22 → 2026-05-23)
 
-Devin-class autonomy ship. Six rigorous ultrathink audit cycles
-across many sessions; each one verified plan promises operationally
-end-to-end (not just by file existence) and found progressively
-subtler gaps. Final scoreboard: 25+ new modules, ~20 existing
-modules extended, **zero TIER_IMMUTABLE touches outside the
-operator-authorized Tier-3 amendment protocol**, **zero behavioural
-change when new switches are OFF**, **410+ gap-closure tests
-passing**.
+Devin-class autonomy ship — the "Autonomous Developer & Enterprise
+Agent" plan. Six rigorous ultrathink audit cycles across many
+sessions; each one verified plan promises operationally end-to-end
+(not just by file existence) and found progressively subtler gaps.
+Final scoreboard: 25+ new modules, ~20 existing modules extended,
+**zero TIER_IMMUTABLE touches outside the operator-authorized
+Tier-3 amendment protocol**, **zero behavioural change when new
+switches are OFF**, **410+ gap-closure tests passing**.
 
-Full delivery summary: `crewai-team/docs/VERIFIED_PLAN.md`.
+Full delivery summary: `crewai-team/docs/AUTONOMOUS_DEVELOPER_AND_ENTERPRISE_AGENT.md`.
 
 ## §62.1 — Seven plan sections delivered
 
@@ -12474,5 +12474,125 @@ file pinning the contract.
 * **No removal of any current default-OFF feature** — they remain
   available, just gated by trust zones.
 
-Cross-reference: `crewai-team/docs/VERIFIED_PLAN.md`,
+Cross-reference: `crewai-team/docs/AUTONOMOUS_DEVELOPER_AND_ENTERPRISE_AGENT.md`,
 `crewai-team/docs/PHASES_ABCDE_SUMMARY.md`.
+
+# §63 — Upgrade lifecycle subsystem (2026-05-23)
+
+Closes the year-2+ resilience gap that `dependency_radar` (Q13.2) left
+open: the radar could *detect* outdated packages + CVEs but couldn't
+*understand* what an upgrade brings, *simulate* it in isolation, or
+surface a *coherent annual plan* over many years of operation. The
+goal: many-year autonomous upgrade decisions without operator
+intervention for the common case.
+
+Per operator decision on the five plan questions:
+
+1. **MAJOR auto-CR gate** — yes, with five-condition fail-closed gate
+   (trial=ok + 30d post-release + 0 breaking-change call sites +
+   non-TIER_IMMUTABLE + non-framework). Operator still gates at
+   `/cp/changes`.
+2. **Capability-utilization** — yes, with hard cap 1 CR/ISO week +
+   dedup against open architecture-requests + quarterly USD budget.
+3. **Annual ecosystem snapshot** — yes, with operator-acceptance flow
+   that drives downstream CR or Tier-3 amendment automatically; the
+   acceptance IS the gate.
+4. **Quarterly budget** — operator-controllable via React, calendar
+   quarters (Jan-Mar, …), default $20, sanity cap $500.
+5. **Python EOL transitions** — same system: ecosystem snapshot
+   surfaces them, operator accepts via the same per-row flow.
+
+## §63.1 — Nine phases U1–U9
+
+* **U1 `changelog_fetcher.py`** — PyPI + GitHub releases adapters;
+  factory-LLM extraction (`create_specialist_llm(role="research",
+  task_hint="upgrade-lifecycle capability extraction")`) — no
+  hardcoded model IDs. Per-package hash-chained JSONL at
+  `workspace/upgrade_lifecycle/capabilities/<pkg>.jsonl`. Idempotent
+  dedup on `(package, to_version)`.
+* **U2 `impact_analysis.py`** — AST walk for import + attribute sites;
+  matches capability candidate symbols (full dotted + per-segment).
+  `tier_immutable_touched` consults `auto_deployer.get_protection_tier`,
+  fail-OPEN when unavailable.
+* **U3 `trial_runner.py`** — throwaway tempdir; pip + pytest with
+  injectable runners; output parser extracts pass/fail + FAILED names;
+  five status values; tempdir cleaned in `finally`.
+* **U4 `major_auto_cr.py`** — five-condition gate. On pass: stage CR
+  via `proposal_bridge` (source=`dependency_radar`, cooldown=14d). On
+  fail: returns `GateOutcome` with first-failing reason. Framework
+  exclusion set `{crewai, chromadb, fastapi, pydantic, pydantic-settings,
+  starlette, anthropic}` is fixed at module level.
+* **U4 `orchestrator.py`** — wires U1+U2 inline (cheap) + U3 lookup
+  from cached ledger + queues missing trials via side-channel
+  `_pending.jsonl` for the scheduler. Spliced into
+  `dependency_radar.proposer.run_one_pass` MAJOR loop; on auto-CR
+  success the radar SKIPS its Signal alert.
+* **U5 `capability_adoption.py`** — weekly LIGHT idle, four gates:
+  master + Goodhart-pause + 1 CR/ISO week + quarterly budget. Budget
+  ledger captures both success + failure rows. Framework packages
+  skipped (annual-snapshot route).
+* **U6 `ecosystem_snapshot.py`** — annual idempotent. Composes 6
+  sections (Python EOL / package health / framework health / vendor
+  concentration / major-upgrade plan / generated_at). Writes JSON +
+  markdown. `accept_major_upgrade(year, package, to_version)` routes
+  non-framework → CR, framework → Tier-3 amendment.
+* **U7** — 6 REST endpoints + `UpgradeLifecycleCard` in `/cp/settings`.
+* **U8** — two new healing monitors (38th `upgrade_lifecycle_health` +
+  39th `python_eol_proximity`).
+* **U9 `goodhart.py`** — three resistance behaviors: MAJOR window
+  widens at high rejection rate, U5 pauses 30d at adoption-rejection
+  >50%, per-package 90d rollback cooldown.
+
+## §63.2 — 19th identity-continuity event kind
+
+`ecosystem_snapshot` emitted on snapshot creation and on per-row
+acceptance (subkind=`acceptance`). Auto-surfaces in annual reflection
+via existing `summarise_drift` Counter — no manual wiring.
+
+## §63.3 — Master switches (10, all default ON)
+
+* `upgrade_lifecycle_enabled` (top-level)
+* `upgrade_lifecycle_capability_extraction_enabled`
+* `upgrade_lifecycle_trial_enabled`
+* `upgrade_lifecycle_major_auto_cr_enabled`
+* `upgrade_lifecycle_capability_adoption_enabled`
+* `upgrade_lifecycle_capability_budget_usd_quarterly` (numeric, 20.0)
+* `upgrade_lifecycle_use_shinka_for_refactor` (opt-in, default OFF)
+* `ecosystem_snapshot_enabled`
+* `python_eol_proximity_monitor_enabled`
+* `upgrade_lifecycle_health_monitor_enabled`
+
+Top-level switch is conjunctive — when off, every stage short-circuits
+regardless of its own toggle.
+
+## §63.4 — Tests
+
+119 passing + 9 environment-skipped (route tests need `fastapi`,
+monitor tests need `pydantic_settings`). Regression: `proposal_bridge`
++ `dependency_radar` + Q13 + Phase D — 75 pass + 0 fail.
+
+## §63.5 — Deliberate non-decisions
+
+* **No TIER_IMMUTABLE touches** — operator-fixed.
+* **No new identity-event KIND beyond ecosystem_snapshot** — single
+  kind covers create + per-row acceptance via `subkind`.
+* **Trial runs are NEVER inline in the radar daemon** — pytest runs
+  take minutes; orchestrator looks up cached results + queues
+  missing trials for the async scheduler.
+* **Framework bumps NEVER go through MAJOR auto-CR** — annual
+  snapshot only (operator must reason about cross-system effects).
+* **No LLM call inside the gate itself** — gate is pure boolean logic
+  over upstream signals (cheap).
+* **No model IDs hardcoded** — every LLM call routes through
+  `app.llm_factory.create_specialist_llm(...)` per operator decision.
+
+## §63.6 — Cross-references
+
+* `crewai-team/docs/UPGRADE_LIFECYCLE.md` (operator runbook + per-stage
+  contract — to be written as the subsystem matures).
+* `app/upgrade_lifecycle/` (9 modules, ~3,200 LOC).
+* `tests/upgrade_lifecycle/` (7 test files, 128 tests).
+* `app/control_plane/upgrade_lifecycle_api.py` (6 REST endpoints).
+* `dashboard-react/src/components/UpgradeLifecycleCard.tsx`.
+* `app/healing/monitors/{upgrade_lifecycle_health,python_eol_proximity}.py`.
+
