@@ -157,10 +157,68 @@ try:
 except Exception:
     _log.warning("app.healing: synthesis_pass wiring failed", exc_info=True)
 
+# PROGRAM §63 (2026-05-23) — upgrade-lifecycle trial scheduler daemon.
+# Eager-start at module-import time consumes the orchestrator's pending
+# queue + runs at most one trial per hour. Bounded by the trial_enabled
+# runtime switch so disabling the trial subsystem stops the daemon too.
+try:
+    from app.upgrade_lifecycle.trial_scheduler import start as _ul_scheduler_start
+    _ul_scheduler_start()
+except Exception:
+    _log.warning("app.healing: trial_scheduler wiring failed", exc_info=True)
+
+# PROGRAM §63 follow-up — apply-hook daemon. Polls change_requests
+# audit log every 10 min for newly-applied upgrade decision CRs at
+# docs/proposed_upgrades/, parses YAML front-matter, dispatches to
+# requirements_writer. Gated by ``upgrade_lifecycle_apply_hook_enabled``
+# (default OFF — operator opts in once they trust the loop end-to-end).
+try:
+    from app.upgrade_lifecycle.apply_hook import start as _ul_apply_hook_start
+    _ul_apply_hook_start()
+except Exception:
+    _log.warning("app.healing: apply_hook wiring failed", exc_info=True)
+
+# P1#b — register upgrade-lifecycle daemons with the watchdog so a
+# silent thread death is detected + re-spawned within 60 s. Both
+# start functions are idempotent (they check is_running first), so
+# the watchdog calling them when the thread already exists is a
+# no-op.
+try:
+    from app.healing.watchdog import register_daemon
+    register_daemon(
+        "ul-trial-scheduler",
+        module="app.upgrade_lifecycle.trial_scheduler",
+        start_fn="start",
+    )
+    register_daemon(
+        "ul-apply-hook",
+        module="app.upgrade_lifecycle.apply_hook",
+        start_fn="start",
+    )
+except Exception:
+    _log.warning(
+        "app.healing: upgrade_lifecycle watchdog registration failed",
+        exc_info=True,
+    )
+
 try:
     from app.resilience_drills.drills import local_only as _local_only_drill  # noqa: F401
 except Exception:
     _log.warning("app.healing: local_only drill wiring failed", exc_info=True)
+
+# 2026-05-23 — event-loop responsiveness probe. One-line ``async def``
+# at /health gives a clean asyncio-loop latency signal; this daemon
+# probes it on a 10 s cadence and records slow/failed observations to
+# workspace/observability/event_loop_latency.jsonl for post-hang
+# forensics. Composes with — does not replace — the host watchdog
+# (which restarts on the same stall) and signal_heartbeat. Anchored
+# here for the same reason as the other observational daemons:
+# app.healing is the canonical eager-wiring hub already imported at
+# boot via main.py.
+try:
+    from app.observability import boot_diagnostics as _boot_diagnostics  # noqa: F401
+except Exception:
+    _log.warning("app.healing: boot_diagnostics wiring failed", exc_info=True)
 
 __all__ = [
     "diagnose_and_fix",

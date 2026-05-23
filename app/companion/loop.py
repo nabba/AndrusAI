@@ -283,6 +283,21 @@ def get_idle_jobs() -> list[tuple[str, Callable[[], None], str]]:
     except Exception:
         logger.debug("companion.loop: browse jobs skipped", exc_info=True)
 
+    # Upgrade lifecycle (PROGRAM §63) — three LIGHT idle entry points:
+    #   * upgrade-ecosystem-snapshot   — annual cadence (January window)
+    #   * upgrade-capability-adoption  — weekly internal cadence
+    #   * upgrade-lifecycle-goodhart   — weekly throttle re-evaluation
+    # All three cadence-check internally; daily fire is a no-op.
+    try:
+        from app.upgrade_lifecycle.idle_jobs import (
+            get_idle_jobs as _ul_get_idle_jobs,
+        )
+        jobs.extend(_ul_get_idle_jobs())
+    except Exception:
+        logger.debug(
+            "companion.loop: upgrade_lifecycle jobs skipped", exc_info=True,
+        )
+
     # Q17.8 conversation_memory incremental indexer. Walks the audit
     # log forward from the persisted cursor; bounded per pass so a
     # large catch-up doesn't starve other LIGHT jobs. Master switch

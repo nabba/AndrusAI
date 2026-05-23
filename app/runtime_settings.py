@@ -810,7 +810,49 @@ def _defaults() -> dict[str, Any]:
         "upgrade_lifecycle_major_auto_cr_enabled": True,
         "upgrade_lifecycle_capability_adoption_enabled": True,
         "upgrade_lifecycle_capability_budget_usd_quarterly": 20.0,
+        # P1#c — Monthly LLM budget for U1 capability extraction.
+        # Caps the changelog-parsing spend. Defaults to $5/month —
+        # at $0.10/extraction that's ~50 extractions/month, enough
+        # for ~150 outdated packages × turnover, but tight enough
+        # that a buggy loop can't burn through credits.
+        "upgrade_lifecycle_extraction_budget_usd_monthly": 5.0,
         "upgrade_lifecycle_use_shinka_for_refactor": False,
+        # P0#1a (PROGRAM §63 follow-up) — curated requirements.txt
+        # writer. Default OFF until operator opts in — once on, the
+        # apply_hook will mutate requirements.txt directly on approved
+        # upgrade-decision CRs. Validator-bypass is justified by the
+        # writer's tight scope (single-line bumps only).
+        "upgrade_lifecycle_requirements_writer_enabled": False,
+        # P0#1b — apply hook daemon that watches approved upgrade
+        # decision CRs and dispatches to requirements_writer.
+        "upgrade_lifecycle_apply_hook_enabled": False,
+        # P0#4 — Dockerfile writer (Python version bumps). Operates
+        # on the repo root Dockerfile's ``FROM python:`` line. SHA
+        # pin is dropped on bump (operator must re-pin). Default OFF
+        # because Python bumps are higher impact than requirements
+        # bumps — operator opts in deliberately.
+        "upgrade_lifecycle_dockerfile_writer_enabled": False,
+        # D#a (PROGRAM §63.10) — pyproject.toml writer covers uv /
+        # poetry / pdm projects. Default OFF until operator opts in;
+        # the apply_hook detects the package manager + routes to
+        # the right writer.
+        "upgrade_lifecycle_pyproject_writer_enabled": False,
+        # A3-P1 (PROGRAM §63.11) — 40th healing monitor: alert when
+        # Dockerfile still has the ``# TODO P0#4: re-pin`` marker
+        # AND at least one ``FROM python:`` line is unpinned.
+        # Default ON; observational, never blocks.
+        "dockerfile_pin_staleness_monitor_enabled": True,
+        # B3-P2 (PROGRAM §63.11) — 41st healing monitor: verify
+        # docs/proposed_upgrades/ CRs marked APPLIED actually exist
+        # on disk. Default ON; observational.
+        "cr_apply_consistency_monitor_enabled": True,
+        # P1#a — Operator-absence policy. Auto-promotes PATCH-level
+        # CRs to AUTO_APPLY when operator_transition reports
+        # ABSENT_90D. Default OFF — the operator MUST consciously
+        # decide that 90-day absence + 14-day soak + trusted
+        # requestor + PATCH-only is a sufficient gate. Otherwise the
+        # standard /cp/changes review remains the only path.
+        "upgrade_lifecycle_absence_policy_enabled": False,
         "ecosystem_snapshot_enabled": True,
         "python_eol_proximity_monitor_enabled": True,
         "upgrade_lifecycle_health_monitor_enabled": True,
@@ -3835,6 +3877,27 @@ def set_upgrade_lifecycle_capability_budget_usd_quarterly(value: float) -> None:
     logger.info("runtime_settings: upgrade_lifecycle quarterly budget = $%.2f", v)
 
 
+def get_upgrade_lifecycle_extraction_budget_usd_monthly() -> float:
+    """Monthly USD budget for U1 capability-extraction LLM calls (P1#c)."""
+    return float(_ensure_initialized().get(
+        "upgrade_lifecycle_extraction_budget_usd_monthly", 5.0,
+    ))
+
+
+def set_upgrade_lifecycle_extraction_budget_usd_monthly(value: float) -> None:
+    v = float(value)
+    if v < 0.0:
+        raise ValueError("monthly extraction budget must be non-negative")
+    if v > 100.0:
+        raise ValueError(
+            "monthly extraction budget exceeds sanity cap of $100/month",
+        )
+    _update({"upgrade_lifecycle_extraction_budget_usd_monthly": v})
+    logger.info(
+        "runtime_settings: upgrade_lifecycle monthly extraction budget = $%.2f", v,
+    )
+
+
 def get_upgrade_lifecycle_use_shinka_for_refactor() -> bool:
     """Opt-in switch for U5.1 — use ShinkaEvolve to drive multi-variant
     refactor generation instead of a single direct factory LLM call.
@@ -3846,6 +3909,118 @@ def get_upgrade_lifecycle_use_shinka_for_refactor() -> bool:
 
 def set_upgrade_lifecycle_use_shinka_for_refactor(value: bool) -> None:
     _update({"upgrade_lifecycle_use_shinka_for_refactor": bool(value)})
+
+
+def get_upgrade_lifecycle_requirements_writer_enabled() -> bool:
+    """Master switch for the curated requirements.txt writer (P0#1a).
+
+    Default OFF — operator opts in once they trust the
+    upgrade-lifecycle subsystem to mutate requirements.txt directly.
+    The writer is heavily scoped (single-line bumps from a small
+    allowlist of requestors only) so opt-in is the safety boundary.
+    """
+    if not get_upgrade_lifecycle_enabled():
+        return False
+    return bool(_ensure_initialized().get(
+        "upgrade_lifecycle_requirements_writer_enabled", False,
+    ))
+
+
+def set_upgrade_lifecycle_requirements_writer_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_requirements_writer_enabled": bool(value)})
+
+
+def get_upgrade_lifecycle_apply_hook_enabled() -> bool:
+    """Master switch for the apply-hook daemon (P0#1b).
+
+    The daemon polls change_requests for newly-applied upgrade
+    decision CRs (at docs/proposed_upgrades/) and dispatches to
+    requirements_writer. Composes with the writer's own switch —
+    both must be ON for upgrades to land.
+    """
+    if not get_upgrade_lifecycle_enabled():
+        return False
+    return bool(_ensure_initialized().get(
+        "upgrade_lifecycle_apply_hook_enabled", False,
+    ))
+
+
+def set_upgrade_lifecycle_apply_hook_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_apply_hook_enabled": bool(value)})
+
+
+def get_upgrade_lifecycle_dockerfile_writer_enabled() -> bool:
+    """Master switch for the Dockerfile writer (P0#4).
+
+    Python upgrades touch the Dockerfile's ``FROM python:`` line and
+    drop the SHA pin in the process. Default OFF — operator opts in
+    deliberately, and a separate manual re-pin step is required
+    after every bump (the writer adds a ``# TODO`` comment).
+    """
+    if not get_upgrade_lifecycle_enabled():
+        return False
+    return bool(_ensure_initialized().get(
+        "upgrade_lifecycle_dockerfile_writer_enabled", False,
+    ))
+
+
+def set_upgrade_lifecycle_dockerfile_writer_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_dockerfile_writer_enabled": bool(value)})
+
+
+def get_upgrade_lifecycle_pyproject_writer_enabled() -> bool:
+    """Master switch for the pyproject.toml writer (D#a)."""
+    if not get_upgrade_lifecycle_enabled():
+        return False
+    return bool(_ensure_initialized().get(
+        "upgrade_lifecycle_pyproject_writer_enabled", False,
+    ))
+
+
+def set_upgrade_lifecycle_pyproject_writer_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_pyproject_writer_enabled": bool(value)})
+
+
+def get_dockerfile_pin_staleness_monitor_enabled() -> bool:
+    """Master switch for the 40th healing monitor (A3-P1)."""
+    return bool(_ensure_initialized().get(
+        "dockerfile_pin_staleness_monitor_enabled", True,
+    ))
+
+
+def set_dockerfile_pin_staleness_monitor_enabled(value: bool) -> None:
+    _update({"dockerfile_pin_staleness_monitor_enabled": bool(value)})
+
+
+def get_cr_apply_consistency_monitor_enabled() -> bool:
+    """Master switch for the 41st healing monitor (B3-P2)."""
+    return bool(_ensure_initialized().get(
+        "cr_apply_consistency_monitor_enabled", True,
+    ))
+
+
+def set_cr_apply_consistency_monitor_enabled(value: bool) -> None:
+    _update({"cr_apply_consistency_monitor_enabled": bool(value)})
+
+
+def get_upgrade_lifecycle_absence_policy_enabled() -> bool:
+    """Master switch for the operator-absence policy (P1#a).
+
+    Default OFF. When ON, the absence-policy idle job promotes
+    PATCH-level CRs to AUTO_APPLY after 90d operator silence + 14d
+    CR soak + trusted-requestor + non-immutable + non-framework.
+    Every promotion fires a Signal alert + ledger event so a
+    returning operator sees exactly what was applied.
+    """
+    if not get_upgrade_lifecycle_enabled():
+        return False
+    return bool(_ensure_initialized().get(
+        "upgrade_lifecycle_absence_policy_enabled", False,
+    ))
+
+
+def set_upgrade_lifecycle_absence_policy_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_absence_policy_enabled": bool(value)})
 
 
 def get_ecosystem_snapshot_enabled() -> bool:

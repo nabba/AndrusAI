@@ -233,13 +233,19 @@ class TestDependencyRadarBudgetWired:
 
     def test_osv_cap_out_returns_empty_dict(self):
         # _gather_cves must catch the cap-out from the wrapped POST
-        # and return {} rather than propagate.
+        # and return {} rather than propagate. P2#a (PROGRAM §63.9)
+        # added a GitHub Advisory secondary, so we patch BOTH the
+        # OSV cap-out AND the GitHub fetcher to return empty.
+        from app.upgrade_lifecycle import cve_sources
         with patch.object(
             _dep_radar, "_budgeted_osv_post",
             side_effect=_dep_radar._BudgetExceeded(
                 "test", 0.0, None, 0.0,
                 today_calls_made=999, daily_call_cap=100,
             ),
+        ), patch.object(
+            cve_sources, "_github_advisory_fetch",
+            return_value={},
         ):
             out = _dep_radar._gather_cves(
                 packages=[("requests", "2.0.0")],

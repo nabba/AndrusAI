@@ -33,6 +33,8 @@ import { ArchitectureRequestsCard } from './ArchitectureRequestsCard';
 import { InlineEvolveCard } from './InlineEvolveCard';
 import { TravelCard } from './TravelCard';
 import { BrowseIngestionCard } from './BrowseIngestionCard';
+import { UpgradeLifecycleCard } from './UpgradeLifecycleCard';
+import { AbsencePolicyCard } from './AbsencePolicyCard';
 import { SourceLedgerCard } from './SourceLedgerCard';
 import { TrustZonesCard } from './TrustZonesCard';
 import { VerificationExtensionCard } from './VerificationExtensionCard';
@@ -129,6 +131,14 @@ export function SettingsPage() {
         onSettingsChange={() => settingsQ.refetch()}
       />
       <BrowseIngestionCard />
+      <UpgradeLifecycleCard
+        settings={settingsQ.data}
+        onSettingsChange={() => settingsQ.refetch()}
+      />
+      <AbsencePolicyCard
+        settings={settingsQ.data}
+        onSettingsChange={() => settingsQ.refetch()}
+      />
       <SourceLedgerCard
         settings={settingsQ.data}
         onSettingsChange={() => settingsQ.refetch()}

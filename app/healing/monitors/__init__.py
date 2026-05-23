@@ -118,9 +118,19 @@ _DEFAULT_CADENCE_S = {
     # Plan Risk #4 closure (2026-05-22) — gh CLI version-drift probe.
     # Daily probe; internal weekly cadence inside the monitor.
     "gh_version": 24 * 3600,
+    # PROGRAM §63 — U8 (upgrade-lifecycle, 2026-05-23).
+    "upgrade_lifecycle_health": 24 * 3600,   # daily; internal weekly cadence
+    "python_eol_proximity": 24 * 3600,        # daily; internal quarterly cadence + threshold override
+    # PROGRAM §63.11 — A3-P1 (40th monitor, 2026-05-23).
+    "dockerfile_pin_staleness": 24 * 3600,
+    # PROGRAM §63.11 — B3-P2 (41st monitor, 2026-05-23).
+    "cr_apply_consistency": 24 * 3600,
 }
 
-_WARMUP_S = 120  # don't run anything in the first 2 min after import.
+# Boot-stagger 2026-05-23 (was 120) — this driver walks ~34 monitors and
+# is the single biggest boot-burst contributor. See
+# app/observability/boot_diagnostics.py.
+_WARMUP_S = 300  # don't run anything in the first 5 min after import.
 
 _driver_started = False
 _driver_lock = threading.Lock()
@@ -708,6 +718,52 @@ def _driver() -> None:
         ))
     except Exception:
         logger.debug("monitors: gh_version import failed", exc_info=True)
+
+    # PROGRAM §63 — upgrade-lifecycle U8 (2026-05-23).
+    try:
+        from app.healing.monitors import upgrade_lifecycle_health
+        monitors.append((
+            "upgrade_lifecycle_health", upgrade_lifecycle_health.run,
+            _DEFAULT_CADENCE_S["upgrade_lifecycle_health"], 0.0,
+        ))
+    except Exception:
+        logger.debug(
+            "monitors: upgrade_lifecycle_health import failed", exc_info=True,
+        )
+    try:
+        from app.healing.monitors import python_eol_proximity
+        monitors.append((
+            "python_eol_proximity", python_eol_proximity.run,
+            _DEFAULT_CADENCE_S["python_eol_proximity"], 0.0,
+        ))
+    except Exception:
+        logger.debug(
+            "monitors: python_eol_proximity import failed", exc_info=True,
+        )
+    # A3-P1 (PROGRAM §63.11) — 40th monitor.
+    try:
+        from app.healing.monitors import dockerfile_pin_staleness
+        monitors.append((
+            "dockerfile_pin_staleness", dockerfile_pin_staleness.run,
+            _DEFAULT_CADENCE_S["dockerfile_pin_staleness"], 0.0,
+        ))
+    except Exception:
+        logger.debug(
+            "monitors: dockerfile_pin_staleness import failed",
+            exc_info=True,
+        )
+    # B3-P2 (PROGRAM §63.11) — 41st monitor.
+    try:
+        from app.healing.monitors import cr_apply_consistency
+        monitors.append((
+            "cr_apply_consistency", cr_apply_consistency.run,
+            _DEFAULT_CADENCE_S["cr_apply_consistency"], 0.0,
+        ))
+    except Exception:
+        logger.debug(
+            "monitors: cr_apply_consistency import failed",
+            exc_info=True,
+        )
 
     if not monitors:
         logger.warning("healing.monitors: no monitors loaded; driver exiting")

@@ -1,6 +1,6 @@
 """U5 — Capability adoption (Stage E).
 
-PROGRAM §62. After U1 has produced :class:`Capability` rows describing
+PROGRAM §63. After U1 has produced :class:`Capability` rows describing
 *what new features* an upgrade brought, this module is the one that
 proposes USING those features in our code. The output is a CR per
 adoption site — one site per pass, hard-capped at one CR per week.
@@ -96,6 +96,33 @@ def _quarterly_budget_usd() -> float:
         return float(get_upgrade_lifecycle_capability_budget_usd_quarterly())
     except Exception:
         return 20.0
+
+
+def _should_yield() -> bool:
+    """Cooperative yield to the idle scheduler's LIGHT-phase timer.
+
+    The scheduler enforces a 60 s budget across the entire LIGHT phase
+    via ``_job_timeout`` (see ``app.idle_scheduler.TIME_CAPS``). Long-
+    running LIGHT jobs cooperate by polling ``should_yield()`` between
+    expensive steps — the same pattern ``parallel_evolution``,
+    ``island_evolution``, ``modification_engine``, and ``avo_operator``
+    use for their HEAVY work. This pass may make many LLM calls per
+    invocation (one per candidate site, ~10–30 s each), so a single
+    weekly fire can easily overrun the LIGHT budget without yielding.
+
+    On yield, ``run_one_pass`` returns early with ``reason="yielded"``
+    and the per-week rate counter is NOT bumped, so the next idle
+    cycle picks up where this one left off; the quarterly budget
+    ledger still reflects work actually attempted, so no double
+    debit. Failure-isolated: in environments where the scheduler is
+    unimportable (tests, scripts), returns False so the pass runs to
+    natural completion.
+    """
+    try:
+        from app.idle_scheduler import should_yield as _sched_should_yield
+        return bool(_sched_should_yield())
+    except Exception:
+        return False
 
 
 # ── Calendar quarter helpers ─────────────────────────────────────────────
@@ -315,32 +342,46 @@ def discover_candidate_sites(
 # ── LLM refactor generation (via factory) ────────────────────────────────
 
 
-_LLM_SYSTEM_PROMPT = """You analyze Python source files and propose
+_LLM_SYSTEM_PROMPT = """You analyze Python source files and produce
 adoption refactors when a new library capability makes a specific
 existing usage pattern obsolete.
 
-Output STRICT JSON. Schema:
+Your output IS the new file. The operator will see a unified diff in
+``/cp/changes`` and apply it with one click — so ``new_content`` must
+be a syntactically valid Python file that preserves every behavior
+the original had except the targeted refactor.
+
+Output STRICT JSON. Schema for an APPROVED refactor:
 
   {
     "should_refactor": true,
-    "rationale": "1-3 sentence explanation",
-    "patch_summary": "1-line summary of what would change",
-    "confidence": 0.80
+    "new_content": "<the FULL replacement file content, verbatim>",
+    "rationale": "1-3 sentences explaining WHY this is an improvement",
+    "patch_summary": "1-line title for the operator",
+    "confidence": 0.85
   }
 
-OR
+Schema for a DECLINE:
 
   {
     "should_refactor": false,
-    "reason": "no_clear_opportunity | risky | unclear_intent | already_modern"
+    "reason": "no_clear_opportunity | risky | unclear_intent | already_modern | multi_file"
   }
 
 Rules:
-  * Decline if the file already uses the new capability.
-  * Decline if the refactor would require touching > 1 file.
-  * Decline if the existing usage is correct + idiomatic — "new"
-    doesn't mean "better."
-  * Confidence < 0.5 → decline.
+  * **Decline if the file already uses the new capability.**
+  * **Decline if the refactor would require touching > 1 file.**
+  * **Decline if the existing usage is correct + idiomatic** —
+    "new" doesn't mean "better."
+  * **Decline if confidence < 0.7.** Capability adoption refactors
+    are rare and discretionary — over-confidence is the failure
+    mode that wastes the operator's review budget.
+  * ``new_content`` must compile as Python (no truncation, no
+    placeholder comments, no `...` ellipses).
+  * Preserve imports the file uses elsewhere. Preserve module-level
+    docstrings. Preserve every public symbol's signature.
+  * NO invented references — every name in ``new_content`` must
+    appear in the original file OR be imported within ``new_content``.
 """
 
 
@@ -399,39 +440,28 @@ def _call_llm_for_refactor_proposal(
 # ── Public API: one-pass orchestrator ────────────────────────────────────
 
 
-def _compose_cr_body(
+def _compose_cr_reason(
     *,
     capability: Capability,
     feature: str,
     target_path: str,
     proposal: dict[str, Any],
 ) -> str:
+    """Operator-facing explanation (lives in CR.reason, not in the file).
+
+    The CR's ``new_content`` is the LLM-produced full file (a real
+    diff against the existing file). This reason is the prose the
+    operator reads in /cp/changes before approving.
+    """
     return (
-        f"# Adopt: {feature}\n"
-        f"\n"
-        f"This proposal originates from the upgrade lifecycle "
-        f"(PROGRAM §62, Stage E). The capability extractor noted "
-        f"a new feature in `{capability.package} "
-        f"{capability.from_version}→{capability.to_version}`:\n"
-        f"\n"
-        f"> {feature}\n"
-        f"\n"
-        f"## Candidate site\n"
-        f"`{target_path}`\n"
-        f"\n"
-        f"## Proposed refactor\n"
-        f"{proposal.get('patch_summary', '(not provided)')}\n"
-        f"\n"
-        f"## Rationale\n"
-        f"{proposal.get('rationale', '(not provided)')}\n"
-        f"\n"
-        f"## Confidence\n"
-        f"{float(proposal.get('confidence') or 0.0):.2f}\n"
-        f"\n"
-        f"---\n"
-        f"This CR is a STARTING POINT for the operator; it does not "
-        f"include a diff. The author of the eventual implementation "
-        f"is free to reject, narrow, or rework the proposal.\n"
+        f"Upgrade-lifecycle Stage E (PROGRAM §63 U5) adoption proposal "
+        f"for {capability.package} {capability.from_version}→"
+        f"{capability.to_version}. "
+        f"New capability: {feature[:200]}. "
+        f"Site: {target_path}. "
+        f"Summary: {proposal.get('patch_summary') or '(none)'}. "
+        f"Rationale: {proposal.get('rationale') or '(none)'}. "
+        f"Confidence: {float(proposal.get('confidence') or 0.0):.2f}."
     )
 
 
@@ -465,6 +495,15 @@ def run_one_pass(
         summary["reason"] = "master_switch_off"
         return summary
 
+    # U9 — Goodhart pause check (read-only; pause set by external monitor).
+    try:
+        from app.upgrade_lifecycle.goodhart import is_adoption_paused
+        if is_adoption_paused(now=now_dt):
+            summary["reason"] = "paused_by_goodhart_guard"
+            return summary
+    except Exception:
+        pass
+
     # Gate 1: rate limit (1 CR / ISO week)
     if summary["crs_this_week"] >= _MAX_CR_PER_WEEK:
         summary["reason"] = "rate_limited"
@@ -486,12 +525,32 @@ def run_one_pass(
     arch_dedup_fn = architecture_dedup or _path_has_open_architecture_request
 
     for capability in caps:
+        # Cooperative yield BEFORE each capability — discover_candidate_sites
+        # itself walks app/**/*.py and may take seconds on a large repo.
+        if _should_yield():
+            summary["reason"] = "yielded"
+            return summary
         # Skip framework packages — those go through annual snapshot.
         norm_pkg = capability.package.lower().replace("_", "-")
         if norm_pkg in FRAMEWORK_PACKAGES:
             continue
         sites = discover_candidate_sites(capability, repo_root=repo_root)
         for path, feature in sites:
+            # Cooperative yield BEFORE each LLM call — this is the
+            # expensive step (10–30 s per attempt) and is the actual
+            # cause of LIGHT-phase overruns.
+            if _should_yield():
+                summary["reason"] = "yielded"
+                return summary
+            # Mid-pass budget recheck — record_attempt below debits the
+            # ledger on every attempt regardless of success, so a long
+            # candidate list could otherwise burn the entire quarterly
+            # budget in one cycle. The pre-loop gate above only catches
+            # the case where we entered the pass already exhausted.
+            if remaining_quarter_budget(now=now_dt) < _ESTIMATED_COST_PER_ATTEMPT_USD:
+                summary["reason"] = "budget_exhausted"
+                summary["budget_remaining_usd"] = remaining_quarter_budget(now=now_dt)
+                return summary
             target_path = _to_repo_relative(path, repo_root)
             if arch_dedup_fn(target_path):
                 continue
@@ -519,27 +578,104 @@ def run_one_pass(
             )
             if proposal is None or not proposal.get("should_refactor"):
                 continue
-            if float(proposal.get("confidence") or 0.0) < 0.5:
+            confidence = float(proposal.get("confidence") or 0.0)
+            # P0#2 (PROGRAM §63 follow-up): the gate is stricter now
+            # because the CR carries a real diff — over-confidence
+            # would waste real review budget instead of just
+            # producing markdown.
+            if confidence < 0.7:
                 continue
-            # File the CR.
-            body = _compose_cr_body(
+            new_content = proposal.get("new_content")
+            if not isinstance(new_content, str) or not new_content.strip():
+                continue
+            # Refuse content that smells suspicious. The LLM is
+            # supposed to return a complete file; ellipses / TODO
+            # placeholders are red flags that the file was truncated.
+            for sentinel in ("\n...\n", "# TODO: rest of file", "# ..."):
+                if sentinel in new_content:
+                    logger.debug(
+                        "ul.adoption: refused — placeholder %r in new_content",
+                        sentinel,
+                    )
+                    new_content = None
+                    break
+            if new_content is None:
+                continue
+
+            # P0#2: file the CR directly via change_requests.lifecycle
+            # with the actual Python file as target_path + the LLM's
+            # full file as new_content. proposal_bridge only handles
+            # markdown decision records; code refactors need the
+            # direct path.
+            reason = _compose_cr_reason(
                 capability=capability, feature=feature,
                 target_path=target_path, proposal=proposal,
             )
             signature = _signature_for(capability, target_path)
             try:
-                if stage_fn is None:
-                    from app.proposal_bridge.store import stage as stage_fn  # type: ignore[assignment]
-                stage_fn(   # type: ignore[misc]
-                    source=_PROPOSAL_SOURCE,
-                    signature=signature,
-                    title=f"Adopt {capability.package} {capability.to_version} capability: {feature[:60]}",
-                    body_markdown=body,
-                    target_path=target_path,
-                    cooldown_days=14,
-                )
+                if stage_fn is not None:
+                    # Test-injected stage_fn keeps the proposal_bridge
+                    # signature for backward compatibility with the
+                    # existing test surface.
+                    stage_fn(   # type: ignore[misc]
+                        source=_PROPOSAL_SOURCE,
+                        signature=signature,
+                        title=(
+                            f"Adopt {capability.package} "
+                            f"{capability.to_version} capability: "
+                            f"{feature[:60]}"
+                        ),
+                        body_markdown=new_content,
+                        target_path=target_path,
+                        cooldown_days=14,
+                    )
+                else:
+                    from app.change_requests.lifecycle import create_request
+                    cr = create_request(
+                        requestor="upgrade_lifecycle",
+                        path=target_path,
+                        new_content=new_content,
+                        old_content=content,
+                        reason=reason,
+                    )
+                    logger.info(
+                        "ul.adoption: CR filed id=%s path=%s",
+                        getattr(cr, "id", "?"), target_path,
+                    )
+
+                    # RPT-1 producer (2026-05-23 audit follow-up) —
+                    # register an adoption-specific forecast under a
+                    # distinct claim_kind so calibration separates
+                    # adoption-CRs from generic CRs. Stacks on top of
+                    # the cr_apply forecast that lifecycle.create_request
+                    # registers itself.
+                    try:
+                        from datetime import datetime, timedelta, timezone
+                        from app.sentience_experiments.rpt1_self_calibration import (
+                            register_prediction,
+                        )
+                        cr_id = getattr(cr, "id", None)
+                        if cr_id:
+                            register_prediction(
+                                claim_kind="capability_adoption_apply",
+                                claim_text=(
+                                    f"capability adoption CR {cr_id[:8]} "
+                                    f"for {capability.package} on "
+                                    f"{target_path} will apply"
+                                ),
+                                predicted_p=0.5,
+                                resolution_at=datetime.now(timezone.utc)
+                                    + timedelta(days=14),
+                                scorer_ref="capability_adoption_apply",
+                                scorer_args={"cr_id": cr_id},
+                            )
+                    except Exception:
+                        logger.debug(
+                            "ul.adoption: RPT-1 forecast registration failed",
+                            exc_info=True,
+                        )
             except Exception:
-                logger.debug("ul.adoption: stage failed", exc_info=True)
+                logger.debug("ul.adoption: CR filing failed", exc_info=True)
                 continue
             _bump_rate_counter(now_dt)
             # Update the last attempt row to succeeded=True

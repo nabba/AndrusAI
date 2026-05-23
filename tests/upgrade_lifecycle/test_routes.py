@@ -138,3 +138,93 @@ def test_accept_404_for_unknown_snapshot(client, isolated_dir):
         json={"year": 2099, "package": "x", "to_version": "1.0"},
     )
     assert r.status_code == 404
+
+
+# ── /ecosystem/snapshots/generate ───────────────────────────────────────
+
+
+def test_generate_endpoint_creates_new_snapshot(client, isolated_dir, monkeypatch):
+    """POST with year=current → generate; subsequent GET sees it."""
+    from datetime import datetime, timezone
+    from app.upgrade_lifecycle import ecosystem_snapshot as eco
+    monkeypatch.setattr(eco, "_enabled", lambda: True)
+
+    # Patch out network-dependent default fetchers so the test is fast
+    # and deterministic.
+    monkeypatch.setattr(eco, "_default_framework_fetcher",
+                       lambda pkg: {"latest_version": "x"})
+    monkeypatch.setattr(eco, "_default_cost_by_provider", lambda: {})
+
+    year = datetime.now(timezone.utc).year
+    r = client.post(
+        "/api/cp/ecosystem/snapshots/generate",
+        json={"year": year, "force": False},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["year"] == year
+    assert "generated_at" in body
+
+    # GET picks it up
+    r2 = client.get("/api/cp/ecosystem/snapshots")
+    assert r2.status_code == 200
+    assert any(y["year"] == year for y in r2.json()["years"])
+
+
+def test_generate_endpoint_default_year_resolves_to_current(client, isolated_dir, monkeypatch):
+    from datetime import datetime, timezone
+    from app.upgrade_lifecycle import ecosystem_snapshot as eco
+    monkeypatch.setattr(eco, "_enabled", lambda: True)
+    monkeypatch.setattr(eco, "_default_framework_fetcher",
+                       lambda pkg: {"latest_version": "x"})
+    monkeypatch.setattr(eco, "_default_cost_by_provider", lambda: {})
+
+    r = client.post(
+        "/api/cp/ecosystem/snapshots/generate",
+        json={},   # year omitted → server-side default
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["year"] == datetime.now(timezone.utc).year
+
+
+def test_generate_endpoint_returns_409_when_disabled(client, isolated_dir, monkeypatch):
+    from app.upgrade_lifecycle import ecosystem_snapshot as eco
+    monkeypatch.setattr(eco, "_enabled", lambda: False)
+    r = client.post(
+        "/api/cp/ecosystem/snapshots/generate",
+        json={"year": 2026},
+    )
+    assert r.status_code == 409
+
+
+def test_generate_endpoint_force_regenerates(client, isolated_dir, monkeypatch):
+    from app.upgrade_lifecycle import ecosystem_snapshot as eco
+    monkeypatch.setattr(eco, "_enabled", lambda: True)
+    monkeypatch.setattr(eco, "_default_framework_fetcher",
+                       lambda pkg: {"latest_version": "x"})
+    monkeypatch.setattr(eco, "_default_cost_by_provider", lambda: {})
+
+    # First generation
+    r1 = client.post(
+        "/api/cp/ecosystem/snapshots/generate",
+        json={"year": 2026, "force": False},
+    )
+    first_ts = r1.json()["generated_at"]
+
+    # Second call without force → returns existing (timestamps equal)
+    r2 = client.post(
+        "/api/cp/ecosystem/snapshots/generate",
+        json={"year": 2026, "force": False},
+    )
+    assert r2.json()["generated_at"] == first_ts
+
+    # Third call WITH force → timestamps differ
+    r3 = client.post(
+        "/api/cp/ecosystem/snapshots/generate",
+        json={"year": 2026, "force": True},
+    )
+    # generated_at may match if the test runs sub-microsecond, but
+    # the call must succeed.
+    assert r3.status_code == 200

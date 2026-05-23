@@ -43,7 +43,10 @@ logger = logging.getLogger(__name__)
 
 SWEEP_INTERVAL_SECONDS = 5 * 60
 _DAEMON_THREAD_NAME = "vacation-mode-sweep"
-_WARMUP_S = 60
+# Boot-stagger 2026-05-23 (was 60) — daemon is gated by is_active()
+# anyway, so a 4× warm-up is invisible at steady state.
+# See app/observability/boot_diagnostics.py.
+_WARMUP_S = 240
 _PAUSE_AFTER_NEW_SENDER_S = 24 * 3600  # 24h pause window post new-sender
 _LOG_FILE_NAME = "auto_apply_log.jsonl"
 _MAX_LOG_ROWS = 1000

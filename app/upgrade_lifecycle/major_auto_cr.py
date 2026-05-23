@@ -1,6 +1,6 @@
 """U4 — MAJOR auto-CR gate.
 
-PROGRAM §62. Composes U1 (capability extraction), U2 (impact analysis),
+PROGRAM §63. Composes U1 (capability extraction), U2 (impact analysis),
 and U3 (trial harness) into the five-condition gate that decides
 whether a MAJOR version bump goes through the standard CR review path
 instead of falling through to Signal-only.
@@ -182,8 +182,17 @@ def evaluate_gate(
     if not ok_fw:
         return GateOutcome(passed=False, reason=reason_fw)
 
+    # U9 — consult Goodhart throttle for the dynamic post-release window.
+    # Defaults to the constant if the throttle state file is missing.
+    try:
+        from app.upgrade_lifecycle.goodhart import current_major_window
+        window = current_major_window()
+    except Exception:
+        window = _POST_RELEASE_WINDOW_DAYS
+
     ok_release, reason_release, days_since = _condition_post_release_window(
         pypi_metadata=pypi_metadata, to_version=to_version, now=now_dt,
+        min_days=window,
     )
     if not ok_release:
         return GateOutcome(passed=False, reason=reason_release,
@@ -234,6 +243,15 @@ def _format_capability_block(capability: Optional[Capability]) -> str:
     _list("Breaking changes", capability.breaking_changes)
     _list("Security fixes", capability.security_fixes)
     _list("Performance notes", capability.perf_notes)
+    # P2#c — license-change surfacing. When the LLM flagged a
+    # license change in the changelog, render it prominently so the
+    # operator sees the legal/licensing risk before approving.
+    if capability.license_change:
+        parts.append(
+            f"\n### ⚠️ License change\n"
+            f"**{capability.license_change}** — review legal "
+            f"implications before approving."
+        )
     if capability.notes:
         parts.append(f"\n### Notes\n{capability.notes}")
     return "\n".join(parts)
@@ -269,6 +287,27 @@ def _format_trial_block(trial: Optional[TrialResult]) -> str:
     return "\n".join(lines)
 
 
+def _front_matter(
+    *,
+    package: str, from_version: str, to_version: str,
+) -> str:
+    """Structured YAML the apply_hook parses to drive requirements_writer.
+
+    The block is intentionally minimal — apply_hook treats unknown
+    keys as undefined behavior. ``action: bump_requirement`` is the
+    single recognised action today; future actions (e.g.
+    ``upgrade_python``) would route through a different writer.
+    """
+    return (
+        "---\n"
+        f"action: bump_requirement\n"
+        f"package: {package}\n"
+        f"from_version: {from_version}\n"
+        f"to_version: {to_version}\n"
+        "---\n"
+    )
+
+
 def compose_cr_body(
     *,
     package: str,
@@ -280,10 +319,14 @@ def compose_cr_body(
     gate: GateOutcome,
     days_since_release: Optional[int] = None,
 ) -> str:
-    """Build the markdown body the operator will see in /cp/changes."""
+    """Build the markdown body the operator will see in /cp/changes.
+
+    Starts with a YAML front-matter block consumed by the apply hook.
+    Operator-facing markdown follows.
+    """
     title = f"# Upgrade `{package}` {from_version} → {to_version} (MAJOR)"
     intro = (
-        "\nThe upgrade-lifecycle pipeline (PROGRAM §62) auto-filed this "
+        "\nThe upgrade-lifecycle pipeline (PROGRAM §63) auto-filed this "
         "CR because the five gate conditions for MAJOR bumps held:\n"
         "\n"
         f"- Trial passed ({trial.status if trial else 'n/a'}, "
@@ -298,12 +341,22 @@ def compose_cr_body(
         f"- `{package}` not in the framework exclusion list\n"
     )
     return (
-        title
+        _front_matter(
+            package=package, from_version=from_version, to_version=to_version,
+        )
+        + title
         + intro
         + _format_capability_block(capability)
         + _format_impact_block(impact)
         + _format_trial_block(trial)
     )
+
+
+def _safe_signature(package: str, to_version: str) -> str:
+    """Filesystem-safe signature usable as a docs/proposed_upgrades filename."""
+    safe_pkg = package.lower().replace("-", "_").replace(".", "_")
+    safe_ver = to_version.replace(".", "_").replace("-", "_")
+    return f"upgrade_{safe_pkg}_{safe_ver}"
 
 
 def file_major_auto_cr(
@@ -341,7 +394,13 @@ def file_major_auto_cr(
         capability=capability, impact=impact, trial=trial,
         gate=outcome, days_since_release=days_since,
     )
-    signature = f"major_auto_{package.lower().replace('-', '_').replace('.', '_')}_{to_version.replace('.', '_')}"
+    signature = _safe_signature(package, to_version)
+    # Stage at docs/proposed_upgrades/<sig>.md — under validator's
+    # allowed roots so the CR actually files. The body's YAML
+    # front-matter carries the bump intent; the apply_hook reads it
+    # post-approval and calls requirements_writer to do the real
+    # mutation. requirements.txt is NEVER directly targeted by a CR.
+    target_path = f"docs/proposed_upgrades/{signature}.md"
 
     try:
         if stage_fn is None:
@@ -351,7 +410,7 @@ def file_major_auto_cr(
             signature=signature,
             title=f"Upgrade {package} {from_version} → {to_version} (MAJOR)",
             body_markdown=body,
-            target_path="requirements.txt",
+            target_path=target_path,
             cooldown_days=_AUTO_CR_COOLDOWN_DAYS,
         )
     except Exception:

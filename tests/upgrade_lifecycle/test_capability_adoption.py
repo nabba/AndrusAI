@@ -72,12 +72,23 @@ def _now() -> datetime:
     return datetime(2026, 5, 23, 12, 0, 0, tzinfo=timezone.utc)
 
 
+_PASSING_NEW_CONTENT = (
+    "import asyncio\n"
+    "async def fan_out():\n"
+    "    async with asyncio.TaskGroup() as tg:\n"
+    "        for task in tasks:\n"
+    "            tg.create_task(task())\n"
+)
+
+
 def _passing_proposal() -> dict:
+    """P0#2: LLM contract now requires a real ``new_content`` field."""
     return {
         "should_refactor": True,
         "rationale": "fan_out uses gather; TaskGroup is cleaner here.",
         "patch_summary": "Replace gather with TaskGroup",
         "confidence": 0.85,
+        "new_content": _PASSING_NEW_CONTENT,
     }
 
 
@@ -289,11 +300,55 @@ def test_llm_decline_skips_cr(isolated_dir, enabled, fake_repo):
 
 
 def test_low_confidence_proposal_skipped(isolated_dir, enabled, fake_repo):
+    # P0#2: confidence threshold tightened from 0.5 → 0.7 because the
+    # CR now carries a real diff.
     low = {
         "should_refactor": True,
-        "rationale": "tentative", "patch_summary": "maybe", "confidence": 0.3,
+        "rationale": "tentative", "patch_summary": "maybe",
+        "confidence": 0.65,    # below 0.7
+        "new_content": _PASSING_NEW_CONTENT,
     }
     builder, _ = _builder_for(low)
+    out = ca.run_one_pass(
+        repo_root=fake_repo,
+        capability_iterator=lambda: [_cap_with_feature()],
+        llm_builder=builder,
+        stage_fn=lambda **kw: None,
+        architecture_dedup=lambda p: False,
+        now=_now(),
+    )
+    assert out["cr_filed"] is False
+
+
+def test_proposal_without_new_content_skipped(isolated_dir, enabled, fake_repo):
+    """P0#2: refused if LLM doesn't supply new_content."""
+    no_content = {
+        "should_refactor": True,
+        "rationale": "trust me", "patch_summary": "vague",
+        "confidence": 0.95,
+        # new_content deliberately missing
+    }
+    builder, _ = _builder_for(no_content)
+    out = ca.run_one_pass(
+        repo_root=fake_repo,
+        capability_iterator=lambda: [_cap_with_feature()],
+        llm_builder=builder,
+        stage_fn=lambda **kw: None,
+        architecture_dedup=lambda p: False,
+        now=_now(),
+    )
+    assert out["cr_filed"] is False
+
+
+def test_proposal_with_truncation_sentinels_refused(isolated_dir, enabled, fake_repo):
+    """P0#2: refused if new_content looks truncated."""
+    truncated = {
+        "should_refactor": True,
+        "rationale": "x", "patch_summary": "x",
+        "confidence": 0.95,
+        "new_content": "import asyncio\n\n# TODO: rest of file\n",
+    }
+    builder, _ = _builder_for(truncated)
     out = ca.run_one_pass(
         repo_root=fake_repo,
         capability_iterator=lambda: [_cap_with_feature()],
@@ -328,6 +383,8 @@ def test_happy_path_files_cr_and_bumps_rate_counter(isolated_dir, enabled, fake_
     assert staged[0]["target_path"].endswith("app/user.py")
     assert staged[0]["cooldown_days"] == 14
     assert "asyncio.TaskGroup" in staged[0]["title"] or "structured concurrency" in staged[0]["title"]
+    # P0#2: body_markdown now carries the actual new file content
+    assert "asyncio.TaskGroup" in staged[0]["body_markdown"]
 
 
 # ── 12: Signature is deterministic ──────────────────────────────────────
@@ -376,3 +433,86 @@ def test_budget_records_both_success_and_failure(isolated_dir, enabled, fake_rep
     statuses = [r["succeeded"] for r in rows]
     assert False in statuses
     assert True in statuses
+
+
+# ── 14-15: Cooperative scheduler yield (2026-05-23) ─────────────────────
+
+
+def test_yields_before_llm_call_when_scheduler_timer_fires(
+    isolated_dir, enabled, fake_repo, monkeypatch,
+):
+    """Cooperative yield to idle_scheduler's LIGHT-phase timer.
+
+    The capability_adoption inner loop polls ``_should_yield()`` before
+    each LLM call. When the scheduler's 60 s LIGHT budget fires, the
+    pass returns early with ``reason="yielded"`` rather than running
+    the LLM call to completion and blocking the asyncio event loop.
+
+    Critically, the rate counter is NOT bumped on yield — the next
+    idle cycle picks up the same capability backlog cleanly with no
+    work duplicated, no budget double-debited.
+    """
+    monkeypatch.setattr(ca, "_should_yield", lambda: True)
+
+    builder, llm = _builder_for(_passing_proposal())
+    staged: list[dict] = []
+    out = ca.run_one_pass(
+        repo_root=fake_repo,
+        capability_iterator=lambda: [_cap_with_feature()],
+        llm_builder=builder,
+        stage_fn=lambda **kw: staged.append(kw),
+        architecture_dedup=lambda p: False,
+        now=_now(),
+    )
+    assert out["reason"] == "yielded"
+    assert out["cr_filed"] is False
+    assert out["crs_this_week"] == 0    # rate counter NOT bumped
+    assert llm.calls == 0               # LLM never invoked
+    assert len(staged) == 0
+    # Budget ledger empty — no attempt was made
+    assert ca._read_budget_ledger() == []
+
+
+def test_mid_pass_budget_check_short_circuits_long_candidate_list(
+    isolated_dir, monkeypatch, fake_repo,
+):
+    """A long candidate list cannot burn the entire quarterly budget
+    in a single pass.
+
+    Setup: budget is just above the per-attempt cost so the entry-gate
+    passes, but the first attempt's debit pushes the remaining budget
+    below the threshold. The mid-pass recheck catches this on the
+    SECOND iteration of the inner loop and short-circuits with
+    ``reason="budget_exhausted"`` — without the recheck the pass would
+    burn through every candidate site before noticing.
+    """
+    monkeypatch.setattr(ca, "_enabled", lambda: True)
+    monkeypatch.setattr(
+        ca, "_quarterly_budget_usd",
+        lambda: ca._ESTIMATED_COST_PER_ATTEMPT_USD * 1.5,
+    )
+
+    # A capability whose discover_candidate_sites yields 2+ sites:
+    # we add a second app/ file that also mentions the symbol.
+    second = fake_repo / "app" / "other.py"
+    second.write_text(
+        "import asyncio\n"
+        "async def another():\n"
+        "    await asyncio.gather(task())\n"
+    )
+
+    decline = {"should_refactor": False, "reason": "no_clear_opportunity"}
+    builder, llm = _builder_for(decline)
+    out = ca.run_one_pass(
+        repo_root=fake_repo,
+        capability_iterator=lambda: [_cap_with_feature()],
+        llm_builder=builder,
+        stage_fn=lambda **kw: None,
+        architecture_dedup=lambda p: False,
+        now=_now(),
+    )
+    # Exactly ONE LLM call — the second was short-circuited by the
+    # mid-pass recheck before the LLM was invoked.
+    assert llm.calls == 1
+    assert out["cr_filed"] is False
+    assert out["reason"] == "budget_exhausted"

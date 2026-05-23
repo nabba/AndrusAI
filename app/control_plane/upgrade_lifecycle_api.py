@@ -1,6 +1,6 @@
 """Control-plane dashboard routes — upgrade-lifecycle topic.
 
-PROGRAM §62 — U7 (operator surfaces). Wired into the parent router in
+PROGRAM §63 — U7 (operator surfaces). Wired into the parent router in
 ``dashboard_api.py`` via ``include_router``; no prefix/auth on this
 sub-router because the parent supplies both.
 
@@ -42,6 +42,19 @@ class AcceptMajorBody(BaseModel):
     package: str
     to_version: str
     operator_actor: str = "operator"
+
+
+class GenerateSnapshotBody(BaseModel):
+    """Force-generate a snapshot for a given year.
+
+    ``year`` defaults to the current calendar year on the server
+    (the REST handler resolves it). ``force=True`` regenerates an
+    existing snapshot while preserving per-row operator decisions
+    (accepted / deferred / rejected statuses + cr_id pointers).
+    """
+
+    year: int | None = None
+    force: bool = False
 
 
 @router.get("/upgrade-lifecycle/state")
@@ -204,6 +217,40 @@ def ecosystem_accept_major(body: AcceptMajorBody) -> dict[str, Any]:
             raise HTTPException(409, reason)
         raise HTTPException(400, reason)
     return result
+
+
+@router.post("/ecosystem/snapshots/generate")
+def ecosystem_generate_snapshot(body: GenerateSnapshotBody) -> dict[str, Any]:
+    """Operator-initiated snapshot generation.
+
+    Used to populate the first snapshot mid-year (before the January
+    cron fires) and to refresh an existing snapshot after new
+    capabilities have been extracted. Live fetchers reach PyPI for
+    framework versions; the call may take a few seconds and the
+    operator should expect occasional network failures (each fetcher
+    is failure-isolated, so the snapshot still generates with empty
+    sections rather than aborting).
+
+    ``force=true`` regenerates an existing snapshot while preserving
+    operator decisions on already-accepted rows.
+    """
+    try:
+        from app.upgrade_lifecycle.ecosystem_snapshot import generate_snapshot
+    except Exception:
+        raise HTTPException(503, "ecosystem_snapshot unavailable")
+    try:
+        snapshot = generate_snapshot(year=body.year, force=body.force)
+    except Exception as exc:
+        logger.warning("ecosystem_snapshot generate failed", exc_info=True)
+        raise HTTPException(500, f"generate failed: {exc}")
+    if snapshot is None:
+        raise HTTPException(409, "ecosystem_snapshot disabled")
+    return {
+        "ok": True,
+        "year": snapshot.year,
+        "generated_at": snapshot.generated_at,
+        "major_upgrade_count": len(snapshot.major_upgrades),
+    }
 
 
 @router.post("/upgrade-lifecycle/capability-adoption/run-pass")

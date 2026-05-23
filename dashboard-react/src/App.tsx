@@ -109,6 +109,11 @@ const DelegatePage = lazy(() =>
     default: m.DelegatePage,
   })),
 );
+const EcosystemPage = lazy(() =>
+  import('./components/EcosystemPage').then((m) => ({
+    default: m.EcosystemPage,
+  })),
+);
 const WideningPage = lazy(() =>
   import('./components/WideningPage').then((m) => ({
     default: m.WideningPage,
@@ -217,6 +222,7 @@ export default function App() {
             <Route path="/skills" element={<LazyRoute><SkillsPage /></LazyRoute>} />
             <Route path="/files" element={<LazyRoute><FilesPage /></LazyRoute>} />
             <Route path="/drills" element={<LazyRoute><DrillsPage /></LazyRoute>} />
+            <Route path="/ecosystem" element={<LazyRoute><EcosystemPage /></LazyRoute>} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>

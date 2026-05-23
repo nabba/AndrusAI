@@ -36,6 +36,13 @@ class Capability:
     breaking_changes: tuple[str, ...] = ()
     security_fixes: tuple[str, ...] = ()
     perf_notes: tuple[str, ...] = ()
+    # P2#c (PROGRAM §63.9) — license change detection. The LLM is
+    # instructed to populate ``license_change`` with a short summary
+    # ("BSD-3 → AGPLv3" or "added commercial-use restriction") when
+    # the changelog explicitly mentions a license shift. Empty by
+    # default. Surfaces in the radar's CR body so operator sees
+    # legal/licensing risk before approving the bump.
+    license_change: str = ""
     notes: str = ""                       # free-text follow-up (optional)
     raw_excerpt_sha256: str = ""          # hash of the changelog text the LLM saw
 
@@ -56,6 +63,7 @@ class Capability:
             "breaking_changes": list(self.breaking_changes),
             "security_fixes": list(self.security_fixes),
             "perf_notes": list(self.perf_notes),
+            "license_change": self.license_change,
             "notes": self.notes,
             "raw_excerpt_sha256": self.raw_excerpt_sha256,
         }

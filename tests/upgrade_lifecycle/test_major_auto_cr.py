@@ -337,10 +337,18 @@ def test_file_major_auto_cr_stages_on_pass():
     assert len(staged_calls) == 1
     call = staged_calls[0]
     assert call["source"] == "dependency_radar"
-    assert "major_auto_somelib" in call["signature"]
-    assert call["target_path"] == "requirements.txt"
+    # P0#1b: signature uses the new docs/proposed_upgrades file-safe form
+    assert "upgrade_somelib" in call["signature"]
+    # P0#1b: target_path is now under docs/ so the validator accepts
+    assert call["target_path"].startswith("docs/proposed_upgrades/")
+    assert call["target_path"].endswith(".md")
     assert call["cooldown_days"] == 14
     assert "Upgrade somelib" in call["title"]
+    # P0#1b: body must include YAML front-matter so apply_hook can parse
+    assert call["body_markdown"].startswith("---\n")
+    assert "action: bump_requirement" in call["body_markdown"]
+    assert "package: somelib" in call["body_markdown"]
+    assert "to_version: 2.0.0" in call["body_markdown"]
 
 
 def test_file_major_auto_cr_skips_on_fail():

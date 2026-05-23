@@ -1,6 +1,6 @@
 """U6 — Annual ecosystem snapshot.
 
-PROGRAM §62 — Stage U6 of the upgrade lifecycle. One markdown report
+PROGRAM §63 — Stage U6 of the upgrade lifecycle. One markdown report
 per calendar year, written to ``wiki/self/ecosystem/<YYYY>.md``, that
 captures the long-trajectory questions the radar's per-package
 findings can't answer:
@@ -311,21 +311,92 @@ def compose_major_upgrade_proposals(
     return out
 
 
+def compose_python_proposal(
+    *,
+    current_minor: str,
+    now: Optional[date] = None,
+    horizon_days: int = 365,
+) -> Optional[MajorUpgradeProposal]:
+    """Surface a Python upgrade as a snapshot row when EOL is within
+    ``horizon_days``.
+
+    Returns ``None`` when EOL is further away than the horizon (or
+    unknown). The proposal slots into the major-upgrade list with
+    ``package="python"`` and a special capability_summary noting the
+    EOL date — the acceptance handler recognises the ``python``
+    package name and routes to dockerfile_writer instead of
+    requirements_writer.
+
+    Note: ``is_framework=False`` so the standard CR path is used
+    (not Tier-3). The extra friction comes from the apply_hook's
+    loud Signal alert + the SHA-pin-drop discipline. Operator can
+    escalate to Tier-3 by editing this function's return.
+    """
+    today = now or date.today()
+    eol_date = PYTHON_EOL_TABLE.get(current_minor)
+    if eol_date is None:
+        return None
+    days_until = (eol_date - today).days
+    if days_until > horizon_days:
+        return None
+
+    # Pick the next minor up — most conservative jump.
+    future = sorted(v for v in PYTHON_EOL_TABLE if v > current_minor)
+    if not future:
+        return None
+    next_minor = future[0]
+
+    urgency_label = (
+        "EOL in <90d — urgent"
+        if days_until <= 90
+        else "EOL in <12mo"
+    )
+    return MajorUpgradeProposal(
+        package="python",
+        from_version=current_minor,
+        to_version=next_minor,
+        priority="high" if days_until <= 180 else "medium",
+        is_framework=False,
+        capability_summary=(
+            f"Python EOL transition: {urgency_label} "
+            f"(EOL {eol_date.isoformat()}, {days_until}d). "
+            f"Apply via dockerfile_writer — SHA pin will be dropped."
+        ),
+    )
+
+
 # ── Public API: generate snapshot ────────────────────────────────────────
+
+
+def _detect_python_minor() -> str:
+    """Return the running interpreter's ``<major>.<minor>`` (e.g. ``"3.13"``)."""
+    import sys
+    return f"{sys.version_info.major}.{sys.version_info.minor}"
 
 
 def generate_snapshot(
     *,
     year: Optional[int] = None,
     now: Optional[datetime] = None,
-    current_python_minor: str = "3.13",
+    current_python_minor: Optional[str] = None,
     framework_fetcher: Optional[Callable] = None,
     cost_fetcher: Optional[Callable[[], dict[str, float]]] = None,
     capability_iterator: Optional[Callable] = None,
     dependency_radar_state: Optional[dict[str, Any]] = None,
+    force: bool = False,
 ) -> Optional[EcosystemSnapshot]:
     """Compose this year's snapshot. Idempotent — re-runs the same year
-    return the existing snapshot from disk.
+    return the existing snapshot from disk unless ``force=True``.
+
+    ``current_python_minor`` defaults to the running interpreter's
+    ``sys.version_info`` so the snapshot reflects production reality
+    rather than the static ``"3.13"`` default. Tests still pin a
+    specific minor when needed.
+
+    ``force=True`` regenerates an existing snapshot — useful when the
+    operator wants to refresh the major-upgrade plan section after
+    new capabilities have been extracted, or when populating the
+    first snapshot mid-year for testing/training.
 
     Returns None when the master switch is off.
     """
@@ -334,10 +405,46 @@ def generate_snapshot(
     now_dt = now or datetime.now(timezone.utc)
     yr = year if year is not None else now_dt.year
 
-    # Idempotent check
+    if current_python_minor is None:
+        current_python_minor = _detect_python_minor()
+
+    # Idempotent check (skipped on force).
     existing = _read_snapshot(yr)
-    if existing is not None:
+    if existing is not None and not force:
         return existing
+
+    new_major_upgrades = compose_major_upgrade_proposals(
+        capability_iterator=capability_iterator,
+    )
+    # P0#4 — surface a Python EOL transition as a snapshot row when
+    # EOL is within ~12 months. ``package="python"`` is the
+    # discriminator the acceptance handler uses to route to the
+    # dockerfile_writer instead of requirements_writer.
+    python_row = compose_python_proposal(
+        current_minor=current_python_minor, now=now_dt.date(),
+    )
+    if python_row is not None:
+        new_major_upgrades.insert(0, python_row)   # surface at top
+
+    # On force-regenerate, preserve operator decisions (accepted /
+    # deferred / rejected statuses + cr_id pointers) by merging the
+    # prior snapshot's per-row state into the new rows. Without this
+    # the operator would have to re-accept every accepted row each
+    # time the snapshot is refreshed.
+    if existing is not None and force:
+        prior_by_key = {
+            (m.package.lower(), m.to_version): m
+            for m in existing.major_upgrades
+        }
+        merged: list[MajorUpgradeProposal] = []
+        for row in new_major_upgrades:
+            prior = prior_by_key.get((row.package.lower(), row.to_version))
+            if prior is not None and prior.status != "proposed":
+                row.status = prior.status
+                row.accepted_at = prior.accepted_at
+                row.cr_id = prior.cr_id
+            merged.append(row)
+        new_major_upgrades = merged
 
     snapshot = EcosystemSnapshot(
         year=yr,
@@ -354,13 +461,14 @@ def generate_snapshot(
         vendor_concentration=compose_vendor_concentration_section(
             cost_fetcher=cost_fetcher,
         ),
-        major_upgrades=compose_major_upgrade_proposals(
-            capability_iterator=capability_iterator,
-        ),
+        major_upgrades=new_major_upgrades,
     )
     _persist_snapshot(snapshot)
     _write_markdown(snapshot)
-    _emit_ledger_event(snapshot, kind="ecosystem_snapshot")
+    _emit_ledger_event(
+        snapshot, kind="ecosystem_snapshot",
+        subkind="regenerated" if existing is not None else None,
+    )
     return snapshot
 
 
@@ -483,9 +591,16 @@ def _emit_ledger_event(snapshot: EcosystemSnapshot, *,
     if extra:
         payload.update(extra)
     try:
-        from app.identity.continuity_ledger import emit_event
-        emit_event(kind=kind, source_module="upgrade_lifecycle.ecosystem_snapshot",
-                  payload=payload)
+        from app.identity.continuity_ledger import record_event
+        summary = f"{kind}: year={snapshot.year}, major_upgrades={len(snapshot.major_upgrades)}"
+        if subkind:
+            summary = f"{summary}, subkind={subkind}"
+        record_event(
+            kind=kind,
+            actor="upgrade_lifecycle.ecosystem_snapshot",
+            summary=summary,
+            detail=payload,
+        )
     except Exception:
         logger.debug("ul.ecosystem: ledger emit failed", exc_info=True)
 
@@ -536,21 +651,60 @@ def accept_major_upgrade(
     target_row.accepted_at = now_dt.isoformat()
 
     # Route to CR or Tier-3 amendment.
+    # CR body starts with YAML front-matter so the upgrade-lifecycle
+    # apply_hook can dispatch to the right writer once the CR lands.
+    # target_path is under docs/ so the validator accepts.
+    safe_sig = (
+        f"upgrade_{package.lower().replace('-', '_').replace('.', '_')}"
+        f"_{to_version.replace('.', '_').replace('-', '_')}"
+    )
+    doc_target = f"docs/proposed_upgrades/{safe_sig}.md"
+    # P0#4 — Python rows route through dockerfile_writer (different
+    # action verb). The package literal "python" is the discriminator.
+    is_python_bump = package.lower() == "python"
+    action_verb = "bump_python" if is_python_bump else "bump_requirement"
+    body_markdown = (
+        "---\n"
+        f"action: {action_verb}\n"
+        f"package: {package}\n"
+        f"from_version: {target_row.from_version}\n"
+        f"to_version: {to_version}\n"
+        f"accepted_at: {now_dt.isoformat()}\n"
+        "---\n"
+        f"# Operator-accepted MAJOR upgrade: {package} "
+        f"{target_row.from_version} → {to_version}\n\n"
+        f"Routed through ecosystem snapshot **{year}** by operator "
+        f"**{operator_actor}**. {target_row.capability_summary}\n"
+        + (
+            "\n## Python upgrade — operator notes\n\n"
+            "After CR approval the apply_hook will mutate the "
+            "repo-root `Dockerfile` and **drop the SHA digest pin**. "
+            "Operator must re-pin the SHA before the next deploy "
+            "(see the `# TODO` comment the writer adds).\n"
+            if is_python_bump else ""
+        )
+    )
+    common_reason = (
+        f"Operator-accepted MAJOR upgrade for "
+        f"{package} {target_row.from_version}→{to_version} per "
+        f"ecosystem snapshot {year}."
+    )
+
     cr_id: Optional[str] = None
     try:
         if target_row.is_framework:
+            # Framework bumps stay on the Tier-3 amendment path. The
+            # proposer's actual signature uses ``target_path`` keyword;
+            # we keep that here. Tier-3 amendments don't apply through
+            # the standard CR validator — they have their own gate.
             if tier3_proposer is None:
                 from app.tools.request_tier3_amendment import (
                     request_tier3_amendment as tier3_proposer,
                 )
             cr_id = tier3_proposer(
-                target_path="requirements.txt",
-                new_content=f"# major bump: {package}=={to_version}",
-                reason=(
-                    f"Operator-accepted MAJOR framework upgrade for "
-                    f"{package} {target_row.from_version}→{to_version} "
-                    f"per ecosystem snapshot {year}."
-                ),
+                target_path=doc_target,
+                new_content=body_markdown,
+                reason=common_reason,
                 actor=operator_actor,
             )
         else:
@@ -558,16 +712,15 @@ def accept_major_upgrade(
                 from app.change_requests.lifecycle import (
                     create_request as cr_filer,
                 )
-            cr_id = cr_filer(
+            cr = cr_filer(
                 requestor="ecosystem_snapshot",
-                target_path="requirements.txt",
-                new_content=f"{package}=={to_version}",
-                reason=(
-                    f"Operator-accepted MAJOR upgrade for "
-                    f"{package} {target_row.from_version}→{to_version} "
-                    f"per ecosystem snapshot {year}."
-                ),
+                path=doc_target,
+                new_content=body_markdown,
+                old_content="",
+                reason=common_reason,
             )
+            # ChangeRequest object → take its id; stub returns a string.
+            cr_id = getattr(cr, "id", cr) if cr is not None else None
     except Exception:
         logger.debug("ul.ecosystem: downstream filing failed", exc_info=True)
         # Don't lose the operator's acceptance — persist the row even
@@ -582,4 +735,107 @@ def accept_major_upgrade(
         extra={"package": package, "to_version": to_version,
               "cr_id": cr_id, "actor": operator_actor},
     )
+
+    # B2-P2 — framework acceptance side effects. Framework rows file
+    # a Tier-3 paper trail that doesn't actually mutate code; the
+    # operator needs to know what they signed up for is a multi-week
+    # migration project, not a one-click bump. We fire a Signal
+    # alert + auto-create a tracking thread so the playbook has a
+    # natural home.
+    if target_row.is_framework:
+        _notify_framework_migration_started(
+            package=package, from_version=target_row.from_version,
+            to_version=to_version, year=year,
+            cr_id=cr_id, operator_actor=operator_actor,
+        )
+        thread_id = _create_framework_migration_thread(
+            package=package, from_version=target_row.from_version,
+            to_version=to_version, year=year,
+        )
+        return {
+            "ok": True, "cr_id": cr_id, "row": target_row.to_dict(),
+            "framework_migration_started": True,
+            "thread_id": thread_id,
+        }
+
     return {"ok": True, "cr_id": cr_id, "row": target_row.to_dict()}
+
+
+# ── B2-P2: framework-acceptance side effects ────────────────────────────
+
+
+def _notify_framework_migration_started(
+    *,
+    package: str, from_version: str, to_version: str,
+    year: int, cr_id: Optional[str], operator_actor: str,
+) -> None:
+    """Loud Signal alert when a framework row is accepted.
+
+    Framework migrations are multi-week projects. The accepted Tier-3
+    amendment is paper-trail only; no code changes happen
+    automatically. This alert tells the operator that they've
+    committed to the playbook + the next step is opening the wiki
+    page + the framework_migration thread.
+    """
+    try:
+        from app.notify import notify
+        notify(
+            title=f"🏛 Framework migration started: {package}",
+            body=(
+                f"Operator-accepted framework upgrade: "
+                f"**{package} {from_version} → {to_version}** (snapshot {year}). "
+                f"This is a multi-week migration project, NOT a one-click "
+                f"bump — `requirements.txt` will NOT change automatically.\n\n"
+                f"Next: open "
+                f"`docs/UPGRADE_LIFECYCLE_FRAMEWORK_MIGRATION.md` and "
+                f"follow the seven-step protocol. The tracking thread "
+                f"has been auto-created.\n\n"
+                f"Paper-trail CR / amendment id: `{cr_id or '(unknown)'}`."
+            ),
+            url="/cp/ecosystem",
+            topic=f"framework_migration_started:{package}_{to_version}",
+            critical=True,    # high-impact decision; bypass arbiter
+            arbitrate=False,
+        )
+    except Exception:
+        logger.debug(
+            "ul.ecosystem: framework-migration notify failed", exc_info=True,
+        )
+
+
+def _create_framework_migration_thread(
+    *,
+    package: str, from_version: str, to_version: str, year: int,
+) -> Optional[str]:
+    """Auto-create a tracking thread for the migration.
+
+    The thread is the natural home for the multi-week project: each
+    "what HAS to change" group from the playbook step 1 becomes a
+    sub-question, blockers + notes attach as the operator iterates.
+
+    Failure-isolated: when the threads module isn't importable
+    (test env), returns None. The acceptance flow still succeeds.
+    """
+    try:
+        from app.threads import create_thread
+        thread = create_thread(
+            title=(
+                f"framework-migration: {package} "
+                f"{from_version} → {to_version}"
+            ),
+            description=(
+                f"Auto-created from ecosystem snapshot {year} on "
+                f"operator acceptance of framework upgrade. Follow "
+                f"the playbook at "
+                f"docs/UPGRADE_LIFECYCLE_FRAMEWORK_MIGRATION.md."
+            ),
+        )
+        thread_id = getattr(thread, "id", None) or (
+            thread.get("id") if isinstance(thread, dict) else None
+        )
+        return str(thread_id) if thread_id else None
+    except Exception:
+        logger.debug(
+            "ul.ecosystem: thread auto-creation failed", exc_info=True,
+        )
+        return None

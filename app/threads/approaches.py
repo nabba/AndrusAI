@@ -206,6 +206,13 @@ def _llm_distill(thread: Thread, body_text: str) -> str:
         # but a mechanical second-guard catches phenomenal claims that
         # slip through. Failure-isolated — if the linter package
         # isn't importable, fall back to trusting the prompt.
+        #
+        # Rejection telemetry (2026-05-23 Round 2 follow-up): the
+        # fallback was previously silent (DEBUG log only). The whole
+        # point of the SubIA audit was identifying silent-failure
+        # patterns; re-introducing one would repeat the antipattern.
+        # ``record_rejection`` appends a JSONL row + bumps a running
+        # summary so the operator has a footprint to inspect.
         try:
             from app.subia.inquiry.linter import PhenomenalLanguageLinter
             result = PhenomenalLanguageLinter().lint(out)
@@ -215,6 +222,18 @@ def _llm_distill(thread: Thread, body_text: str) -> str:
                     "falling back to deterministic body. violations=%s",
                     [v.matched_text for v in result.hard_fails],
                 )
+                try:
+                    from app.threads.linter_telemetry import record_rejection
+                    record_rejection(
+                        thread_id=getattr(thread, "id", "") or "",
+                        violations=list(result.hard_fails),
+                        body_text_len=len(out),
+                    )
+                except Exception:
+                    logger.debug(
+                        "approaches: rejection-telemetry write failed",
+                        exc_info=True,
+                    )
                 return ""
         except Exception:
             logger.debug(

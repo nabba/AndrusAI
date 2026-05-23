@@ -1,6 +1,6 @@
 """U1 — Capability extraction.
 
-PROGRAM §62 — Stage B of the upgrade lifecycle. Reads release metadata
+PROGRAM §63 — Stage B of the upgrade lifecycle. Reads release metadata
 + release notes for an outdated package and asks the LLM to structure
 the delta into a :class:`Capability` row (new_features / deprecations /
 breaking_changes / security_fixes / perf_notes).
@@ -51,6 +51,12 @@ _MAX_CHANGELOG_CHARS = 24_000        # cap LLM input to keep extraction cheap
 _MAX_EXCERPT_FOR_HASH = 32_768        # hash up to this much of the source text
 _GENESIS_HASH = "0" * 64
 _USER_AGENT = "AndrusAI-UpgradeLifecycle/1.0"
+# P1#c — Per-extraction cost estimate. PyPI metadata fetches +
+# GitHub releases + a 4096-token LLM call run ≈ $0.05-0.20/version
+# (Anthropic Haiku-class). We use $0.10 as the per-call charge
+# against the monthly budget; the budget itself is operator-set in
+# runtime_settings.
+_ESTIMATED_COST_PER_EXTRACTION_USD = 0.10
 
 # Framework-level packages — never auto-routed through U4's MAJOR auto-CR
 # gate, but capability extraction itself is harmless and useful for the
@@ -139,6 +145,83 @@ def _enabled() -> bool:
         return True   # default ON until the runtime setter lands
 
 
+# ── P1#c — Monthly LLM budget ────────────────────────────────────────────
+
+
+def _monthly_budget_usd() -> float:
+    try:
+        from app.runtime_settings import (
+            get_upgrade_lifecycle_extraction_budget_usd_monthly,
+        )
+        return float(get_upgrade_lifecycle_extraction_budget_usd_monthly())
+    except Exception:
+        return 5.0
+
+
+def _budget_ledger_path() -> Path:
+    """Per-month spend tracking for U1 extraction LLM calls."""
+    return _capabilities_dir().parent / "extraction_budget_ledger.jsonl"
+
+
+def _current_month_key(now: Optional[datetime] = None) -> str:
+    """``"YYYY-MM"`` calendar month — matches U5's quarter pattern."""
+    dt = now or datetime.now(timezone.utc)
+    return f"{dt.year:04d}-{dt.month:02d}"
+
+
+def current_month_extraction_spend(now: Optional[datetime] = None) -> float:
+    """Sum the per-extraction cost rows for the current calendar month."""
+    mk = _current_month_key(now)
+    path = _budget_ledger_path()
+    if not path.exists():
+        return 0.0
+    total = 0.0
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if str(row.get("month") or "") == mk:
+                    total += float(row.get("cost_usd") or 0.0)
+    except OSError:
+        return 0.0
+    return total
+
+
+def remaining_month_extraction_budget(now: Optional[datetime] = None) -> float:
+    """Operator-visible budget headroom; consumed at gate-time below."""
+    return max(0.0, _monthly_budget_usd() - current_month_extraction_spend(now=now))
+
+
+def _record_extraction_attempt(
+    *,
+    package: str, to_version: str, succeeded: bool,
+    now: Optional[datetime] = None,
+) -> None:
+    """Append a per-attempt cost row (always charged, success or failure —
+    the LLM is paid for the call, not for usable output)."""
+    dt = now or datetime.now(timezone.utc)
+    path = _budget_ledger_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "month": _current_month_key(dt),
+                "ts": dt.isoformat(),
+                "package": package,
+                "to_version": to_version,
+                "cost_usd": _ESTIMATED_COST_PER_EXTRACTION_USD,
+                "succeeded": bool(succeeded),
+            }, sort_keys=True) + "\n")
+    except OSError:
+        logger.debug("ul.u1: budget ledger write failed", exc_info=True)
+
+
 # ── Hash chain (mirrors source_ledger pattern) ───────────────────────────
 
 
@@ -184,17 +267,127 @@ def _last_hash_for(package: str) -> str:
 
 
 def _fetch_pypi_metadata(package: str) -> Optional[dict[str, Any]]:
-    """``GET /pypi/<pkg>/json``. Returns the parsed JSON or None on failure."""
+    """``GET /pypi/<pkg>/json``. Returns the parsed JSON or None on failure.
+
+    A5-P1 (PROGRAM §63.11) — on failure, falls through to
+    :func:`_fetch_pypi_metadata_via_github`. Decade-scale, pypi.org
+    might change its JSON API or sunset; the system retains
+    capability extraction via the GitHub fallback for any package
+    whose repo URL we've previously cached.
+    """
     url = f"{_PYPI_BASE}/{urllib.parse.quote(package)}/json"
     try:
         body = _budgeted_get(url, timeout=_REQUEST_TIMEOUT_S)
-        return json.loads(body.decode("utf-8"))
+        result = json.loads(body.decode("utf-8"))
+        # Side effect: cache the GitHub repo URL for fallback use.
+        _maybe_cache_github_repo(package, result)
+        return result
     except (_BudgetExceeded, urllib.error.URLError, urllib.error.HTTPError,
             json.JSONDecodeError, TimeoutError):
-        return None
+        return _fetch_pypi_metadata_via_github(package)
     except Exception:
         logger.debug("ul: pypi metadata fetch failed for %s", package, exc_info=True)
+        return _fetch_pypi_metadata_via_github(package)
+
+
+# ── A5-P1: GitHub fallback for PyPI-down scenarios ──────────────────────
+
+
+def _repo_cache_path() -> Path:
+    """Per-package github-repo cache so the fallback works after PyPI dies."""
+    override = os.getenv("UPGRADE_LIFECYCLE_DIR")
+    if override:
+        return Path(override) / "github_repo_cache.json"
+    try:
+        from app.paths import WORKSPACE_ROOT
+        return Path(WORKSPACE_ROOT) / "upgrade_lifecycle" / "github_repo_cache.json"
+    except Exception:
+        return Path("/app/workspace/upgrade_lifecycle/github_repo_cache.json")
+
+
+def _maybe_cache_github_repo(package: str, pypi_metadata: Optional[dict]) -> None:
+    """When PyPI succeeds, persist (package → owner/repo) so the
+    GitHub fallback can find the repo if PyPI later fails."""
+    if not pypi_metadata:
+        return
+    ownerrepo = _github_owner_repo(pypi_metadata)
+    if not ownerrepo:
+        return
+    path = _repo_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing: dict[str, str] = {}
+        if path.exists():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                existing = {}
+        existing[package.lower()] = f"{ownerrepo[0]}/{ownerrepo[1]}"
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(existing, indent=2, sort_keys=True))
+        tmp.replace(path)
+    except OSError:
+        logger.debug("ul: github repo cache write failed", exc_info=True)
+
+
+def _cached_github_repo(package: str) -> Optional[tuple[str, str]]:
+    path = _repo_cache_path()
+    if not path.exists():
         return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    val = data.get(package.lower())
+    if not val or "/" not in val:
+        return None
+    owner, _, repo = val.partition("/")
+    return owner, repo
+
+
+def _fetch_pypi_metadata_via_github(package: str) -> Optional[dict[str, Any]]:
+    """Reconstruct a minimal PyPI-shaped dict from GitHub's release API.
+
+    Only the fields downstream code uses are populated:
+      * ``info.project_urls.Source`` for ``_github_owner_repo``
+      * ``releases[<tag>][0].upload_time`` for U4's 30d window check
+
+    Returns None when we have no cached repo for *package* — first-time
+    discovery still requires PyPI. Once PyPI has been queried successfully
+    even once, this fallback covers subsequent extractions even if
+    PyPI is unreachable.
+    """
+    ownerrepo = _cached_github_repo(package)
+    if not ownerrepo:
+        return None
+    owner, repo = ownerrepo
+    releases = _fetch_github_releases(owner, repo, limit=30)
+    if not releases:
+        return None
+
+    # Synthesize the PyPI shape. Each release becomes a single-element
+    # array under ``releases[<tag>]`` with the ``published_at``
+    # timestamp re-labelled ``upload_time``.
+    synth_releases: dict[str, list[dict[str, str]]] = {}
+    for rel in releases:
+        tag = _normalize_version(str(rel.get("tag_name") or rel.get("name") or ""))
+        published = rel.get("published_at") or ""
+        if not tag or not published:
+            continue
+        # PyPI's upload_time format is naive ISO without trailing Z.
+        upload_time = published.rstrip("Z")
+        synth_releases.setdefault(tag, []).append({
+            "upload_time": upload_time,
+        })
+
+    return {
+        "info": {
+            "project_urls": {"Source": f"https://github.com/{owner}/{repo}"},
+            "description": "",
+            "_synthesized_from": "github_releases",
+        },
+        "releases": synth_releases,
+    }
 
 
 _GITHUB_URL_RE = re.compile(
@@ -312,6 +505,7 @@ Schema:
     "breaking_changes": ["A.B.C was removed; signature of X changed"],
     "security_fixes": ["CVE-YYYY-NNNN: short summary"],
     "perf_notes": ["X is N times faster; Y memory footprint reduced"],
+    "license_change": "single-line summary if the project license changed (e.g. 'BSD-3 → AGPLv3'). Empty string if no license change is mentioned in the changelog.",
     "notes": "single-paragraph free-text caveat or context (optional)"
   }
 
@@ -489,6 +683,18 @@ def extract_for_package(
     if already_extracted(package, to_version):
         return None
 
+    # P1#c — monthly LLM-budget gate. Refuse the extraction when the
+    # current month's spend would exceed the operator-set cap. The
+    # caller sees None — same shape as any other decline — so the
+    # rest of the pipeline doesn't change.
+    if remaining_month_extraction_budget() < _ESTIMATED_COST_PER_EXTRACTION_USD:
+        logger.debug(
+            "ul.u1: extraction budget exhausted for the month; "
+            "skipping %s %s→%s",
+            package, from_version, to_version,
+        )
+        return None
+
     md_fn = metadata_fetcher or _fetch_pypi_metadata
     pypi_metadata = md_fn(package)
 
@@ -529,6 +735,14 @@ def extract_for_package(
         to_version=to_version,
         llm_builder=llm_builder,
     )
+    # P1#c — charge the budget on EVERY LLM call attempt, even on
+    # parse failure. The LLM is paid for the call, not for usable
+    # output, so a misbehaving model that returns garbage shouldn't
+    # be free to spin.
+    _record_extraction_attempt(
+        package=package, to_version=to_version,
+        succeeded=bool(parsed),
+    )
     if not parsed:
         return None
 
@@ -544,6 +758,7 @@ def extract_for_package(
         breaking_changes=_coerce_str_list(parsed.get("breaking_changes")),
         security_fixes=_coerce_str_list(parsed.get("security_fixes")),
         perf_notes=_coerce_str_list(parsed.get("perf_notes")),
+        license_change=str(parsed.get("license_change") or "")[:200],
         notes=str(parsed.get("notes") or "")[:1000],
         raw_excerpt_sha256=hashlib.sha256(excerpt_for_hash).hexdigest(),
     )
@@ -610,6 +825,7 @@ def read_capabilities(
                         breaking_changes=tuple(payload.get("breaking_changes") or ()),
                         security_fixes=tuple(payload.get("security_fixes") or ()),
                         perf_notes=tuple(payload.get("perf_notes") or ()),
+                        license_change=str(payload.get("license_change") or ""),
                         notes=str(payload.get("notes") or ""),
                         raw_excerpt_sha256=str(payload.get("raw_excerpt_sha256") or ""),
                     ))

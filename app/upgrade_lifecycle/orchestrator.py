@@ -1,6 +1,6 @@
 """U4 wiring orchestrator.
 
-PROGRAM §62. Glues U1 (capability extraction), U2 (impact analysis),
+PROGRAM §63. Glues U1 (capability extraction), U2 (impact analysis),
 U3 (trial harness — looked up from cached results, not run inline),
 and U4 (MAJOR auto-CR gate) into one entry point the
 :mod:`app.dependency_radar` MAJOR loop can call.

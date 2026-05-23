@@ -63,7 +63,9 @@ logger = logging.getLogger(__name__)
 
 
 _DAEMON_THREAD_NAME = "recipe-consolidation"
-_WARMUP_S = 90
+# Boot-stagger 2026-05-23 (was 90) — weekly cadence so a 10× warm-up is
+# free. See app/observability/boot_diagnostics.py.
+_WARMUP_S = 900
 _POLL_INTERVAL_S = 7 * 24 * 3600  # weekly (health-score trigger cadence)
 
 # Q7.3 — selection-rate trigger (PROGRAM §45.3). Spec wording: retire

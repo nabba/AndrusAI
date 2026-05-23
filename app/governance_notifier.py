@@ -50,7 +50,9 @@ logger = logging.getLogger(__name__)
 
 
 _DAEMON_THREAD_NAME = "governance-notifier"
-_WARMUP_S = 120
+# Boot-stagger 2026-05-23 (was 120) — moved out of the boot+60..120 s
+# eager-start cluster. See app/observability/boot_diagnostics.py.
+_WARMUP_S = 240
 _POLL_INTERVAL_S = 6 * 3600   # 4× per day; cheap — just walks the proposals dir
 
 # State-snapshot file: tracks the LAST observed state per proposal id

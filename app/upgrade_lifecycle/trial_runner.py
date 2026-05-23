@@ -1,6 +1,6 @@
 """U3 — Upgrade trial harness.
 
-PROGRAM §62 — Stage D of the upgrade lifecycle. Bumps the requirement
+PROGRAM §63 — Stage D of the upgrade lifecycle. Bumps the requirement
 line for one package in a throwaway temp directory, pip-installs the
 new version, and runs the test suite under a wallclock cap. Outputs a
 :class:`~app.upgrade_lifecycle.protocol.TrialResult` that U4's MAJOR
@@ -70,13 +70,95 @@ PipInstaller = Callable[[Path, str, str, int], tuple[int, str, str]]
 PytestRunner = Callable[[Path, int], tuple[int, str, str]]
 
 
+_VENV_DIR_NAME = ".trial_venv"
+
+
+def _venv_python(cwd: Path) -> Path:
+    """Return the path to the venv's Python interpreter under *cwd*.
+
+    The venv subdirectory layout differs between platforms — ``bin/``
+    on POSIX, ``Scripts/`` on Windows. Probe both.
+    """
+    posix = cwd / _VENV_DIR_NAME / "bin" / "python"
+    if posix.exists():
+        return posix
+    win = cwd / _VENV_DIR_NAME / "Scripts" / "python.exe"
+    if win.exists():
+        return win
+    return posix   # default; caller will see the OSError if it doesn't exist
+
+
 def _default_pip_install(
     cwd: Path, package: str, version: str, timeout_s: int,
 ) -> tuple[int, str, str]:
-    """``pip install <pkg>==<ver>`` in *cwd*. Returns ``(rc, stdout, stderr)``."""
+    """Trial install inside an **isolated venv** under *cwd*.
+
+    P0#3 (PROGRAM §63 follow-up): the previous implementation called
+    ``pip install`` against the gateway's own Python interpreter. A
+    trial would have replaced the gateway's actual dependencies with
+    the bumped version — corrupting the live process and producing
+    fake "trial passed" results against the broken host.
+
+    This implementation:
+
+      1. Creates a venv at ``<cwd>/.trial_venv`` via
+         ``python -m venv``. Crash-safe — the tempdir cleanup removes
+         the venv along with everything else.
+      2. Installs the FULL ``requirements.txt`` (with the bumped pin
+         already applied by ``_bump_requirement``) inside the venv so
+         transitive-dep conflicts surface during the trial.
+      3. Returns ``(rc, stdout, stderr)`` for the install step.
+
+    Trade-off: a clean install of the full requirements file is slow
+    (1–5 min on a warm cache, longer cold). The previous "single
+    package only" approach was fast but unsafe AND missed transitive
+    breakage. Slowness is acceptable because the trial scheduler
+    runs at most one trial per hour.
+    """
+    import sys
     try:
+        # 1. Create venv. We use the gateway's Python to seed it so
+        # the venv has access to the same interpreter version
+        # (matters for compiled wheels).
+        venv_create = subprocess.run(
+            [sys.executable, "-m", "venv", _VENV_DIR_NAME],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=min(120, timeout_s),
+        )
+        if venv_create.returncode != 0:
+            return (
+                venv_create.returncode,
+                venv_create.stdout or "",
+                f"venv create failed: {venv_create.stderr or ''}",
+            )
+
+        venv_pip = _venv_python(cwd).with_name(
+            "pip.exe" if sys.platform == "win32" else "pip",
+        )
+        if not venv_pip.exists():
+            # Some venv variants ship pip via the ensurepip module
+            # instead of dropping a `pip` script. Fall back to
+            # `python -m pip` in that case.
+            venv_pip_argv = [str(_venv_python(cwd)), "-m", "pip"]
+        else:
+            venv_pip_argv = [str(venv_pip)]
+
+        # 2. Install requirements.txt (which already pins the bumped
+        # package thanks to _bump_requirement having run during
+        # sandbox materialization).
+        req_file = cwd / "requirements.txt"
+        if req_file.exists():
+            install_args = venv_pip_argv + [
+                "install", "--quiet", "-r", str(req_file),
+            ]
+        else:
+            install_args = venv_pip_argv + [
+                "install", "--quiet", f"{package}=={version}",
+            ]
         result = subprocess.run(
-            ["pip", "install", "--quiet", f"{package}=={version}"],
+            install_args,
             cwd=str(cwd),
             capture_output=True,
             text=True,
@@ -86,16 +168,30 @@ def _default_pip_install(
     except subprocess.TimeoutExpired:
         return 124, "", "pip install timed out"
     except FileNotFoundError:
-        return 127, "", "pip binary not found"
+        return 127, "", "python binary not found"
     except Exception as exc:
-        return 1, "", f"pip exec error: {exc}"
+        return 1, "", f"venv/pip exec error: {exc}"
 
 
 def _default_pytest(cwd: Path, timeout_s: int) -> tuple[int, str, str]:
-    """``pytest tests/ -q --tb=no``. Returns ``(rc, stdout, stderr)``."""
+    """Run pytest under the venv's Python so isolation is preserved.
+
+    P0#3: previously called the system ``pytest`` which would import
+    from the gateway's site-packages. Now uses
+    ``<venv>/bin/python -m pytest`` so the trial sees only the
+    venv's installed dependencies.
+    """
     try:
+        venv_py = _venv_python(cwd)
+        if venv_py.exists():
+            argv = [str(venv_py), "-m", "pytest", "tests/", "-q", "--tb=no"]
+        else:
+            # Venv-less fallback — only reached when _default_pip_install
+            # was monkeypatched in tests. Behavior matches pre-P0#3.
+            argv = ["pytest", "tests/", "-q", "--tb=no"]
+        argv.append(f"--timeout={timeout_s - 5}")
         result = subprocess.run(
-            ["pytest", "tests/", "-q", "--tb=no", f"--timeout={timeout_s - 5}"],
+            argv,
             cwd=str(cwd),
             capture_output=True,
             text=True,

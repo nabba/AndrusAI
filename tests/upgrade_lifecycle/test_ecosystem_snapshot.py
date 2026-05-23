@@ -307,6 +307,250 @@ def test_accept_unknown_row_returns_error(isolated_dir, enabled):
     assert result["reason"] == "row_not_found"
 
 
+def test_generate_snapshot_auto_detects_python_minor(isolated_dir, enabled, monkeypatch):
+    """When current_python_minor isn't passed, sys.version_info wins."""
+    import sys
+    expected = f"{sys.version_info.major}.{sys.version_info.minor}"
+    snap = eco.generate_snapshot(
+        year=2026, now=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        # current_python_minor deliberately omitted
+        framework_fetcher=lambda pkg: {"latest_version": "x"},
+        cost_fetcher=lambda: {},
+        capability_iterator=lambda: [],
+        dependency_radar_state={},
+    )
+    assert snap is not None
+    assert snap.python_eol["current"] == expected
+
+
+def test_force_regenerate_overwrites_but_preserves_acceptance(isolated_dir, enabled):
+    """force=True regenerates the snapshot but preserves accepted rows."""
+    # 1) First generation with one accepted row.
+    eco.generate_snapshot(
+        year=2026, now=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        framework_fetcher=lambda pkg: {"latest_version": "x"},
+        cost_fetcher=lambda: {},
+        capability_iterator=lambda: [
+            _cap("alpha", "1.0.0", "2.0.0", new_features=("foo",)),
+        ],
+        dependency_radar_state={},
+    )
+    eco.accept_major_upgrade(
+        year=2026, package="alpha", to_version="2.0.0",
+        cr_filer=lambda **kw: "cr-1",
+        tier3_proposer=lambda **kw: "tier3-1",
+    )
+
+    # 2) Force-regenerate with the same iterator + a new beta candidate.
+    snap2 = eco.generate_snapshot(
+        year=2026, now=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        framework_fetcher=lambda pkg: {"latest_version": "y"},
+        cost_fetcher=lambda: {},
+        capability_iterator=lambda: [
+            _cap("alpha", "1.0.0", "2.0.0", new_features=("foo",)),
+            _cap("beta", "1.0.0", "2.0.0"),
+        ],
+        dependency_radar_state={},
+        force=True,
+    )
+    assert snap2 is not None
+    pkgs = {m.package: m for m in snap2.major_upgrades}
+    # alpha row preserved acceptance
+    assert pkgs["alpha"].status == "accepted"
+    assert pkgs["alpha"].cr_id == "cr-1"
+    # beta is freshly proposed
+    assert pkgs["beta"].status == "proposed"
+
+
+def test_force_regenerate_with_no_existing_snapshot_still_writes(isolated_dir, enabled):
+    """force=True on a missing snapshot just generates normally."""
+    snap = eco.generate_snapshot(
+        year=2099, now=datetime(2099, 6, 1, tzinfo=timezone.utc),
+        framework_fetcher=lambda pkg: {"latest_version": "x"},
+        cost_fetcher=lambda: {}, capability_iterator=lambda: [],
+        dependency_radar_state={},
+        force=True,
+    )
+    assert snap is not None
+    assert eco._snapshot_path_for_year(2099).exists()
+
+
+# ── P0#4: Python proposal surfaces in snapshot ─────────────────────────
+
+
+def test_python_proposal_surfaces_when_eol_within_year():
+    """3.11 EOL is 2027-10-31 — close enough to today (mocked to 2027-05-01)
+    to surface as a row."""
+    from datetime import date as _date
+    row = eco.compose_python_proposal(
+        current_minor="3.11", now=_date(2027, 5, 1),
+    )
+    assert row is not None
+    assert row.package == "python"
+    assert row.from_version == "3.11"
+    # Next minor in the table
+    assert row.to_version == "3.12"
+    assert row.priority in ("high", "medium")
+
+
+def test_python_proposal_returns_none_when_far_from_eol():
+    """3.14 EOL is 2030-10-31 — far enough away that no row appears."""
+    from datetime import date as _date
+    row = eco.compose_python_proposal(
+        current_minor="3.14", now=_date(2027, 5, 1),
+    )
+    assert row is None
+
+
+def test_python_proposal_returns_none_for_unknown_minor():
+    from datetime import date as _date
+    row = eco.compose_python_proposal(
+        current_minor="3.99", now=_date(2027, 5, 1),
+    )
+    assert row is None
+
+
+# ── B2-P2: framework-acceptance side effects ─────────────────────────
+
+
+def test_framework_accept_fires_signal_alert(isolated_dir, enabled, monkeypatch):
+    """Framework row Accept → critical Signal alert + framework_migration_started in result."""
+    notified = []
+    monkeypatch.setattr(
+        eco, "_notify_framework_migration_started",
+        lambda **kw: notified.append(kw),
+    )
+    monkeypatch.setattr(
+        eco, "_create_framework_migration_thread",
+        lambda **kw: "thread-1",
+    )
+
+    # Seed a snapshot with a framework row
+    monkeypatch.setattr(
+        eco, "compose_python_proposal",
+        lambda current_minor, now=None, horizon_days=365: None,
+    )
+    eco.generate_snapshot(
+        year=2026, now=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        framework_fetcher=lambda pkg: {"latest_version": "x"},
+        cost_fetcher=lambda: {},
+        capability_iterator=lambda: [
+            _cap("crewai", "0.1.0", "1.0.0"),
+        ],
+        dependency_radar_state={},
+    )
+
+    result = eco.accept_major_upgrade(
+        year=2026, package="crewai", to_version="1.0.0",
+        cr_filer=lambda **kw: "cr-no",
+        tier3_proposer=lambda **kw: "tier3-1",
+    )
+    assert result["ok"] is True
+    assert result.get("framework_migration_started") is True
+    assert result["thread_id"] == "thread-1"
+    assert len(notified) == 1
+    assert notified[0]["package"] == "crewai"
+
+
+def test_non_framework_accept_does_not_fire_framework_signal(
+    isolated_dir, enabled, monkeypatch,
+):
+    """Non-framework row Accept → no framework-migration side effects."""
+    notified = []
+    monkeypatch.setattr(
+        eco, "_notify_framework_migration_started",
+        lambda **kw: notified.append(kw),
+    )
+
+    monkeypatch.setattr(
+        eco, "compose_python_proposal",
+        lambda current_minor, now=None, horizon_days=365: None,
+    )
+    eco.generate_snapshot(
+        year=2026, now=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        framework_fetcher=lambda pkg: {"latest_version": "x"},
+        cost_fetcher=lambda: {},
+        capability_iterator=lambda: [
+            _cap("alpha", "1.0.0", "2.0.0"),
+        ],
+        dependency_radar_state={},
+    )
+    result = eco.accept_major_upgrade(
+        year=2026, package="alpha", to_version="2.0.0",
+        cr_filer=lambda **kw: "cr-1",
+    )
+    assert result["ok"] is True
+    assert "framework_migration_started" not in result
+    assert notified == []
+
+
+def test_framework_accept_survives_thread_creation_failure(
+    isolated_dir, enabled, monkeypatch,
+):
+    """Thread auto-creation failure does NOT block the acceptance."""
+    monkeypatch.setattr(eco, "_notify_framework_migration_started", lambda **kw: None)
+    monkeypatch.setattr(
+        eco, "_create_framework_migration_thread",
+        lambda **kw: None,    # thread module unavailable
+    )
+    monkeypatch.setattr(
+        eco, "compose_python_proposal",
+        lambda current_minor, now=None, horizon_days=365: None,
+    )
+    eco.generate_snapshot(
+        year=2026, now=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        framework_fetcher=lambda pkg: {"latest_version": "x"},
+        cost_fetcher=lambda: {},
+        capability_iterator=lambda: [
+            _cap("crewai", "0.1.0", "1.0.0"),
+        ],
+        dependency_radar_state={},
+    )
+    result = eco.accept_major_upgrade(
+        year=2026, package="crewai", to_version="1.0.0",
+        cr_filer=lambda **kw: "cr-x",
+        tier3_proposer=lambda **kw: "tier3-1",
+    )
+    assert result["ok"] is True
+    assert result["framework_migration_started"] is True
+    assert result["thread_id"] is None    # gracefully None
+
+
+def test_accept_python_row_uses_bump_python_action(isolated_dir, enabled, monkeypatch):
+    """Accepting a python row builds a CR body with action=bump_python."""
+    # Force the snapshot to include a Python row by pinning the date.
+    from datetime import date as _date
+    monkeypatch.setattr(
+        eco, "compose_python_proposal",
+        lambda current_minor, now=None, horizon_days=365: eco.MajorUpgradeProposal(
+            package="python", from_version="3.13", to_version="3.14",
+            priority="high", is_framework=False,
+            capability_summary="EOL test",
+        ),
+    )
+    eco.generate_snapshot(
+        year=2026, now=datetime(2026, 1, 5, tzinfo=timezone.utc),
+        framework_fetcher=lambda pkg: {"latest_version": "x"},
+        cost_fetcher=lambda: {},
+        capability_iterator=lambda: [],
+        dependency_radar_state={},
+    )
+    cr_calls: list[dict] = []
+    eco.accept_major_upgrade(
+        year=2026, package="python", to_version="3.14",
+        cr_filer=lambda **kw: cr_calls.append(kw) or "cr-py-1",
+        tier3_proposer=lambda **kw: "tier3-x",
+    )
+    assert len(cr_calls) == 1
+    body = cr_calls[0]["new_content"]
+    assert "action: bump_python" in body
+    assert "package: python" in body
+    assert "from_version: 3.13" in body
+    assert "to_version: 3.14" in body
+    # Operator-facing markdown explains the SHA pin drop
+    assert "drop" in body.lower() and "SHA" in body
+
+
 def test_accept_double_acceptance_blocks(isolated_dir, enabled):
     eco.generate_snapshot(
         year=2026, now=datetime(2026, 1, 5, tzinfo=timezone.utc),

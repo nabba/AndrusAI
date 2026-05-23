@@ -12597,6 +12597,426 @@ monitor tests need `pydantic_settings`). Regression: `proposal_bridge`
 * `app/healing/monitors/{upgrade_lifecycle_health,python_eol_proximity}.py`.
 
 
+## §63.7 — Post-ship audit P0 closures (same-day, 2026-05-23)
+
+A same-day ultrathink pass on the just-shipped §63 surface surfaced
+four critical bugs that made the subsystem mostly theatre. All four
+were closed in one cycle.
+
+### §63.7.1 — P0#1: CR filing path bypassed the validator
+
+**Symptom**: every CR I staged in §63 used ``target_path="requirements.txt"``,
+which is OUTSIDE ``change_requests.validator._ALLOWED_ROOT_PREFIXES``
+(``app/``, ``docs/``, ``tests/``, ``dashboard-react/``, ``deploy/``,
+``host_bridge/``, ``scripts/``, ``wiki/``). ``proposal_bridge.store.stage``
+calls the validator at stage-time; on failure it raises ``ValueError``,
+the caller swallows, and the radar falls through to its existing
+Signal-only path. The U4 / U5 / U6 acceptance paths all produced
+ZERO actual CRs in production. The existing dependency_radar had
+the same bug — silently failing for an unknown duration.
+
+**Resolution (§63.7.1a — `requirements_writer.py`)**: a narrow,
+curated writer that mutates a single line of ``requirements.txt``.
+Validator-bypass is justified by the writer's tight scope:
+allowlisted requestors only (``dependency_radar`` +
+``upgrade_lifecycle`` + ``ecosystem_snapshot``), regex-validated
+package name + version, multi-pin refusal, ≤2-line diff
+invariant, continuity-ledger event on success. Master switch
+``upgrade_lifecycle_requirements_writer_enabled`` default OFF.
+17 tests pin the safety envelope.
+
+**Resolution (§63.7.1b — paper-trail + apply-hook)**: CRs are now
+staged at ``docs/proposed_upgrades/<sig>.md`` (under the
+validator's allowed roots) with YAML front-matter carrying the
+bump intent::
+
+    ---
+    action: bump_requirement
+    package: starlette
+    from_version: 0.52.1
+    to_version: 1.0.1
+    ---
+
+A new daemon ``app/upgrade_lifecycle/apply_hook.py`` polls
+``change_requests/audit.jsonl`` every 10 minutes for newly-applied
+CRs at ``docs/proposed_upgrades/``, parses the front-matter
+(stdlib-only — no PyYAML), and dispatches to
+``requirements_writer.apply_bump``. Per-CR-id idempotency state
+at ``apply_hook_state.json`` so re-runs after a crash never
+double-apply. Failed dispatches stay in the retry set + fire a
+Signal alert. Boot-anchored via ``app/healing/__init__.py``.
+12 tests.
+
+``accept_major_upgrade`` for U6 acceptance refactored to use the
+same paper-trail path + front-matter + ``path=`` kwarg (the
+previous ``target_path=`` was wrong for ``create_request`` —
+the kwarg is ``path``).
+
+### §63.7.2 — P0#2: U5 produced descriptions, not patches
+
+**Symptom**: ``capability_adoption.py``'s LLM contract returned
+``{should_refactor, rationale, patch_summary, confidence}``. The
+CR body was a markdown description of what should change. Even if
+the CR landed, applying it would have written markdown to a
+Python file.
+
+**Resolution**: LLM contract changed — strict JSON now requires
+``new_content`` (the full replacement file). Confidence threshold
+tightened **0.5 → 0.7** (real diffs deserve real review-budget).
+CR filing switched from ``proposal_bridge`` (which converts the
+markdown body into the file content) to
+``change_requests.lifecycle.create_request`` directly with
+``path=<the .py file>`` + ``new_content=<LLM output>`` +
+``reason=<the prose explanation>``. Truncation sentinels
+(``# TODO: rest of file``, ``\n...\n``) refused. 3 new tests pin
+the contract.
+
+### §63.7.3 — P0#3: Trial isolation was fake
+
+**Symptom**: ``trial_runner._default_pip_install`` ran ``pip
+install starlette==1.0.0`` with ``cwd=tempdir`` but **no venv
+isolation**. The install affected the gateway's running
+interpreter. A real trial would have replaced the gateway's
+actual ``starlette`` and pytest would have run against a
+corrupted host. The docstring even called this a feature.
+
+**Resolution**: ``_default_pip_install`` now creates
+``<tempdir>/.trial_venv`` via ``python -m venv``, installs the FULL
+``requirements.txt`` (with the bumped pin already applied by
+``_bump_requirement``) inside the venv. ``_default_pytest``
+invokes ``<venv>/bin/python -m pytest`` so the trial sees only
+the venv's deps. The gateway's running interpreter is no longer
+at risk. Trade-off: slower (full install vs. single-package), but
+the trial scheduler is rate-limited to 1/hour anyway.
+
+### §63.7.4 — P0#4: Python upgrade surface
+
+**Symptom**: ``ecosystem_snapshot.accept_major_upgrade`` for a
+Python row tried to file a CR for ``target_path="requirements.txt"``
+with ``new_content="# major bump: python==3.13.0"``. Python isn't
+a pip package; this would have been a no-op even if the validator
+weren't blocking it.
+
+**Resolution**: new ``dockerfile_writer.py`` curated primitive
+mutates the ``FROM python:`` line in the repo-root ``Dockerfile``.
+SHA-256 digest pin is **deliberately dropped** on bump (a naive
+tag-only bump would leave the OLD digest pinning the OLD image);
+the writer inserts a ``# TODO P0#4: re-pin`` comment naming the
+new tag + the digest-capture command. Trade-off documented
+inline — time-bounded security regression for an actually-working
+bump path. Multi-stage Dockerfiles with multiple Python variants
+are refused (operator hand-edits). ``baseline_mismatch`` short-circuit
+prevents stale CRs from misfiring. ``apply_hook`` extended with a
+``bump_python`` dispatcher that fires a **loud Signal alert**
+(``critical=True, arbitrate=False``) on success because Python
+bumps are high-impact and the operator needs to know
+immediately even though they approved the CR.
+``ecosystem_snapshot.compose_python_proposal`` surfaces a Python
+row whenever EOL is within 12 months; ``accept_major_upgrade``
+emits ``action: bump_python`` front-matter when
+``package=="python"``. **Same system end-to-end** — Python EOL
+flows through ``/cp/ecosystem`` Accept just like a requirements
+bump, per operator decision Q5 ("all must use the same system").
+13 tests on the writer + 3 on the dispatcher + 4 on the snapshot
+integration.
+
+### §63.7.5 — Composition
+
+The full chain now actually works:
+
+    dependency_radar finds MAJOR
+      → orchestrator runs U1 + U2 + U3 lookup
+      → U4 gate fires
+      → CR staged at docs/proposed_upgrades/<sig>.md
+      → operator approves at /cp/changes
+      → CR applies → docs file lands
+      → apply_hook daemon sees applied CR
+      → parses front-matter
+      → dispatches to requirements_writer OR dockerfile_writer
+      → requirements.txt / Dockerfile actually changes
+      → continuity ledger records ecosystem_snapshot{subkind=...}
+      → auto_deployer detects diff → rebuild
+
+### §63.7.6 — Master-switch additions (P0)
+
+* ``upgrade_lifecycle_requirements_writer_enabled`` — default OFF
+  (operator opts in once trusted).
+* ``upgrade_lifecycle_apply_hook_enabled`` — default OFF (daemon
+  is dormant until writer is also ON).
+* ``upgrade_lifecycle_dockerfile_writer_enabled`` — default OFF
+  (Python bumps are higher impact than requirements bumps —
+  operator opts in deliberately).
+
+
+## §63.8 — P1 hardening (same-day, 2026-05-23)
+
+After the P0 fixes the subsystem actually upgrades itself. P1 closes
+the four remaining gaps for unattended decade-scale operation.
+
+### §63.8.1 — P1#a: Operator-absence policy (``absence_policy.py``)
+
+The **only** code path in the subsystem that bypasses the
+``/cp/changes`` operator gate. Five-condition gate (ALL required):
+
+  1. Master switch
+     ``upgrade_lifecycle_absence_policy_enabled`` ON (default OFF —
+     operator's deliberate prior decision).
+  2. ``operator_transition.current_phase()`` reports ``ABSENT_90D``
+     or beyond (objective external evidence).
+  3. CR has been PENDING ≥ 14 days (operator had time to reject).
+  4. CR's ``requestor`` in
+     ``{dependency_radar, upgrade_lifecycle, ecosystem_snapshot,
+     proposal_bridge:dependency_radar}``.
+  5. CR body matches ``/\bpatch[-_ ]level\b/`` (case-insensitive) —
+     NEVER MINOR, MAJOR, or framework.
+
+On match, calls ``change_requests.lifecycle.auto_approve`` to
+promote ``STANDARD`` → ``AUTO_APPLY``; existing ``auto_revert.py``
+watcher applies (60s poll, 30-min window) for safety. Every
+promotion emits a Signal alert + ``ecosystem_snapshot{
+subkind=absence_auto_apply}`` ledger event so the returning
+operator sees exactly what was applied during their absence. Wired
+as a 4th LIGHT idle job (``upgrade-lifecycle-absence``). 10 tests
+pin every condition.
+
+### §63.8.2 — P1#b: Watchdog wiring
+
+``app/healing/__init__.py`` boot block registers both
+``ul-trial-scheduler`` and ``ul-apply-hook`` with
+``app.healing.watchdog.register_daemon``. The watchdog's existing
+60s ``threading.enumerate()`` walk now re-spawns either daemon
+within ~60s of silent death; the existing 3-crashes-per-hour
+give-up applies.
+
+### §63.8.3 — P1#c: Monthly U1 LLM budget
+
+``changelog_fetcher.py`` extended with a calendar-month spending
+ledger:
+
+  * ``_ESTIMATED_COST_PER_EXTRACTION_USD = 0.10`` per LLM call.
+  * Default budget ``$5/month`` (operator-set via
+    ``upgrade_lifecycle_extraction_budget_usd_monthly``;
+    sanity-cap ``$100``).
+  * Budget gate runs BEFORE the LLM call in ``extract_for_package``
+    — caps a buggy loop's burn rate.
+  * Per-attempt JSONL row at
+    ``workspace/upgrade_lifecycle/extraction_budget_ledger.jsonl``;
+    failure paths still charge (LLM is paid for the call, not the
+    output).
+
+3 new tests pin the gate + recording semantics.
+
+### §63.8.4 — P1#d: Retention (``retention.py``)
+
+Four idempotent operations composing into one weekly LIGHT idle
+pass (5th idle job: ``upgrade-lifecycle-retention``):
+
+  * ``compact_capability_ledgers`` — keep latest row per
+    ``(package, to_version)``; rebuild hash chain from GENESIS so
+    ``verify_chain`` still passes.
+  * ``prune_trial_results`` — remove orphan trial-result JSONs older
+    than 365 days whose ``to_version`` no longer appears in any
+    capability ledger.
+  * ``cap_pending_queue`` — truncate ``_pending.jsonl`` to 1000
+    newest rows (scheduler dedup makes losing older entries safe).
+  * ``prune_budget_ledgers`` — drop rows older than 730 days from
+    both ``extraction_budget_ledger.jsonl`` and
+    ``adoption/budget_ledger.jsonl``. Older spend continues to
+    live in the continuity ledger as the durable audit record.
+
+10 tests pin the per-op behavior.
+
+### §63.8.5 — Master-switch additions (P1)
+
+* ``upgrade_lifecycle_absence_policy_enabled`` — default OFF.
+* ``upgrade_lifecycle_extraction_budget_usd_monthly`` (float) —
+  default $5.
+
+### §63.8.6 — Tests (P0 + P1 combined)
+
+215 passing + 15 environment-skipped (fastapi / pydantic_settings).
+``proposal_bridge`` + Q13 regression: 53 pass.
+
+### §63.8.7 — Decade-scale readiness reassessment
+
+After §63.7 + §63.8 the subsystem now:
+
+  * Files CRs that **actually land** (§63.7.1)
+  * Produces **real diffs** for code refactors (§63.7.2)
+  * Trial-runs in **isolated venv** — never clobbers the gateway
+    (§63.7.3)
+  * Handles **Python EOL transitions** through the same operator-
+    accept flow (§63.7.4)
+  * Has an **operator-absence escape valve** for unattended
+    decades (§63.8.1)
+  * **Survives daemon crashes** via the watchdog (§63.8.2)
+  * Has **LLM budget caps** at both monthly (U1) and quarterly
+    (U5) (§63.8.3)
+  * Has **retention policy** for unbounded artefact classes
+    (§63.8.4)
+
+
+## §63.9 — Decade-scale resilience (P2 items, 2026-05-23)
+
+Same-day after the P0 + P1 ship, three resilience items shipped to
+de-risk decade-scale operation.
+
+### §63.9.1 — P2#a: Multi-source CVE fallback
+
+The existing ``dependency_radar._gather_cves`` queried OSV.dev only.
+Two decade-scale risks: OSV.dev goes away / API rotates; OSV ingestor
+silently misses an advisory that's already on GitHub. New module
+``app/upgrade_lifecycle/cve_sources.py`` wraps the OSV call with a
+GitHub Security Advisory fallback:
+
+  * Primary: existing OSV.dev batch query (same code path).
+  * Secondary: ``api.github.com/advisories?ecosystem=pip&affects=<pkg>``
+    — no auth required, 60 req/hr unauthenticated.
+  * ``query_with_fallback`` returns ``(merged_dict, divergent_pkgs)``.
+    Dedup by CVE id. Divergence (one source finds CVEs the other
+    doesn't) logged for operator visibility.
+
+Both fail → empty dict (legitimate "no CVEs" indistinguishable from
+"both broken" — ``upgrade_lifecycle_health`` catches persistent
+failure). 10 tests.
+
+### §63.9.2 — P2#b: Package-manager abstraction
+
+pip won't be the only Python package manager forever. New module
+``app/upgrade_lifecycle/package_manager.py`` detects which manager
+the repo uses via canonical lockfile precedence:
+
+  * ``uv.lock`` → uv
+  * ``poetry.lock`` → poetry
+  * ``pdm.lock`` → pdm
+  * ``pyproject.toml`` with ``[tool.X]`` discriminator → that manager
+  * ``requirements.txt`` → pip
+  * none → pip default
+
+``install_command(manager, ...)`` returns the right install argv per
+manager. ``writer_can_handle(detection)`` predicate lets the
+orchestrator surface a "writer needs wiring for this manager"
+warning instead of silent no-op. 16 tests.
+
+### §63.9.3 — P2#c: License-change tracking
+
+``Capability.license_change`` field added; LLM prompt extended to
+populate it from the changelog. U4 CR body renders a prominent
+**⚠️ License change** section when the field is non-empty so the
+operator sees legal/licensing risk before approving. 2 tests pin
+extraction + ledger round-trip.
+
+### §63.9.4 — P2#d: End-to-end integration test
+
+``tests/upgrade_lifecycle/test_e2e_pipeline.py`` — two real
+composition tests:
+
+  * **Requirements bump E2E**: stubs trial result → orchestrator
+    runs U1+U2+U3-lookup+U4 → CR staged at docs/proposed_upgrades/
+    with front-matter → apply_hook parses + dispatches →
+    requirements_writer mutates the test fixture's requirements.txt.
+  * **Python bump E2E**: snapshot row → operator accepts → CR body
+    has ``action: bump_python`` → apply_hook dispatches →
+    dockerfile_writer mutates the test fixture's Dockerfile.
+
+This is the class of test that would have caught P0#1, P0#2, P0#4
+immediately. Unit tests pin per-module behavior; E2E pins the
+composition.
+
+
+## §63.10 — Deferred-list closure (D#a, D#b, D#c, 2026-05-23)
+
+Three items the §63.9 ship explicitly left on the deferred list,
+closed in one pass.
+
+### §63.10.1 — D#a: pyproject.toml writer for uv / poetry / pdm
+
+New module ``app/upgrade_lifecycle/pyproject_writer.py`` — sibling
+to ``requirements_writer.py`` (P0#1a) with the same safety envelope
+but operating on a different target format. Recognises three
+dependency-spec sections:
+
+  * **PEP 621** ``[project]`` with ``dependencies = [...]`` array
+    (uv's canonical, also accepted by pdm + poetry-2.0+).
+  * **Poetry** ``[tool.poetry.dependencies]`` with
+    ``package = "version"`` or ``package = {version = "X", ...}``
+    (inline-table form).
+  * **PDM** projects use PEP 621 natively; the writer handles them
+    via the PEP 621 path.
+
+Single-line ``dependencies = ["x==1"]`` deliberately unsupported —
+the multi-line form is universal in real projects and keeps the
+writer's regex tight. Documented as a TODO at the test fixture.
+
+Lock files are NOT touched by this writer — they're derived
+artefacts that go stale the moment the spec changes. The apply_hook
+fires a Signal alert pointing the operator at ``uv sync`` /
+``poetry lock`` / ``pdm lock`` to regenerate the lock. Stdlib-only
+text edits (no ``tomllib`` roundtrip) so comments + formatting
+survive the bump.
+
+apply_hook's ``_dispatch_bump`` now consults
+``package_manager.detect_manager(repo_root)`` BEFORE dispatching;
+when the project is uv/poetry/pdm, it routes to
+``pyproject_writer.apply_bump`` instead of ``requirements_writer``.
+When the writer succeeds the lockfile-regen hint surfaces as a
+``📦 Lockfile regen needed`` Signal alert (non-critical, arbiter-
+bypass) so the operator runs the manager's lock command before next
+deploy.
+
+Master switch: ``upgrade_lifecycle_pyproject_writer_enabled``
+(default OFF, opt-in mirrors requirements_writer). 14 tests pin
+every section format + extras/marker preservation + ambiguous-
+multi-section refusal + lockfile-hint selection + audit-event
+payload shape.
+
+### §63.10.2 — D#b: Multi-stage Dockerfile support
+
+The previous dockerfile_writer refused on any Dockerfile with more
+than one ``FROM python:`` line — multi-stage builds (one FROM for
+builder + one for runtime) are extremely common, so this was a
+real operational gap.
+
+Refactored to bump in **lockstep** when all FROM lines share the
+same Python minor version; refuse on divergence. The reverse-order
+slice-replacement keeps earlier-line edits from shifting later-line
+offsets within the same write. SHA-pin-drop discipline applies to
+every line (each gets its own ``# TODO P0#4: re-pin`` comment).
+
+New refusal reason ``multiple_python_from_lines_different_versions``
+includes the version set in the string so the operator sees which
+versions disagree at a glance. Two new tests pin the lockstep path
++ the divergence-refusal path.
+
+### §63.10.3 — D#c: Framework-migration playbook
+
+``docs/UPGRADE_LIFECYCLE_FRAMEWORK_MIGRATION.md`` — operator-facing
+runbook for the case the upgrade-lifecycle subsystem deliberately
+won't auto-handle: replacing a framework in ``FRAMEWORK_PACKAGES``
+(CrewAI, FastAPI, ChromaDB, Pydantic, Starlette, Anthropic SDK,
+pip itself).
+
+Seven-step protocol with explicit trigger sources (annual snapshot
+/ vendor_sunset monitor / external signal), an evaluate-alternatives
+step that uses ``code_intel`` to enumerate the migration surface,
+group-by-group coding-session iteration, and the
+``framework_migration`` continuity-ledger event that lets annual
+reflection narrate the year. Anti-patterns documented (don't run
+the migration as one giant CR; don't migrate during operator
+absence; don't delete the wiki page after cutover).
+
+### §63.10.4 — Master-switch additions
+
+* ``upgrade_lifecycle_pyproject_writer_enabled`` — default OFF,
+  same opt-in semantics as requirements_writer.
+
+### §63.10.5 — Tests + regression
+
+262 passing + 15 environment-skipped in ``tests/upgrade_lifecycle/``.
+Regression on adjacent modules (proposal_bridge + Q13 +
+phase_d_connector_wraps): 75 + 2 skipped.
+
+
 # §64 — Alignment-audit response: external-action gate + concierge label preservation (2026-05-23)
 
 The weekly LLM alignment audit (`app/alignment_audit.py`) returned

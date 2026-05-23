@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 
 _DAEMON_THREAD_NAME = "dependency-radar"
-_WARMUP_S = 120
+# Boot-stagger 2026-05-23 (was 120) — weekly cadence + the heaviest scan
+# (pip-outdated + OSV + GitHub). Deferred furthest. See
+# app/observability/boot_diagnostics.py.
+_WARMUP_S = 900
 _POLL_INTERVAL_S = 7 * 24 * 3600   # weekly
 
 _MAX_PROPOSALS_PER_PASS = 3        # match proposal_bridge rate limit
@@ -261,34 +264,58 @@ def _gather_cves(
         except Exception:
             logger.debug("dependency_radar: injected osv_runner raised", exc_info=True)
             return {}
+    def _osv_runner(pkgs: list[tuple[str, str]]) -> dict[str, list[dict[str, Any]]]:
+        try:
+            import urllib.request
+            queries = [
+                {"package": {"name": pkg, "ecosystem": "PyPI"}, "version": ver}
+                for (pkg, ver) in pkgs
+            ]
+            req = urllib.request.Request(
+                _OSV_BATCH_URL,
+                data=json.dumps({"queries": queries}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            body = _budgeted_osv_post(req, timeout=30)
+            payload = json.loads(body.decode("utf-8"))
+            results = payload.get("results") or []
+            out: dict[str, list[dict[str, Any]]] = {}
+            for (pkg, _), result in zip(pkgs, results):
+                vulns = result.get("vulns") or []
+                if vulns:
+                    out[pkg] = vulns
+            return out
+        except _BudgetExceeded:
+            return {}
+        except Exception:
+            logger.debug("dependency_radar: OSV fetch failed", exc_info=True)
+            return {}
+
+    # P2#a (PROGRAM §63.9) — wrap the OSV call with the multi-source
+    # fallback chain. The fallback queries GitHub Security Advisory
+    # for the same packages and unions the results. When the two
+    # sources disagree (one finds CVEs the other doesn't), the
+    # divergence is logged for operator visibility.
     try:
-        import urllib.request
-        queries = [
-            {"package": {"name": pkg, "ecosystem": "PyPI"}, "version": ver}
-            for (pkg, ver) in packages
-        ]
-        req = urllib.request.Request(
-            _OSV_BATCH_URL,
-            data=json.dumps({"queries": queries}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        from app.upgrade_lifecycle.cve_sources import query_with_fallback
+        merged, divergent = query_with_fallback(
+            packages, primary_runner=_osv_runner,
         )
-        body = _budgeted_osv_post(req, timeout=30)
-        payload = json.loads(body.decode("utf-8"))
-        results = payload.get("results") or []
-        out: dict[str, list[dict[str, Any]]] = {}
-        for (pkg, _), result in zip(packages, results):
-            vulns = result.get("vulns") or []
-            if vulns:
-                out[pkg] = vulns
-        return out
-    except _BudgetExceeded:
-        # Cap-out: degrade gracefully. The operator already got a
-        # Signal alert from the connector_budget primitive.
-        return {}
+        if divergent:
+            logger.info(
+                "dependency_radar: OSV/GitHub source divergence for %d package(s): %s",
+                len(divergent), ", ".join(divergent[:5]),
+            )
+        return merged
     except Exception:
-        logger.debug("dependency_radar: OSV fetch failed", exc_info=True)
-        return {}
+        # Fall back to the OSV-only path if the multi-source module
+        # itself is broken — preserves pre-P2 behavior.
+        logger.debug(
+            "dependency_radar: cve_sources fallback unavailable; OSV-only",
+            exc_info=True,
+        )
+        return _osv_runner(packages)
 
 
 def _gather_abandonment(
@@ -711,7 +738,7 @@ def run_one_pass(
             ):
                 proposed += 1
                 result.cr_proposals_filed += 1
-    # U4 (PROGRAM §62) — try MAJOR auto-CR before falling through
+    # U4 (PROGRAM §63) — try MAJOR auto-CR before falling through
     # to Signal-only. The orchestrator runs U1+U2 inline (cheap), looks
     # up cached U3 trial results, and gates via the five conditions.
     # On gate-pass, a CR is staged via proposal_bridge and the radar

@@ -54,7 +54,9 @@ logger = logging.getLogger(__name__)
 
 
 _DAEMON_THREAD_NAME = "capability-gap-analyzer"
-_WARMUP_S = 60
+# Boot-stagger 2026-05-23 (was 60) — daily cadence so a 10× warm-up is
+# free. See app/observability/boot_diagnostics.py.
+_WARMUP_S = 600
 _POLL_INTERVAL_S = 24 * 3600  # daily
 
 _MIN_CLUSTER_SIZE = 3

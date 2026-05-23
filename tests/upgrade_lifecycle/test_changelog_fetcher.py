@@ -72,6 +72,7 @@ def _good_llm_reply() -> str:
         "breaking_changes": ["Removed legacy Server.start_loop(); use run()"],
         "security_fixes": ["CVE-2026-0001: input validation in parse_url"],
         "perf_notes": ["json.loads 1.4x faster for nested dicts"],
+        "license_change": "",
         "notes": "Release notes are sparse for this bump.",
     })
 
@@ -408,6 +409,177 @@ def test_run_one_batch_master_switch_off(isolated_dir, monkeypatch, fake_llm_ret
 
 
 # ── Additional: read_capabilities round-trip ────────────────────────────
+
+
+# ── P1#c: Monthly budget gate ───────────────────────────────────────────
+
+
+def test_extraction_records_budget_attempt(isolated_dir, enabled, fake_llm_returning):
+    """Every LLM call attempt (success OR failure) charges the budget."""
+    builder, _ = fake_llm_returning(_good_llm_reply())
+    cf.extract_for_package(
+        "alpha", "1.0", "2.0",
+        metadata_fetcher=_meta_fetcher_for(description="v2 notes"),
+        releases_fetcher=lambda fv, tv: [],
+        llm_builder=builder,
+    )
+    spend = cf.current_month_extraction_spend()
+    assert spend > 0.0
+
+
+def test_extraction_budget_exhausted_skips_extraction(
+    isolated_dir, monkeypatch, fake_llm_returning,
+):
+    """When budget is exhausted, extract_for_package returns None
+    without invoking the LLM."""
+    monkeypatch.setattr(cf, "_enabled", lambda: True)
+    monkeypatch.setattr(cf, "_monthly_budget_usd", lambda: 0.005)   # << cost-per
+    builder, llm = fake_llm_returning(_good_llm_reply())
+    cap = cf.extract_for_package(
+        "alpha", "1.0", "2.0",
+        metadata_fetcher=_meta_fetcher_for(description="notes"),
+        releases_fetcher=lambda fv, tv: [],
+        llm_builder=builder,
+    )
+    assert cap is None
+    assert llm.calls == 0   # gate prevented the LLM call
+
+
+def test_extraction_budget_records_failure_too(
+    isolated_dir, enabled, fake_llm_returning,
+):
+    """Even a parse-failure charges the budget."""
+    builder, _ = fake_llm_returning("not valid json at all")
+    cf.extract_for_package(
+        "alpha", "1.0", "2.0",
+        metadata_fetcher=_meta_fetcher_for(description="notes"),
+        releases_fetcher=lambda fv, tv: [],
+        llm_builder=builder,
+    )
+    spend = cf.current_month_extraction_spend()
+    assert spend > 0.0   # failure still charged
+
+
+def test_license_change_field_extracted(isolated_dir, enabled, fake_llm_returning):
+    """P2#c — license_change populated from LLM reply."""
+    licensed_reply = json.dumps({
+        "new_features": [], "deprecations": [],
+        "breaking_changes": [], "security_fixes": [],
+        "perf_notes": [],
+        "license_change": "BSD-3 → AGPLv3",
+        "notes": "",
+    })
+    builder, _ = fake_llm_returning(licensed_reply)
+    cap = cf.extract_for_package(
+        "spicy", "1.0", "2.0",
+        metadata_fetcher=_meta_fetcher_for(description="notes"),
+        releases_fetcher=lambda fv, tv: [],
+        llm_builder=builder,
+    )
+    assert cap is not None
+    assert cap.license_change == "BSD-3 → AGPLv3"
+
+
+def test_license_change_round_trips_through_ledger(
+    isolated_dir, enabled, fake_llm_returning,
+):
+    """P2#c — license_change persists + reads back from the ledger."""
+    licensed_reply = json.dumps({
+        "new_features": [], "deprecations": [],
+        "breaking_changes": [], "security_fixes": [],
+        "perf_notes": [],
+        "license_change": "MIT → SSPL",
+        "notes": "",
+    })
+    builder, _ = fake_llm_returning(licensed_reply)
+    cf.extract_for_package(
+        "spicy", "1.0", "2.0",
+        metadata_fetcher=_meta_fetcher_for(description="notes"),
+        releases_fetcher=lambda fv, tv: [],
+        llm_builder=builder,
+    )
+    caps = cf.read_capabilities("spicy")
+    assert len(caps) == 1
+    assert caps[0].license_change == "MIT → SSPL"
+
+
+# ── A5-P1: PyPI fallback via GitHub ────────────────────────────────────
+
+
+def test_github_repo_cached_on_successful_pypi(isolated_dir):
+    """Cache write happens automatically when PyPI metadata yields a repo URL."""
+    md = {
+        "info": {
+            "project_urls": {"Source": "https://github.com/encode/starlette"},
+        },
+        "releases": {},
+    }
+    cf._maybe_cache_github_repo("starlette", md)
+    cached = cf._cached_github_repo("starlette")
+    assert cached == ("encode", "starlette")
+
+
+def test_no_cache_when_pypi_has_no_repo_url(isolated_dir):
+    md = {"info": {"project_urls": {}}}
+    cf._maybe_cache_github_repo("ghostpkg", md)
+    assert cf._cached_github_repo("ghostpkg") is None
+
+
+def test_github_fallback_returns_none_when_no_cached_repo(isolated_dir, monkeypatch):
+    """Without prior PyPI success, the fallback can't find the repo."""
+    # No cache populated.
+    result = cf._fetch_pypi_metadata_via_github("nevermet-pkg")
+    assert result is None
+
+
+def test_github_fallback_synthesizes_pypi_shape_when_cached(
+    isolated_dir, monkeypatch,
+):
+    """With a cached repo + GitHub releases reachable, the fallback
+    returns a dict shaped like real PyPI metadata."""
+    # Seed the cache.
+    cf._maybe_cache_github_repo("starlette", {
+        "info": {
+            "project_urls": {"Source": "https://github.com/encode/starlette"},
+        },
+    })
+    # Stub GitHub releases.
+    monkeypatch.setattr(cf, "_fetch_github_releases", lambda owner, repo, limit=30: [
+        {"tag_name": "v1.0.1", "published_at": "2026-01-15T10:00:00Z"},
+        {"tag_name": "v0.52.1", "published_at": "2025-08-10T08:00:00Z"},
+    ])
+    result = cf._fetch_pypi_metadata_via_github("starlette")
+    assert result is not None
+    # PyPI shape: info.project_urls + releases keyed by tag.
+    info = result.get("info") or {}
+    assert info.get("_synthesized_from") == "github_releases"
+    assert "github.com/encode/starlette" in info["project_urls"]["Source"]
+    releases = result.get("releases") or {}
+    # Tags stripped of `v` prefix per _normalize_version
+    assert "1.0.1" in releases
+    assert "0.52.1" in releases
+    assert releases["1.0.1"][0]["upload_time"].startswith("2026-01-15")
+
+
+def test_pypi_failure_falls_through_to_github(isolated_dir, monkeypatch):
+    """When PyPI's HTTP call raises, the fallback synthesizes from GitHub."""
+    cf._maybe_cache_github_repo("starlette", {
+        "info": {
+            "project_urls": {"Source": "https://github.com/encode/starlette"},
+        },
+    })
+    def _exploding(_url, timeout=None):
+        raise urllib_error_urlerror("simulated pypi down")
+    import urllib.error as urllib_error_urlerror_mod
+    urllib_error_urlerror = urllib_error_urlerror_mod.URLError
+
+    monkeypatch.setattr(cf, "_budgeted_get", _exploding)
+    monkeypatch.setattr(cf, "_fetch_github_releases", lambda owner, repo, limit=30: [
+        {"tag_name": "1.0.1", "published_at": "2026-01-15T10:00:00Z"},
+    ])
+    result = cf._fetch_pypi_metadata("starlette")
+    assert result is not None
+    assert (result.get("info") or {}).get("_synthesized_from") == "github_releases"
 
 
 def test_read_capabilities_round_trip(isolated_dir, enabled, fake_llm_returning):

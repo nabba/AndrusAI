@@ -367,6 +367,25 @@ SIGNAL_COMMANDS: tuple[SignalCommand, ...] = (
                   "Close as ABANDONED (triggers approaches-tried distillation).",
                   "Threads"),
 
+    # ── Upgrade lifecycle (PROGRAM §63) ──────────────────────────
+    SignalCommand("/upgrade", ("upgrade",), "/upgrade",
+                  "Upgrade-lifecycle status: switches, budget, CRs this week.",
+                  "Upgrade lifecycle"),
+    SignalCommand("/upgrade budget", (), "/upgrade budget",
+                  "Quarterly LLM budget for capability adoption + remaining.",
+                  "Upgrade lifecycle"),
+    SignalCommand("/upgrade capabilities", (),
+                  "/upgrade capabilities <package>",
+                  "Show last 5 extracted Capability rows for a package.",
+                  "Upgrade lifecycle"),
+    SignalCommand("/upgrade trial", (),
+                  "/upgrade trial <pkg> <from_v> <to_v>",
+                  "Queue a U3 trial run (the scheduler picks it up within ≤1 hr).",
+                  "Upgrade lifecycle"),
+    SignalCommand("/upgrade snapshot", (), "/upgrade snapshot [year]",
+                  "Annual ecosystem-snapshot summary (defaults to current year).",
+                  "Upgrade lifecycle"),
+
     # ── Goals (Q9.6, PROGRAM §46.9) ──────────────────────────────
     SignalCommand("/goals", ("goals",), "/goals",
                   "Summary: current autonomous goals + latest quarterly review.",

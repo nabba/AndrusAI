@@ -1,6 +1,6 @@
 """Upgrade lifecycle subsystem — see ``docs/UPGRADE_LIFECYCLE.md``.
 
-PROGRAM §62 (2026-05-23). Layers on top of ``app.dependency_radar``
+PROGRAM §63 (2026-05-23). Layers on top of ``app.dependency_radar``
 (producer) and ``app.proposal_bridge`` (staging) to add four stages
 the radar alone doesn't cover:
 

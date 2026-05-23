@@ -53,7 +53,10 @@ logger = logging.getLogger(__name__)
 
 _STATE_FILE = "auditor_bridge.json"
 _POLL_INTERVAL_S = 5 * 60  # check every 5 min — proposals are O(30 min)
-_WARMUP_S = 90
+# Boot-stagger 2026-05-23 (was 90) — 5-min poll means the first run is
+# always within the first cadence window anyway. See
+# app/observability/boot_diagnostics.py.
+_WARMUP_S = 240
 _LOOKBACK_DAYS = 7  # ignore proposals older than this — re-alerting old ones is noise
 
 

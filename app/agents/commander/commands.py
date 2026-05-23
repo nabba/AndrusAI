@@ -115,6 +115,21 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         if sub is not None:
             return sub
 
+    # ── PROGRAM §63 — upgrade-lifecycle Signal command ────────────────
+    # /upgrade                            subsystem status
+    # /upgrade budget                     quarterly budget + remaining
+    # /upgrade capabilities <pkg>         show Capability rows for a package
+    # /upgrade trial <pkg>                queue a trial run for the latest version
+    # /upgrade snapshot [year]            show the annual snapshot summary
+    if (
+        lower.startswith("/upgrade")
+        or lower.startswith("upgrade ")
+        or lower == "upgrade"
+    ):
+        sub = _handle_upgrade_command(user_input)
+        if sub is not None:
+            return sub
+
     # ── Q8.1 (PROGRAM §46.1) — long-horizon threads ──────────────────
     # /thread                                       list open threads
     # /thread start <title>                         create a new thread
@@ -2427,6 +2442,163 @@ def _handle_browse_command(user_input: str) -> str | None:
         return f"✅ Removed {n} file(s). Blocklist preserved."
 
     return _browse_help()
+
+
+# ── PROGRAM §63 — /upgrade Signal commands ─────────────────────────
+
+
+def _upgrade_help() -> str:
+    return (
+        "/upgrade                       — subsystem status (switches, budget, snapshot)\n"
+        "/upgrade budget                — quarterly budget + remaining\n"
+        "/upgrade capabilities <pkg>    — Capability rows for a package\n"
+        "/upgrade trial <pkg>           — queue a U3 trial (needs from + to args)\n"
+        "/upgrade snapshot [year]       — annual snapshot summary\n"
+        "See /cp/ecosystem for the per-row Accept buttons."
+    )
+
+
+def _handle_upgrade_command(user_input: str) -> str | None:
+    text = user_input.strip()
+    if text.lower().startswith("/upgrade"):
+        text = text[len("/upgrade"):].strip()
+    elif text.lower().startswith("upgrade"):
+        text = text[len("upgrade"):].strip()
+    else:
+        return None
+
+    # Bare /upgrade → status summary.
+    if not text:
+        try:
+            from app.runtime_settings import (
+                get_upgrade_lifecycle_enabled,
+                get_upgrade_lifecycle_capability_budget_usd_quarterly,
+            )
+            from app.upgrade_lifecycle.capability_adoption import (
+                crs_this_week, current_quarter_spend, remaining_quarter_budget,
+            )
+        except Exception:
+            return "Upgrade lifecycle module not available."
+        if not get_upgrade_lifecycle_enabled():
+            return "Upgrade lifecycle is OFF. Toggle in /cp/settings."
+        budget = get_upgrade_lifecycle_capability_budget_usd_quarterly()
+        spent = current_quarter_spend()
+        remaining = remaining_quarter_budget()
+        weekly = crs_this_week()
+        return (
+            f"📦 Upgrade lifecycle\n"
+            f"  Budget Q-spend: ${spent:.2f} / ${budget:.2f} "
+            f"(remaining ${remaining:.2f})\n"
+            f"  CRs this ISO week: {weekly}/1 hard cap\n"
+            f"\n"
+            f"See /cp/settings for switches, /cp/ecosystem for snapshots."
+        )
+
+    if text.lower() in ("help", "?"):
+        return _upgrade_help()
+
+    parts = text.split(maxsplit=1)
+    sub = parts[0].lower()
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    if sub == "budget":
+        try:
+            from app.runtime_settings import (
+                get_upgrade_lifecycle_capability_budget_usd_quarterly,
+            )
+            from app.upgrade_lifecycle.capability_adoption import (
+                current_quarter_spend, remaining_quarter_budget,
+                _current_quarter_key,
+            )
+            from datetime import datetime, timezone
+        except Exception:
+            return "Upgrade lifecycle module not available."
+        budget = get_upgrade_lifecycle_capability_budget_usd_quarterly()
+        spent = current_quarter_spend()
+        remaining = remaining_quarter_budget()
+        q_key = _current_quarter_key(datetime.now(timezone.utc))
+        return (
+            f"💰 Upgrade-lifecycle budget ({q_key})\n"
+            f"  Cap:       ${budget:.2f}\n"
+            f"  Spent:     ${spent:.2f}\n"
+            f"  Remaining: ${remaining:.2f}"
+        )
+
+    if sub == "capabilities":
+        if not arg:
+            return "Usage: /upgrade capabilities <package>"
+        try:
+            from app.upgrade_lifecycle.changelog_fetcher import read_capabilities
+        except Exception:
+            return "Could not import changelog_fetcher."
+        caps = read_capabilities(arg)
+        if not caps:
+            return f"No capability rows for {arg}."
+        lines = [f"📦 {arg} — {len(caps)} capability row(s):"]
+        for cap in caps[-5:]:
+            lines.append(
+                f"  • {cap.from_version} → {cap.to_version} "
+                f"({len(cap.new_features)}nf/{len(cap.breaking_changes)}br/"
+                f"{len(cap.security_fixes)}sec)"
+            )
+        return "\n".join(lines)
+
+    if sub == "trial":
+        if not arg:
+            return (
+                "Usage: /upgrade trial <package> <from_version> <to_version>"
+            )
+        argv = arg.split()
+        if len(argv) < 3:
+            return (
+                "Usage: /upgrade trial <package> <from_version> <to_version>"
+            )
+        pkg, from_v, to_v = argv[0], argv[1], argv[2]
+        try:
+            from app.upgrade_lifecycle.orchestrator import request_trial
+        except Exception:
+            return "Could not import orchestrator."
+        request_trial(pkg, to_v)
+        return (
+            f"✅ Trial queued: {pkg} {from_v} → {to_v}\n"
+            f"The trial scheduler picks it up on its next tick (≤1 hr)."
+        )
+
+    if sub == "snapshot":
+        try:
+            from app.upgrade_lifecycle.ecosystem_snapshot import _read_snapshot
+            from datetime import datetime, timezone
+        except Exception:
+            return "Could not import ecosystem_snapshot."
+        try:
+            year = int(arg) if arg else datetime.now(timezone.utc).year
+        except ValueError:
+            return f"Invalid year: {arg}"
+        snap = _read_snapshot(year)
+        if snap is None:
+            return f"No snapshot for {year}."
+        accepted = sum(1 for m in snap.major_upgrades if m.status == "accepted")
+        proposed = sum(1 for m in snap.major_upgrades if m.status == "proposed")
+        eol_days = snap.python_eol.get("days_until_eol")
+        lines = [
+            f"📊 Ecosystem snapshot {year}",
+            f"  Python {snap.python_eol.get('current')}: EOL "
+            f"in {eol_days}d" if eol_days is not None
+            else f"  Python {snap.python_eol.get('current')}",
+            f"  Majors: {accepted} accepted / {proposed} proposed",
+        ]
+        for row in snap.major_upgrades[:5]:
+            badge = "🏛" if row.is_framework else "📦"
+            lines.append(
+                f"  {badge} {row.package} {row.from_version}→{row.to_version} "
+                f"[{row.priority}] {row.status}"
+            )
+        if len(snap.major_upgrades) > 5:
+            lines.append(f"  … and {len(snap.major_upgrades) - 5} more")
+        lines.append("Accept rows via /cp/ecosystem.")
+        return "\n".join(lines)
+
+    return _upgrade_help()
 
 
 # ── Q8.1 (PROGRAM §46.1) — /thread Signal commands ─────────────────

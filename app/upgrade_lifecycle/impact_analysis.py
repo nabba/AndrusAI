@@ -1,6 +1,6 @@
 """U2 — Impact analysis.
 
-PROGRAM §62 — Stage C of the upgrade lifecycle. Given a
+PROGRAM §63 — Stage C of the upgrade lifecycle. Given a
 :class:`~app.upgrade_lifecycle.protocol.Capability` produced by U1,
 walks the codebase looking for files that import (or use) the
 upgrading package and matches every reference against the

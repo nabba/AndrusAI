@@ -43,7 +43,9 @@ logger = logging.getLogger(__name__)
 
 
 _DAEMON_THREAD_NAME = "proposal-bridge-promoter"
-_WARMUP_S = 90
+# Boot-stagger 2026-05-23 (was 90) — daily cadence so a 10× warm-up is
+# free. See app/observability/boot_diagnostics.py.
+_WARMUP_S = 600
 _POLL_INTERVAL_S = 24 * 3600  # daily
 
 _MAX_PROMOTIONS_PER_PASS = 3
