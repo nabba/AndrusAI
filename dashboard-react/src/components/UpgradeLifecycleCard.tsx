@@ -108,7 +108,8 @@ export function UpgradeLifecycleCard({
   }
 
   const topEnabled = state.switches.upgrade_lifecycle_enabled;
-  const stageSwitches: { key: string; label: string }[] = [
+  const applyHookOn = !!state.switches.upgrade_lifecycle_apply_hook_enabled;
+  const stageSwitches: { key: string; label: string; nested?: boolean }[] = [
     {
       key: 'upgrade_lifecycle_capability_extraction_enabled',
       label: 'U1 — capability extraction (changelog LLM parse)',
@@ -135,6 +136,33 @@ export function UpgradeLifecycleCard({
         'Apply-hook daemon — dispatches approved upgrade CRs to ' +
         'requirements/pyproject/Dockerfile writers. Only path that ' +
         'auto-mutates code on the absence-policy lane.',
+    },
+    // Writer switches. Visually nested under apply-hook so the
+    // operator sees they're the actual mutation points the daemon
+    // dispatches to. Independently switchable so the operator can
+    // pre-stage them OR keep apply-hook on for a path subset.
+    {
+      key: 'upgrade_lifecycle_requirements_writer_enabled',
+      label:
+        'requirements.txt writer (pip projects) — mutates the single ' +
+        'matching line on approved bump_requirement CRs.',
+      nested: true,
+    },
+    {
+      key: 'upgrade_lifecycle_pyproject_writer_enabled',
+      label:
+        'pyproject.toml writer (uv / poetry / pdm) — mutates ' +
+        '[project.dependencies] or [tool.poetry.dependencies]. ' +
+        'Lockfile regen still required after apply.',
+      nested: true,
+    },
+    {
+      key: 'upgrade_lifecycle_dockerfile_writer_enabled',
+      label:
+        'Dockerfile writer — mutates `FROM python:` on approved ' +
+        'bump_python CRs. SHA digest pin is dropped on bump; operator ' +
+        're-pins before next deploy (TODO comment inserted).',
+      nested: true,
     },
   ];
 
@@ -175,21 +203,28 @@ export function UpgradeLifecycleCard({
 
       {/* Stage switches */}
       <div className="space-y-1.5 pl-3 border-l" style={{ borderColor: '#1e2738' }}>
-        {stageSwitches.map((row) => (
-          <label
-            key={row.key}
-            className="flex items-start gap-2 text-xs"
-            style={{ color: topEnabled ? TEXT_BRIGHT : TEXT_DIM }}
-          >
-            <input
-              type="checkbox"
-              checked={state.switches[row.key] || false}
-              disabled={!topEnabled}
-              onChange={(e) => updateSwitch(row.key, e.target.checked)}
-            />
-            <span>{row.label}</span>
-          </label>
-        ))}
+        {stageSwitches.map((row) => {
+          const isNested = row.nested === true;
+          // Dim writer rows when apply-hook is off — they remain
+          // clickable so the operator can pre-stage, but the visual
+          // dependency on apply-hook is obvious.
+          const rowEnabled = topEnabled && (!isNested || applyHookOn);
+          return (
+            <label
+              key={row.key}
+              className={`flex items-start gap-2 text-xs ${isNested ? 'ml-6' : ''}`}
+              style={{ color: rowEnabled ? TEXT_BRIGHT : TEXT_DIM }}
+            >
+              <input
+                type="checkbox"
+                checked={state.switches[row.key] || false}
+                disabled={!topEnabled}
+                onChange={(e) => updateSwitch(row.key, e.target.checked)}
+              />
+              <span>{row.label}</span>
+            </label>
+          );
+        })}
       </div>
 
       {/* Budget */}

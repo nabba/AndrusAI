@@ -337,6 +337,22 @@ async def set_runtime_settings_endpoint(request: Request):
         set_auto_apply_allowed_paths,
         set_risk_classifier_enabled,
         set_fast_route_extended_patterns_enabled,
+        # PROGRAM §62 — upgrade-lifecycle subsystem switches.
+        # Previously unwired: the React UpgradeLifecycleCard /
+        # AbsencePolicyCard POSTed these keys but the dispatcher
+        # silently dropped them, leaving the toggles cosmetic.
+        set_upgrade_lifecycle_enabled,
+        set_upgrade_lifecycle_capability_extraction_enabled,
+        set_upgrade_lifecycle_trial_enabled,
+        set_upgrade_lifecycle_major_auto_cr_enabled,
+        set_upgrade_lifecycle_capability_adoption_enabled,
+        set_upgrade_lifecycle_capability_budget_usd_quarterly,
+        set_ecosystem_snapshot_enabled,
+        set_upgrade_lifecycle_apply_hook_enabled,
+        set_upgrade_lifecycle_requirements_writer_enabled,
+        set_upgrade_lifecycle_dockerfile_writer_enabled,
+        set_upgrade_lifecycle_pyproject_writer_enabled,
+        set_upgrade_lifecycle_absence_policy_enabled,
         snapshot,
     )
 
@@ -635,6 +651,60 @@ async def set_runtime_settings_endpoint(request: Request):
         if "fast_route_extended_patterns_enabled" in payload:
             set_fast_route_extended_patterns_enabled(
                 bool(payload["fast_route_extended_patterns_enabled"]),
+            )
+
+        # ── PROGRAM §62 — upgrade-lifecycle subsystem ─────────────────
+        # Card lives at /cp/settings → UpgradeLifecycleCard +
+        # AbsencePolicyCard. The setters were defined in
+        # runtime_settings but never reached from any HTTP route,
+        # so every toggle silently no-op'd.
+        if "upgrade_lifecycle_enabled" in payload:
+            set_upgrade_lifecycle_enabled(
+                bool(payload["upgrade_lifecycle_enabled"]),
+            )
+        if "upgrade_lifecycle_capability_extraction_enabled" in payload:
+            set_upgrade_lifecycle_capability_extraction_enabled(
+                bool(payload["upgrade_lifecycle_capability_extraction_enabled"]),
+            )
+        if "upgrade_lifecycle_trial_enabled" in payload:
+            set_upgrade_lifecycle_trial_enabled(
+                bool(payload["upgrade_lifecycle_trial_enabled"]),
+            )
+        if "upgrade_lifecycle_major_auto_cr_enabled" in payload:
+            set_upgrade_lifecycle_major_auto_cr_enabled(
+                bool(payload["upgrade_lifecycle_major_auto_cr_enabled"]),
+            )
+        if "upgrade_lifecycle_capability_adoption_enabled" in payload:
+            set_upgrade_lifecycle_capability_adoption_enabled(
+                bool(payload["upgrade_lifecycle_capability_adoption_enabled"]),
+            )
+        if "upgrade_lifecycle_capability_budget_usd_quarterly" in payload:
+            set_upgrade_lifecycle_capability_budget_usd_quarterly(
+                float(payload["upgrade_lifecycle_capability_budget_usd_quarterly"]),
+            )
+        if "ecosystem_snapshot_enabled" in payload:
+            set_ecosystem_snapshot_enabled(
+                bool(payload["ecosystem_snapshot_enabled"]),
+            )
+        if "upgrade_lifecycle_apply_hook_enabled" in payload:
+            set_upgrade_lifecycle_apply_hook_enabled(
+                bool(payload["upgrade_lifecycle_apply_hook_enabled"]),
+            )
+        if "upgrade_lifecycle_requirements_writer_enabled" in payload:
+            set_upgrade_lifecycle_requirements_writer_enabled(
+                bool(payload["upgrade_lifecycle_requirements_writer_enabled"]),
+            )
+        if "upgrade_lifecycle_dockerfile_writer_enabled" in payload:
+            set_upgrade_lifecycle_dockerfile_writer_enabled(
+                bool(payload["upgrade_lifecycle_dockerfile_writer_enabled"]),
+            )
+        if "upgrade_lifecycle_pyproject_writer_enabled" in payload:
+            set_upgrade_lifecycle_pyproject_writer_enabled(
+                bool(payload["upgrade_lifecycle_pyproject_writer_enabled"]),
+            )
+        if "upgrade_lifecycle_absence_policy_enabled" in payload:
+            set_upgrade_lifecycle_absence_policy_enabled(
+                bool(payload["upgrade_lifecycle_absence_policy_enabled"]),
             )
     except HTTPException:
         # Preserve 400-with-detail from inline validation above.

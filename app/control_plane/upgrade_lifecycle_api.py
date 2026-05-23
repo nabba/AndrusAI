@@ -69,6 +69,10 @@ def upgrade_lifecycle_state() -> dict[str, Any]:
             get_upgrade_lifecycle_capability_adoption_enabled,
             get_upgrade_lifecycle_capability_budget_usd_quarterly,
             get_ecosystem_snapshot_enabled,
+            get_upgrade_lifecycle_apply_hook_enabled,
+            get_upgrade_lifecycle_requirements_writer_enabled,
+            get_upgrade_lifecycle_dockerfile_writer_enabled,
+            get_upgrade_lifecycle_pyproject_writer_enabled,
         )
     except Exception:
         raise HTTPException(503, "runtime_settings unavailable")
@@ -81,6 +85,14 @@ def upgrade_lifecycle_state() -> dict[str, Any]:
             "upgrade_lifecycle_major_auto_cr_enabled": get_upgrade_lifecycle_major_auto_cr_enabled(),
             "upgrade_lifecycle_capability_adoption_enabled": get_upgrade_lifecycle_capability_adoption_enabled(),
             "ecosystem_snapshot_enabled": get_ecosystem_snapshot_enabled(),
+            # Apply-hook + writer toggles. Apply-hook is shown on the
+            # React card; the three writers are REST-only but surfaced
+            # here so an operator querying GET /state can see the full
+            # subsystem state at a glance.
+            "upgrade_lifecycle_apply_hook_enabled": get_upgrade_lifecycle_apply_hook_enabled(),
+            "upgrade_lifecycle_requirements_writer_enabled": get_upgrade_lifecycle_requirements_writer_enabled(),
+            "upgrade_lifecycle_dockerfile_writer_enabled": get_upgrade_lifecycle_dockerfile_writer_enabled(),
+            "upgrade_lifecycle_pyproject_writer_enabled": get_upgrade_lifecycle_pyproject_writer_enabled(),
         },
         "quarterly_budget_usd": get_upgrade_lifecycle_capability_budget_usd_quarterly(),
     }
