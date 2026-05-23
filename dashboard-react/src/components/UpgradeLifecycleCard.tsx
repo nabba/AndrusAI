@@ -1,15 +1,17 @@
 // Upgrade-lifecycle subsystem control card — PROGRAM §62.
 //
 // One panel surfaces:
-//   * 6 master switches (top + 5 stage-level)
+//   * 7 master switches (top + 6 stage-level)
 //   * quarterly LLM budget slider
 //   * current spend + remaining + CRs filed this week
 //   * latest ecosystem snapshot link
 //
-// The five stage switches are conjunctive — when the top-level
-// `upgrade_lifecycle_enabled` is off, every stage's effective state
-// is false regardless of its own toggle. Disabled-but-on toggles are
-// rendered with a dim border so the operator sees the inheritance.
+// The six stage switches are conjunctive at the operator-policy
+// level — when the top-level `upgrade_lifecycle_enabled` is off,
+// every stage's effective work pipeline goes dark regardless of its
+// own toggle (no CRs produced upstream → apply-hook has nothing to
+// dispatch). Disabled-but-on toggles are rendered dim so the
+// operator sees the inheritance.
 
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
@@ -32,7 +34,7 @@ type LifecycleState = {
 };
 
 export function UpgradeLifecycleCard({
-  settings,
+  settings: _settings,
   onSettingsChange,
 }: {
   settings: RuntimeSettings | Partial<RuntimeSettings>;
@@ -126,6 +128,13 @@ export function UpgradeLifecycleCard({
     {
       key: 'ecosystem_snapshot_enabled',
       label: 'U6 — annual ecosystem snapshot (January)',
+    },
+    {
+      key: 'upgrade_lifecycle_apply_hook_enabled',
+      label:
+        'Apply-hook daemon — dispatches approved upgrade CRs to ' +
+        'requirements/pyproject/Dockerfile writers. Only path that ' +
+        'auto-mutates code on the absence-policy lane.',
     },
   ];
 

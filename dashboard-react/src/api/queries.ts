@@ -594,6 +594,10 @@ export interface RuntimeSettings {
   architecture_adoption_monitor_enabled?: boolean;
   // Q7.4 — per-coding-session ShinkaEvolve master switch (PROGRAM §45.4)
   shinka_inline_evolve_enabled?: boolean;
+  // PROGRAM §62/§63 — Upgrade lifecycle subsystem
+  upgrade_lifecycle_enabled?: boolean;
+  upgrade_lifecycle_absence_policy_enabled?: boolean;
+  upgrade_lifecycle_apply_hook_enabled?: boolean;
   // §55 — ChromaDB integrity protection
   chromadb_wal_enforcement_enabled?: boolean;
   chromadb_boot_integrity_check_enabled?: boolean;
