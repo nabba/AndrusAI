@@ -507,6 +507,29 @@ def _notify_apply_failed(cr_id: str, result: dict) -> None:
         )
     except Exception:
         logger.debug("ul.apply_hook: notify failed", exc_info=True)
+    # 2026-05-23 audit Round 2 — emit ledger event so AE-2 +
+    # annual reflection see apply failures. Failure-isolated
+    # independently of the notify above so a ledger problem
+    # never blocks the Signal alert (and vice versa).
+    try:
+        from app.identity.continuity_ledger import record_event
+        record_event(
+            kind="ecosystem_snapshot",
+            actor="upgrade_lifecycle.apply_hook",
+            summary=(
+                f"upgrade apply failed: CR {cr_id} "
+                f"({result.get('reason')!r})"
+            ),
+            detail={
+                "subkind": "apply_failure",
+                "cr_id": cr_id,
+                "reason": str(result.get("reason") or ""),
+                "package": str(result.get("package") or ""),
+                "to_version": str(result.get("to_version") or ""),
+            },
+        )
+    except Exception:
+        logger.debug("ul.apply_hook: ledger emit failed", exc_info=True)
 
 
 # ── Daemon ───────────────────────────────────────────────────────────────

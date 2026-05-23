@@ -554,6 +554,19 @@ def run_one_pass(
             target_path = _to_repo_relative(path, repo_root)
             if arch_dedup_fn(target_path):
                 continue
+            # 2026-05-23 audit Round 2 — early-bail on Tier-3-protected
+            # paths so we don't spend LLM budget on a refactor the
+            # change_requests.validator is guaranteed to refuse at
+            # filing time. Standard CR gate still catches it on the
+            # back end; this just saves budget. Fail-OPEN on import
+            # error so a broken architecture_requests module doesn't
+            # silently disable adoption.
+            try:
+                from app.architecture_requests.validator import is_protected_path
+                if is_protected_path(target_path):
+                    continue
+            except Exception:
+                pass
             # Read file content (size-gated)
             try:
                 raw_bytes = path.read_bytes()

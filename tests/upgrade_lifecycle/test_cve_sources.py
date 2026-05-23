@@ -168,3 +168,86 @@ def test_empty_package_list():
     )
     assert merged == {}
     assert divergent == []
+
+
+# ── 10-12: Continuity-ledger emission on divergence ────────────────────
+#
+# SubIA audit Round 2 Investigation B: divergence must surface to the
+# identity ledger so annual reflection's ``summarise_drift`` Counter
+# picks up CVE-source-health drift year-over-year.
+
+
+def _install_fake_record_event(monkeypatch):
+    """Patch app.identity.continuity_ledger.record_event with a captor.
+
+    The lazy `from ... import record_event` inside the helper re-binds
+    on every call, so attribute-level monkeypatching is picked up.
+    """
+    captured: list[dict[str, Any]] = []
+
+    def _fake_record(*, kind, actor, summary, detail=None, **_kw):
+        captured.append({
+            "kind": kind, "actor": actor,
+            "summary": summary, "detail": dict(detail or {}),
+        })
+        return True
+
+    from app.identity import continuity_ledger as cl
+    monkeypatch.setattr(cl, "record_event", _fake_record)
+    return captured
+
+
+def test_divergence_emits_ledger_event(monkeypatch):
+    captured = _install_fake_record_event(monkeypatch)
+    primary = {"starlette": [_osv_row("CVE-A"), _osv_row("CVE-COMMON")]}
+    secondary = {"starlette": [_osv_row("CVE-B"), _osv_row("CVE-COMMON")]}
+    cs.query_with_fallback(
+        [("starlette", "0.52.1")],
+        primary_runner=lambda _: primary,
+        secondary_runner=lambda _: secondary,
+    )
+    assert len(captured) == 1
+    ev = captured[0]
+    assert ev["kind"] == "ecosystem_snapshot"
+    assert ev["actor"] == "upgrade_lifecycle.cve_sources"
+    assert "starlette" in ev["summary"]
+    d = ev["detail"]
+    assert d["subkind"] == "cve_source_divergence"
+    assert d["package"] == "starlette"
+    assert d["osv_finding"] == ["CVE-A", "CVE-COMMON"]
+    assert d["github_finding"] == ["CVE-B", "CVE-COMMON"]
+    assert d["only_osv"] == ["CVE-A"]
+    assert d["only_github"] == ["CVE-B"]
+
+
+def test_no_divergence_no_ledger_event(monkeypatch):
+    captured = _install_fake_record_event(monkeypatch)
+    same = {"starlette": [_osv_row("CVE-A")]}
+    cs.query_with_fallback(
+        [("starlette", "0.52.1")],
+        primary_runner=lambda _: same,
+        secondary_runner=lambda _: same,
+    )
+    assert captured == []
+
+
+def test_ledger_emit_failure_does_not_break_merge(monkeypatch):
+    """The CVE-source merge must NEVER fail because the ledger emit
+    raised — failure isolation is the load-bearing invariant."""
+    def _exploding_record(**_kw):
+        raise RuntimeError("ledger disk full")
+
+    from app.identity import continuity_ledger as cl
+    monkeypatch.setattr(cl, "record_event", _exploding_record)
+
+    primary = {"starlette": [_osv_row("CVE-A")]}
+    secondary = {"starlette": [_osv_row("CVE-B")]}
+    merged, divergent = cs.query_with_fallback(
+        [("starlette", "0.52.1")],
+        primary_runner=lambda _: primary,
+        secondary_runner=lambda _: secondary,
+    )
+    # Merge survived the ledger explosion.
+    assert "starlette" in merged
+    assert {r["id"] for r in merged["starlette"]} == {"CVE-A", "CVE-B"}
+    assert divergent == ["starlette"]

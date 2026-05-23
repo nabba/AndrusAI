@@ -117,6 +117,47 @@ def _github_advisory_fetch(
 # ── Fallback composition ─────────────────────────────────────────────────
 
 
+def _emit_divergence_landmark(
+    package: str,
+    osv_ids: set[str],
+    github_ids: set[str],
+) -> None:
+    """Surface CVE-source divergence to the continuity ledger.
+
+    Failure-isolated — the merge must NEVER fail because the ledger
+    emit failed. ``summarise_drift`` aggregates ``ecosystem_snapshot``
+    counts year-over-year so the operator sees CVE-source-health drift
+    surface in the annual reflection.
+    """
+    try:
+        from app.identity.continuity_ledger import record_event
+        osv_sorted = sorted(i for i in osv_ids if i)
+        github_sorted = sorted(i for i in github_ids if i)
+        only_osv = sorted(set(osv_sorted) - set(github_sorted))
+        only_github = sorted(set(github_sorted) - set(osv_sorted))
+        record_event(
+            kind="ecosystem_snapshot",
+            actor="upgrade_lifecycle.cve_sources",
+            summary=(
+                f"CVE source divergence: {package} — "
+                f"OSV-only={len(only_osv)} GitHub-only={len(only_github)}"
+            ),
+            detail={
+                "subkind": "cve_source_divergence",
+                "package": package,
+                "osv_finding": osv_sorted,
+                "github_finding": github_sorted,
+                "only_osv": only_osv,
+                "only_github": only_github,
+            },
+        )
+    except Exception:
+        logger.debug(
+            "cve_sources: divergence ledger emit failed for %s",
+            package, exc_info=True,
+        )
+
+
 def _merge_results(
     primary: dict[str, list[dict[str, Any]]],
     secondary: dict[str, list[dict[str, Any]]],
@@ -137,6 +178,7 @@ def _merge_results(
         only_sec = sec_ids - prim_ids
         if only_prim or only_sec:
             divergent.append(pkg)
+            _emit_divergence_landmark(pkg, prim_ids, sec_ids)
 
         # Build merged list with dedup by id.
         seen_ids: set[str] = set()
