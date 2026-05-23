@@ -166,7 +166,27 @@ def run_bootstrap_flow(scopes: Iterable[str] = SCOPES) -> bool:
     }
 
     flow = InstalledAppFlow.from_client_config(client_config, list(scopes))
-    creds = flow.run_local_server(port=0, prompt="consent", access_type="offline")
+    # Try the browser-driven flow first; falls back to a copy-paste
+    # path when the process is running headless (e.g. inside the
+    # gateway container — no DISPLAY, no webbrowser, no localhost
+    # port reachable from where the operator's browser actually is).
+    creds = None
+    try:
+        creds = flow.run_local_server(
+            port=0, prompt="consent", access_type="offline"
+        )
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "browser" in msg or "display" in msg or "could not locate" in msg:
+            logger.info(
+                "google_workspace bootstrap: no local browser — "
+                "falling back to manual copy-paste flow"
+            )
+            creds = _run_manual_flow(flow)
+        else:
+            raise
+    if creds is None:
+        return False
     save_credentials(creds)
     # Reset the in-memory cache so the next get_credentials() picks up the
     # freshly-saved token without restarting the process.
@@ -175,3 +195,56 @@ def run_bootstrap_flow(scopes: Iterable[str] = SCOPES) -> bool:
         _cached = None
     logger.info(f"google_workspace bootstrap: token saved to {TOKEN_PATH}")
     return True
+
+
+def _run_manual_flow(flow):
+    """Headless OAuth flow — operator opens the URL on any device,
+    copies the redirected URL back. Replaces the deprecated OOB flow
+    Google retired in 2022."""
+    # Redirect to a localhost URL that the operator's browser will
+    # fail to load — but the failed URL contains the auth code in its
+    # query string, so we can recover it by reading the full URL.
+    flow.redirect_uri = "http://localhost:8080/"
+    auth_url, _state = flow.authorization_url(
+        prompt="consent",
+        access_type="offline",
+        include_granted_scopes="true",
+    )
+    print()
+    print("─" * 72)
+    print("HEADLESS OAUTH FLOW — no browser available in this container.")
+    print("─" * 72)
+    print()
+    print("1. Open this URL on ANY device with a browser:")
+    print()
+    print(f"   {auth_url}")
+    print()
+    print("2. Consent as the expected Google account.")
+    print()
+    print("3. Your browser will redirect to a localhost URL that fails to")
+    print("   load — that is expected. Copy the FULL URL from the address")
+    print("   bar (it starts with http://localhost:8080/?state=...&code=...)")
+    print("   and paste it below.")
+    print()
+    redirect_url = input("Paste the full redirect URL here: ").strip()
+    if not redirect_url:
+        print("Empty input — bootstrap aborted.")
+        return None
+    # oauthlib rejects HTTP redirects by default — but our redirect_uri
+    # is localhost, which the browser never actually reaches over the
+    # network (the URL fails to load; we extract the code from the
+    # address bar). No traffic transits HTTP. The relaxation is scoped
+    # to this single fetch_token call.
+    prior = os.environ.get("OAUTHLIB_INSECURE_TRANSPORT")
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+    try:
+        flow.fetch_token(authorization_response=redirect_url)
+    except Exception as exc:
+        print(f"Bootstrap failed while exchanging the code: {exc}")
+        return None
+    finally:
+        if prior is None:
+            os.environ.pop("OAUTHLIB_INSECURE_TRANSPORT", None)
+        else:
+            os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = prior
+    return flow.credentials

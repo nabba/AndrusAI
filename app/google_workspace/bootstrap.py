@@ -54,11 +54,15 @@ def main() -> int:
         print("Token saved but credentials failed to reload — investigate logs.")
         return 1
 
+    # Verify via Gmail's getProfile (works with the gmail.modify scope we
+    # already requested). The previous oauth2.userinfo endpoint required
+    # an openid/userinfo.email scope we deliberately didn't ask for, so
+    # it always 401-ed even when the token itself was valid.
     try:
         from googleapiclient.discovery import build
-        oauth2 = build("oauth2", "v2", credentials=creds, cache_discovery=False)
-        info = oauth2.userinfo().get().execute()
-        email = info.get("email", "<unknown>")
+        gmail = build("gmail", "v1", credentials=creds, cache_discovery=False)
+        profile = gmail.users().getProfile(userId="me").execute()
+        email = profile.get("emailAddress", "<unknown>")
         print(f"Authenticated as: {email}")
         if email != _EXPECTED_EMAIL:
             print(
