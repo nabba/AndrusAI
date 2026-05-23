@@ -79,6 +79,20 @@ from app.benchmarks.store import (
     stats,
 )
 
+# Legacy benchmark-journal API (pre-Phase-C.3 surface).
+# Re-exported here so the existing call sites (crews/events.py,
+# crews/media_crew.py, crews/creative_crew.py, …) keep working
+# after the Phase C.3 module-to-package migration that shipped
+# 2026-05-22 (when ``benchmarks.py`` was shadowed by the new
+# ``benchmarks/`` package).
+from app.benchmarks.journal import (
+    record_metric,
+    get_benchmark_summary,
+    get_benchmark_trend,
+    compare_benchmarks,
+    format_benchmarks_for_display,
+)
+
 __all__ = [
     "BenchmarkRun",
     "BenchmarkTask",
@@ -104,4 +118,10 @@ __all__ = [
     "score",
     "stats",
     "summarise",
+    # Legacy benchmark-journal API (pre-Phase-C.3)
+    "record_metric",
+    "get_benchmark_summary",
+    "get_benchmark_trend",
+    "compare_benchmarks",
+    "format_benchmarks_for_display",
 ]
