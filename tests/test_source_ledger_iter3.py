@@ -323,3 +323,88 @@ def test_rest_endpoint_pinned():
         "REST endpoint /api/cp/source-ledger/state has been removed — "
         "React SourceLedgerCard would silently 404."
     )
+
+
+# ────────────────────────────────────────────────────────────────────
+#   #4 — Concurrent append race (regression pin for 2026-05-23 break)
+# ────────────────────────────────────────────────────────────────────
+
+
+def test_concurrent_appends_keep_chain_intact(ledger_module, tmp_path):
+    """Regression pin for the 2026-05-23 chain break at row 2643.
+
+    Two near-simultaneous evolution-session writes (0.9 ms apart, both
+    targeting the same memory KB on different collections) both read
+    the same _last_hash before either appended. The second write
+    landed with a stale prev_hash, breaking the chain mid-ledger.
+
+    Without _append_lock around (read prev_hash, append row), this
+    test flakes; with the lock the chain stays intact across hundreds
+    of concurrent appends.
+    """
+    import threading
+
+    kb = "memory"
+    _make_kb(tmp_path, kb)
+
+    n_threads = 8
+    appends_per_thread = 50
+    barrier = threading.Barrier(n_threads)
+    errors: list[BaseException] = []
+    errors_lock = threading.Lock()
+
+    def worker(tid: int) -> None:
+        try:
+            barrier.wait(timeout=10)
+            for i in range(appends_per_thread):
+                row = ledger_module.append_row(
+                    kb,
+                    f"col_{tid % 3}",
+                    f"t{tid}_doc{i}",
+                    f"t={tid} i={i}",
+                    {"tid": tid, "i": i},
+                )
+                assert row is not None, f"append_row returned None for tid={tid} i={i}"
+        except BaseException as e:
+            with errors_lock:
+                errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+        assert not t.is_alive(), "worker thread hung — possible deadlock in append lock"
+
+    assert not errors, f"workers raised: {errors!r}"
+
+    verify = ledger_module.verify_chain(kb)
+    assert verify.ok, (
+        f"chain broken after concurrent appends: "
+        f"first_bad_row={verify.first_bad_row} reason={verify.first_bad_reason}"
+    )
+
+    # No rows lost. Doc_ids are unique by construction (tid, i) so the
+    # row count must equal n_threads * appends_per_thread.
+    rows = list(ledger_module.read_all(kb))
+    assert len(rows) == n_threads * appends_per_thread, (
+        f"expected {n_threads * appends_per_thread} rows, got {len(rows)}"
+    )
+    seen = {(r.collection, r.doc_id) for r in rows}
+    assert len(seen) == n_threads * appends_per_thread, "duplicate doc_ids — lost writes"
+
+
+def test_append_lock_sidecar_created_adjacent_to_ledger(ledger_module, tmp_path):
+    """The flock sidecar must live next to the ledger so cross-process
+    writers (re-stitch utilities, host scripts) coordinate on the same
+    inode. If the sidecar path changes silently, external tools would
+    take a different lock and the cross-process serialization quietly
+    breaks."""
+    kb = "memory"
+    _make_kb(tmp_path, kb)
+    ledger_module.append_row(kb, "c", "d1", "x", {})
+    sidecar = ledger_module.ledger_path(kb).parent / ledger_module.APPEND_LOCK_FILENAME
+    assert sidecar.exists(), (
+        "append-lock sidecar missing — external tools cannot coordinate "
+        "with the gateway on this ledger"
+    )

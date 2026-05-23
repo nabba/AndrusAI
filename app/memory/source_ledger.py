@@ -139,16 +139,25 @@ _REPLAY_BATCH = 32  # rows per chromadb upsert call during replay
 # the failure that triggered this fix.
 
 
-_KB_APPEND_LOCKS: dict[str, threading.Lock] = {}
+_KB_APPEND_LOCKS: dict[str, "threading.RLock"] = {}
 _KB_APPEND_LOCKS_GUARD = threading.Lock()
 
 
-def _get_kb_lock(kb_name: str) -> threading.Lock:
-    """Return the per-KB threading lock, creating it on first use."""
+def _get_kb_lock(kb_name: str) -> "threading.RLock":
+    """Return the per-KB threading lock, creating it on first use.
+
+    RLock (reentrant) rather than Lock — compaction holds this lock
+    across its final tail-stabilization pass, and the in-process
+    test harness patches ``_fold_ledger_from`` to inject appends.
+    With a non-reentrant lock those inner appends self-deadlock.
+    Production code never nests an append inside compaction; RLock
+    is paid only as the defense against unexpected nesting.
+    fcntl.flock is already process-level reentrant, so the cross-
+    process tier needs no change."""
     with _KB_APPEND_LOCKS_GUARD:
         lock = _KB_APPEND_LOCKS.get(kb_name)
         if lock is None:
-            lock = threading.Lock()
+            lock = threading.RLock()
             _KB_APPEND_LOCKS[kb_name] = lock
         return lock
 
@@ -162,24 +171,41 @@ def _append_lock(kb_name: str, path: Path) -> Iterator[None]:
     must acquire the same flock — open ``<ledger_dir>/.source_ledger.append.lock``
     and call ``fcntl.flock(fd, LOCK_EX)`` for the duration of the
     rewrite.
+
+    Reentrant: an outer hold may legitimately wrap inner appends (e.g.
+    compaction's final tail-stab + atomic-rename block). The RLock
+    handles thread-level recursion; the fcntl flock is acquired ONLY
+    on the outermost frame because flock(2) on the same file via
+    different open() calls within the same process treats those as
+    independent locks and would self-deadlock.
     """
     thread_lock = _get_kb_lock(kb_name)
+    # Check before acquire: if this thread already owns the RLock,
+    # we're a nested call and the flock is already held one frame up.
+    already_held = False
+    is_owned = getattr(thread_lock, "_is_owned", None)
+    if callable(is_owned):
+        try:
+            already_held = bool(is_owned())
+        except Exception:
+            already_held = False
     thread_lock.acquire()
     flock_handle = None
     try:
-        try:
-            import fcntl  # POSIX-only
-            path.parent.mkdir(parents=True, exist_ok=True)
-            lock_path = path.parent / APPEND_LOCK_FILENAME
-            flock_handle = lock_path.open("w")
-            fcntl.flock(flock_handle.fileno(), fcntl.LOCK_EX)
-        except (ImportError, OSError):
-            if flock_handle is not None:
-                try:
-                    flock_handle.close()
-                except Exception:
-                    pass
-                flock_handle = None
+        if not already_held:
+            try:
+                import fcntl  # POSIX-only
+                path.parent.mkdir(parents=True, exist_ok=True)
+                lock_path = path.parent / APPEND_LOCK_FILENAME
+                flock_handle = lock_path.open("w")
+                fcntl.flock(flock_handle.fileno(), fcntl.LOCK_EX)
+            except (ImportError, OSError):
+                if flock_handle is not None:
+                    try:
+                        flock_handle.close()
+                    except Exception:
+                        pass
+                    flock_handle = None
         yield
     finally:
         if flock_handle is not None:
