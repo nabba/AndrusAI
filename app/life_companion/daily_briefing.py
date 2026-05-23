@@ -112,6 +112,43 @@ _GOOGLE_NOT_CONNECTED_HINT = (
 )
 
 
+def _gather_apple_calendar(*, hours: int = 48) -> list[str]:
+    """Read Apple Calendar via the PIM agent's existing bridge-backed
+    tools (Swift/EventKit fast path with AppleScript fallback).
+
+    Apple Calendar already aggregates Google + iCloud + Exchange when
+    they're added as accounts in Calendar.app, so this is typically a
+    superset of what Google's OAuth alone would return. Soft fail."""
+    try:
+        from app.tools.calendar_tools import create_calendar_tools
+        tools = create_calendar_tools("pim")
+    except Exception:
+        return []
+    list_tool = next(
+        (t for t in tools if getattr(t, "name", "") == "list_calendar_events"),
+        None,
+    )
+    if list_tool is None:
+        return []
+    days = max(1, (hours + 23) // 24)
+    try:
+        result = list_tool._run(days_ahead=days) or ""
+    except Exception:
+        return []
+    if not result or result.startswith(("⚠️", "Calendar error", "No events")):
+        return []
+    out: list[str] = []
+    for raw in result.splitlines():
+        raw = raw.strip()
+        # Event lines start with "[calendar]"; skip headers + summaries.
+        if not raw.startswith("["):
+            continue
+        out.append(f"  • {raw[:140]}")
+        if len(out) >= 10:
+            break
+    return out
+
+
 def _google_workspace_ready() -> bool:
     """True when an OAuth token is loadable. False when bootstrap hasn't been
     run — in which case both calendar and gmail gatherers will silently no-op
@@ -955,19 +992,32 @@ def _gather_companion_surfaced() -> list[str]:
 # ── Compose ──────────────────────────────────────────────────────────────
 
 
-def _compose_morning() -> tuple[str, list[float]]:
+def _compose_morning() -> tuple[str, list[float], str | None]:
     """Compose the morning briefing.
 
-    Q4.1 (PROGRAM §41.4) returns a 2-tuple: ``(body, consume_ts_list)``
-    where ``consume_ts_list`` is the timestamps of arbiter-queued
-    notifications that should be marked consumed AFTER successful
-    send. The caller (``run()``) only marks them on Signal-send
-    success so failed briefings preserve the queue.
+    Q4.1 (PROGRAM §41.4) returned a 2-tuple ``(body, consume_ts_list)``.
+    The briefing-evolution extension (2026-05-23) adds a third value:
+    ``trial_section_id`` — the id of the at-most-one trial section
+    rendered at the tail of the briefing, or ``None``. ``run()`` uses
+    it to register the Signal timestamp with the feedback bridge so a
+    👎 reaction can resolve back to the right section.
     """
     # Morning covers today + tomorrow (48h) so the operator sees enough
     # to plan the day's transitions; evening keeps the 24h horizon since
     # it's focused on tonight + tomorrow morning.
-    cal = _gather_calendar_24h(hours=48)
+    #
+    # Prefer Apple Calendar via the PIM agent's existing bridge-backed
+    # tools — it already aggregates iCloud + Google + Exchange when the
+    # operator has those accounts added in Calendar.app, so it's
+    # typically the superset. Fall back to the Google OAuth direct
+    # path only when Apple Calendar returns nothing.
+    cal_source = "Apple Calendar"
+    cal = _gather_apple_calendar(hours=48)
+    if not cal:
+        cal = _gather_calendar_24h(hours=48)
+        cal_source = "Google Calendar" if cal and not cal[0].startswith(
+            "  • (Google Workspace"
+        ) else cal_source
     mail = _gather_top_emails(n=3)
     tickets = _gather_open_tickets(n=5)
     health = _gather_health_summary()
@@ -977,7 +1027,7 @@ def _compose_morning() -> tuple[str, list[float]]:
     sysstatus = _gather_system_status()
 
     parts = ["☀️  Morning briefing\n"]
-    parts.append("📅 Today + tomorrow:")
+    parts.append(f"📅 Today + tomorrow ({cal_source}):")
     parts.extend(cal or ["  • (none scheduled)"])
     parts.append("\n📬 Urgent unread:")
     parts.extend(mail or ["  • (inbox clean)"])
@@ -1050,18 +1100,71 @@ def _compose_morning() -> tuple[str, list[float]]:
         # topic files have been generated yet.
         parts.append("\n🌐 Browsing themes (7d):")
         parts.extend(browse)
-    return "\n".join(parts), queued_ts
+
+    # ── Dynamically-evolving tail (2026-05-23) ────────────────────────
+    # Append every adopted candidate, then at most one trial section.
+    # Soft-fails throughout: a broken evolution subsystem never blocks
+    # the rest of the briefing.
+    trial_section_id: str | None = None
+    try:
+        from app.life_companion.briefing_evolution import (
+            render_adopted_sections, select_trial_for_briefing,
+        )
+        from app.life_companion.briefing_evolution import trial_state
+        try:
+            from app.agreement_self_model import agreement_ledger
+        except Exception:
+            agreement_ledger = None  # type: ignore[assignment]
+
+        for sid, label, lines in render_adopted_sections():
+            parts.append(f"\n{label}:")
+            parts.extend(lines)
+
+        trial = select_trial_for_briefing()
+        if trial is not None:
+            sid, label, lines = trial
+            agreement_id = ""
+            if agreement_ledger is not None:
+                try:
+                    agreement_id = agreement_ledger.record_suggestion(
+                        category="proactive_briefing",
+                        source_module=f"briefing_section:{sid}",
+                        summary=f"trial section: {label}",
+                    )
+                except Exception:
+                    agreement_id = ""
+            parts.append(
+                f"\n{label}  ✨ NEW — 👎 to drop, anything else keeps it"
+            )
+            parts.extend(lines)
+            try:
+                trial_state.record_show(sid, agreement_id=agreement_id)
+            except Exception:
+                pass
+            trial_section_id = sid
+    except Exception:
+        logger.debug("briefing_evolution tail failed", exc_info=True)
+
+    return "\n".join(parts), queued_ts, trial_section_id
 
 
-def _compose_evening() -> tuple[str, list[float]]:
-    cal = _gather_calendar_24h()  # also covers tonight + tomorrow morning
+def _compose_evening() -> tuple[str, list[float], str | None]:
+    # Apple Calendar first (subsumes Google when both are in Calendar.app),
+    # Google OAuth fallback. See _compose_morning for rationale.
+    cal_source = "Apple Calendar"
+    cal = _gather_apple_calendar(hours=24)
+    if not cal:
+        cal = _gather_calendar_24h()
+        cal_source = "Google Calendar" if cal and not cal[0].startswith(
+            "  • (Google Workspace"
+        ) else cal_source
     mail = _gather_top_emails(n=3)
     surfaced = _gather_companion_surfaced()
     health = _gather_health_summary()
     queued_lines, queued_ts = _gather_queued_notifications(n=10)
 
     parts = ["🌙 Evening wrap\n"]
-    parts.append("📅 Tomorrow:")
+    parts.append(f"📅 Tomorrow ({cal_source}):")
     parts.extend(cal or ["  • (no events)"])
     parts.append("\n📬 Still flagged:")
     parts.extend(mail or ["  • (inbox clean)"])
@@ -1077,10 +1180,21 @@ def _compose_evening() -> tuple[str, list[float]]:
     if travel:
         parts.append("")
         parts.extend(travel)
-    return "\n".join(parts), queued_ts
+    # Evening briefing reuses the same adopted-tail (briefing-evolution),
+    # but does NOT trial new sections — trials live in the morning brief
+    # only so the operator's reaction routing isn't ambiguous across two
+    # daily messages.
+    try:
+        from app.life_companion.briefing_evolution import render_adopted_sections
+        for _sid, label, lines in render_adopted_sections():
+            parts.append(f"\n{label}:")
+            parts.extend(lines)
+    except Exception:
+        logger.debug("evening adopted-tail failed", exc_info=True)
+    return "\n".join(parts), queued_ts, None
 
 
-def _compose_weekly() -> tuple[str, list[float]]:
+def _compose_weekly() -> tuple[str, list[float], str | None]:
     cal = _gather_calendar_24h()
     tickets = _gather_open_tickets(n=8)
     surfaced = _gather_companion_surfaced()
@@ -1120,8 +1234,17 @@ def _compose_weekly() -> tuple[str, list[float]]:
     if drills:
         parts.append("\n🛡 Resilience drills (week):")
         parts.extend(drills)
+    # Weekly composer also appends adopted briefing-evolution sections
+    # (no trials — that's morning-only).
+    try:
+        from app.life_companion.briefing_evolution import render_adopted_sections
+        for _sid, label, lines in render_adopted_sections():
+            parts.append(f"\n{label}:")
+            parts.extend(lines)
+    except Exception:
+        logger.debug("weekly adopted-tail failed", exc_info=True)
     # Weekly composer doesn't pull from the queue — daily covers that.
-    return "\n".join(parts), []
+    return "\n".join(parts), [], None
 
 
 # ── Cadence-aware entry point ─────────────────────────────────────────────
@@ -1173,7 +1296,7 @@ def run() -> None:
         return
 
     try:
-        body, consume_ts = composer()
+        body, consume_ts, trial_section_id = composer()
     except Exception:
         logger.debug("daily_briefing: composer %s raised", flavour, exc_info=True)
         return
@@ -1184,13 +1307,45 @@ def run() -> None:
         key=key,
         body_chars=len(body),
         queued_notifications_included=len(consume_ts),
+        trial_section_id=trial_section_id or "",
     )
-    sent = send_signal_alert(body, tag=f"daily_briefing_{flavour}")
+
+    # When a trial section is included, use the blocking send so we can
+    # capture the Signal timestamp and register it with the feedback
+    # bridge — the reaction handler in main.py needs the ts → section_id
+    # map to route 👎/👍 to the right candidate. Otherwise the regular
+    # fire-and-forget path is fine.
+    sent = False
+    signal_ts: int | None = None
+    if trial_section_id:
+        try:
+            from app.config import get_settings
+            from app.signal_client import send_message_blocking
+            recipient = (get_settings().signal_owner_number or "").strip()
+            if recipient:
+                signal_ts = send_message_blocking(recipient, body)
+                sent = signal_ts is not None
+        except Exception:
+            logger.debug("daily_briefing: blocking send failed", exc_info=True)
+    if not sent:
+        # Either no trial section or blocking send failed — fall back
+        # to the fire-and-forget path. A failed blocking send is still
+        # worth retrying as fire-and-forget so the operator gets the
+        # briefing, just without the feedback-routing link.
+        sent = send_signal_alert(body, tag=f"daily_briefing_{flavour}")
+
     if sent:
         _set_last_key(state, flavour, key)
         write_state_json(_STATE_FILE, state)
-        # Q4.1 — mark queued notifications consumed ONLY after the
-        # briefing actually fires. A failed Signal send preserves the
-        # queue for the next cadence window.
         if consume_ts:
             _mark_digest_consumed(consume_ts)
+        # Register the trial section's signal_ts → section_id pairing so
+        # the reaction handler can resolve 👎 / 👍 to the right candidate.
+        if trial_section_id and signal_ts is not None:
+            try:
+                from app.life_companion.briefing_evolution.feedback_bridge import (
+                    register,
+                )
+                register(str(signal_ts), trial_section_id)
+            except Exception:
+                logger.debug("daily_briefing: bridge register failed", exc_info=True)

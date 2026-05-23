@@ -1689,6 +1689,103 @@ async def receive_signal(request: Request):
                 )
                 # Fall through to feedback pipeline
 
+        # ── Briefing-evolution trial-section drop/keep (2026-05-23) ───
+        # 👎 on a morning briefing carrying a trial section → drop the
+        # section permanently (90d cooldown before re-propose). 👍 →
+        # explicit adoption (faster than the auto-adopt path).
+        if target_ts and not is_remove:
+            try:
+                from app.life_companion.briefing_evolution.feedback_bridge import (
+                    find_section_for_ts,
+                )
+                from app.life_companion.briefing_evolution import trial_state
+                section_id = find_section_for_ts(str(target_ts))
+                if section_id:
+                    try:
+                        from app.agreement_self_model import agreement_ledger
+                        from app.agreement_self_model.agreement_ledger import (
+                            AgreementResponse,
+                        )
+                    except Exception:
+                        agreement_ledger = None  # type: ignore[assignment]
+                        AgreementResponse = None  # type: ignore[assignment]
+                    section_state = trial_state.get_section(section_id)
+                    agreement_id = section_state.agreement_id if section_state else ""
+                    is_thumbs_down = emoji in ("👎", "👎🏻", "👎🏼", "👎🏽", "👎🏾", "👎🏿")
+                    is_thumbs_up = emoji in ("👍", "👍🏻", "👍🏼", "👍🏽", "👍🏾", "👍🏿")
+                    if is_thumbs_down:
+                        trial_state.mark_dropped(section_id, signal_ts=str(target_ts))
+                        if agreement_ledger and agreement_id:
+                            try:
+                                agreement_ledger.record_response(
+                                    agreement_id, AgreementResponse.REJECTED,
+                                )
+                            except Exception:
+                                pass
+                        # Identity-ledger emission (best effort) — adopt/drop
+                        # decisions are identity-shaping.
+                        try:
+                            from app.identity.continuity_ledger import record_event
+                            record_event(
+                                kind="briefing_section_decision",
+                                actor="operator",
+                                summary=f"dropped briefing section {section_id} via 👎",
+                                detail={
+                                    "section_id": section_id,
+                                    "decision": "dropped",
+                                    "via": "signal_reaction",
+                                },
+                            )
+                        except Exception:
+                            pass
+                        logger.info(
+                            "Briefing section %s dropped via 👎 reaction", section_id,
+                        )
+                        return {
+                            "status": "accepted",
+                            "briefing_section_action": "dropped",
+                            "section_id": section_id,
+                        }
+                    elif is_thumbs_up:
+                        trial_state.mark_adopted(section_id, signal_ts=str(target_ts))
+                        if agreement_ledger and agreement_id:
+                            try:
+                                agreement_ledger.record_response(
+                                    agreement_id, AgreementResponse.ACCEPTED,
+                                )
+                            except Exception:
+                                pass
+                        try:
+                            from app.identity.continuity_ledger import record_event
+                            record_event(
+                                kind="briefing_section_decision",
+                                actor="operator",
+                                summary=f"adopted briefing section {section_id} via 👍",
+                                detail={
+                                    "section_id": section_id,
+                                    "decision": "adopted",
+                                    "via": "signal_reaction",
+                                },
+                            )
+                        except Exception:
+                            pass
+                        logger.info(
+                            "Briefing section %s adopted via 👍 reaction", section_id,
+                        )
+                        return {
+                            "status": "accepted",
+                            "briefing_section_action": "adopted",
+                            "section_id": section_id,
+                        }
+                    # Other reactions on a trial section: leave it in
+                    # trial state — auto-adopt path will handle keep.
+            except Exception:
+                logger.debug(
+                    "Reaction-based briefing-evolution handling failed",
+                    exc_info=True,
+                )
+                # Fall through to feedback pipeline
+
         try:
             from app.feedback_pipeline import FeedbackPipeline
             from app.config import get_settings

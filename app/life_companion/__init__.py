@@ -131,4 +131,14 @@ def get_idle_jobs() -> list[tuple[str, Callable[[], None], Any]]:
         )
     except Exception:
         pass
+    # 2026-05-23 — weekly LLM proposer for new briefing sections. ~$0.001/week
+    # (single Haiku call). Output read by the briefing_ideas candidate section.
+    try:
+        from app.life_companion.briefing_evolution import proposer as briefing_proposer
+        jobs.append(
+            ("life-companion-briefing-proposer",
+             briefing_proposer.run, JobWeight.LIGHT),
+        )
+    except Exception:
+        pass
     return jobs

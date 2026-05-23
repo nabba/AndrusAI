@@ -213,6 +213,17 @@ FEATURES: tuple[Feature, ...] = (
         job_name="life-companion-seasonal-nudges",
     ),
     Feature(
+        key="briefing_proposer",
+        name="Briefing-section LLM proposer",
+        description=(
+            "Weekly Haiku 4.5 call (~$0.001/week) proposing new briefing "
+            "sections to surface as ideas in the briefing itself. Operator "
+            "implements the ones worth implementing."
+        ),
+        feature_env_key="LIFE_COMPANION_BRIEFING_PROPOSER_ENABLED",
+        job_name="life-companion-briefing-proposer",
+    ),
+    Feature(
         key="workstream_news",
         name="Workstream news (per-project)",
         description=(

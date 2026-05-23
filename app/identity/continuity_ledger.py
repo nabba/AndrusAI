@@ -116,6 +116,12 @@ IDENTITY_EVENT_KINDS: frozenset[str] = frozenset({
     "embedding_model_swap",  # PROGRAM §49 — Q14.4 (year-2+ #10.4)
     "interest_ossification",  # PROGRAM §49 — Q14.5 (year-2+ #10.5)
     "browse_ingestion_policy",  # PROGRAM §50 — Q15.1 browse ingestion
+    "briefing_section_decision",  # 2026-05-23 — dynamically-evolving
+                                  # morning briefing — operator adopt /
+                                  # drop verdict on a trial section
+                                  # (👎 → dropped, 👍 → adopted).
+                                  # Auto-surfaced into annual reflection
+                                  # via summarise_drift.
     "vacation_window",  # PROGRAM §51 — Q16 Theme 3 vacation mode
     "q17_landmark",  # PROGRAM §52 — Q17 multi-year resilience landmarks
                      # (warm-spare failover, local-only drill, bit-rot,
