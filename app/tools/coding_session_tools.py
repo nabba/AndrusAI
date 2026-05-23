@@ -112,14 +112,27 @@ def _build_tool_classes() -> dict[str, type]:
             from app.coding_session import (
                 IllegalTransition, QuotaExceeded, runtime,
             )
+            # Phase 2 piece 2h (2026-05-20): when invoked under an
+            # executor context, the session is tagged with the run_id
+            # AND opts into durability so the reconciler doesn't
+            # expire it mid-run. Both default to no-op when the
+            # context is not set (legacy behavior preserved).
+            try:
+                from app.autonomous_executor.coding_session_bridge import (
+                    current_executor_run_id,
+                )
+                executor_run = current_executor_run_id()
+            except Exception:
+                executor_run = None
 
             mgr = runtime.get_manager()
             try:
                 cs = mgr.start(
-                    agent_id=_resolve_agent_id(),
+                    agent_id=_resolve_agent_id(executor_run=executor_run),
                     base=base,
                     purpose=purpose,
                     worktree_root=runtime.worktree_root(),
+                    durable=bool(executor_run),
                 )
             except QuotaExceeded as exc:
                 return f"{_QUOTA_PREFIX} {exc}"
@@ -458,12 +471,27 @@ def _build_tool_classes() -> dict[str, type]:
                 IllegalTransition, runtime, submit_session,
             )
 
+            # Phase 3 v2 follow-up (2026-05-22) — auto-enable pyright
+            # type-check when BOTH master switches are on. The agent
+            # doesn't have to remember to opt in; operator's policy
+            # carries through automatically. Failure-isolated.
+            auto_check = False
+            try:
+                from app import runtime_settings as _rs
+                auto_check = (
+                    _rs.get_auto_type_check_on_submit_enabled()
+                    and _rs.get_pyright_sidecar_enabled()
+                )
+            except Exception:
+                auto_check = False
+
             mgr = runtime.get_manager()
             try:
                 _, results = submit_session(
                     session_id,
                     submit_reason=reason,
                     manager=mgr,
+                    with_type_check=auto_check,
                 )
             except IllegalTransition as exc:
                 return f"{_ERR_PREFIX} {exc}"
@@ -628,6 +656,194 @@ def _build_tool_classes() -> dict[str, type]:
                 return f"{_REFUSED_PREFIX} {result.refusal_reason}"
             return json.dumps(payload, indent=2)
 
+    # ── 9. iterate ────────────────────────────────────────────────
+
+    class _IterateInput(BaseModel):
+        session_id: str = Field(
+            description="Session id from coding_session_start.",
+        )
+        target_file: str = Field(
+            description=(
+                "Repo-relative path of the file the diagnosis is "
+                "anchored on. Must exist in the worktree. The "
+                "structured_diagnosis LLM reads this file's content "
+                "as the editing target."
+            ),
+        )
+        test_argv: list[str] = Field(
+            description=(
+                "Argv for the failing test command. Same allowlist + "
+                "sandbox rules as coding_session_run — e.g. "
+                "['pytest', 'tests/test_foo.py::test_bar', '-x']."
+            ),
+        )
+        max_iterations: int = Field(
+            default=10,
+            ge=1, le=20,
+            description=(
+                "Maximum diagnose → apply → retest cycles. Capped at "
+                "20. Default 10 is enough for most single-file fixes."
+            ),
+        )
+        budget_usd: float = Field(
+            default=1.0,
+            gt=0.0, le=5.0,
+            description=(
+                "Per-run LLM-cost cap in USD. Capped at $5. "
+                "structured_diagnosis estimates ~$0.001/call, so $1 "
+                "covers ~1000 fix proposals (far more than max_iterations)."
+            ),
+        )
+
+    class CodingSessionIterateTool(BaseTool):
+        name: str = "coding_session_iterate"
+        description: str = (
+            "Run the test-driven iterate loop inside this session: "
+            "run failing test → structured_diagnosis proposes a fix → "
+            "apply → rerun → repeat until green, budget, or "
+            "max-iterations.\n\n"
+            "Composes existing primitives: coding_session_run (sandbox "
+            "+ argv allowlist), the worktree file reader/writer, and "
+            "the pyright sidecar when ``pyright_sidecar_enabled`` is on "
+            "(passes per-iteration type errors into the diagnosis "
+            "prompt so a single fix attempt addresses test + type "
+            "failures together).\n\n"
+            "Returns a JSON object with status (passed / max_iterations "
+            "/ budget_exhausted / no_fix_available / test_runner_error / "
+            "disabled), iterations, cost_usd, fixes_applied (per-row), "
+            "type_errors at exit, last_test_result, "
+            "last_decline_reason.\n\n"
+            "Master switch: ``iterate_loop_enabled`` in /cp/settings "
+            "(default OFF). When off, the tool returns a "
+            "``disabled`` status without spawning subprocesses."
+        )
+        args_schema: Type[BaseModel] = _IterateInput
+
+        def _run(
+            self,
+            session_id: str,
+            target_file: str,
+            test_argv: list[str],
+            max_iterations: int = 10,
+            budget_usd: float = 1.0,
+        ) -> str:
+            from pathlib import Path
+            from app.coding_session import (
+                cap_run_timeout, run as runner_run, runtime,
+            )
+            from app.coding_session.iterate import (
+                IterateConfig,
+                iterate_until_green,
+                make_pyright_type_checker,
+            )
+
+            # 1. Master switch
+            try:
+                from app import runtime_settings as _rs
+                if not _rs.get_iterate_loop_enabled():
+                    return json.dumps({
+                        "status": "disabled",
+                        "reason": (
+                            "iterate_loop_enabled is OFF — flip it on "
+                            "in /cp/settings to use this tool."
+                        ),
+                    }, indent=2)
+                sidecar_on = _rs.get_pyright_sidecar_enabled()
+            except Exception:
+                # If runtime_settings is broken, refuse gracefully —
+                # better than running an unsupervised LLM loop.
+                return json.dumps({
+                    "status": "disabled",
+                    "reason": "runtime_settings unavailable",
+                }, indent=2)
+
+            # 2. Resolve session
+            mgr = runtime.get_manager()
+            cs = mgr.get(session_id)
+            if cs is None:
+                return f"{_ERR_PREFIX} session {session_id!r} not found"
+            if not cs.is_active:
+                return (
+                    f"{_REFUSED_PREFIX} session is {cs.status.value} "
+                    f"(not ACTIVE)"
+                )
+
+            worktree_root = Path(cs.worktree_path)
+            target_full = worktree_root / target_file
+            if not target_full.exists():
+                return (
+                    f"{_REFUSED_PREFIX} target_file {target_file!r} "
+                    f"not in worktree"
+                )
+
+            # 3. Build injectable callbacks. Each one composes an
+            # existing primitive — no new I/O paths invented here.
+            run_timeout = cap_run_timeout(
+                config=mgr.config, requested_s=120,
+            )
+
+            def _test_runner():
+                return runner_run(
+                    argv=list(test_argv),
+                    cwd=cs.worktree_path,
+                    timeout_s=run_timeout,
+                )
+
+            def _file_reader(relpath: str) -> str:
+                # Match read_worktree_file semantics for consistency
+                return mgr.backend.read_worktree_file(
+                    worktree_path=cs.worktree_path, path=relpath,
+                )
+
+            def _file_writer(relpath: str, content: str) -> None:
+                # Match coding_session_write's direct-file path —
+                # the iterate loop is privileged to skip the
+                # validator (its caller already validated by writing
+                # the file in the first place via the write tool).
+                target = worktree_root / relpath
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+
+            type_checker = (
+                make_pyright_type_checker(worktree_root)
+                if sidecar_on else None
+            )
+
+            # 4. Invoke the production iterate loop
+            outcome = iterate_until_green(
+                target_file=target_file,
+                test_runner=_test_runner,
+                file_reader=_file_reader,
+                file_writer=_file_writer,
+                type_checker=type_checker,
+                config=IterateConfig(
+                    max_iterations=max_iterations,
+                    budget_usd=budget_usd,
+                    run_type_check=sidecar_on,
+                ),
+                pattern_signature=f"iterate_tool:{cs.agent_id}",
+                error_class="coding_session_iterate",
+            )
+
+            # 5. Record runs for quota tracking (each iteration ran
+            # a test → one record_run call per iteration is the most
+            # accurate accounting, but the iterate loop doesn't expose
+            # per-iteration boundaries cleanly; record_run once with
+            # the total iteration count). Failure-isolated.
+            try:
+                for _ in range(outcome.iterations):
+                    mgr.record_run(session_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "coding_session_iterate: record_run failed: %s", exc,
+                )
+
+            payload = outcome.as_jsonable()
+            payload["session_id"] = session_id
+            payload["target_file"] = target_file
+            payload["type_check_enabled"] = sidecar_on
+            return json.dumps(payload, indent=2)
+
     return {
         "coding_session_start":           CodingSessionStartTool,
         "coding_session_read":            CodingSessionReadTool,
@@ -637,13 +853,14 @@ def _build_tool_classes() -> dict[str, type]:
         "coding_session_submit":          CodingSessionSubmitTool,
         "coding_session_discard":         CodingSessionDiscardTool,
         "coding_session_evolve_solution": CodingSessionEvolveTool,
+        "coding_session_iterate":         CodingSessionIterateTool,
     }
 
 
 # ── Agent-id resolution stub ────────────────────────────────────────
 
 
-def _resolve_agent_id() -> str:
+def _resolve_agent_id(*, executor_run: str | None = None) -> str:
     """Return the agent_id for the current invocation context.
 
     Phase 5.4-d uses a static stub. Phase 5.4-e wires the real
@@ -652,7 +869,22 @@ def _resolve_agent_id() -> str:
     field will eventually use). Until then, all coding sessions
     record ``"coder"`` as the agent — accurate for the only agent
     that has these tools in its inventory anyway.
+
+    Phase 2 piece 2h (2026-05-20): when ``executor_run`` is supplied
+    (the bridge ContextVar reports an active executor), the agent_id
+    is prefixed so the executor's cleanup hook can find sessions it
+    spawned. Format: ``executor:<run_id>:coder``. Stable across
+    versions — see ``coding_session_bridge.executor_agent_id``.
     """
+    if executor_run:
+        try:
+            from app.autonomous_executor.coding_session_bridge import (
+                executor_agent_id,
+            )
+            return executor_agent_id(executor_run, role="coder")
+        except Exception:
+            # Bridge unimportable → fall through to legacy default
+            pass
     return "coder"
 
 
@@ -692,6 +924,7 @@ def create_coding_session_tools() -> list:
         "coding_session_submit",
         "coding_session_discard",
         "coding_session_evolve_solution",
+        "coding_session_iterate",
     )]
 
 

@@ -104,6 +104,31 @@ const WorkflowsPage = lazy(() =>
     default: m.WorkflowsPage,
   })),
 );
+const DelegatePage = lazy(() =>
+  import('./components/DelegatePage').then((m) => ({
+    default: m.DelegatePage,
+  })),
+);
+const WideningPage = lazy(() =>
+  import('./components/WideningPage').then((m) => ({
+    default: m.WideningPage,
+  })),
+);
+const ReviewsPage = lazy(() =>
+  import('./components/ReviewsPage').then((m) => ({
+    default: m.ReviewsPage,
+  })),
+);
+const CapabilityRegressionPage = lazy(() =>
+  import('./components/CapabilityRegressionPage').then((m) => ({
+    default: m.CapabilityRegressionPage,
+  })),
+);
+const BenchmarksPage = lazy(() =>
+  import('./components/BenchmarksPage').then((m) => ({
+    default: m.BenchmarksPage,
+  })),
+);
 const ProposalsPage = lazy(() =>
   import('./components/ProposalsPage').then((m) => ({
     default: m.ProposalsPage,
@@ -181,6 +206,11 @@ export default function App() {
             <Route path="/action-requests" element={<LazyRoute><ActionRequestsPage /></LazyRoute>} />
             <Route path="/threads" element={<LazyRoute><ThreadsPage /></LazyRoute>} />
             <Route path="/workflows" element={<LazyRoute><WorkflowsPage /></LazyRoute>} />
+            <Route path="/delegate" element={<LazyRoute><DelegatePage /></LazyRoute>} />
+            <Route path="/widening" element={<LazyRoute><WideningPage /></LazyRoute>} />
+            <Route path="/reviews" element={<LazyRoute><ReviewsPage /></LazyRoute>} />
+            <Route path="/capability-regression" element={<LazyRoute><CapabilityRegressionPage /></LazyRoute>} />
+            <Route path="/benchmarks" element={<LazyRoute><BenchmarksPage /></LazyRoute>} />
             <Route path="/proposals" element={<LazyRoute><ProposalsPage /></LazyRoute>} />
             <Route path="/settings" element={<LazyRoute><SettingsPage /></LazyRoute>} />
             <Route path="/life-companion" element={<LazyRoute><LifeCompanionPage /></LazyRoute>} />

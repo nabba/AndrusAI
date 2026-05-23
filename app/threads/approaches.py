@@ -165,6 +165,15 @@ def _llm_distill(thread: Thread, body_text: str) -> str:
         import anthropic
     except ImportError:
         return ""
+    # Verified Plan Gap #5 (2026-05-22): Anthropic daily cap gate.
+    # On cap-out returns "" — thread closure distillation falls back
+    # to the deterministic body builder.
+    from app import llm_anthropic_budget
+    if not llm_anthropic_budget.call_or_skip(
+        estimated_cost_usd=0.0001,
+        source="threads:approaches_distill",
+    ):
+        return ""
     try:
         client = anthropic.Anthropic()
         prompt = (

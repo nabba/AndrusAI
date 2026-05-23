@@ -105,8 +105,30 @@ def _which_flavour(now: datetime) -> str | None:
 # ── Data collectors (each fail-soft) ──────────────────────────────────────
 
 
-def _gather_calendar_24h() -> list[str]:
-    """Lines for the next 24 h of calendar events. Empty list on failure."""
+_GOOGLE_NOT_CONNECTED_HINT = (
+    "  • (Google Workspace not connected — run "
+    "`docker exec -it crewai-team-gateway-1 python -m "
+    "app.google_workspace.bootstrap`)"
+)
+
+
+def _google_workspace_ready() -> bool:
+    """True when an OAuth token is loadable. False when bootstrap hasn't been
+    run — in which case both calendar and gmail gatherers will silently no-op
+    and the operator sees a misleading "(none scheduled) / (inbox clean)"
+    instead of a hint about what's actually missing."""
+    try:
+        from app.google_workspace import get_service
+        return get_service("calendar") is not None
+    except Exception:
+        return False
+
+
+def _gather_calendar_24h(*, hours: int = 24) -> list[str]:
+    """Lines for the next ``hours`` of calendar events. Returns a hint line
+    when Google Workspace isn't connected; empty list on transient failure."""
+    if not _google_workspace_ready():
+        return [_GOOGLE_NOT_CONNECTED_HINT]
     try:
         from app.tools.gcal_tools import _list_events
     except Exception:
@@ -116,7 +138,7 @@ def _gather_calendar_24h() -> list[str]:
         events = _list_events(
             max_results=15,
             time_min=now.isoformat().replace("+00:00", "Z"),
-            time_max=(now + timedelta(hours=24)).isoformat().replace("+00:00", "Z"),
+            time_max=(now + timedelta(hours=hours)).isoformat().replace("+00:00", "Z"),
         ) or []
     except Exception:
         return []
@@ -137,7 +159,11 @@ def _gather_calendar_24h() -> list[str]:
 
 
 def _gather_top_emails(n: int = 3) -> list[str]:
-    """Top-N urgent unread bullets. Empty on failure."""
+    """Top-N urgent unread bullets. Returns a hint line when Google
+    Workspace isn't connected; empty on genuinely-empty inbox or transient
+    failure."""
+    if not _google_workspace_ready():
+        return [_GOOGLE_NOT_CONNECTED_HINT]
     try:
         from app.tools.gmail_tools import _list_recent
         from app.tools.email_importance import EmailHeaders, score_email
@@ -179,7 +205,9 @@ def _gather_top_emails(n: int = 3) -> list[str]:
 
 
 def _gather_open_tickets(n: int = 5) -> list[str]:
-    """Open tickets across the active venture. Soft fail."""
+    """Open tickets across the active venture. Joins on
+    ``control_plane.projects`` so the briefing shows the human project
+    name (PLG / Eesti mets / …) instead of an opaque UUID. Soft fail."""
     try:
         from app.control_plane import db as cp_db
     except Exception:
@@ -187,10 +215,12 @@ def _gather_open_tickets(n: int = 5) -> list[str]:
     try:
         rows = cp_db.execute(
             """
-            SELECT title, status, project_id
-              FROM control_plane.tickets
-             WHERE status NOT IN ('done', 'cancelled', 'archived')
-             ORDER BY updated_at DESC
+            SELECT t.title, t.status,
+                   COALESCE(p.name, t.project_id::text) AS project_name
+              FROM control_plane.tickets t
+              LEFT JOIN control_plane.projects p ON p.id = t.project_id
+             WHERE t.status NOT IN ('done', 'cancelled', 'archived')
+             ORDER BY t.updated_at DESC
              LIMIT %s
             """,
             (n,),
@@ -203,7 +233,7 @@ def _gather_open_tickets(n: int = 5) -> list[str]:
     for row in rows:
         title = (row.get("title") or "")[:60]
         status = row.get("status") or ""
-        project = row.get("project_id") or ""
+        project = row.get("project_name") or ""
         lines.append(f"  • [{status}] {title}  ({project})")
     return lines
 
@@ -762,6 +792,139 @@ def _gather_resilience_drill_digest() -> list[str]:
     return lines
 
 
+def _gather_system_status() -> list[str]:
+    """One-line summary of internal system health.
+
+    Calls the same ``system_status()`` function the ``/cp/monitor`` page
+    uses (it's a plain function, not just an HTTP handler) and condenses
+    to ``N ok / N warn / N error`` plus the worst-status category.
+    Soft fail — returns ``[]`` on any exception so the section disappears
+    cleanly on a system that doesn't have the endpoint wired."""
+    try:
+        from app.control_plane.dashboard_routes_ops_misc import system_status
+        data = system_status() or {}
+    except Exception:
+        return []
+    by_cat = data.get("by_category") or {}
+    overall = data.get("overall") or "ok"
+    total_ok = sum(b.get("ok", 0) for b in by_cat.values())
+    total_warn = sum(b.get("warn", 0) for b in by_cat.values())
+    total_error = sum(b.get("error", 0) for b in by_cat.values())
+    if not (total_ok or total_warn or total_error):
+        return []
+    icon = {"ok": "🟢", "warn": "🟡", "error": "🔴"}.get(overall, "⚪")
+    line = f"  {icon} {total_ok} ok / {total_warn} warn / {total_error} error"
+    out = [line]
+    if total_warn or total_error:
+        worst_cats = sorted(
+            (
+                (cat, b.get("warn", 0) + b.get("error", 0))
+                for cat, b in by_cat.items()
+                if b.get("warn", 0) or b.get("error", 0)
+            ),
+            key=lambda x: -x[1],
+        )[:3]
+        for cat, n in worst_cats:
+            out.append(f"    • {cat}: {n} non-ok")
+    return out
+
+
+def _gather_workstream_news(*, window_days: int = 2) -> list[str]:
+    """Per-workspace recent news from the nightly ``workstream_news``
+    scrape. Auto-hides when no per-workspace JSON exists within the
+    window (e.g. the idle job hasn't run yet). Soft fail."""
+    try:
+        from app.life_companion.workstream_news import all_workspaces_recent_news
+    except Exception:
+        return []
+    try:
+        per_ws = all_workspaces_recent_news(window_days=window_days)
+    except Exception:
+        return []
+    if not per_ws:
+        return []
+    out: list[str] = []
+    for ws_name in sorted(per_ws.keys()):
+        block = per_ws[ws_name]
+        display = block.get("display_name") or ws_name
+        items = block.get("items") or []
+        if not items:
+            continue
+        out.append(f"  {display}")
+        for it in items[:3]:
+            title = (it.get("title") or "")[:90]
+            why = (it.get("why") or "")[:120]
+            url = (it.get("url") or "").strip()
+            url_tail = f" ({url})" if url else ""
+            out.append(f"    • {title}{url_tail}")
+            if why:
+                out.append(f"      → {why}")
+    return out
+
+
+def _gather_workstream_activity(*, window_hours: int = 24) -> list[str]:
+    """Per-workspace ticket activity in the last ``window_hours``.
+
+    Groups by the human project name (PLG / Eesti mets / Archibal /
+    KaiCart / default) and counts new/updated/done/failed in the window.
+    Quiet workspaces are skipped so the section stays scannable.
+
+    Soft fail. Returns ``[]`` when nothing happened in the window
+    across any workspace; the caller hides the section entirely."""
+    try:
+        from app.control_plane import db as cp_db
+    except Exception:
+        return []
+    try:
+        rows = cp_db.execute(
+            """
+            SELECT COALESCE(p.name, t.project_id::text) AS project_name,
+                   t.status,
+                   COUNT(*) AS n
+              FROM control_plane.tickets t
+              LEFT JOIN control_plane.projects p ON p.id = t.project_id
+             WHERE t.updated_at >= NOW() - (%s || ' hours')::interval
+             GROUP BY project_name, t.status
+             ORDER BY project_name
+            """,
+            (str(window_hours),),
+            fetch=True,
+        ) or []
+    except Exception:
+        return []
+    if not rows:
+        return []
+
+    by_ws: dict[str, dict[str, int]] = {}
+    for r in rows:
+        ws = r.get("project_name") or "?"
+        st = r.get("status") or "?"
+        n = int(r.get("n") or 0)
+        by_ws.setdefault(ws, {})[st] = n
+
+    out: list[str] = []
+    for ws in sorted(by_ws.keys()):
+        buckets = by_ws[ws]
+        # Compose a compact "PLG: 3 new, 2 done" sentence.
+        parts: list[str] = []
+        if buckets.get("todo"):
+            parts.append(f"{buckets['todo']} new")
+        if buckets.get("in_progress"):
+            parts.append(f"{buckets['in_progress']} in-progress")
+        if buckets.get("done"):
+            parts.append(f"{buckets['done']} done")
+        if buckets.get("failed"):
+            parts.append(f"{buckets['failed']} failed")
+        if buckets.get("blocked"):
+            parts.append(f"{buckets['blocked']} blocked")
+        if buckets.get("review"):
+            parts.append(f"{buckets['review']} review")
+        if not parts:
+            continue
+        out.append(f"  • {ws}: {', '.join(parts)}")
+    return out
+
+
 def _gather_companion_surfaced() -> list[str]:
     """Recent companion ideas surfaced to the user (last 24 h). Soft fail."""
     try:
@@ -801,20 +964,35 @@ def _compose_morning() -> tuple[str, list[float]]:
     send. The caller (``run()``) only marks them on Signal-send
     success so failed briefings preserve the queue.
     """
-    cal = _gather_calendar_24h()
+    # Morning covers today + tomorrow (48h) so the operator sees enough
+    # to plan the day's transitions; evening keeps the 24h horizon since
+    # it's focused on tonight + tomorrow morning.
+    cal = _gather_calendar_24h(hours=48)
     mail = _gather_top_emails(n=3)
     tickets = _gather_open_tickets(n=5)
     health = _gather_health_summary()
     tensions = _gather_open_tensions(n=5)
     queued_lines, queued_ts = _gather_queued_notifications(n=10)
+    workstreams = _gather_workstream_activity(window_hours=24)
+    sysstatus = _gather_system_status()
 
     parts = ["☀️  Morning briefing\n"]
-    parts.append("📅 Today's events:")
+    parts.append("📅 Today + tomorrow:")
     parts.extend(cal or ["  • (none scheduled)"])
     parts.append("\n📬 Urgent unread:")
     parts.extend(mail or ["  • (inbox clean)"])
     parts.append("\n🎯 Open tickets:")
     parts.extend(tickets or ["  • (no open tickets)"])
+    if workstreams:
+        parts.append("\n🏢 Workstream activity (24h):")
+        parts.extend(workstreams)
+    workstream_news = _gather_workstream_news(window_days=2)
+    if workstream_news:
+        parts.append("\n📰 Workstream news (per-project):")
+        parts.extend(workstream_news)
+    if sysstatus:
+        parts.append("\n⚙️  System status:")
+        parts.extend(sysstatus)
     insights = _gather_cross_modal_insights(n=3)
     if insights:
         # Q4#15 — proactive insights from cross-modal pattern detector.

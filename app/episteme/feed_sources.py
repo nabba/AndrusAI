@@ -49,12 +49,50 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from app.utils import feed_parser
+from app.utils.switch_gated import switch_gated
 
 logger = logging.getLogger(__name__)
 
 
 _HTTP_TIMEOUT_S = 15.0
 _USER_AGENT = "AndrusAI-Episteme/1.0"
+
+
+# ── Per-feed connector-budget caps (Phase D.1, 2026-05-22) ──────────
+#
+# Each feed source is wrapped with a conservative daily call cap so a
+# runaway loop (e.g. a misconfigured scheduler firing the same feed
+# 1000×/day) can't exhaust the source's quota or our outbound bandwidth.
+#
+# Why call-count caps, not USD caps:
+#   These four sources are all FREE at the API boundary — no per-call
+#   billing. The cost we care about is "quota burn" (OpenReview's
+#   anonymous rate limit, GitHub Atom-feed throttling, etc.). The
+#   connector_budget primitive's call-count mode is exactly this shape.
+#
+# Failure-isolated: if the budget decorator isn't importable (stripped
+# test env), we degrade to a no-op pass-through so the feed still fires.
+try:
+    from app.connector_budget import (
+        ConnectorBudgetExceeded,
+        with_connector_budget,
+    )
+    _BUDGET_AVAILABLE = True
+except Exception:
+    _BUDGET_AVAILABLE = False
+
+    class ConnectorBudgetExceeded(Exception):  # type: ignore[no-redef]
+        """Fallback when connector_budget is unavailable — kept so the
+        caller's ``except ConnectorBudgetExceeded`` continues to compile.
+        """
+
+    def with_connector_budget(*args, **kwargs):  # type: ignore[no-redef]
+        """No-op decorator factory when connector_budget is unavailable."""
+
+        def _decorator(fn):
+            return fn
+
+        return _decorator
 
 
 def _enabled(env_var: str, default: bool = True) -> bool:
@@ -159,23 +197,48 @@ def _generic_feed_records(
 _PEPS_FEED_URL = "https://peps.python.org/peps.rss"
 
 
+@with_connector_budget(
+    connector="paper_pipeline_peps", daily_call_cap=5,
+)
+def _fetch_python_peps_inner(
+    lookback_days: int, max_items: int,
+) -> list[dict[str, Any]]:
+    return _generic_feed_records(
+        url=_PEPS_FEED_URL,
+        source_name="python_peps",
+        lookback_days=lookback_days,
+        max_items=max_items,
+        categories=["python", "language"],
+        kind="standard",
+    )
+
+
+@switch_gated(
+    "PAPER_PIPELINE_PEPS_ENABLED", on_disabled=list, default=True,
+)
 def fetch_python_peps(
     *, lookback_days: int = 90, max_items: int = 10,
 ) -> list[dict[str, Any]]:
     """PEPs land at a low cadence (a few per month); 90-day lookback
     catches most actively-discussed proposals. Returns [] when the
-    PEPs source is disabled or the fetch fails."""
-    if not _enabled("PAPER_PIPELINE_PEPS_ENABLED"):
-        return []
+    PEPs source is disabled, the cap is exhausted, or the fetch fails.
+
+    Connector-budget gated (Phase D.1, 2026-05-22): 5 calls/UTC-day by
+    default. Override via runtime_settings ``connector_budget_overrides``
+    when a one-off pass needs more headroom.
+
+    Phase E.3 (2026-05-22): master switch handling moved to
+    ``@switch_gated`` decorator — same env-var contract
+    (``PAPER_PIPELINE_PEPS_ENABLED``, default True), same empty-list
+    sentinel on OFF.
+    """
     try:
-        return _generic_feed_records(
-            url=_PEPS_FEED_URL,
-            source_name="python_peps",
-            lookback_days=lookback_days,
-            max_items=max_items,
-            categories=["python", "language"],
-            kind="standard",
-        )
+        return _fetch_python_peps_inner(lookback_days, max_items)
+    except ConnectorBudgetExceeded:
+        # Cap-out is treated as graceful degradation — the alert path
+        # in connector_budget already pings the operator; the caller
+        # gets an empty result and the rest of the digest continues.
+        return []
     except Exception:
         logger.debug("feed_sources: PEPs fetcher raised", exc_info=True)
         return []
@@ -189,22 +252,38 @@ def fetch_python_peps(
 _W3C_FEED_URL = "https://www.w3.org/News/atom.xml"
 
 
+@with_connector_budget(
+    connector="paper_pipeline_w3c", daily_call_cap=5,
+)
+def _fetch_w3c_tr_inner(
+    lookback_days: int, max_items: int,
+) -> list[dict[str, Any]]:
+    return _generic_feed_records(
+        url=_W3C_FEED_URL,
+        source_name="w3c_tr",
+        lookback_days=lookback_days,
+        max_items=max_items,
+        categories=["web", "standards"],
+        kind="standard",
+    )
+
+
+@switch_gated(
+    "PAPER_PIPELINE_W3C_ENABLED", on_disabled=list, default=True,
+)
 def fetch_w3c_tr(
     *, lookback_days: int = 30, max_items: int = 8,
 ) -> list[dict[str, Any]]:
     """W3C News covers TR drafts + standards updates. 30-day lookback
-    matches the dashboard/PWA cadence we typically iterate on."""
-    if not _enabled("PAPER_PIPELINE_W3C_ENABLED"):
-        return []
+    matches the dashboard/PWA cadence we typically iterate on.
+
+    Connector-budget gated (Phase D.1, 2026-05-22): 5 calls/UTC-day.
+    Phase E.3 (2026-05-22): master switch handling via ``@switch_gated``.
+    """
     try:
-        return _generic_feed_records(
-            url=_W3C_FEED_URL,
-            source_name="w3c_tr",
-            lookback_days=lookback_days,
-            max_items=max_items,
-            categories=["web", "standards"],
-            kind="standard",
-        )
+        return _fetch_w3c_tr_inner(lookback_days, max_items)
+    except ConnectorBudgetExceeded:
+        return []
     except Exception:
         logger.debug("feed_sources: W3C fetcher raised", exc_info=True)
         return []
@@ -218,23 +297,39 @@ def fetch_w3c_tr(
 _HF_FEED_URL = "https://huggingface.co/papers/atom"
 
 
+@with_connector_budget(
+    connector="paper_pipeline_huggingface", daily_call_cap=5,
+)
+def _fetch_huggingface_papers_inner(
+    lookback_days: int, max_items: int,
+) -> list[dict[str, Any]]:
+    return _generic_feed_records(
+        url=_HF_FEED_URL,
+        source_name="huggingface_papers",
+        lookback_days=lookback_days,
+        max_items=max_items,
+        categories=["ml", "curated"],
+        kind="paper",
+    )
+
+
+@switch_gated(
+    "PAPER_PIPELINE_HF_ENABLED", on_disabled=list, default=True,
+)
 def fetch_huggingface_papers(
     *, lookback_days: int = 14, max_items: int = 10,
 ) -> list[dict[str, Any]]:
     """Editorially-curated daily paper picks. Some overlap with arXiv
     (HF surfaces a subset, often with better titles/descriptions),
-    but the editorial layer is a different signal."""
-    if not _enabled("PAPER_PIPELINE_HF_ENABLED"):
-        return []
+    but the editorial layer is a different signal.
+
+    Connector-budget gated (Phase D.1, 2026-05-22): 5 calls/UTC-day.
+    Phase E.3 (2026-05-22): master switch handling via ``@switch_gated``.
+    """
     try:
-        return _generic_feed_records(
-            url=_HF_FEED_URL,
-            source_name="huggingface_papers",
-            lookback_days=lookback_days,
-            max_items=max_items,
-            categories=["ml", "curated"],
-            kind="paper",
-        )
+        return _fetch_huggingface_papers_inner(lookback_days, max_items)
+    except ConnectorBudgetExceeded:
+        return []
     except Exception:
         logger.debug("feed_sources: HF fetcher raised", exc_info=True)
         return []
@@ -288,6 +383,9 @@ def _openreview_query(venue_token: str, limit: int) -> list[dict[str, Any]]:
     return notes
 
 
+@switch_gated(
+    "PAPER_PIPELINE_OPENREVIEW_ENABLED", on_disabled=list, default=True,
+)
 def fetch_openreview(
     *, venues: tuple[str, ...] = ("neurips", "icml", "iclr"),
     lookback_days: int = 120, max_items_per_venue: int = 5,
@@ -295,19 +393,31 @@ def fetch_openreview(
     """Top conference accepted papers per venue. The per-venue cap
     keeps the total bounded so a single venue can't crowd the
     digest. 120-day lookback covers the typical post-acceptance
-    publishing window."""
-    if not _enabled("PAPER_PIPELINE_OPENREVIEW_ENABLED"):
-        return []
+    publishing window.
+
+    Connector-budget gated (Phase D.1, 2026-05-22): 5 calls/UTC-day
+    at the OUTER (per-pass) granularity. The inner per-venue HTTP
+    fan-out is treated as a single billable unit so the operator's
+    surface stays "1 fetch_openreview = 1 budget tick" regardless of
+    the number of venues queried.
+
+    Phase E.3 (2026-05-22): master switch handling via ``@switch_gated``.
+    """
     try:
         return _fetch_openreview_inner(
             venues=venues, lookback_days=lookback_days,
             max_items_per_venue=max_items_per_venue,
         )
+    except ConnectorBudgetExceeded:
+        return []
     except Exception:
         logger.debug("feed_sources: OpenReview fetcher raised", exc_info=True)
         return []
 
 
+@with_connector_budget(
+    connector="paper_pipeline_openreview", daily_call_cap=5,
+)
 def _fetch_openreview_inner(
     *, venues: tuple[str, ...], lookback_days: int,
     max_items_per_venue: int,

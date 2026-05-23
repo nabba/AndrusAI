@@ -231,10 +231,21 @@ _MODEL_DEFAULT = "claude-haiku-4-5-20251001"
 
 
 def _default_llm_call(system: str, user: str) -> str:
-    """Anthropic Haiku 4.5. Empty string on any failure."""
+    """Anthropic Haiku 4.5. Empty string on any failure.
+
+    Verified Plan Gap #5 (2026-05-22): Anthropic daily cap gate.
+    On cap-out returns "" — the daily browse-topic batch skips and
+    runs again tomorrow.
+    """
     try:
         import anthropic
     except ImportError:
+        return ""
+    from app import llm_anthropic_budget
+    if not llm_anthropic_budget.call_or_skip(
+        estimated_cost_usd=0.0005,
+        source="browse:topic_extraction",
+    ):
         return ""
     try:
         client = anthropic.Anthropic()

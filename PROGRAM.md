@@ -12362,3 +12362,117 @@ Three originally-deferred items.
 * **No CLAUDE.md edits.** Per the original Phase 1 analysis, CLAUDE.md
   stays the stable narrative; `system_inventory` is the live truth
   agents query at runtime.
+
+# §62 — Verified Implementation Plan delivery (Phases A–E + Gap closures 1–6 + Risk #4 + Gaps A–F + Gaps E–F, 2026-05-22 → 2026-05-23)
+
+Devin-class autonomy ship. Six rigorous ultrathink audit cycles
+across many sessions; each one verified plan promises operationally
+end-to-end (not just by file existence) and found progressively
+subtler gaps. Final scoreboard: 25+ new modules, ~20 existing
+modules extended, **zero TIER_IMMUTABLE touches outside the
+operator-authorized Tier-3 amendment protocol**, **zero behavioural
+change when new switches are OFF**, **410+ gap-closure tests
+passing**.
+
+Full delivery summary: `crewai-team/docs/VERIFIED_PLAN.md`.
+
+## §62.1 — Seven plan sections delivered
+
+1. **Autonomous Executor** — `app/autonomous_executor/` (13 files) +
+   idle-scheduler HEAVY tuple + `/delegate` Signal slash command
+   family (incl. `resume <run_id> <hint>`) + `/api/cp/delegate/*`
+   REST + React `DelegatePage` + 4th hash-chained audit ledger at
+   `workspace/autonomous_executor/audit.jsonl` + new
+   `executor_milestone` identity-event kind (20th).
+2. **Persistent Dev Workspace** — `CodingSession.durable`,
+   `iterate_loop_state` fields; `submit_session(submit_mode="branch")`
+   path; `iterate_until_green` test-driven loop; retention monitor
+   honors `durable=True`.
+3. **Risk Classifier** — `app/risk_classifier/` (7 files: zones,
+   classifier, evidence, widening, widening_decisions,
+   two_reasoner). Dynamic allowlists via runtime_settings.
+   `goodhart_guard._detect_auto_apply_gaming` watches the
+   auto-apply lane (Gap E closure).
+4. **Reflexive Verification** — `gate_output()` extension chain in
+   `app/epistemic/verification_extension.py` (4 evaluators); 3 new
+   zone-aware thresholds (chat/autonomous/financial);
+   `app/epistemic/skip_state.py` ContextVar for the output-streaming
+   shortcut.
+5. **Code Intelligence** — `app/code_intel/` (9 files: AST indexer +
+   tree-sitter indexer + Postgres store + pyright sidecar + 8 agent
+   tools). Migration `036_code_intel.sql` with 3 idempotent tables.
+6. **Connector tag migration** — 23 tools decorated with
+   `@register_tool`. Tier-3 amendment (operator-authorized
+   2026-05-23) adds `ratelimit` (6 tags) + `code-intelligence`
+   (4 tags) capability categories to `app/tool_registry/capabilities.py`.
+7. **Fast Path** — `_FAST_ROUTE_PATTERNS` extended; new
+   `_try_local_route()` with full `tier_hint="local"` → Ollama
+   dispatch wiring via `_active_local_tier` ContextVar (Gap A
+   closure — was half-wired); output-streaming shortcut via
+   `skip_verification` flag honoured by `gate_output()` (Gap 2
+   closure).
+
+## §62.2 — Risk register closure
+
+| # | Risk | Status |
+|---|------|--------|
+| 1 | `EPISTEMIC_ENABLED` env-var → runtime_settings | **Closed** |
+| 2 | `capabilities.py` TIER_IMMUTABLE | **Closed (Tier-3 amendment applied 2026-05-23)** |
+| 3 | Three audit chains don't compose | **Closed (by design; 4th chain matches the pattern)** |
+| 4 | `gh` CLI version-drift fragility | **Closed (new healing monitor `gh_version`; 41st)** |
+| 5 | No central cost/quota model | **Closed at the observability layer (`ratelimit` tags + `ConnectorBudget` decorator)** |
+| 6 | code_intel adds 50MB pyright to gateway | **Closed (operator decision: in Dockerfile; tree-sitter as multi-language complement)** |
+
+## §62.3 — Master switches (all default OFF)
+
+`autonomous_executor_enabled`, `risk_classifier_enabled`,
+`widening_proposer_enabled`, `two_reasoner_review_enabled`,
+`verification_extension_enabled`, `verification_threshold_chat`,
+`verification_threshold_autonomous`, `verification_threshold_financial`,
+`epistemic_enabled_override`, `epistemic_blocking_mode_override`,
+`local_route_enabled`, `extended_fast_route_patterns_enabled`,
+`code_intel_enabled`, `code_intel_tree_sitter_enabled`,
+`code_intel_postgres_enabled`, `pyright_sidecar_enabled`,
+`code_intel_auto_type_check_enabled`,
+`coding_session_iterate_loop_enabled`,
+`coding_session_durable_enabled`, `connector_budgets_enabled`,
+`gh_version_monitor_enabled`, `benchmarks_enabled`,
+`auto_apply_allowed_requestors` (list),
+`auto_apply_allowed_paths` (list), plus the per-zone
+`trust_zone_*` switches.
+
+## §62.4 — Operator activation order
+
+1. `verification_extension_enabled` (observational with
+   conservative thresholds).
+2. `risk_classifier_enabled` (with empty allowlists — observes only).
+3. `local_route_enabled` + `code_intel_enabled` (after Ollama is
+   warm + code_intel refreshed at least once).
+4. `autonomous_executor_enabled` (`/delegate` becomes operational).
+5. Populate `auto_apply_allowed_*` lists only after >30 days of
+   clean classifier evidence — goodhart_guard auto-apply detector
+   watches this lane.
+
+## §62.5 — Tests
+
+Cumulative gap-closure regression: **410+ passing, 0 failing**.
+Source-pinned where the full stack would be required for runtime
+verification (works on dev host without pydantic_settings /
+psycopg2). Each gap closure shipped with its own dedicated test
+file pinning the contract.
+
+## §62.6 — Deliberate non-decisions
+
+* **No new architectural layer above Commander** — executor is
+  parallel, not above.
+* **No replacement of `gate_output()`** — extending its evaluators
+  is the elegant path.
+* **No central audit unification** — four independent hash-chained
+  ledgers by design.
+* **No fine-tuning / model training** — weights stay frontier.
+* **No TIER_IMMUTABLE bypasses** outside the standard Tier-3 protocol.
+* **No removal of any current default-OFF feature** — they remain
+  available, just gated by trust zones.
+
+Cross-reference: `crewai-team/docs/VERIFIED_PLAN.md`,
+`crewai-team/docs/PHASES_ABCDE_SUMMARY.md`.

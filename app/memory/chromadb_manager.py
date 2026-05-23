@@ -19,6 +19,7 @@ import functools
 import logging
 import os
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -158,10 +159,17 @@ def _raw_embed(text: str) -> list[float]:
     emb = _ollama_embed(text)
     if emb:
         return emb
-    # Ollama went down mid-session — refuse to produce wrong-dimension vectors
+    # Empty body — usually Ollama briefly unavailable while swapping a model
+    # in/out under VRAM pressure. One retry with 1.5s backoff covers the
+    # typical swap window without paying the cost on the happy path.
+    time.sleep(1.5)
+    emb = _ollama_embed(text)
+    if emb:
+        return emb
     raise EmbeddingUnavailableError(
-        f"Ollama embedding failed mid-session — refusing to produce "
-        f"non-{_EMBED_DIM}-dim vectors"
+        f"Ollama returned empty body for {_OLLAMA_MODEL} (2 attempts, 1.5s "
+        f"backoff). Refusing to substitute — {_EMBED_DIM}-dim invariant "
+        f"requires Ollama to respond."
     )
 
 

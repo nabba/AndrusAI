@@ -354,6 +354,154 @@ class BridgeWorktreeBackend:
             )
         return result.get("stdout") or ""
 
+    def submit_as_branch(
+        self,
+        *,
+        worktree_path: str,
+        branch: str,
+        commit_message: str,
+        pr_title: str,
+        pr_body: str,
+    ) -> dict[str, Any]:
+        """Phase 2 piece 2i (2026-05-20) — commit-all + push + open PR
+        from inside the worktree.
+
+        Sequence (all via the bridge, ``working_dir=worktree_path``):
+
+          1. ``git checkout -B <branch>``   — force-create the branch
+             (idempotent across retries).
+          2. ``git add -A``                  — stage every change in
+             the worktree (deletions + renames + new files included).
+          3. ``git commit -m <message>``    — single commit.
+          4. ``git push -u origin <branch>``— publish to the remote.
+          5. ``gh pr create``                — open the PR.
+
+        Returns
+        -------
+        dict
+            ``{ok, commit_sha, pr_url, error}``. ``ok=True`` when the
+            commit + push succeed; ``pr_url`` is best-effort (a failed
+            ``gh pr create`` does NOT mark the whole submit failed —
+            the branch is on the remote and the operator can open the
+            PR manually). ``error`` is set on the first failing step.
+
+        Mirrors the dict-return shape of ``change_requests.apply._run_git_auto_pr``
+        so a future unification is mechanical.
+        """
+        bridge = self._get_bridge()
+
+        def _run(argv: list[str], timeout: int = 30) -> dict[str, Any]:
+            return bridge.execute(
+                argv, working_dir=worktree_path, timeout=timeout,
+            ) or {}
+
+        # 1. Branch (force-recreate)
+        try:
+            r = _run(["git", "checkout", "-B", branch], timeout=15)
+        except Exception as exc:
+            return {
+                "ok": False, "commit_sha": "", "pr_url": "",
+                "error": f"git checkout raised: {exc}",
+            }
+        if r.get("returncode", 0) != 0:
+            return {
+                "ok": False, "commit_sha": "", "pr_url": "",
+                "error": (
+                    f"git checkout failed: "
+                    f"{(r.get('stderr') or '').strip()[:400]}"
+                ),
+            }
+
+        # 2. Stage all changes
+        try:
+            r = _run(["git", "add", "-A"], timeout=30)
+        except Exception as exc:
+            return {
+                "ok": False, "commit_sha": "", "pr_url": "",
+                "error": f"git add -A raised: {exc}",
+            }
+        if r.get("returncode", 0) != 0:
+            return {
+                "ok": False, "commit_sha": "", "pr_url": "",
+                "error": (
+                    f"git add -A failed: "
+                    f"{(r.get('stderr') or '').strip()[:400]}"
+                ),
+            }
+
+        # 3. Commit
+        try:
+            r = _run(["git", "commit", "-m", commit_message], timeout=15)
+        except Exception as exc:
+            return {
+                "ok": False, "commit_sha": "", "pr_url": "",
+                "error": f"git commit raised: {exc}",
+            }
+        if r.get("returncode", 0) != 0:
+            stderr = (r.get("stderr") or "").lower()
+            if "nothing to commit" in stderr:
+                return {
+                    "ok": False, "commit_sha": "", "pr_url": "",
+                    "error": "nothing to commit — worktree had no changes",
+                }
+            return {
+                "ok": False, "commit_sha": "", "pr_url": "",
+                "error": (
+                    f"git commit failed: "
+                    f"{(r.get('stderr') or '').strip()[:400]}"
+                ),
+            }
+        sha_result = _run(["git", "rev-parse", "HEAD"], timeout=10)
+        commit_sha = (sha_result.get("stdout") or "").strip()
+
+        # 4. Push
+        try:
+            r = _run(
+                ["git", "push", "-u", "origin", branch], timeout=60,
+            )
+        except Exception as exc:
+            return {
+                "ok": False, "commit_sha": commit_sha, "pr_url": "",
+                "error": f"git push raised: {exc}",
+            }
+        if r.get("returncode", 0) != 0:
+            return {
+                "ok": False, "commit_sha": commit_sha, "pr_url": "",
+                "error": (
+                    f"git push failed: "
+                    f"{(r.get('stderr') or '').strip()[:400]}"
+                ),
+            }
+
+        # 5. PR — best-effort (push already succeeded, operator can
+        # open manually if gh is broken)
+        pr_url = ""
+        try:
+            pr_r = _run([
+                "gh", "pr", "create",
+                "--base", "main",
+                "--head", branch,
+                "--title", pr_title,
+                "--body", pr_body,
+            ], timeout=30)
+            out = (pr_r.get("stdout") or "").strip()
+            for line in out.splitlines():
+                if line.startswith("https://github.com/"):
+                    pr_url = line.strip()
+                    break
+        except Exception as exc:
+            logger.warning(
+                "submit_as_branch: gh pr create raised (non-fatal): %s",
+                exc,
+            )
+
+        return {
+            "ok": True,
+            "commit_sha": commit_sha,
+            "pr_url": pr_url,
+            "error": "",
+        }
+
     def read_base_file(self, *, base_sha: str, path: str) -> str:
         bridge = self._get_bridge()
         result = bridge.execute(

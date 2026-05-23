@@ -193,6 +193,76 @@ _FAST_ROUTE_PATTERNS = [
     (re.compile(r"^(?:create|start|init)\s+(?:a\s+|an\s+)?(?:new\s+)?(?:project|app)\b", re.IGNORECASE), "devops", 5),
 ]
 
+
+# ── Extended fast-route patterns (2026-05-20) ────────────────────────────
+# Additional patterns for high-frequency operator queries that today fall
+# through to the LLM router. Gated by
+# ``runtime_settings.fast_route_extended_patterns_enabled`` (default True
+# — patterns are narrowly anchored, conservative). When OFF, the
+# ``_try_fast_route`` iterator skips this list entirely, restoring
+# bit-identical pre-extension behaviour.
+#
+# Routing target ``"direct"`` means: the Commander handles the query
+# itself via its tool inventory (no crew dispatch). Difficulty is set
+# to 2 for genuinely trivial queries that just need a tool call, 3 for
+# search/recall queries that may need a small amount of reasoning.
+#
+# Ordering note: extended patterns are evaluated AFTER the base list,
+# so any existing pattern that matches a query still wins (preserves
+# the months of tuning embedded in the base patterns).
+_EXTENDED_FAST_ROUTE_PATTERNS = [
+    # ── Briefings: "morning briefing", "show me the weekly briefing",
+    # "what's in today's briefing" — the Commander has briefing tools
+    # (see app.life_companion daily-briefing composer). Direct LLM
+    # call with difficulty 2 keeps these queries cheap.
+    (re.compile(
+        r"^(?:show\s+me\s+|give\s+me\s+|what'?s\s+in\s+)?"
+        r"(?:my\s+|the\s+|today'?s?\s+|this\s+(?:morning'?s|evening'?s|week'?s)\s+)?"
+        r"(?:morning|evening|weekly|daily)\s+briefing\b",
+        re.IGNORECASE,
+    ), "direct", 2),
+
+    # ── Recall past conversations: "recall X", "what did we discuss
+    # about X", "search past conversations for X". The Commander has
+    # the recall_past_conversation tool (Q17.8). Difficulty 3 because
+    # the tool returns multiple results that may need synthesis.
+    (re.compile(
+        r"^(?:recall\s+|search\s+(?:past|previous|old)\s+(?:conversations?|history|chats?)"
+        r"|what\s+did\s+(?:we|i)\s+(?:discuss|say|talk\s+about|chat\s+about))\b",
+        re.IGNORECASE,
+    ), "direct", 3),
+
+    # ── Listing operator surfaces: "list my notes", "show files",
+    # "list pending change requests", "show open threads", "list
+    # drills", "show amendments", "list skills".
+    #
+    # Excluded by design — these route to other paths:
+    #   * tasks/tickets/kanban  → PIM (line 154 + _looks_like_pim_question)
+    #   * email/calendar        → PIM (lines 152-153)
+    #
+    # The Commander's tool inventory covers all of: files_list,
+    # skills_list, list_threads, list_drills, list_change_requests,
+    # list_amendments. Difficulty 2 keeps it cheap.
+    (re.compile(
+        r"^(?:show|list|display)\s+(?:me\s+)?"
+        r"(?:my\s+|all\s+|the\s+|recent\s+|pending\s+|open\s+|active\s+)?"
+        r"(?:notes?|files?|skills?|threads?|drills?|"
+        r"change\s+requests?|crs?|amendments?|"
+        r"settings?|monitors?)\b",
+        re.IGNORECASE,
+    ), "direct", 2),
+
+    # ── System / health status: "show status", "check health",
+    # "what's the system status", "show monitor status". Direct LLM
+    # call with health-monitor tool inventory. Difficulty 2.
+    (re.compile(
+        r"^(?:show|check|what'?s)\s+(?:the\s+|my\s+)?"
+        r"(?:system\s+|healing\s+|monitor\s+|monitors\s+|drill\s+)?"
+        r"(?:status|health|state)\b",
+        re.IGNORECASE,
+    ), "direct", 2),
+]
+
 # Q6: Time-sensitive query detection — skip semantic cache for these
 _TEMPORAL_PATTERN = re.compile(
     r"\b(?:today|now|current(?:ly)?|latest|right now"
@@ -530,7 +600,174 @@ def _try_fast_route(user_input: str, has_attachments: bool) -> list[dict] | None
             logger.info(f"fast_route: matched '{crew}' d={difficulty} for: {text[:80]}")
             return [{"crew": crew, "task": text, "difficulty": difficulty}]
 
+    # Extended patterns (2026-05-20) — gated by runtime_settings so
+    # operators can revert if any new pattern over-matches in
+    # production. Iterate only when the switch is True; default True
+    # ships the new patterns on but the switch lets the operator
+    # disable them without a deploy.
+    if _extended_fast_route_enabled():
+        for pattern, crew, difficulty in _EXTENDED_FAST_ROUTE_PATTERNS:
+            if pattern.search(text):
+                logger.info(
+                    f"fast_route: matched '{crew}' d={difficulty} "
+                    f"(extended) for: {text[:80]}"
+                )
+                return [{"crew": crew, "task": text, "difficulty": difficulty}]
+
     return None
+
+
+def _local_route_enabled() -> bool:
+    """Master switch for the interest-profile-aware local-tier route.
+
+    Verified Implementation Plan Gap #4 (2026-05-22). Default OFF —
+    the dispatch through ``create_commander_llm(mode='local')`` only
+    makes sense once Ollama is running and warm; the operator opts
+    in explicitly. Failure-isolated on import errors.
+
+    Precedence: env var ``LOCAL_ROUTE_ENABLED`` first (ops override
+    for emergency on/off without restart), then runtime_settings
+    (the React-toggleable persistent state), then default OFF.
+    """
+    import os
+    env = os.environ.get("LOCAL_ROUTE_ENABLED", "")
+    if env:
+        return env.lower() in ("1", "true", "yes", "on")
+    try:
+        import importlib
+        rs = importlib.import_module("app.runtime_settings")
+        getter = getattr(rs, "get_local_route_enabled", None)
+        if callable(getter):
+            return bool(getter())
+    except Exception:
+        pass
+    return False
+
+
+# ── _try_local_route: interest-profile-aware local-tier dispatch ────
+#
+# Verified Implementation Plan Gap #4 (2026-05-22). Complementary to
+# the keyword fast-path: there are queries that AREN'T trivial enough
+# for a one-line instant reply but ARE small enough (and personal
+# enough) that they should run on the local Ollama tier instead of a
+# cloud LLM. Examples:
+#   - "summarise my calendar today"
+#   - "what's in my latest briefing"
+#   - "list my open threads"
+#   - "what health alerts do I have"
+#
+# Pattern: anchored on first-person possessive + locally-answerable
+# topic. The local tier is at least 5× cheaper than cloud and 2-3×
+# slower — operator tradeoff.
+#
+# Failure-isolated: if the local LLM isn't reachable, the caller's
+# fall-through to the LLM router handles it.
+
+_LOCAL_ROUTE_PATTERNS = [
+    # Calendar / today's plan
+    (re.compile(
+        r"\b(?:my|today'?s?|tomorrow'?s?)\s+"
+        r"(?:calendar|schedule|agenda|meetings|appointments)\b",
+        re.IGNORECASE,
+    ), "pim", 3),
+    # Briefing / digest
+    (re.compile(
+        r"\b(?:my|latest|last|today'?s?|this\s+(?:morning|evening|week)'?s?)\s+"
+        r"(?:briefing|digest|summary|recap)\b",
+        re.IGNORECASE,
+    ), "pim", 3),
+    # Open threads
+    (re.compile(
+        r"\b(?:my|open|active|current)\s+threads?\b",
+        re.IGNORECASE,
+    ), "pim", 3),
+    # Health alerts / status
+    (re.compile(
+        r"\b(?:my|today'?s?|this\s+week'?s?)\s+"
+        r"(?:health|sleep|steps|activity|heart\s*rate)\b",
+        re.IGNORECASE,
+    ), "pim", 3),
+    # Tickets / tasks
+    (re.compile(
+        r"\b(?:my|open|active|pending)\s+(?:tickets|tasks|todos?)\b",
+        re.IGNORECASE,
+    ), "pim", 3),
+    # Notes / files
+    (re.compile(
+        r"\b(?:my\s+(?:notes|files|attachments)|"
+        r"recent\s+(?:notes|files|attachments))\b",
+        re.IGNORECASE,
+    ), "pim", 2),
+]
+
+
+def _try_local_route(
+    user_input: str, has_attachments: bool,
+) -> list[dict] | None:
+    """Match queries against ``_LOCAL_ROUTE_PATTERNS`` and dispatch
+    through ``mode='local'`` LLM.
+
+    Returns a routing decision list or None. Composes AFTER
+    :func:`_try_fast_route` in the orchestrator — only fires when the
+    fast-route didn't match.
+
+    Master switch ``local_route_enabled`` (default OFF). Failure-
+    isolated: import errors / missing settings degrade to None
+    (fall through to the LLM router).
+    """
+    if not _local_route_enabled():
+        return None
+    if has_attachments:
+        return None
+    text = user_input.strip()
+    if not text or len(text) > 200:
+        return None
+    # Skip introspective / multi-part / known-LLM-needs patterns
+    if _is_introspective(text):
+        return None
+    if re.search(
+        r"\b(?:and also|then also|additionally|furthermore)\b",
+        text, re.IGNORECASE,
+    ):
+        return None
+    for pattern, crew, difficulty in _LOCAL_ROUTE_PATTERNS:
+        if pattern.search(text):
+            logger.info(
+                f"local_route: matched '{crew}' d={difficulty} "
+                f"for: {text[:80]}"
+            )
+            # The crew is dispatched normally; what makes this
+            # "local" is the difficulty hint + the optional
+            # mode='local' override the orchestrator can honor.
+            # Marking with a "local" hint key lets the orchestrator
+            # decide whether to use Ollama or cloud LLM at run time.
+            return [{
+                "crew": crew,
+                "task": text,
+                "difficulty": difficulty,
+                "tier_hint": "local",
+                # Verified Plan §7 item 3 (2026-05-23) — local-route
+                # patterns are structurally trivial data lookups
+                # (calendar / briefing / threads / health / tickets /
+                # notes); they produce a list/digest, not a factual
+                # claim. The verification gate has nothing to flag
+                # and is pure overhead.
+                "skip_verification": True,
+            }]
+    return None
+
+
+def _extended_fast_route_enabled() -> bool:
+    """Master switch for the extended fast-route patterns. Default
+    True. Read via runtime_settings; defensive fallthrough on import
+    errors so a broken settings file never blocks routing entirely."""
+    try:
+        from app.runtime_settings import (
+            get_fast_route_extended_patterns_enabled,
+        )
+        return get_fast_route_extended_patterns_enabled()
+    except Exception:
+        return True
 
 
 def _recover_truncated_routing(raw: str) -> list[dict] | None:

@@ -135,14 +135,15 @@ logger = logging.getLogger(__name__)
 # Generous misfire window: APScheduler's default ``misfire_grace_time``
 # is 1 s, so any cron job delayed by even 3-4 s during normal load
 # triggers ``Run time of job ... was missed by 0:00:03`` WARN spam in
-# errors.jsonl (613 occurrences/week as of 2026-05-09 pattern_learner
-# scan). Most of our jobs run on minute-or-coarser cadences, so a 60 s
-# grace tolerates routine scheduling jitter without losing visibility
-# into actual stalls (>60 s overruns still log). ``coalesce=True``
-# means when the scheduler catches up after a pause, multiple missed
-# runs collapse into one execution rather than firing in sequence.
+# errors.jsonl. Bumped to 600 s 2026-05-22 after the asyncio executor
+# was found saturated by 39 ungated idle-scheduler LIGHT jobs, pushing
+# cron delays into the 45-min range (well past the prior 60 s grace,
+# so APScheduler was silently dropping runs — ``code_audit`` had not
+# fired in 61 hours when the cron-liveness alert fired at 06:18 EEST).
+# Companion fix tracks at docs/proposed_fixes/idle_scheduler_cadence_gating.md.
+# ``coalesce=True`` collapses multiple missed runs into one execution.
 scheduler = AsyncIOScheduler(
-    job_defaults={"misfire_grace_time": 60, "coalesce": True},
+    job_defaults={"misfire_grace_time": 600, "coalesce": True},
 )
 
 # Dedicated thread pool for commander.handle() calls — ensures multiple
@@ -2774,6 +2775,82 @@ try:
     app.include_router(workflows_router)
 except Exception:
     logger.debug("Workflows router registration failed", exc_info=True)
+
+# ── Autonomous executor (Phase 2 piece 2c, 2026-05-20) ─────────────────────
+try:
+    from app.control_plane.delegate_api import router as delegate_router
+    app.include_router(delegate_router)
+except Exception:
+    logger.debug("Delegate router registration failed", exc_info=True)
+
+# ── Trust-widening proposer (Phase 4 piece 1b, 2026-05-20) ─────────────────
+try:
+    from app.control_plane.widening_api import router as widening_router
+    app.include_router(widening_router)
+except Exception:
+    logger.debug("Widening router registration failed", exc_info=True)
+
+# ── Two-reasoner reviews (Phase 4 piece 2b, 2026-05-20) ────────────────────
+try:
+    from app.control_plane.reviews_api import router as reviews_router
+    app.include_router(reviews_router)
+except Exception:
+    logger.debug("Reviews router registration failed", exc_info=True)
+
+# ── Capability-regression surface (2026-05-22) ─────────────────────────────
+try:
+    from app.control_plane.capability_regression_api import (
+        router as capability_regression_router,
+    )
+    app.include_router(capability_regression_router)
+except Exception:
+    logger.debug(
+        "Capability-regression router registration failed", exc_info=True,
+    )
+
+# ── Connector-budget surface (2026-05-22) ──────────────────────────────────
+try:
+    from app.control_plane.connector_budget_api import (
+        router as connector_budget_router,
+    )
+    app.include_router(connector_budget_router)
+except Exception:
+    logger.debug(
+        "Connector-budget router registration failed", exc_info=True,
+    )
+
+# ── Code-intel stats surface (Phase C.5, 2026-05-22) ───────────────────────
+try:
+    from app.control_plane.code_intel_api import (
+        router as code_intel_router,
+    )
+    app.include_router(code_intel_router)
+except Exception:
+    logger.debug(
+        "Code-intel router registration failed", exc_info=True,
+    )
+
+# ── Benchmark suite surface (Phase C.3, 2026-05-22) ────────────────────────
+try:
+    from app.control_plane.benchmarks_api import (
+        router as benchmarks_router,
+    )
+    app.include_router(benchmarks_router)
+except Exception:
+    logger.debug(
+        "Benchmarks router registration failed", exc_info=True,
+    )
+
+# ── Anthropic per-day cap surface (Phase D.3, 2026-05-22) ──────────────────
+try:
+    from app.control_plane.anthropic_budget_api import (
+        router as anthropic_budget_router,
+    )
+    app.include_router(anthropic_budget_router)
+except Exception:
+    logger.debug(
+        "Anthropic-budget router registration failed", exc_info=True,
+    )
 
 # ── Long-term goal review (PROGRAM §46.9, Q9.6) ────────────────────────────
 try:

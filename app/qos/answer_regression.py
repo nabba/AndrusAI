@@ -346,13 +346,26 @@ def _default_answer_fn(qa: QAPair) -> str:
 def _default_judge_fn(qa: QAPair, answer: str) -> tuple[int, str, str]:
     """Default judge: Anthropic Haiku 4.5 with a small structured-JSON
     prompt. Returns ``(score 0..10, verdict, reasoning)``. Tests
-    inject a stub."""
+    inject a stub.
+
+    Phase D.3 (2026-05-22): gated by the operator-set Anthropic daily
+    cap. On cap-out returns the ``"error"`` verdict (matches the
+    existing :class:`Verdict.ERROR` enum and is correctly excluded
+    from scored aggregates), so the regression suite shows the
+    question as inconclusive rather than as a real fail.
+    """
     try:
         import anthropic
     except Exception as exc:
         raise RuntimeError(
             f"anthropic SDK unavailable for judge call: {exc}"
         )
+    from app import llm_anthropic_budget
+    if not llm_anthropic_budget.call_or_skip(
+        estimated_cost_usd=0.001,
+        source="qos:answer_regression_judge",
+    ):
+        return (0, "error", "Anthropic daily cap exceeded — judge skipped")
     client = anthropic.Anthropic()
     judge_prompt = (
         "You are evaluating an answer for an internal regression suite. "

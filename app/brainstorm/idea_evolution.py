@@ -448,10 +448,23 @@ def evolve_ideas(
 def _default_mutator(
     task: str, parent_text: str, neighbour_texts: list[str],
 ) -> str:
-    """Anthropic Haiku 4.5 rewriting the parent toward diversity."""
+    """Anthropic Haiku 4.5 rewriting the parent toward diversity.
+
+    Phase D.3 (2026-05-22): gated by the operator-set Anthropic daily
+    cap. Brainstorm evolution can fire many mutator calls per
+    session, so this is the highest-impact site to wire the cap to.
+    Returns "" on cap-out so the population just stops growing —
+    judge calls on already-mutated children continue.
+    """
     try:
         import anthropic
     except ImportError:
+        return ""
+    from app import llm_anthropic_budget
+    if not llm_anthropic_budget.call_or_skip(
+        estimated_cost_usd=0.001,
+        source="brainstorm:idea_mutator",
+    ):
         return ""
     neighbours_block = "\n".join(
         f"- {t[:240]}" for t in neighbour_texts[:5]
@@ -501,11 +514,22 @@ def _default_judge(
 
     Returns (score in [0..1], rationale). On any failure returns
     (0.0, "judge failed: <reason>") so the caller's iteration
-    continues."""
+    continues.
+
+    Phase D.3 (2026-05-22): gated by the operator-set Anthropic daily
+    cap. On cap-out the judge returns (0.0, "cap reached") so the
+    caller's loop sees a low score and naturally throttles down.
+    """
     try:
         import anthropic
     except ImportError:
         return 0.0, "anthropic unavailable"
+    from app import llm_anthropic_budget
+    if not llm_anthropic_budget.call_or_skip(
+        estimated_cost_usd=0.0005,
+        source="brainstorm:idea_judge",
+    ):
+        return 0.0, "Anthropic daily cap reached"
     constraints_block = "\n".join(
         f"- {c}" for c in constraints[:6]
     ) or "(no explicit constraints — judge on intrinsic merit)"

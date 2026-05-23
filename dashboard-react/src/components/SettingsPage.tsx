@@ -34,6 +34,12 @@ import { InlineEvolveCard } from './InlineEvolveCard';
 import { TravelCard } from './TravelCard';
 import { BrowseIngestionCard } from './BrowseIngestionCard';
 import { SourceLedgerCard } from './SourceLedgerCard';
+import { TrustZonesCard } from './TrustZonesCard';
+import { VerificationExtensionCard } from './VerificationExtensionCard';
+import { CapabilityRegressionCard } from './CapabilityRegressionCard';
+import { ConnectorBudgetCard } from './ConnectorBudgetCard';
+import { AnthropicBudgetCard } from './AnthropicBudgetCard';
+import { RecentSubsystemsCard } from './RecentSubsystemsCard';
 
 // Note: POST to /config/runtime_settings requires a gateway bearer secret.
 // The dashboard server (server.mjs) injects `Authorization: Bearer
@@ -70,6 +76,26 @@ export function SettingsPage() {
       <VisionComputerUseCard settings={settingsQ.data} />
       <ConciergePersonaCard settings={settingsQ.data} />
       <Tier3AmendmentCard settings={settingsQ.data} />
+      <TrustZonesCard
+        settings={settingsQ.data}
+        onSettingsChange={() => settingsQ.refetch()}
+      />
+      <VerificationExtensionCard
+        settings={settingsQ.data}
+        onSettingsChange={() => settingsQ.refetch()}
+      />
+      <CapabilityRegressionCard
+        onSettingsChange={() => settingsQ.refetch()}
+      />
+      <ConnectorBudgetCard
+        settings={settingsQ.data}
+        onSettingsChange={() => settingsQ.refetch()}
+      />
+      <AnthropicBudgetCard />
+      <RecentSubsystemsCard
+        settings={settingsQ.data}
+        onSettingsChange={() => settingsQ.refetch()}
+      />
       <GovernanceRatchetCard />
       <GoodhartHardGateCard settings={settingsQ.data} />
       <StructuredDiagnosisCard settings={settingsQ.data} />

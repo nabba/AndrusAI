@@ -117,6 +117,50 @@ def get_active_difficulty() -> int | None:
     return _active_difficulty.get()
 
 
+# ── Active local-tier hint (Verified Plan §7 Gap A closure 2026-05-23) ─
+#
+# The fast-route layer (``app/agents/commander/routing.py``) marks
+# interest-profile-aware queries (calendar / briefing / threads /
+# health / tickets / notes) with ``tier_hint="local"`` in the routing
+# decision. ``_run_crew`` propagates that into this ContextVar before
+# executing the crew. ``create_commander_llm`` consults it (alongside
+# the existing ``llm_mode`` resolution) and forces the Ollama path
+# when set — bypassing the cloud cascade for queries that don't need
+# it.
+#
+# Same ContextVar discipline as ``_active_difficulty``: tasks see
+# their own value through ``copy_context()`` inheritance; reset
+# tokens make the unwind explicit.
+
+_active_local_tier: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_active_local_tier", default=False,
+)
+
+
+def set_active_local_tier(value: bool) -> object:
+    """Bind the local-tier flag for the duration of one crew dispatch.
+    Returns the reset token; caller MUST pass it to
+    :func:`reset_active_local_tier` in a ``finally`` block.
+    """
+    return _active_local_tier.set(bool(value))
+
+
+def reset_active_local_tier(token: object) -> None:
+    try:
+        _active_local_tier.reset(token)  # type: ignore[arg-type]
+    except (LookupError, ValueError, RuntimeError):
+        # LookupError/ValueError: token from a different context.
+        # RuntimeError: token already used (defensive double-reset).
+        try:
+            _active_local_tier.set(False)
+        except Exception:
+            pass
+
+
+def get_active_local_tier() -> bool:
+    return _active_local_tier.get()
+
+
 # Role × difficulty → minimum tier. Empty default means "use whatever
 # the cost mode picks". Tighter thresholds for research because real
 # research requires multi-step persistence that budget-tier models give

@@ -162,3 +162,33 @@ def _retrieve_fiction(query: str, n: int) -> str:
     except Exception as exc:
         logger.warning(f"blend_tool: fiction retrieval failed: {exc}")
         return f"(fiction retrieval failed — use concept B as-stated: {query})"
+
+
+# ── Tool-registry annotation (2026-05-20) ───────────────────────────────
+# Registers the conceptual_blend tool under the ``blends-concepts``
+# capability so the registry can surface it via ``tool_search``.
+# Passive — existing direct imports of ``ConceptBlendTool`` keep working.
+
+try:
+    from app.tool_registry import register_tool, Tier, Lifecycle
+
+    @register_tool(
+        name="conceptual_blend",
+        capabilities=["blends-concepts"],
+        description=(
+            "Retrieve grounding material for two concepts from different "
+            "domains (philosophy + fiction/inspiration) and return a "
+            "structured blending prompt. Use when the task calls for "
+            "genuine novelty rather than lookup. Output includes "
+            "[PIT]/[PIH] epistemic tags that downstream consumers must "
+            "preserve."
+        ),
+        args_schema=ConceptBlendInput,
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _conceptual_blend_registry_factory():
+        return ConceptBlendTool()
+
+except ImportError:
+    pass

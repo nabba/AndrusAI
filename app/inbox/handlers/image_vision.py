@@ -58,6 +58,23 @@ def run(path: Path) -> str:
             f"anthropic SDK unavailable: {exc}"
         ) from exc
 
+    # Vendor-level cap pre-check (Phase D.3, 2026-05-22). Vision calls
+    # are the most expensive Haiku invocations (~$0.01 per page);
+    # estimate at $0.015 so the gate fires conservatively. On cap-out
+    # we raise RuntimeError — caller (inbox watcher) records the file
+    # as 'failed' with an actionable error message, same as the
+    # file-too-large branch above.
+    from app import llm_anthropic_budget
+    if not llm_anthropic_budget.call_or_skip(
+        estimated_cost_usd=0.015,
+        source="inbox:image_vision",
+    ):
+        raise RuntimeError(
+            "Anthropic daily cap exceeded — image_vision call refused. "
+            "Raise the cap in /cp/settings → Anthropic per-day cap, "
+            "or wait for the rolling-24h window to roll over."
+        )
+
     try:
         with open(path, "rb") as f:
             blob = f.read()

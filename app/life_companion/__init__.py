@@ -120,4 +120,15 @@ def get_idle_jobs() -> list[tuple[str, Callable[[], None], Any]]:
         )
     except Exception:
         pass
+    # 2026-05-23 — per-workspace nightly news scrape. Cheap-tier LLM
+    # (~$0.04/day across PLG / Eesti mets / Archibal / KaiCart).
+    # Cadence-guarded internally to ≥18h between passes.
+    try:
+        from app.life_companion import workstream_news
+        jobs.append(
+            ("life-companion-workstream-news",
+             workstream_news.run, JobWeight.LIGHT),
+        )
+    except Exception:
+        pass
     return jobs

@@ -52,6 +52,11 @@ export interface ChangeRequest {
   is_terminal: boolean;
   is_rollbackable: boolean;
   is_protected: boolean;
+  // Phase 3 v2 follow-up (2026-05-22) — populated only when ≥1
+  // pyright error is recorded for this CR by the originating
+  // coding session. Absent when zero / no coding-session origin /
+  // session opted out of with_type_check.
+  type_error_count?: number;
 }
 
 export interface ChangeListResponse {

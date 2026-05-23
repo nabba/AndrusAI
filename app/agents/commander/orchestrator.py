@@ -636,6 +636,30 @@ class Commander:
             else:
                 return fast
 
+        # ── Local-tier fast route (Verified Plan Gap #4, 2026-05-22) ─────
+        # When ``local_route_enabled=True``, interest-profile-aware
+        # queries (my calendar / latest briefing / open threads /
+        # health) route through Ollama instead of cloud LLM. Composes
+        # AFTER the keyword fast-route — only fires when fast-route
+        # returns None. Failure-isolated: any error in the helper
+        # falls through to the regular LLM router below.
+        try:
+            from app.agents.commander.routing import _try_local_route
+            local = _try_local_route(
+                user_input, bool(attachment_context),
+            )
+        except Exception:
+            local = None
+        if local is not None:
+            if exclude_crew and local[0].get("crew") == exclude_crew:
+                logger.info(
+                    "local_route would have picked %s but it's "
+                    "excluded; falling through to LLM router",
+                    exclude_crew,
+                )
+            else:
+                return local
+
         # S4/S1: Routing needs history + Mem0 context for classification.
         # Run both lookups in parallel — they're independent I/O operations.
         # Uses the module-level ``_ctx_pool`` so we don't pay thread-creation
@@ -999,7 +1023,8 @@ class Commander:
     def _run_crew(self, crew_name: str, crew_task: str,
                   parent_task_id: str = None, difficulty: int = 5,
                   conversation_history: str = "",
-                  preloaded_context: str = None) -> str:
+                  preloaded_context: str = None,
+                  tier_hint: str | None = None) -> str:
         """Run a single crew by name.  Used by both single and parallel paths.
 
         Injects selective context (relevant skills + team memory + conversation
@@ -1022,6 +1047,24 @@ class Commander:
         # budget-tier model that quits too early on hard lookups.
         from app.llm_selector import set_active_difficulty, reset_active_difficulty
         _diff_token = set_active_difficulty(difficulty)
+
+        # Verified Plan §7 Gap A closure (2026-05-23) — local-tier
+        # propagation. When the routing decision carried
+        # ``tier_hint="local"`` (interest-profile-aware queries), set
+        # the ContextVar so the next ``create_commander_llm()`` call
+        # routes through Ollama instead of the cloud cascade.
+        # Failure-isolated. The reset happens in the parallel ``finally``
+        # block at the end of _run_crew_inner.
+        _local_tier_token = None
+        if tier_hint == "local":
+            try:
+                from app.llm_selector import set_active_local_tier
+                _local_tier_token = set_active_local_tier(True)
+            except Exception:
+                logger.debug(
+                    "_run_crew: set_active_local_tier raised",
+                    exc_info=True,
+                )
 
         # 2026-05-02 audit Week 2.5 — progress marker on EVERY crew run.
         # Week 1.5 H5 emitted only at the outer dispatch boundary in
@@ -1058,6 +1101,17 @@ class Commander:
             )
         finally:
             reset_active_difficulty(_diff_token)
+            # Verified Plan §7 Gap A closure — release the local-tier
+            # ContextVar so the next request sees the default again.
+            if _local_tier_token is not None:
+                try:
+                    from app.llm_selector import reset_active_local_tier
+                    reset_active_local_tier(_local_tier_token)
+                except Exception:
+                    logger.debug(
+                        "_run_crew: reset_active_local_tier raised",
+                        exc_info=True,
+                    )
 
     def _run_crew_inner(self, crew_name: str, crew_task: str,
                   parent_task_id: str = None, difficulty: int = 5,
@@ -2771,6 +2825,30 @@ class Commander:
             return "Sorry, I had trouble understanding that request. Please try again."
         _phase_log("route", _route_t0, decisions=len(decisions))
 
+        # Verified Plan §7 item 3 (2026-05-23) — output-streaming
+        # shortcut. If the routing layer matched a structurally
+        # trivial pattern (no factual claim possible — e.g. local-
+        # route calendar / briefing / threads / health lookups), set
+        # the per-request skip-verification flag. The
+        # ``epistemic.orchestrator_hook.gate_output`` call near the
+        # end of this method reads the flag and short-circuits with
+        # ``action="ship"``.
+        #
+        # Only the FIRST decision is consulted — multi-crew dispatch
+        # implies a non-trivial composition that always merits the
+        # gate. Failure-isolated: a broken skip_state module never
+        # blocks dispatch.
+        try:
+            if decisions and len(decisions) == 1 and decisions[0].get(
+                "skip_verification", False,
+            ):
+                from app.epistemic.skip_state import set_skip
+                set_skip(True)
+        except Exception:
+            logger.debug(
+                "skip_verification flag propagation raised", exc_info=True,
+            )
+
         crew_names = ", ".join(d.get("crew", "?") for d in decisions)
         self._last_crew = decisions[0].get("crew", "") if decisions else ""
         crew_completed("commander", task_id, f"Routed to: {crew_names}")
@@ -3036,11 +3114,13 @@ class Commander:
                     final_result, reflexion_exhausted = self._run_with_reflexion(
                         crew_name, d.get("task", user_input), difficulty=difficulty,
                         conversation_history=_crew_history,
+                        tier_hint=d.get("tier_hint"),
                     )
                 else:
                     final_result = self._run_crew(
                         crew_name, d.get("task", user_input), difficulty=difficulty,
                         conversation_history=_crew_history,
+                        tier_hint=d.get("tier_hint"),
                     )
             except Exception as _crew_exc:
                 _dispatch_error = f"Crew {crew_name} failed: {_crew_exc}"

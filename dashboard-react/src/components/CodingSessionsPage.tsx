@@ -9,8 +9,8 @@
 // request UI (`/cp/changes`) — that's where the actionable surface
 // lives.
 
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Skeleton } from './ui/Skeleton';
 import {
   useCodingSessionDetailQuery,
@@ -562,7 +562,36 @@ export function CodingSessionsPage() {
   const [statusFilter, setStatusFilter] = useState<
     CodingSessionStatus | 'all'
   >('all');
-  const [activeId, setActiveId] = useState<string | null>(null);
+  // Phase 3 v2 follow-up (2026-05-22) — URL deep-link support.
+  // `?session=<id>` on page load opens that session's drawer
+  // directly; e.g. /cp/changes drawer's "via session abc123…"
+  // link navigates here and surfaces the drilling-down session.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeId, setActiveId] = useState<string | null>(
+    () => searchParams.get('session'),
+  );
+
+  // Sync URL → state on back/forward navigation
+  useEffect(() => {
+    const fromUrl = searchParams.get('session');
+    if (fromUrl !== activeId) {
+      setActiveId(fromUrl);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // Sync state → URL when drawer opens/closes
+  const setActiveIdSynced = (id: string | null) => {
+    setActiveId(id);
+    const next = new URLSearchParams(searchParams);
+    if (id) {
+      next.set('session', id);
+    } else {
+      next.delete('session');
+    }
+    setSearchParams(next, { replace: true });
+  };
+
   const listQ = useCodingSessionsListQuery(
     statusFilter === 'all' ? undefined : statusFilter,
   );
@@ -632,7 +661,7 @@ export function CodingSessionsPage() {
               key={s.id}
               session={s}
               isActive={activeId === s.id}
-              onClick={() => setActiveId(s.id)}
+              onClick={() => setActiveIdSynced(s.id)}
             />
           ))}
         </div>
@@ -640,7 +669,7 @@ export function CodingSessionsPage() {
 
       <CodingSessionDetailDrawer
         sessionId={activeId}
-        onClose={() => setActiveId(null)}
+        onClose={() => setActiveIdSynced(null)}
       />
     </div>
   );

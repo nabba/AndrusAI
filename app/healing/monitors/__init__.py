@@ -115,6 +115,9 @@ _DEFAULT_CADENCE_S = {
     # Phase 4 — convergent-cluster meta-detector over the continuity
     # ledger. Daily probe; internal weekly cadence.
     "cross_monitor_pattern": 24 * 3600,
+    # Plan Risk #4 closure (2026-05-22) — gh CLI version-drift probe.
+    # Daily probe; internal weekly cadence inside the monitor.
+    "gh_version": 24 * 3600,
 }
 
 _WARMUP_S = 120  # don't run anything in the first 2 min after import.
@@ -691,6 +694,20 @@ def _driver() -> None:
         ))
     except Exception:
         logger.debug("monitors: cross_monitor_pattern import failed", exc_info=True)
+    # Plan Risk #4 closure (2026-05-22) — gh CLI version-drift probe.
+    # ``gh`` is a HOST tool (not in the Dockerfile), used by
+    # change_requests.apply + coding_session.backends + epistemic.autotune
+    # to open PRs. Without a probe, host version drift is invisible
+    # until a PR silently fails. Daily probe; internal weekly cadence;
+    # alerts on MAJOR version drift only.
+    try:
+        from app.healing.monitors import gh_version
+        monitors.append((
+            "gh_version", gh_version.run,
+            _DEFAULT_CADENCE_S["gh_version"], 0.0,
+        ))
+    except Exception:
+        logger.debug("monitors: gh_version import failed", exc_info=True)
 
     if not monitors:
         logger.warning("healing.monitors: no monitors loaded; driver exiting")

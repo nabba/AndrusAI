@@ -237,11 +237,72 @@ def is_protected(path: str) -> bool:
 # Allowed callers (requestor agent_id). Empty by default.
 # See the "pattern-eligibility audit" comment above for why this
 # stays empty even for the seemingly-safe schema-drift handlers.
+#
+# PRESERVED by the test_q1_cleanup pinning test — these source-code
+# constants are the safe-by-source baseline that defends against an
+# agent silently widening the allowlist. Operators widen the lane at
+# runtime via ``app.runtime_settings.set_auto_apply_allowed_requestors``
+# (typed + capped + audited); the unioned set lives in
+# ``_effective_allowed_requestors``. Both layers cooperate — the
+# runtime_settings overlay can ONLY add entries, never remove the
+# baseline's empty refusal posture.
 _AUTO_APPLY_ALLOWED_REQUESTORS: frozenset[str] = frozenset()
 
 # Allowed target paths. Exact match OR prefix match (with trailing
-# slash). Empty by default.
+# slash). Empty by default. Same overlay pattern — operators add
+# entries via ``app.runtime_settings.set_auto_apply_allowed_paths``;
+# the unioned tuple lives in ``_effective_allowed_paths``.
 _AUTO_APPLY_ALLOWED_PATHS: tuple[str, ...] = ()
+
+
+def _effective_allowed_requestors() -> frozenset[str]:
+    """Read the effective allowlist: source-pinned baseline UNION
+    runtime_settings overlay.
+
+    The module-level ``_AUTO_APPLY_ALLOWED_REQUESTORS`` constant stays
+    empty by design (pinned by test_q1_cleanup) — every entry comes
+    from the runtime_settings overlay, which the React Settings card
+    flips after the operator confirms the widening. The overlay can
+    only ADD entries; it cannot remove the baseline's empty default.
+
+    Defensive: any runtime_settings error returns the module constant
+    alone, so a broken settings file never grants additional
+    permissions.
+    """
+    try:
+        from app.runtime_settings import get_auto_apply_allowed_requestors
+        rt = frozenset(get_auto_apply_allowed_requestors())
+    except Exception:
+        rt = frozenset()
+    return _AUTO_APPLY_ALLOWED_REQUESTORS | rt
+
+
+def _effective_allowed_paths() -> tuple[str, ...]:
+    """Read the effective allowed-paths tuple: source-pinned baseline
+    UNION runtime_settings overlay.
+
+    Order: baseline entries first, then overlay additions in their
+    listed order. Duplicates dropped (first occurrence wins). Errors
+    in runtime_settings degrade to baseline-only — fail-safe.
+    """
+    try:
+        from app.runtime_settings import get_auto_apply_allowed_paths
+        rt = tuple(get_auto_apply_allowed_paths())
+    except Exception:
+        rt = ()
+    if not rt:
+        return _AUTO_APPLY_ALLOWED_PATHS
+    seen: set[str] = set()
+    out: list[str] = []
+    for entry in _AUTO_APPLY_ALLOWED_PATHS:
+        if entry not in seen:
+            seen.add(entry)
+            out.append(entry)
+    for entry in rt:
+        if entry not in seen:
+            seen.add(entry)
+            out.append(entry)
+    return tuple(out)
 
 # Categorically forbidden prefixes — not even allowlisted callers
 # can auto-apply changes here.
@@ -289,10 +350,15 @@ def _net_line_delta(old_content: str, new_content: str) -> tuple[int, int]:
 
 def _matches_auto_apply_path(path: str) -> bool:
     """Whitelist check — caller path must match an allowed entry exactly
-    OR be under an allowed prefix. Empty allowlist ⇒ no match."""
-    if not _AUTO_APPLY_ALLOWED_PATHS:
+    OR be under an allowed prefix. Empty allowlist ⇒ no match.
+
+    Reads the effective (baseline + runtime overlay) allowlist so the
+    operator-managed React widening takes effect without a deploy.
+    """
+    allowed_paths = _effective_allowed_paths()
+    if not allowed_paths:
         return False
-    for allowed in _AUTO_APPLY_ALLOWED_PATHS:
+    for allowed in allowed_paths:
         if path == allowed:
             return True
         if allowed.endswith("/") and path.startswith(allowed):
@@ -330,8 +396,8 @@ def validate_auto_apply(
                 ),
             )
 
-    # 3. Requestor allowlist.
-    if requestor not in _AUTO_APPLY_ALLOWED_REQUESTORS:
+    # 3. Requestor allowlist (baseline UNION runtime_settings overlay).
+    if requestor not in _effective_allowed_requestors():
         return ValidationResult(
             ok=False,
             reason=(

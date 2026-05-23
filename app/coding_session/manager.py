@@ -157,6 +157,7 @@ class Manager:
         base: str,
         purpose: str,
         worktree_root: str | Path,
+        durable: bool = False,
     ) -> CodingSession:
         """Create a fresh ACTIVE session.
 
@@ -165,6 +166,11 @@ class Manager:
 
         Raises ``ValueError`` for malformed input (empty agent_id,
         empty purpose, or an unresolvable base ref).
+
+        Phase 2 piece 2h (2026-05-20): ``durable`` defaults False so
+        every legacy call site is unchanged. The executor-driven path
+        passes True so the session survives idle-timeout while the
+        run is in progress.
         """
         if not agent_id:
             raise ValueError("agent_id must be a non-empty string")
@@ -210,6 +216,7 @@ class Manager:
             expires_at=expires_at,
             last_activity_at=now,
             status=Status.ACTIVE,
+            durable=bool(durable),
         )
 
         # Actually create the worktree on disk. If this fails, we don't
@@ -363,6 +370,40 @@ class Manager:
         cs.terminated_at = _now_iso()
         cs.terminated_reason = reason or "failed"
         store.save(cs, audit_event="failed")
+        return cs
+
+    def set_durable(
+        self, session_id: str, *, value: bool,
+    ) -> CodingSession:
+        """Flip the ``durable`` flag on an ACTIVE session.
+
+        Phase 2 piece 2d (2026-05-20). The autonomous executor calls
+        this when it needs to hold a worktree across multiple
+        Commander dispatches. Operators flip it via the React UI to
+        rescue a session from idle-timeout expiry.
+
+        Refused on non-ACTIVE sessions — once terminal, the
+        durability flag is read-only (the worktree is either still
+        there or has already been cleaned up). Idempotent on the
+        same value (no audit-log noise from repeated flips).
+        """
+        cs = store.get(session_id)
+        if cs is None:
+            raise IllegalTransition(f"session {session_id!r} not found")
+        if cs.status is not Status.ACTIVE:
+            raise IllegalTransition(
+                f"cannot set_durable in status {cs.status.value}; "
+                f"only ACTIVE sessions accept durability flips",
+            )
+        new_value = bool(value)
+        if cs.durable == new_value:
+            return cs  # idempotent — no audit noise
+        cs.durable = new_value
+        cs.last_activity_at = _now_iso()
+        store.save(
+            cs,
+            audit_event="durable_set" if new_value else "durable_cleared",
+        )
         return cs
 
     # ── Worktree teardown helper ──────────────────────────────────

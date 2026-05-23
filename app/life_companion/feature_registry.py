@@ -212,6 +212,28 @@ FEATURES: tuple[Feature, ...] = (
         feature_env_key="LIFE_COMPANION_SEASONAL_NUDGES_ENABLED",
         job_name="life-companion-seasonal-nudges",
     ),
+    Feature(
+        key="workstream_news",
+        name="Workstream news (per-project)",
+        description=(
+            "Nightly web search per workspace (PLG, Eesti mets, "
+            "Archibal, KaiCart), LLM-clustered into 3 items each. "
+            "Surfaces in the morning briefing. ~$0.04/day."
+        ),
+        feature_env_key="LIFE_COMPANION_WORKSTREAM_NEWS_ENABLED",
+        job_name="life-companion-workstream-news",
+        tunables=(
+            Tunable(
+                env_key="LIFE_COMPANION_WORKSTREAM_NEWS_INTERVAL_SECONDS",
+                label="Pass interval",
+                description="Seconds between full passes (≥18h recommended).",
+                type="secs",
+                default=64800,
+                min=21600,
+                max=172800,
+            ),
+        ),
+    ),
 )
 
 

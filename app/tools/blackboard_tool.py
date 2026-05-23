@@ -141,3 +141,48 @@ def create_blackboard_tools(task_id: str, agent_name: str) -> list[BaseTool]:
     read = ReadFindingsTool()
     read.task_id = task_id
     return [deposit, read]
+
+
+# ── Tool-registry annotations (2026-05-20) ──────────────────────────────
+# Discovery-side registration. The legacy
+# ``create_blackboard_tools(task_id, agent_name)`` factory above stays
+# the canonical production path because task_id + agent_name are
+# determined per-invocation. The registry factories below construct
+# default instances purely so the tools surface in ``tool_search``;
+# they share the same tags as the per-task instances.
+
+try:
+    from app.tool_registry import register_tool, Tier, Lifecycle
+
+    @register_tool(
+        name="deposit_finding",
+        capabilities=["writes-team-belief"],
+        description=(
+            "Record a research finding on the shared blackboard. Include "
+            "the claim, evidence, confidence level (high/medium/low), and "
+            "verification status. Other agents will see this finding and "
+            "can build on it."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.PER_CALL,
+    )
+    def _deposit_finding_registry_factory():
+        return DepositFindingTool()
+
+    @register_tool(
+        name="read_findings",
+        capabilities=["reads-team-belief"],
+        description=(
+            "Search the shared research blackboard for findings from any "
+            "agent. Returns claims with their evidence, confidence, and "
+            "verification status. Use this to check what's already known "
+            "before searching the web."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.PER_CALL,
+    )
+    def _read_findings_registry_factory():
+        return ReadFindingsTool()
+
+except ImportError:
+    pass

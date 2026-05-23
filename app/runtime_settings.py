@@ -363,6 +363,15 @@ def _defaults() -> dict[str, Any]:
         #     (Anthropic + OpenRouter) without an outage. Structural
         #     checks only — never issues live LLM calls.
         "oauth_token_freshness_monitor_enabled": True,
+        # Plan Risk #4 closure (2026-05-22) — gh CLI version-drift
+        # probe. gh is a HOST tool (not in the Dockerfile) used by
+        # change_requests/apply.py + coding_session/backends.py +
+        # epistemic/autotune.py to open PRs. Without a probe, host
+        # version drift is invisible until a PR silently fails. The
+        # monitor runs ``gh --version`` via the bridge weekly,
+        # records baseline on first observation, and alerts on MAJOR
+        # version drift only (minor/patch are additive per gh semver).
+        "gh_version_monitor_enabled": True,
         "drill_vendor_independence_enabled": True,
         # Opt-in extension to vendor_independence (PROGRAM §51 Q16
         # Theme 2 follow-on). When ON, the drill issues 3 cheap LLM
@@ -633,6 +642,170 @@ def _defaults() -> dict[str, Any]:
         # cross_monitor_pattern — 43rd healing monitor, default ON.
         "pep_idiom_radar_enabled": False,
         "cross_monitor_pattern_monitor_enabled": True,
+
+        # ── Epistemic verification layer (Verification-extension, 2026-05-20) ──
+        # Two overlay switches on top of the env-var design that
+        # ``app.epistemic.is_enabled`` and
+        # ``app.epistemic.orchestrator_hook.is_blocking_mode_enabled``
+        # use as their canonical gate. ``None`` (default) → fall through
+        # to the env var; ``True``/``False`` → override. The env var
+        # remains canonical for boot-time / test / script contexts that
+        # never construct runtime_settings (matches the explicit design
+        # note in ``app/epistemic/__init__.py``).
+        "epistemic_enabled_override": None,
+        "epistemic_blocking_mode_override": None,
+        # Master switch for the 4 new gate_output evaluators
+        # (claim-source consistency / retrieval-on-low-confidence /
+        # zone-aware threshold / aggregator). Default OFF — the
+        # extension is additive and only ever ESCALATES the calibration
+        # verdict, never weakens it. With this OFF the gate behaves
+        # bit-identically to today.
+        "verification_extension_enabled": False,
+        # Per-zone verification thresholds. Confidence below the
+        # threshold triggers hedge → verify → peer_review escalation,
+        # picked by the calibration verdict's existing precedence
+        # mapping. Defaults are conservative starter values; operator
+        # will tune from the React Settings card.
+        "verification_threshold_chat": 0.60,
+        "verification_threshold_autonomous": 0.90,
+        "verification_threshold_financial": 0.95,
+        # Per-task budget for retrieval-on-low-confidence evaluator.
+        # 0 disables retrieval entirely (cheaper); positive integer
+        # caps the number of web_search invocations per task. The
+        # evaluator is no-op when budget reaches zero for this task.
+        "verification_extension_retrieval_budget_per_task": 1,
+
+        # ── Risk classifier + trust zones (2026-05-20) ─────────────
+        # Operator-managed allowlists for the AUTO_APPLY change-request
+        # lane. Both default to empty (the dormant infrastructure
+        # shipped in PROGRAM §38.3) — current behaviour is preserved
+        # bit-identically because every empty allowlist refuses every
+        # request. The lists are stored as JSON-friendly list[str];
+        # ``app.change_requests.validator`` converts them to the
+        # frozenset / tuple shapes its checks expect at read time.
+        "auto_apply_allowed_requestors": [],
+        "auto_apply_allowed_paths": [],
+        # Master switch for the risk_classifier module. v1 ships the
+        # zone enum + deterministic decision tree as a pure library
+        # with no production callers; the switch reserves the React
+        # toggle slot and gates future widening-proposal emission.
+        "risk_classifier_enabled": False,
+
+        # ── Autonomous executor (Phase 2 piece 1, 2026-05-20) ──────
+        # Master switch + default per-run budget caps. v1 ships the
+        # foundation (models + store) as a pure library with no
+        # production callers; the switch reserves the React toggle
+        # slot. Driver + planner + idle-scheduler integration come
+        # in Phase 2 piece 2. Default OFF — no driver, no callers.
+        "autonomous_executor_enabled": False,
+        # Per-run defaults the driver uses when an explicit budget
+        # isn't supplied on /delegate. Sanity caps in
+        # ``app.autonomous_executor.budget_caps`` constrain how high
+        # the operator can raise these — see EXECUTOR_BUDGET_CAPS.
+        "executor_default_budget_usd": 1.0,
+        "executor_default_budget_tokens": 20000,
+        "executor_default_wall_clock_s": 600,
+        # LLM planner v2 (Phase 2 piece 2e, 2026-05-20). Default OFF —
+        # v1 deterministic single-step planner stays on. When True,
+        # ``planner.get_default_planner`` returns ``llm_plan`` (Haiku
+        # 4.5 decomposition) instead. Failure-isolated: any error in
+        # the LLM path falls back to v1 in-line; the master switch
+        # only controls which planner is the default.
+        "autonomous_executor_llm_planner_enabled": False,
+
+        # Code intelligence (Phase 3 piece 1, 2026-05-20). Default OFF
+        # — module ships dormant. When True, an idle job will refresh
+        # the symbol index periodically. The query API is always
+        # callable (it returns an empty result when the index hasn't
+        # been built), so flipping this on doesn't change behavior of
+        # any existing code path — only what the index contains.
+        "code_intel_enabled": False,
+
+        # Trust-zone widening proposer (Phase 4 piece 1, 2026-05-20).
+        # When ``widening_proposer_enabled=True``, a periodic scan
+        # walks the change-request history and proposes widening the
+        # AUTO_APPLY allowlists when a (requestor, path_prefix) has a
+        # strong approval track record. Every proposal still routes
+        # through the operator gate — the proposer never auto-applies.
+        # All thresholds defaulted conservatively; operators tune via
+        # /cp/settings. Default OFF — no scans, no proposals.
+        "widening_proposer_enabled": False,
+        "widening_min_approvals": 10,
+        "widening_max_rollback_rate": 0.0,
+        "widening_max_rejection_rate": 0.10,
+        "widening_min_history_days": 30,
+
+        # Two-reasoner safety review (Phase 4 piece 2, 2026-05-20).
+        # When enabled, callers can run ``review_text`` to get two
+        # independent LLM safety verdicts before filing a CR. The
+        # primitive is observational — the caller decides what to do
+        # with SAFE / UNSAFE / DISAGREE / UNCERTAIN. Default OFF; the
+        # function returns Verdict.DISABLED so callers proceed with
+        # the standard operator gate.
+        "two_reasoner_review_enabled": False,
+        # Aggregation threshold: unanimous SAFE with avg-confidence
+        # below this threshold collapses to UNCERTAIN.
+        "two_reasoner_confidence_threshold": 0.7,
+
+        # ── Fast-route extended patterns (2026-05-20) ──────────────
+        # When True (default), the 4 extended patterns added to
+        # ``app.agents.commander.routing._EXTENDED_FAST_ROUTE_PATTERNS``
+        # participate in fast-route matching. Off → bit-identical to
+        # pre-extension behaviour. The patterns are conservative
+        # (anchored, narrow verb sets) so default-on is safe; the
+        # switch exists so operators can disable instantly if any
+        # pattern over-matches in production traffic.
+        "fast_route_extended_patterns_enabled": True,
+
+        # ── Benchmark suite (Phase C.3, 2026-05-22) ────────────────
+        # Cross-model evaluation harness — YAML-defined tasks run
+        # against tiered model targets, scores persisted to JSONL,
+        # leaderboard aggregated at read time. Default OFF — the
+        # suite ships dormant. When True, an idle job runs the full
+        # catalog ~ every 24h subject to a per-pass cost cap. The
+        # query + aggregator APIs (e.g. ``benchmarks.leaderboard``)
+        # work whether the master switch is on or off — they just
+        # return empty when no runs have been recorded.
+        "benchmarks_enabled": False,
+
+        # ── Anthropic vendor-level daily cap (Phase D.3, 2026-05-22)
+        # Rolling-24h USD ceiling across every Anthropic Claude call,
+        # regardless of which subsystem made it. Sits next to the
+        # existing per-call ``circuit_breaker["anthropic_credits"]``
+        # (reactive — fires after a 402) as a proactive ceiling. None
+        # = disabled (default). Set to a positive float (e.g. 25.0)
+        # to refuse new Anthropic calls when projected spend would
+        # exceed the cap. Check via app.llm_anthropic_budget.pre_check.
+        "anthropic_daily_cap_usd": None,
+
+        # ── Local-tier fast route (Verified Plan Gap #4, 2026-05-22)
+        # When True, ``_try_local_route()`` matches first-person
+        # locally-answerable queries (calendar / briefing / threads /
+        # health) and dispatches with ``tier_hint='local'`` so the
+        # orchestrator can route through Ollama instead of a cloud
+        # LLM. Default OFF — operator opts in once Ollama is running
+        # + warm. Composes AFTER _try_fast_route in the orchestrator.
+        "local_route_enabled": False,
+
+        # ── Upgrade-lifecycle subsystem (PROGRAM §62, 2026-05-23) ──
+        # Closes the dependency_radar gap on capability extraction +
+        # impact analysis + trial harness + capability adoption +
+        # annual ecosystem snapshot. All five stage switches default
+        # ON; the budget defaults to $20/quarter (Q4 decision). The
+        # ShinkaEvolve-for-refactor toggle is opt-in (deferred U5.1).
+        # The MAJOR auto-CR gate (U4) only files CRs when the trial
+        # passes + 30 d post-release + no breaking-change call sites +
+        # non-TIER_IMMUTABLE + package not in FRAMEWORK_PACKAGES.
+        "upgrade_lifecycle_enabled": True,
+        "upgrade_lifecycle_capability_extraction_enabled": True,
+        "upgrade_lifecycle_trial_enabled": True,
+        "upgrade_lifecycle_major_auto_cr_enabled": True,
+        "upgrade_lifecycle_capability_adoption_enabled": True,
+        "upgrade_lifecycle_capability_budget_usd_quarterly": 20.0,
+        "upgrade_lifecycle_use_shinka_for_refactor": False,
+        "ecosystem_snapshot_enabled": True,
+        "python_eol_proximity_monitor_enabled": True,
+        "upgrade_lifecycle_health_monitor_enabled": True,
     }
 
 
@@ -766,6 +939,813 @@ def get_recovery_loop_enabled() -> bool:
 def set_recovery_loop_enabled(value: bool) -> None:
     _update({"recovery_loop_enabled": bool(value)})
     logger.info("runtime_settings: recovery_loop_enabled set to %s", bool(value))
+
+
+# ── Epistemic verification layer overlays (2026-05-20) ─────────────────
+# Overlays on top of EPISTEMIC_ENABLED / EPISTEMIC_BLOCKING_MODE env
+# vars. ``None`` (the default) means "fall through to env var" —
+# preserves the original design where boot/test/script contexts can
+# rely on the env var alone. ``True`` / ``False`` overrides the env.
+
+
+_VALID_VERIFICATION_ZONES = ("chat", "autonomous", "financial")
+
+
+def get_epistemic_enabled_override() -> bool | None:
+    """Runtime override for ``EPISTEMIC_ENABLED``. None → use env."""
+    v = _ensure_initialized().get("epistemic_enabled_override")
+    return v if isinstance(v, bool) else None
+
+
+def set_epistemic_enabled_override(value: bool | None) -> None:
+    v = None if value is None else bool(value)
+    _update({"epistemic_enabled_override": v})
+    logger.info("runtime_settings: epistemic_enabled_override set to %r", v)
+
+
+def get_epistemic_blocking_mode_override() -> bool | None:
+    """Runtime override for ``EPISTEMIC_BLOCKING_MODE``. None → use env."""
+    v = _ensure_initialized().get("epistemic_blocking_mode_override")
+    return v if isinstance(v, bool) else None
+
+
+def set_epistemic_blocking_mode_override(value: bool | None) -> None:
+    v = None if value is None else bool(value)
+    _update({"epistemic_blocking_mode_override": v})
+    logger.info("runtime_settings: epistemic_blocking_mode_override set to %r", v)
+
+
+def get_verification_extension_enabled() -> bool:
+    """Master switch for the four new gate_output evaluators.
+
+    OFF (default) → extension is a no-op; gate behaves identically to today.
+    ON → evaluators run and may ESCALATE the calibration verdict.
+    """
+    return bool(_ensure_initialized().get("verification_extension_enabled", False))
+
+
+def set_verification_extension_enabled(value: bool) -> None:
+    _update({"verification_extension_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: verification_extension_enabled set to %s", bool(value),
+    )
+
+
+def get_verification_threshold(zone: str) -> float:
+    """Per-zone verification threshold in [0.0, 1.0].
+
+    Unknown zone falls back to the chat threshold (safest default).
+    """
+    cache = _ensure_initialized()
+    key = f"verification_threshold_{zone}"
+    if key in cache:
+        return float(cache[key])
+    return float(cache.get("verification_threshold_chat", 0.60))
+
+
+def set_verification_threshold(zone: str, value: float) -> None:
+    if zone not in _VALID_VERIFICATION_ZONES:
+        raise ValueError(
+            f"verification zone must be one of {_VALID_VERIFICATION_ZONES}, "
+            f"got {zone!r}",
+        )
+    v = float(value)
+    if not 0.0 <= v <= 1.0:
+        raise ValueError(f"verification_threshold must be in [0.0, 1.0], got {v}")
+    _update({f"verification_threshold_{zone}": v})
+    logger.info(
+        "runtime_settings: verification_threshold_%s set to %.2f", zone, v,
+    )
+
+
+def get_verification_retrieval_budget_per_task() -> int:
+    """Per-task budget for retrieval-on-low-confidence (0 → disabled)."""
+    return int(
+        _ensure_initialized().get(
+            "verification_extension_retrieval_budget_per_task", 1,
+        )
+    )
+
+
+def set_verification_retrieval_budget_per_task(value: int) -> None:
+    v = int(value)
+    if v < 0:
+        raise ValueError("retrieval budget must be non-negative")
+    if v > 10:
+        raise ValueError("retrieval budget exceeds sanity cap of 10 per task")
+    _update({"verification_extension_retrieval_budget_per_task": v})
+    logger.info(
+        "runtime_settings: verification_extension_retrieval_budget_per_task "
+        "set to %d", v,
+    )
+
+
+# ── Risk classifier + trust zones (2026-05-20) ──────────────────────────
+# Runtime-flippable allowlists for the AUTO_APPLY lane. The
+# ``app.change_requests.validator`` constants
+# ``_AUTO_APPLY_ALLOWED_REQUESTORS`` and ``_AUTO_APPLY_ALLOWED_PATHS``
+# read these at validate-time so the dashboard can widen the lane
+# without a deploy. Both default to ``[]`` — bit-identical to the
+# dormant shipping behaviour from PROGRAM §38.3.
+
+
+# Sanity caps for the allowlists. The auto-apply lane is intentionally
+# narrow — a widening that swelled beyond these would be the operator
+# proposing a different policy, which belongs in the React UI's
+# confirmation flow, not in a JSON-file edit.
+_AUTO_APPLY_MAX_REQUESTORS = 32
+_AUTO_APPLY_MAX_PATHS = 64
+
+
+def get_auto_apply_allowed_requestors() -> list[str]:
+    """Operator-managed allowlist of requestor agent_ids permitted to
+    file AUTO_APPLY change requests. Empty (default) → lane dormant.
+    """
+    raw = _ensure_initialized().get("auto_apply_allowed_requestors", [])
+    if not isinstance(raw, list):
+        logger.warning(
+            "runtime_settings: auto_apply_allowed_requestors has "
+            "non-list shape %r — treating as empty", type(raw).__name__,
+        )
+        return []
+    return [str(x) for x in raw if isinstance(x, str)]
+
+
+def set_auto_apply_allowed_requestors(value: list[str]) -> None:
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        raise ValueError(
+            "auto_apply_allowed_requestors must be a list/tuple/set "
+            f"of strings, got {type(value).__name__}",
+        )
+    clean: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str):
+            raise ValueError(
+                "auto_apply_allowed_requestors entries must be strings; "
+                f"got {type(entry).__name__}",
+            )
+        s = entry.strip()
+        if not s:
+            continue
+        if s not in clean:
+            clean.append(s)
+    if len(clean) > _AUTO_APPLY_MAX_REQUESTORS:
+        raise ValueError(
+            f"auto_apply_allowed_requestors exceeds sanity cap of "
+            f"{_AUTO_APPLY_MAX_REQUESTORS} entries",
+        )
+    _update({"auto_apply_allowed_requestors": clean})
+    logger.info(
+        "runtime_settings: auto_apply_allowed_requestors set to %d entries",
+        len(clean),
+    )
+
+
+def get_auto_apply_allowed_paths() -> list[str]:
+    """Operator-managed allowlist of paths permitted for AUTO_APPLY.
+
+    Exact-match by default; trailing ``/`` makes the entry a prefix
+    match (matches the existing validator semantics).
+    """
+    raw = _ensure_initialized().get("auto_apply_allowed_paths", [])
+    if not isinstance(raw, list):
+        logger.warning(
+            "runtime_settings: auto_apply_allowed_paths has non-list "
+            "shape %r — treating as empty", type(raw).__name__,
+        )
+        return []
+    return [str(x) for x in raw if isinstance(x, str)]
+
+
+def set_auto_apply_allowed_paths(value: list[str]) -> None:
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        raise ValueError(
+            "auto_apply_allowed_paths must be a list/tuple/set of "
+            f"strings, got {type(value).__name__}",
+        )
+    clean: list[str] = []
+    for entry in value:
+        if not isinstance(entry, str):
+            raise ValueError(
+                "auto_apply_allowed_paths entries must be strings; "
+                f"got {type(entry).__name__}",
+            )
+        s = entry.strip()
+        if not s:
+            continue
+        # Defensive: refuse absolute paths and parent-traversal
+        # sequences. The validator works on workspace-relative paths
+        # and these would let an allowlist entry reach outside the
+        # workspace root.
+        if s.startswith("/") or ".." in s.split("/"):
+            raise ValueError(
+                f"auto_apply_allowed_paths entry {s!r} is invalid: "
+                f"absolute or parent-traversal paths are refused",
+            )
+        if s not in clean:
+            clean.append(s)
+    if len(clean) > _AUTO_APPLY_MAX_PATHS:
+        raise ValueError(
+            f"auto_apply_allowed_paths exceeds sanity cap of "
+            f"{_AUTO_APPLY_MAX_PATHS} entries",
+        )
+    _update({"auto_apply_allowed_paths": clean})
+    logger.info(
+        "runtime_settings: auto_apply_allowed_paths set to %d entries",
+        len(clean),
+    )
+
+
+def get_risk_classifier_enabled() -> bool:
+    """Master switch for ``app.risk_classifier``. v1 default OFF —
+    the module is a pure library with no production callers yet.
+    """
+    return bool(_ensure_initialized().get("risk_classifier_enabled", False))
+
+
+def set_risk_classifier_enabled(value: bool) -> None:
+    _update({"risk_classifier_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: risk_classifier_enabled set to %s", bool(value),
+    )
+
+
+# ── Autonomous executor (Phase 2 piece 1, 2026-05-20) ──────────────
+# Hardcoded sanity ceilings — operators can lower runtime defaults
+# below these via the setters, but the setters refuse values ABOVE
+# them. The ceilings are floor values that defend against an
+# accidental "raise budget by 100x" via a runtime_settings file edit.
+EXECUTOR_BUDGET_CAPS: dict[str, float] = {
+    "max_usd_per_run": 10.0,         # $10 hard ceiling per run
+    "max_tokens_per_run": 200_000,   # 200k tokens hard ceiling per run
+    "max_wall_clock_s_per_run": 3600,  # 1h hard ceiling per run
+}
+
+
+def get_autonomous_executor_enabled() -> bool:
+    """Master switch for ``app.autonomous_executor``. v1 default OFF —
+    the module is a pure library with no driver/scheduler integration
+    yet (Phase 2 piece 2). When ON in Phase 2, this gates the driver
+    daemon and the /delegate slash command."""
+    return bool(
+        _ensure_initialized().get("autonomous_executor_enabled", False),
+    )
+
+
+def set_autonomous_executor_enabled(value: bool) -> None:
+    _update({"autonomous_executor_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: autonomous_executor_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_executor_default_budget_usd() -> float:
+    return float(
+        _ensure_initialized().get("executor_default_budget_usd", 1.0),
+    )
+
+
+def set_executor_default_budget_usd(value: float) -> None:
+    v = float(value)
+    if v < 0.0:
+        raise ValueError("executor_default_budget_usd must be non-negative")
+    ceiling = EXECUTOR_BUDGET_CAPS["max_usd_per_run"]
+    if v > ceiling:
+        raise ValueError(
+            f"executor_default_budget_usd exceeds hard ceiling "
+            f"${ceiling:.2f} — raise the ceiling in "
+            f"EXECUTOR_BUDGET_CAPS first (governance-grade)",
+        )
+    _update({"executor_default_budget_usd": v})
+    logger.info(
+        "runtime_settings: executor_default_budget_usd set to $%.2f", v,
+    )
+
+
+def get_executor_default_budget_tokens() -> int:
+    return int(
+        _ensure_initialized().get("executor_default_budget_tokens", 20_000),
+    )
+
+
+def set_executor_default_budget_tokens(value: int) -> None:
+    v = int(value)
+    if v < 0:
+        raise ValueError("executor_default_budget_tokens must be non-negative")
+    ceiling = int(EXECUTOR_BUDGET_CAPS["max_tokens_per_run"])
+    if v > ceiling:
+        raise ValueError(
+            f"executor_default_budget_tokens exceeds hard ceiling "
+            f"{ceiling} tokens",
+        )
+    _update({"executor_default_budget_tokens": v})
+    logger.info(
+        "runtime_settings: executor_default_budget_tokens set to %d", v,
+    )
+
+
+def get_executor_default_wall_clock_s() -> int:
+    return int(
+        _ensure_initialized().get("executor_default_wall_clock_s", 600),
+    )
+
+
+def set_executor_default_wall_clock_s(value: int) -> None:
+    v = int(value)
+    if v < 1:
+        raise ValueError("executor_default_wall_clock_s must be positive")
+    ceiling = int(EXECUTOR_BUDGET_CAPS["max_wall_clock_s_per_run"])
+    if v > ceiling:
+        raise ValueError(
+            f"executor_default_wall_clock_s exceeds hard ceiling "
+            f"{ceiling} seconds (1h)",
+        )
+    _update({"executor_default_wall_clock_s": v})
+    logger.info(
+        "runtime_settings: executor_default_wall_clock_s set to %d", v,
+    )
+
+
+def get_autonomous_executor_llm_planner_enabled() -> bool:
+    """Master switch for the v2 LLM planner. Default OFF — v1
+    deterministic single-step planner stays on. When True,
+    ``app.autonomous_executor.planner.get_default_planner`` returns
+    ``llm_plan`` (Haiku 4.5 decomposition into 1-5 sub-goals)."""
+    return bool(
+        _ensure_initialized().get(
+            "autonomous_executor_llm_planner_enabled", False,
+        )
+    )
+
+
+def set_autonomous_executor_llm_planner_enabled(value: bool) -> None:
+    _update({"autonomous_executor_llm_planner_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: autonomous_executor_llm_planner_enabled "
+        "set to %s", bool(value),
+    )
+
+
+def get_code_intel_enabled() -> bool:
+    """Master switch for the code_intel module. Default OFF — the
+    library is queryable when off (returns empty results), but no
+    indexing happens until flipped on."""
+    return bool(_ensure_initialized().get("code_intel_enabled", False))
+
+
+def set_code_intel_enabled(value: bool) -> None:
+    _update({"code_intel_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: code_intel_enabled set to %s", bool(value),
+    )
+
+
+# ── Benchmark suite (Phase C.3, 2026-05-22) ────────────────────────
+
+
+def get_benchmarks_enabled() -> bool:
+    """Master switch for the benchmark suite. Default OFF — the
+    catalog + query + aggregator APIs work whether enabled or not
+    (they return empty when off), but the periodic scheduler pass
+    only runs when this is flipped on."""
+    return bool(_ensure_initialized().get("benchmarks_enabled", False))
+
+
+def set_benchmarks_enabled(value: bool) -> None:
+    _update({"benchmarks_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: benchmarks_enabled set to %s", bool(value),
+    )
+
+
+# ── Anthropic vendor-level daily cap (Phase D.3, 2026-05-22) ────────
+
+
+def get_anthropic_daily_cap_usd():
+    """Operator-set USD ceiling on rolling-24h Anthropic spend.
+
+    Returns:
+      Float when set, ``None`` when disabled. The disabled-by-default
+      posture matches the operator-flips-it-on-after-watching-cost
+      design intent.
+    """
+    raw = _ensure_initialized().get("anthropic_daily_cap_usd", None)
+    if raw is None:
+        return None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return v
+
+
+def get_local_route_enabled() -> bool:
+    """Master switch for the interest-profile-aware local-tier route
+    (Verified Plan Gap #4, 2026-05-22). Default OFF — the local
+    Ollama tier may not be running on every host. When True,
+    ``_try_local_route()`` matches calendar / briefing / threads /
+    health queries and dispatches with ``tier_hint='local'``."""
+    return bool(
+        _ensure_initialized().get("local_route_enabled", False),
+    )
+
+
+def set_local_route_enabled(value: bool) -> None:
+    _update({"local_route_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: local_route_enabled set to %s", bool(value),
+    )
+
+
+def set_anthropic_daily_cap_usd(value) -> None:
+    """Set or clear the Anthropic daily cap.
+
+    Pass ``None`` to disable; pass a positive float to enable.
+    Negative / zero / non-numeric values are coerced to ``None``
+    (treat as disabled) — operators don't get to set a negative cap.
+    """
+    if value is None:
+        normalized = None
+    else:
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            normalized = None
+        else:
+            normalized = v if v > 0 else None
+    _update({"anthropic_daily_cap_usd": normalized})
+    logger.info(
+        "runtime_settings: anthropic_daily_cap_usd set to %s", normalized,
+    )
+
+
+# ── Trust-zone widening proposer (Phase 4 piece 1, 2026-05-20) ─────
+
+
+def get_widening_proposer_enabled() -> bool:
+    """Master switch for the widening proposer. Default OFF — the
+    library is pure-function callable when off (returns empty list),
+    but no scheduler scan runs until flipped on."""
+    return bool(
+        _ensure_initialized().get("widening_proposer_enabled", False)
+    )
+
+
+def set_widening_proposer_enabled(value: bool) -> None:
+    _update({"widening_proposer_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: widening_proposer_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_widening_min_approvals() -> int:
+    return int(
+        _ensure_initialized().get("widening_min_approvals", 10)
+    )
+
+
+def set_widening_min_approvals(value: int) -> None:
+    v = int(value)
+    if v < 1:
+        raise ValueError("widening_min_approvals must be ≥ 1")
+    if v > 1000:
+        raise ValueError("widening_min_approvals exceeds sanity cap of 1000")
+    _update({"widening_min_approvals": v})
+    logger.info(
+        "runtime_settings: widening_min_approvals set to %d", v,
+    )
+
+
+def get_widening_max_rollback_rate() -> float:
+    return float(
+        _ensure_initialized().get("widening_max_rollback_rate", 0.0)
+    )
+
+
+def set_widening_max_rollback_rate(value: float) -> None:
+    v = float(value)
+    if not 0.0 <= v <= 1.0:
+        raise ValueError(
+            f"widening_max_rollback_rate must be in [0.0, 1.0], got {v}",
+        )
+    _update({"widening_max_rollback_rate": v})
+    logger.info(
+        "runtime_settings: widening_max_rollback_rate set to %.4f", v,
+    )
+
+
+def get_widening_max_rejection_rate() -> float:
+    return float(
+        _ensure_initialized().get("widening_max_rejection_rate", 0.10)
+    )
+
+
+def set_widening_max_rejection_rate(value: float) -> None:
+    v = float(value)
+    if not 0.0 <= v <= 1.0:
+        raise ValueError(
+            f"widening_max_rejection_rate must be in [0.0, 1.0], got {v}",
+        )
+    _update({"widening_max_rejection_rate": v})
+    logger.info(
+        "runtime_settings: widening_max_rejection_rate set to %.4f", v,
+    )
+
+
+def get_widening_min_history_days() -> int:
+    return int(
+        _ensure_initialized().get("widening_min_history_days", 30)
+    )
+
+
+def set_widening_min_history_days(value: int) -> None:
+    v = int(value)
+    if v < 1:
+        raise ValueError("widening_min_history_days must be ≥ 1")
+    if v > 3650:
+        raise ValueError(
+            "widening_min_history_days exceeds sanity cap of 10 years",
+        )
+    _update({"widening_min_history_days": v})
+    logger.info(
+        "runtime_settings: widening_min_history_days set to %d", v,
+    )
+
+
+# ── Two-reasoner safety review (Phase 4 piece 2, 2026-05-20) ───────
+
+
+def get_two_reasoner_review_enabled() -> bool:
+    """Master switch for the two-reasoner safety review primitive."""
+    return bool(
+        _ensure_initialized().get("two_reasoner_review_enabled", False)
+    )
+
+
+def set_two_reasoner_review_enabled(value: bool) -> None:
+    _update({"two_reasoner_review_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: two_reasoner_review_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_two_reasoner_confidence_threshold() -> float:
+    return float(
+        _ensure_initialized().get(
+            "two_reasoner_confidence_threshold", 0.7,
+        )
+    )
+
+
+def set_two_reasoner_confidence_threshold(value: float) -> None:
+    v = float(value)
+    if not 0.0 <= v <= 1.0:
+        raise ValueError(
+            f"two_reasoner_confidence_threshold must be in [0, 1], "
+            f"got {v}",
+        )
+    _update({"two_reasoner_confidence_threshold": v})
+    logger.info(
+        "runtime_settings: two_reasoner_confidence_threshold "
+        "set to %.2f", v,
+    )
+
+
+def get_iterate_loop_enabled() -> bool:
+    """Master switch for the agent-callable iterate_until_green tool.
+
+    When OFF (default), ``coding_session_iterate`` short-circuits to a
+    "disabled" response. When ON, the tool runs the production
+    iterate loop against the session's worktree, with budget +
+    iteration caps enforced inside iterate_until_green itself.
+
+    Independent from ``pyright_sidecar_enabled``: the iterate loop
+    runs without type-checking when sidecar is off. Operators flip
+    BOTH on to get type-aware diagnosis.
+    """
+    return bool(
+        _ensure_initialized().get("iterate_loop_enabled", False)
+    )
+
+
+def set_iterate_loop_enabled(value: bool) -> None:
+    _update({"iterate_loop_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: iterate_loop_enabled set to %s", bool(value),
+    )
+
+
+def get_auto_type_check_on_submit_enabled() -> bool:
+    """Master switch for auto-enabling pyright on coding-session submit.
+
+    When ON (and ``pyright_sidecar_enabled`` is also ON), the
+    ``coding_session_submit`` tool defaults ``with_type_check=True``
+    so every submitted .py file gets type-error metadata attached to
+    its SubmitResult without the agent having to remember.
+
+    Default OFF — explicit operator opt-in. Once flipped on, the
+    autonomous executor's coder gets type-error visibility on every
+    CR fanout without any per-call configuration.
+    """
+    return bool(
+        _ensure_initialized().get(
+            "auto_type_check_on_submit_enabled", False,
+        )
+    )
+
+
+def set_auto_type_check_on_submit_enabled(value: bool) -> None:
+    _update({"auto_type_check_on_submit_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: auto_type_check_on_submit_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_pyright_sidecar_enabled() -> bool:
+    """Master switch for the pyright type-checker sidecar.
+
+    When OFF (default), ``code_intel.check_paths`` short-circuits to
+    an empty report — no subprocess spawn. Flip ON only after the
+    pyright binary is available in the runtime image AND callers
+    (e.g. ``iterate_until_green``) have been wired to consume the
+    structured diagnostics.
+    """
+    return bool(
+        _ensure_initialized().get("pyright_sidecar_enabled", False)
+    )
+
+
+def set_pyright_sidecar_enabled(value: bool) -> None:
+    _update({"pyright_sidecar_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: pyright_sidecar_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_connector_budgets_enabled() -> bool:
+    """Master switch for ``app.connector_budget`` per-connector daily caps.
+
+    When OFF (default), ``@with_connector_budget`` is a transparent
+    pass-through. Flip ON only after call sites have declared sensible
+    daily caps + estimates; turning ON without configured callers is
+    harmless (nothing runs through the decorator).
+    """
+    return bool(
+        _ensure_initialized().get("connector_budgets_enabled", False)
+    )
+
+
+def set_connector_budgets_enabled(value: bool) -> None:
+    _update({"connector_budgets_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: connector_budgets_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_connector_budget_overrides() -> dict:
+    """Per-connector cap + estimate overrides for ``with_connector_budget``.
+
+    Shape::
+
+        {
+          "aviationstack": {
+            "daily_cap_usd": 0.005,
+            "estimated_cost_usd": 0.001,
+          },
+          ...
+        }
+
+    Either field is optional within a connector entry. The decorator
+    falls back to its hardcoded defaults for any field not overridden.
+    Returns an empty dict when no overrides are set (default).
+
+    Shape-validated on read — well-formed entries land in the result;
+    malformed ones (wrong key type, non-numeric values) are filtered.
+    """
+    raw = _ensure_initialized().get("connector_budget_overrides") or {}
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    for k, v in raw.items():
+        if not isinstance(k, str) or not isinstance(v, dict):
+            continue
+        cleaned: dict = {}
+        for field in ("daily_cap_usd", "estimated_cost_usd"):
+            if field in v:
+                try:
+                    cleaned[field] = float(v[field])
+                except (TypeError, ValueError):
+                    continue
+        if cleaned:
+            out[k] = cleaned
+    return out
+
+
+def set_connector_budget_override(
+    connector,
+    *,
+    daily_cap_usd=None,
+    estimated_cost_usd=None,
+):
+    """Set or merge an override entry for ``connector``.
+
+    Pass only the fields you want to change — ``None`` leaves the
+    existing field untouched. Validation:
+      * ``daily_cap_usd`` must be > 0 when supplied
+      * ``estimated_cost_usd`` must be >= 0 when supplied
+      * ``connector`` must be a non-empty string
+    """
+    if not isinstance(connector, str) or not connector:
+        raise ValueError(
+            f"connector must be a non-empty string, got {connector!r}"
+        )
+    if daily_cap_usd is not None and daily_cap_usd <= 0:
+        raise ValueError(
+            f"daily_cap_usd must be positive, got {daily_cap_usd}"
+        )
+    if estimated_cost_usd is not None and estimated_cost_usd < 0:
+        raise ValueError(
+            f"estimated_cost_usd must be >= 0, got {estimated_cost_usd}"
+        )
+
+    current = get_connector_budget_overrides()
+    entry = dict(current.get(connector, {}))
+    if daily_cap_usd is not None:
+        entry["daily_cap_usd"] = float(daily_cap_usd)
+    if estimated_cost_usd is not None:
+        entry["estimated_cost_usd"] = float(estimated_cost_usd)
+    if not entry:
+        return
+    current[connector] = entry
+    _update({"connector_budget_overrides": current})
+    logger.info(
+        "runtime_settings: connector_budget_override for %r → %s",
+        connector, entry,
+    )
+
+
+def remove_connector_budget_override(connector) -> bool:
+    """Drop the override for ``connector``. Returns True if removed,
+    False if no entry existed."""
+    current = get_connector_budget_overrides()
+    if connector not in current:
+        return False
+    current.pop(connector, None)
+    _update({"connector_budget_overrides": current})
+    logger.info(
+        "runtime_settings: removed connector_budget_override for %r",
+        connector,
+    )
+    return True
+
+
+def get_capability_regression_enabled() -> bool:
+    """Master switch for the capability-regression alert subsystem.
+
+    When ON, the hourly scheduler job snapshots the registered tool +
+    LLM-catalog set and compares against the prior snapshot. A SHRINK
+    (tool unregistered, model removed from catalog and not merely
+    blocked via runtime_settings) is treated as a regression and emits
+    a Signal alert + landmark. Default ON (fail-open observability).
+    """
+    return bool(
+        _ensure_initialized().get("capability_regression_enabled", True)
+    )
+
+
+def set_capability_regression_enabled(value: bool) -> None:
+    _update({"capability_regression_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: capability_regression_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_fast_route_extended_patterns_enabled() -> bool:
+    """Whether the extended fast-route patterns (briefings / list-X /
+    recall / status) participate in matching. Default True — patterns
+    are conservative and additive. Read by
+    ``app.agents.commander.routing._extended_fast_route_enabled``.
+    """
+    return bool(
+        _ensure_initialized().get("fast_route_extended_patterns_enabled", True)
+    )
+
+
+def set_fast_route_extended_patterns_enabled(value: bool) -> None:
+    _update({"fast_route_extended_patterns_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: fast_route_extended_patterns_enabled set to %s",
+        bool(value),
+    )
 
 
 # ── SubIA master switches (productization plan T1.3, 2026-05-16) ────────
@@ -2126,6 +3106,53 @@ def set_oauth_token_freshness_monitor_enabled(value: bool) -> None:
     _update({"oauth_token_freshness_monitor_enabled": bool(value)})
 
 
+def get_gh_version_monitor_enabled() -> bool:
+    return bool(
+        _ensure_initialized().get("gh_version_monitor_enabled", True)
+    )
+
+
+def set_gh_version_monitor_enabled(value: bool) -> None:
+    _update({"gh_version_monitor_enabled": bool(value)})
+
+
+# Verified Implementation Plan Gap 1 closure (2026-05-23) — code_intel
+# tree-sitter indexer + Postgres backend master switches. Both default
+# OFF so the AST + JSONL canonical path keeps its existing behaviour.
+#
+# Operator flips ``code_intel_tree_sitter_enabled`` when they want
+# multi-language symbol coverage (TS / JS / Go / Rust) or want to A/B
+# the AST and tree-sitter parsers on Python files. Both indexers can
+# run together — the JSONL store accepts records from either source.
+#
+# ``code_intel_postgres_enabled`` controls whether ``build_index``
+# also persists to the migration-036 tables (code_symbols,
+# code_references, code_coverage_snapshot). Off by default; flip when
+# JSONL scale becomes a measurable bottleneck (~10k+ files).
+def get_code_intel_tree_sitter_enabled() -> bool:
+    return bool(
+        _ensure_initialized().get(
+            "code_intel_tree_sitter_enabled", False,
+        )
+    )
+
+
+def set_code_intel_tree_sitter_enabled(value: bool) -> None:
+    _update({"code_intel_tree_sitter_enabled": bool(value)})
+
+
+def get_code_intel_postgres_enabled() -> bool:
+    return bool(
+        _ensure_initialized().get(
+            "code_intel_postgres_enabled", False,
+        )
+    )
+
+
+def set_code_intel_postgres_enabled(value: bool) -> None:
+    _update({"code_intel_postgres_enabled": bool(value)})
+
+
 def get_drill_vendor_independence_enabled() -> bool:
     return bool(
         _ensure_initialized().get("drill_vendor_independence_enabled", True)
@@ -2690,3 +3717,137 @@ def get_cross_monitor_pattern_monitor_enabled() -> bool:
 
 def set_cross_monitor_pattern_monitor_enabled(value: bool) -> None:
     _update({"cross_monitor_pattern_monitor_enabled": bool(value)})
+
+
+# ── Upgrade-lifecycle (PROGRAM §62, 2026-05-23) ─────────────────────────
+
+
+def get_upgrade_lifecycle_enabled() -> bool:
+    """Top-level master switch for the upgrade-lifecycle subsystem.
+
+    When False, every stage refuses (Capability extraction returns
+    None, trial runner declines, MAJOR auto-CR gate falls back to
+    Signal-only, capability adoption pauses, ecosystem snapshot
+    skips). Per-stage switches give finer control.
+    """
+    return bool(_ensure_initialized().get("upgrade_lifecycle_enabled", True))
+
+
+def set_upgrade_lifecycle_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_enabled": bool(value)})
+
+
+def get_upgrade_lifecycle_capability_extraction_enabled() -> bool:
+    """Master switch for U1 — changelog fetching + LLM-extracted Capability rows."""
+    if not get_upgrade_lifecycle_enabled():
+        return False
+    return bool(_ensure_initialized().get(
+        "upgrade_lifecycle_capability_extraction_enabled", True,
+    ))
+
+
+def set_upgrade_lifecycle_capability_extraction_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_capability_extraction_enabled": bool(value)})
+
+
+def get_upgrade_lifecycle_trial_enabled() -> bool:
+    """Master switch for U3 — upgrade trial runs in coding-session worktrees."""
+    if not get_upgrade_lifecycle_enabled():
+        return False
+    return bool(_ensure_initialized().get("upgrade_lifecycle_trial_enabled", True))
+
+
+def set_upgrade_lifecycle_trial_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_trial_enabled": bool(value)})
+
+
+def get_upgrade_lifecycle_major_auto_cr_enabled() -> bool:
+    """Master switch for U4 — MAJOR bumps auto-CR'd when 5 gate
+    conditions hold (trial ok + 30d + no breaking hits + non-immutable
+    + not framework). When False, falls back to Signal-only."""
+    if not get_upgrade_lifecycle_enabled():
+        return False
+    return bool(_ensure_initialized().get(
+        "upgrade_lifecycle_major_auto_cr_enabled", True,
+    ))
+
+
+def set_upgrade_lifecycle_major_auto_cr_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_major_auto_cr_enabled": bool(value)})
+
+
+def get_upgrade_lifecycle_capability_adoption_enabled() -> bool:
+    """Master switch for U5 — weekly capability-adoption refactor CRs.
+    Hard-capped at 1 CR/week and the quarterly USD budget below."""
+    if not get_upgrade_lifecycle_enabled():
+        return False
+    return bool(_ensure_initialized().get(
+        "upgrade_lifecycle_capability_adoption_enabled", True,
+    ))
+
+
+def set_upgrade_lifecycle_capability_adoption_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_capability_adoption_enabled": bool(value)})
+
+
+def get_upgrade_lifecycle_capability_budget_usd_quarterly() -> float:
+    """Calendar-quarter USD budget for U5 capability-adoption LLM spend."""
+    return float(_ensure_initialized().get(
+        "upgrade_lifecycle_capability_budget_usd_quarterly", 20.0,
+    ))
+
+
+def set_upgrade_lifecycle_capability_budget_usd_quarterly(value: float) -> None:
+    v = float(value)
+    if v < 0.0:
+        raise ValueError("quarterly budget must be non-negative")
+    if v > 500.0:
+        raise ValueError("quarterly budget exceeds sanity cap of $500/quarter")
+    _update({"upgrade_lifecycle_capability_budget_usd_quarterly": v})
+    logger.info("runtime_settings: upgrade_lifecycle quarterly budget = $%.2f", v)
+
+
+def get_upgrade_lifecycle_use_shinka_for_refactor() -> bool:
+    """Opt-in switch for U5.1 — use ShinkaEvolve to drive multi-variant
+    refactor generation instead of a single direct factory LLM call.
+    Default OFF."""
+    return bool(_ensure_initialized().get(
+        "upgrade_lifecycle_use_shinka_for_refactor", False,
+    ))
+
+
+def set_upgrade_lifecycle_use_shinka_for_refactor(value: bool) -> None:
+    _update({"upgrade_lifecycle_use_shinka_for_refactor": bool(value)})
+
+
+def get_ecosystem_snapshot_enabled() -> bool:
+    """Master switch for U6 — annual January ecosystem snapshot."""
+    if not get_upgrade_lifecycle_enabled():
+        return False
+    return bool(_ensure_initialized().get("ecosystem_snapshot_enabled", True))
+
+
+def set_ecosystem_snapshot_enabled(value: bool) -> None:
+    _update({"ecosystem_snapshot_enabled": bool(value)})
+
+
+def get_python_eol_proximity_monitor_enabled() -> bool:
+    """Master switch for U8's quarterly Python EOL proximity monitor."""
+    return bool(_ensure_initialized().get(
+        "python_eol_proximity_monitor_enabled", True,
+    ))
+
+
+def set_python_eol_proximity_monitor_enabled(value: bool) -> None:
+    _update({"python_eol_proximity_monitor_enabled": bool(value)})
+
+
+def get_upgrade_lifecycle_health_monitor_enabled() -> bool:
+    """Master switch for U8's weekly upgrade-lifecycle health monitor."""
+    return bool(_ensure_initialized().get(
+        "upgrade_lifecycle_health_monitor_enabled", True,
+    ))
+
+
+def set_upgrade_lifecycle_health_monitor_enabled(value: bool) -> None:
+    _update({"upgrade_lifecycle_health_monitor_enabled": bool(value)})

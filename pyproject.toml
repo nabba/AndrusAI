@@ -98,3 +98,50 @@ module = [
     # Phase G1 will extend this list as files are annotated.
 ]
 strict = true
+
+# Pyright configuration (2026-05-22) — used by app/code_intel/pyright_sidecar.py
+# when it walks up from a target file looking for project config.
+# Defaults are deliberately permissive ("basic" rather than "strict") so the
+# sidecar doesn't drown CRs in style noise; operator-flippable per-module by
+# adding entries to executionEnvironments below.
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+include = ["app"]
+exclude = [
+    "**/__pycache__",
+    "**/.venv",
+    "**/.venv-smoke",
+    "workspace",
+    "migrations",
+    "ShinkaEvolve",
+    "raw",
+    "host_bridge",
+    "repobot",
+    "dashboard",
+    "dashboard-react",
+    "tests",  # tests freely use Mock objects
+    "scripts",
+]
+# Don't follow imports that pyright can't resolve (libs without stubs)
+useLibraryCodeForTypes = true
+reportMissingImports = "warning"
+reportMissingTypeStubs = "none"
+# These are noisy on this codebase and add little signal at basic mode.
+reportGeneralTypeIssues = "warning"
+reportPossiblyUnboundVariable = "warning"
+reportOptionalMemberAccess = "warning"
+# Strict-mode opt-in paths land here as the type-hint backfill extends.
+# Match the mypy override pattern.
+#
+# Phase C.4 (2026-05-22): seed with the recent observational
+# subsystems. They're new code, written with type hints throughout,
+# small enough to validate fully. As legacy modules get backfilled
+# with annotations, add them here.
+strict = [
+    "app/connector_budget",
+    "app/capability_regression",
+    "app/code_intel",
+    "app/autonomous_executor",
+    "app/risk_classifier",
+]

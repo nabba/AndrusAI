@@ -133,3 +133,30 @@ def create_ocr_tool():
         return ocr_tool
     except Exception:
         return None
+
+
+# ── Tool registry annotation (Phase C.1, 2026-05-22; passive) ────────
+# Surfaces ``ocr_extract_text`` in the registry so ``tool_search`` can
+# find it by capability tag. The legacy ``create_ocr_tool`` factory
+# remains the authoritative entry point — registration is additive.
+try:
+    from app.tool_registry import Lifecycle, Tier, register_tool
+
+    @register_tool(
+        name="ocr_extract_text",
+        capabilities=["reads-attachment"],
+        description=(
+            "Extract text from an image via local Ollama OCR model. "
+            "Accepts a file path to a local image (PNG / JPG / PDF "
+            "page). Works on photos, screenshots, documents, receipts. "
+            "Optional prompt customisation tunes the extraction. "
+            "Falls back to a helpful 'pull this model' message when "
+            "the OCR backend isn't available."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _ocr_tool_registry_factory():
+        return ocr_from_file
+except ImportError:
+    pass

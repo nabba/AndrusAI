@@ -17,6 +17,7 @@ Idle scheduling is opportunistic: it fills dead time between user requests.
 """
 
 import logging
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -129,6 +130,91 @@ _stop_event = threading.Event()
 _enabled = True  # kill switch — toggled from Firestore
 _enabled_lock = threading.Lock()
 _idle_thread: threading.Thread | None = None
+
+# ── Fix C (2026-05-22): per-LIGHT-job minimum cadence map ─────────────
+# Without this, every idle cycle (~100 s) runs all ~41 LIGHT jobs in
+# full, contributing to APScheduler executor saturation (originally
+# observed pushing cron delays into the 45-min range, well past the
+# 60 s misfire_grace_time window). The cadence values are MINIMUMS —
+# inner functions may still no-op faster than this. See
+# docs/proposed_fixes/idle_scheduler_cadence_gating.md for the audit.
+# Three jobs are intentionally absent (queue drainers — must run every
+# cycle): dlq-drain, belief-outbox-neo4j, belief-outbox-chroma.
+_LIGHT_MIN_CADENCE: dict[str, float] = {
+    # ── identity & history (daily) ──
+    "tier-graduation":               86400,   # docstring says weekly
+    "improvement-narrative":         86400,
+    "data-retention":                86400,
+    "spans-retention":               86400,
+    "judge-eval-retention":          86400,
+    # ── snapshots & catalogs (1 h) ──
+    "version-snapshot":               3600,   # keep_latest=10 → 10 h rollback
+    "atlas-stale-check":              3600,
+    "evaluator-sweep":                3600,
+    "self-model-refresh":             3600,
+    "entropy-monitoring":             3600,
+    "emergent-infrastructure":        3600,
+    "fiction-ingest":                 3600,
+    "discover-topics":                3600,
+    "decentered-pass":                3600,
+    "valve-audit-replay":             3600,
+    "capability-regression":          3600,
+    "meta-workspace-promotion":       3600,
+    "llm-refresh-catalog":            3600,
+    "map-elites-migrate":             3600,
+    "map-elites-maintain":            3600,
+    "ollama-memory":                  3600,
+    "backward-counterfactual-replay": 3600,
+    # ── periodic sweeps (30 min) ──
+    "atlas-competence-sync":          1800,
+    "wiki-index-reconciler":          1800,
+    "skills-mirror":                  1800,
+    "skill-index":                    1800,
+    "feedback-aggregate":             1800,
+    "transfer-attribution":           1800,
+    "llm-apply-promotions":           1800,
+    # ── live monitoring (5–10 min) ──
+    "wiki-hot-cache":                  600,
+    "health-evaluate":                 600,
+    "viability-goal-emitter":          600,
+    "human-gate-expire":               600,
+    "dead-letter-retry":               600,
+    "safety-health-check":             300,
+    "system-monitor":                  300,
+    "spans-watchdog":                  300,
+    # ── high-frequency (1 min) ──
+    "heartbeat-cycle":                  60,
+}
+
+_light_job_last_run: dict[str, float] = {}
+
+_LIGHT_CADENCE_GATING_ENABLED = os.environ.get(
+    "IDLE_LIGHT_CADENCE_GATING_ENABLED", "1"
+).lower() in ("1", "true", "yes")
+
+
+def _light_job_allowed(name: str) -> bool:
+    """Return True if LIGHT job ``name`` is due to run per its minimum
+    cadence. Jobs not in ``_LIGHT_MIN_CADENCE`` are always allowed
+    (preserves pre-Fix-C behavior for new jobs). Master kill-switch
+    ``IDLE_LIGHT_CADENCE_GATING_ENABLED=0`` reverts to always-allow.
+
+    Called once per job per idle-loop cycle from ``_run_idle_loop``.
+    Records the gate decision via ``_light_job_last_run`` so the next
+    cycle's check measures from this point, not from when the inner
+    function happened to finish.
+    """
+    if not _LIGHT_CADENCE_GATING_ENABLED:
+        return True
+    min_cadence = _LIGHT_MIN_CADENCE.get(name, 0)
+    if min_cadence <= 0:
+        return True  # Not in map — queue drainer or unconfigured
+    now = time.monotonic()
+    last = _light_job_last_run.get(name)
+    if last is None or (now - last) >= min_cadence:
+        _light_job_last_run[name] = now
+        return True
+    return False
 
 # Boot-gate state. _module_import_time anchors the IDLE_BOOT_FALLBACK_S
 # safety net for the case where boot_state.mark_boot_complete() is never
@@ -644,12 +730,16 @@ def _run_idle_loop(jobs) -> None:
                 for name, fn in light_jobs:
                     if _stop_event.is_set() or not is_idle():
                         break
+                    if not _light_job_allowed(name):  # Fix C cadence gate
+                        continue
                     _run_single_job(name, fn, TIME_CAPS[JobWeight.LIGHT])
             else:
                 futures = {}
                 for name, fn in light_jobs:
                     if _stop_event.is_set() or not is_idle():
                         break
+                    if not _light_job_allowed(name):  # Fix C cadence gate
+                        continue
                     futures[light_pool.submit(_run_single_job, name, fn, TIME_CAPS[JobWeight.LIGHT])] = name
                 # Wait for all lightweight jobs (bounded by their time caps).
                 _drain_futures_with_timeout(
@@ -1089,6 +1179,69 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         analogy_populator.run()
     jobs.append(("analogy-populator", _analogy_populator, JobWeight.HEAVY))
 
+    # ── Autonomous executor (Phase 2 piece 2b, 2026-05-20) ───────────
+    # One advance-step per scheduler tick. Picks the most-recently-
+    # touched active run and calls advance_one_step with the
+    # Commander adapter. Master switch ``autonomous_executor_enabled``
+    # (default OFF — ships dormant until operator opts in). When the
+    # switch is OFF this function returns immediately; the scheduler
+    # tick is a microsecond-level no-op.
+    def _autonomous_executor_tick() -> None:
+        from app.autonomous_executor import run_executor_tick
+        run_executor_tick()
+    jobs.append((
+        "autonomous-executor",
+        _autonomous_executor_tick,
+        JobWeight.HEAVY,
+    ))
+
+    # ── Code-intelligence refresh (Phase 3 piece 1b, 2026-05-20) ──────
+    # One symbol-index rebuild per scheduler tick if the cadence guard
+    # (default 30 min) says it's time. Master switch
+    # ``code_intel_enabled`` (default OFF — ships dormant until
+    # operator opts in). When OFF this function returns immediately.
+    def _code_intel_refresh_tick() -> None:
+        from app.code_intel.refresh import run_refresh
+        run_refresh()
+    jobs.append((
+        "code-intel-refresh",
+        _code_intel_refresh_tick,
+        JobWeight.HEAVY,
+    ))
+
+    # ── Benchmark suite refresh (Phase C.3, 2026-05-22) ───────────────
+    # One catalog pass per scheduler tick if the cadence guard
+    # (default 24h) says it's time. Master switch ``benchmarks_enabled``
+    # (default OFF — ships dormant until operator opts in). Per-pass
+    # cost cap (default $1.00) bounds blast radius if catalog or
+    # models regress. When OFF this function returns immediately.
+    def _benchmarks_refresh_tick() -> None:
+        from app.benchmarks.scheduler_job import run_refresh
+        run_refresh()
+    jobs.append((
+        "benchmarks-refresh",
+        _benchmarks_refresh_tick,
+        JobWeight.HEAVY,
+    ))
+
+    # ── Trust-widening proposer scan (Phase 4 piece 1, 2026-05-20) ────
+    # Periodic walk of the change-request log to find requestor/path
+    # combinations with strong approval track records (default
+    # thresholds: ≥10 approvals, 0 rollbacks, ≤10% rejections,
+    # ≥30 days history). Each proposal goes to the JSONL audit log;
+    # operator confirms via the React UI (or the REST endpoint).
+    # Master switch ``widening_proposer_enabled`` (default OFF). The
+    # proposer NEVER auto-applies — every widening still routes
+    # through the operator gate.
+    def _widening_proposer_tick() -> None:
+        from app.risk_classifier.widening import run_widening_scan
+        run_widening_scan()
+    jobs.append((
+        "widening-proposer-scan",
+        _widening_proposer_tick,
+        JobWeight.HEAVY,
+    ))
+
     # ── Proactive learning: discover and queue new topics ──────────────
     def _discover_topics() -> None:
         _auto_discover_topics()
@@ -1384,6 +1537,7 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
     jobs.append(("health-evaluate", _health_evaluate, JobWeight.LIGHT))
 
     # ── Version manifest: periodic snapshot for rollback safety ────
+    # Cadence is scheduler-gated via _LIGHT_MIN_CADENCE["version-snapshot"]=3600.
     def _version_snapshot() -> None:
         try:
             from app.version_manifest import create_manifest, cleanup_old_snapshots
@@ -2346,6 +2500,26 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         except Exception:
             logger.debug("idle_scheduler: valve-audit replay failed", exc_info=True)
     jobs.append(("valve-audit-replay", _valve_audit_replay, JobWeight.LIGHT))
+
+    # ── Capability-regression scan ────────────────────────────────────────
+    # Snapshots the registered-tool + effective-LLM-model set and alerts
+    # if a SHRINK is detected vs the previous snapshot. Default ON (fail-
+    # open observability); cheap pure-Python — no LLM calls, no network.
+    # Newly-blocked models are informational only — the operator caused
+    # them via runtime_settings and doesn't need an alert about their
+    # own action.
+    def _capability_regression_scan() -> None:
+        try:
+            from app.capability_regression.scheduler_job import scheduler_entry
+            scheduler_entry()
+        except Exception:
+            logger.debug(
+                "idle_scheduler: capability-regression scan failed",
+                exc_info=True,
+            )
+    jobs.append(
+        ("capability-regression", _capability_regression_scan, JobWeight.LIGHT),
+    )
 
     return jobs
 

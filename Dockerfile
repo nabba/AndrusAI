@@ -21,7 +21,15 @@ RUN apt-get update && apt-get install -y \
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir --upgrade 'chromadb>=1.5.8,<2.0.0'
+    && pip install --no-cache-dir --upgrade 'chromadb>=1.5.8,<2.0.0' \
+    && pip install --no-cache-dir 'pyright>=1.1.350'
+# Phase C.4 (2026-05-22): pyright is installed via pip (which wraps
+# the upstream Node-based binary + bundles its own Node runtime on
+# first invocation). The code_intel pyright_sidecar invokes
+# ``pyright --outputjson`` as a subprocess; this install makes
+# pyright_is_available() return True after gateway rebuild. Without
+# this line, sidecar gates on the binary missing and the on-demand
+# /check-types REST endpoint reports "pyright binary not on PATH".
 # ChromaDB force-upgrade above: crewai's metadata pins chromadb~=1.1.0
 # which pip's resolver refuses to override when requirements.txt asks for
 # >=1.5.8. So we let pip resolve crewai+chromadb normally first (gets

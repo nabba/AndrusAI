@@ -7,16 +7,21 @@
 // and docs/CHANGE_REQUESTS.md.
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Skeleton } from './ui/Skeleton';
 import {
   useApproveChangeMutation,
   useChangeDetailQuery,
+  useChangeReviewQuery,
+  useChangeTypeErrorsQuery,
   useChangesListQuery,
+  useForceTypeCheckMutation,
   useRejectChangeMutation,
   useRetryApplyMutation,
   useRollbackChangeMutation,
 } from '../api/changes';
 import type { ChangeRequest, ChangeStatus } from '../types/changes';
+import { formatVerdict, type ReviewOutcome } from '../api/reviews';
 
 const STATUS_FILTERS: (ChangeStatus | 'all')[] = [
   'all',
@@ -107,6 +112,22 @@ function ProtectedBadge({ isProtected }: { isProtected: boolean }) {
   );
 }
 
+// Phase 3 v2 follow-up (2026-05-22) — type-error count badge on
+// CR list rows. Shown only when count > 0 so the list stays calm
+// when most CRs are type-clean. Click target is the row itself,
+// not the badge — drawer surfaces the per-error detail.
+function TypeErrorsBadge({ count }: { count?: number }) {
+  if (!count || count <= 0) return null;
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#f87171]/15 text-[#f87171] border border-[#f87171]/40"
+      title={`Pyright recorded ${count} type error${count === 1 ? '' : 's'} for this CR at submit time. Open the drawer to see them. CR is NOT blocked on these — informational.`}
+    >
+      ❌ {count} TYPE{count === 1 ? '' : 'S'}
+    </span>
+  );
+}
+
 // Render a unified diff with line-level coloring. Lines starting with
 // `+` are green; `-` are red; `@@` are blue (hunk headers); everything
 // else is muted. Long diffs are truncated to 800 lines with a footer.
@@ -177,6 +198,7 @@ function ChangeRow({
             </code>
             <StatusBadge status={change.status} />
             <ProtectedBadge isProtected={change.is_protected} />
+            <TypeErrorsBadge count={change.type_error_count} />
             <span className="text-[10px] font-mono text-[#7a8599]">
               by {change.requestor}
             </span>
@@ -332,6 +354,340 @@ function ActionButtons({
   );
 }
 
+// On-demand pyright runner inside the drawer (Phase 3 v2 follow-up,
+// 2026-05-22). Available for ANY .py CR regardless of origin — unlike
+// the read-only `ChangeTypeErrorsSection` which only surfaces data
+// from a coding-session submit, this section runs pyright FRESH
+// against the CR's proposed new_content when the operator clicks.
+function OnDemandTypeCheck({ change }: { change: ChangeRequest }) {
+  const mut = useForceTypeCheckMutation();
+  if (!change.path.endsWith('.py')) return null;
+  const result = mut.data;
+  const diagnostics = result?.diagnostics ?? [];
+  const errors = diagnostics.filter((d) => d.severity === 'error');
+
+  return (
+    <section className="rounded-md border border-[#1e2738] bg-[#111820] p-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <h3 className="text-xs font-semibold text-[#7a8599] uppercase tracking-wider">
+          Type check (on-demand)
+        </h3>
+        <button
+          disabled={mut.isPending}
+          onClick={() => mut.mutate({ id: change.id })}
+          className="px-2 py-1 rounded text-[11px] font-medium border disabled:opacity-50"
+          style={{
+            background: '#1e2738',
+            color: '#7a8599',
+            borderColor: '#2a3a52',
+          }}
+          title="Runs pyright against this CR's proposed new_content. Works for any CR — including those that came from request_restricted_write (not a coding session)."
+        >
+          {mut.isPending ? '⟳ Running…' : '⟳ Check types now'}
+        </button>
+      </div>
+
+      {!result && !mut.isPending && (
+        <p className="text-[11px] italic text-[#7a8599]">
+          Click to run pyright against this CR's proposed content.
+          The diff is NOT applied — the check runs against the
+          new_content as if it were on disk.
+        </p>
+      )}
+
+      {result && !result.ran && (
+        <div
+          className="text-xs rounded p-2 border"
+          style={{
+            background: '#7f1d1d22',
+            color: '#f87171',
+            borderColor: '#f87171' + '55',
+          }}
+        >
+          Check did not run: {result.reason ?? '(no reason)'}
+        </div>
+      )}
+
+      {result && result.ran && (
+        <div className="space-y-1">
+          <div className="text-xs text-[#cbd5e1]">
+            {errors.length === 0 ? (
+              <>
+                <strong className="text-[#34d399]">✓ Type-clean.</strong>{' '}
+                {result.warning_count
+                  ? `(${result.warning_count} warning${result.warning_count === 1 ? '' : 's'})`
+                  : 'No errors or warnings.'}
+              </>
+            ) : (
+              <>
+                <strong className="text-[#f87171]">
+                  ❌ {errors.length} error{errors.length === 1 ? '' : 's'}
+                </strong>
+                {result.warning_count
+                  ? ` · ${result.warning_count} warning${result.warning_count === 1 ? '' : 's'}`
+                  : ''}
+                {result.duration_s !== undefined && (
+                  <span className="text-[10px] text-[#7a8599] ml-2">
+                    ({result.duration_s.toFixed(2)}s)
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Config-root debugging hint */}
+          <div className="text-[10px] text-[#7a8599] font-mono">
+            {result.config_root ? (
+              <>
+                via config at <code>{result.config_root}</code>
+              </>
+            ) : (
+              <em>
+                ran with pyright defaults (add{' '}
+                <code>pyrightconfig.json</code> at the project root for
+                project-specific rules)
+              </em>
+            )}
+          </div>
+          {errors.map((e, i) => (
+            <div
+              key={`${e.file}-${e.line}-${i}`}
+              className="rounded border border-[#1e2738] bg-[#0a0e14] p-2 text-[11px]"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[#f87171]">❌</span>
+                <code className="font-mono text-[#cbd5e1]">
+                  {e.file}:{e.line}:{e.column}
+                </code>
+                {e.rule && (
+                  <span className="text-[10px] font-mono text-[#fbbf24]">
+                    [{e.rule}]
+                  </span>
+                )}
+              </div>
+              <div className="text-[#cbd5e1] whitespace-pre-wrap pl-5">
+                {e.message}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+
+// Pyright type-error surface inside the drawer (Phase 3 v2
+// follow-up, 2026-05-22). Hidden when no type-check data is
+// recorded for the CR (low-stakes session, opt-out, or non-session
+// origin). When ≥1 error is recorded, the section lights up with
+// per-error rows including the rule + message + file:line:col.
+function ChangeTypeErrorsSection({ changeId }: { changeId: string }) {
+  const q = useChangeTypeErrorsQuery(changeId);
+  if (q.isLoading || q.data === undefined) return null;
+  if (q.data === null) return null;
+  const payload = q.data;
+  const errors = payload.type_errors ?? [];
+
+  // Render the "via session <id>" suffix as a Link so operators
+  // can drill from a CR's type-error context back to the originating
+  // coding session in one click. The deep-link is handled by
+  // CodingSessionsPage's useSearchParams hook.
+  const sessionLink = (
+    <Link
+      to={`/coding-sessions?session=${encodeURIComponent(payload.session_id)}`}
+      className="text-[#60a5fa] hover:underline font-mono"
+      title="Open the originating coding session"
+    >
+      session {payload.session_id.slice(0, 8)}…
+    </Link>
+  );
+
+  // Clean type-check is informational only — show a compact "no
+  // errors" badge so the operator knows the check ran but stays
+  // out of the way.
+  if (errors.length === 0) {
+    return (
+      <section className="rounded-md border border-[#1e2738] bg-[#111820] p-3">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-xs font-semibold text-[#7a8599] uppercase tracking-wider">
+            Type check
+          </h3>
+          <span className="text-[10px] font-mono text-[#34d399]">
+            ✓ clean
+          </span>
+        </div>
+        <div className="text-[10px] font-mono text-[#7a8599] mt-1">
+          via {sessionLink}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-md border border-[#f87171]/40 bg-[#f87171]/5 p-4">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <h3 className="text-xs font-semibold text-[#7a8599] uppercase tracking-wider">
+          Type check
+        </h3>
+        <span className="text-[10px] font-mono text-[#7a8599]">
+          via {sessionLink}
+        </span>
+      </div>
+      <div className="text-xs text-[#cbd5e1] mb-3">
+        <strong className="text-[#f87171]">
+          {errors.length} type error{errors.length === 1 ? '' : 's'}
+        </strong>{' '}
+        recorded by pyright at submit time. The CR is{' '}
+        <em>not blocked</em> on these — they're operator decision
+        support. Approving applies the diff as-is.
+      </div>
+      <div className="space-y-1">
+        {errors.map((e, i) => (
+          <div
+            key={`${e.file}-${e.line}-${i}`}
+            className="rounded border border-[#1e2738] bg-[#0a0e14] p-2 text-[11px]"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[#f87171]">❌</span>
+              <code className="font-mono text-[#cbd5e1]">
+                {e.file}:{e.line}:{e.column}
+              </code>
+              {e.rule && (
+                <span className="text-[10px] font-mono text-[#fbbf24]">
+                  [{e.rule}]
+                </span>
+              )}
+            </div>
+            <div className="text-[#cbd5e1] whitespace-pre-wrap pl-5">
+              {e.message}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+
+// Two-reasoner review surface inside the drawer (Phase 4 piece 2c).
+// Hidden when no review exists (low-stakes zone OR review not yet
+// recorded). DISAGREE is rendered with extra emphasis since it means
+// the two reasoners did not converge and operator judgement matters
+// more than usual.
+function ChangeReviewSection({ changeId }: { changeId: string }) {
+  const q = useChangeReviewQuery(changeId);
+  const review: ReviewOutcome | null | undefined = q.data;
+
+  if (q.isLoading || review === undefined) return null;
+  if (review === null) return null;
+
+  const v = formatVerdict(review.verdict);
+  const confidencePct = Math.round(review.confidence * 100);
+  const isDisagree = review.verdict === 'disagree';
+  const isUnsafe = review.verdict === 'unsafe';
+  const emphasize = isDisagree || isUnsafe;
+
+  return (
+    <section
+      className={`rounded-md border p-4 ${
+        emphasize
+          ? 'border-[#a78bfa]/40 bg-[#a78bfa]/5'
+          : 'border-[#1e2738] bg-[#111820]'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <h3 className="text-xs font-semibold text-[#7a8599] uppercase tracking-wider">
+          Two-reasoner review
+        </h3>
+        <span className="text-[10px] font-mono text-[#7a8599]">
+          {new Date(review.reviewed_at).toLocaleString()} · zone{' '}
+          <code>{review.zone}</code>
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap mb-3">
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${v.bg} ${v.fg} border-current/30`}
+        >
+          <span>{v.icon}</span>
+          <span>{v.label}</span>
+        </span>
+        <div className="flex items-center gap-2 text-xs text-[#cbd5e1]">
+          <span className="text-[#7a8599]">confidence</span>
+          <div className="relative w-32 h-1.5 rounded-full bg-[#1e2738] overflow-hidden">
+            <div
+              className={`absolute inset-y-0 left-0 ${v.bg.replace(
+                '/15',
+                '/60',
+              )}`}
+              style={{ width: `${confidencePct}%` }}
+            />
+          </div>
+          <span className="font-mono">{confidencePct}%</span>
+        </div>
+      </div>
+
+      {emphasize && (
+        <div className="text-xs text-[#cbd5e1] mb-3">
+          {isDisagree ? (
+            <>
+              <strong className="text-[#a78bfa]">Reasoners disagreed.</strong>{' '}
+              No consensus on safety — read both verdicts below before deciding.
+            </>
+          ) : (
+            <>
+              <strong className="text-[#f87171]">Marked unsafe.</strong>{' '}
+              At least one reasoner flagged this change.
+            </>
+          )}
+        </div>
+      )}
+
+      {review.diagnostic && (
+        <div className="text-xs text-[#cbd5e1] italic mb-3">
+          {review.diagnostic}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {review.per_reasoner.map((r) => {
+          const rv = formatVerdict(r.verdict);
+          return (
+            <div
+              key={r.reasoner_id}
+              className="rounded border border-[#1e2738] bg-[#0a0e14] p-2"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <code className="text-[10px] font-mono text-[#7a8599]">
+                  {r.reasoner_id}
+                </code>
+                <span
+                  className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${rv.bg} ${rv.fg}`}
+                >
+                  {rv.icon} {rv.label}
+                </span>
+                <span className="text-[10px] font-mono text-[#7a8599]">
+                  {Math.round(r.confidence * 100)}%
+                </span>
+              </div>
+              {r.error ? (
+                <div className="text-[11px] text-[#f87171] font-mono">
+                  error: {r.error}
+                </div>
+              ) : (
+                <div className="text-[11px] text-[#cbd5e1] whitespace-pre-wrap">
+                  {r.reasoning || '(no reasoning supplied)'}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function ChangeDetailDrawer({
   changeId,
   onClose,
@@ -422,6 +778,16 @@ function ChangeDetailDrawer({
                   {change.reason || '(no reason)'}
                 </div>
               </section>
+
+              {/* Pyright type-error surface (Phase 3 v2, 2026-05-22) */}
+              <ChangeTypeErrorsSection changeId={changeId} />
+
+              {/* On-demand pyright runner (works for any .py CR) */}
+              <OnDemandTypeCheck change={change} />
+
+              {/* Two-reasoner review (Phase 4 piece 2c, 2026-05-20) */}
+              <ChangeReviewSection changeId={changeId} />
+
 
               {/* Decision metadata, if any */}
               {(change.decision_reason || change.decided_at) && (

@@ -1,0 +1,55 @@
+# Code understanding — small Python snippets, model must compute the
+# output or identify a bug. Tests technical reasoning at varying tiers.
+tasks:
+  - id: code_list_comprehension
+    name: Predict list-comprehension output
+    description: Read a 2-line snippet, output what gets printed.
+    category: code_understanding
+    input: |
+      What does this Python code print? Answer with just the output,
+      nothing else.
+
+      print([x * 2 for x in range(3)])
+    expected: "[0, 2, 4]"
+    scorer: exact_match
+    scorer_args:
+      case_sensitive: false
+      strip: true
+    model_targets: [default, smart]
+    max_tokens: 30
+
+  - id: code_off_by_one_identification
+    name: Spot the off-by-one
+    description: Identify the bug class in a short snippet.
+    category: code_understanding
+    input: |
+      Identify the bug in this Python function. Answer with exactly
+      one of: off-by-one, type-error, infinite-loop, no-bug.
+
+      def last_three(items):
+          return items[len(items)-2:]
+    expected: "off-by-one"
+    scorer: exact_match
+    scorer_args:
+      case_sensitive: false
+      strip: true
+    model_targets: [default, smart]
+    max_tokens: 20
+
+  - id: code_dict_lookup
+    name: Predict dict-lookup result
+    description: Read a 3-line snippet, output what gets printed.
+    category: code_understanding
+    input: |
+      What does this Python code print? Answer with just the output,
+      nothing else.
+
+      d = {"a": 1, "b": 2, "c": 3}
+      print(sum(d.values()))
+    expected: "6"
+    scorer: exact_match
+    scorer_args:
+      case_sensitive: false
+      strip: true
+    model_targets: [cheap, default, smart]
+    max_tokens: 10

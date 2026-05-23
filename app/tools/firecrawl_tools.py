@@ -472,3 +472,87 @@ def create_firecrawl_tools() -> list:
     except Exception as e:
         logger.warning(f"Failed to create Firecrawl CrewAI tools: {e}")
         return []
+
+
+# ── Tool registry annotations (Phase C.1, 2026-05-22; passive) ────────
+# Surfaces the Firecrawl family in the registry so ``tool_search`` can
+# find them by capability tag. ``create_firecrawl_tools`` continues to
+# be the authoritative factory used by researcher.py; registration is
+# additive, never replacing the factory path.
+try:
+    from app.tool_registry import Lifecycle, Tier, register_tool
+
+    @register_tool(
+        name="firecrawl_scrape",
+        capabilities=["searches-web"],
+        description=(
+            "Scrape a single web page and return clean markdown. "
+            "Hosted Firecrawl service — handles JS-rendered pages, "
+            "PDF extraction, dynamic content that plain HTTP can't "
+            "see. Use for articles / docs / product pages where "
+            "web_fetch would miss content."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _firecrawl_scrape_registry_factory():
+        return firecrawl_scrape
+
+    @register_tool(
+        name="firecrawl_search",
+        capabilities=["searches-web"],
+        description=(
+            "Search the web and return full page CONTENT (not just "
+            "snippets like web_search). Combines search + scrape in "
+            "one call. Use when you need to read entire matched pages."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _firecrawl_search_registry_factory():
+        return firecrawl_search
+
+    @register_tool(
+        name="firecrawl_extract",
+        capabilities=["searches-web"],
+        description=(
+            "Extract structured data from a web page using an LLM "
+            "guided by a prompt + optional JSON schema. Use for "
+            "pricing / specs / contact info / any structured pull."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _firecrawl_extract_registry_factory():
+        return firecrawl_extract
+
+    @register_tool(
+        name="firecrawl_map",
+        capabilities=["searches-web"],
+        description=(
+            "Discover every URL on a website. Fast — returns the link "
+            "graph without fetching content. Use before firecrawl_crawl "
+            "to understand a site's structure."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _firecrawl_map_registry_factory():
+        return firecrawl_map
+
+    @register_tool(
+        name="firecrawl_crawl",
+        capabilities=["searches-web"],
+        description=(
+            "Crawl a website and return markdown from multiple pages. "
+            "Resource-intensive — use sparingly. Prefer firecrawl_map "
+            "first to scope the crawl, then firecrawl_scrape on the "
+            "subset you actually need."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _firecrawl_crawl_registry_factory():
+        return firecrawl_crawl
+except ImportError:
+    pass

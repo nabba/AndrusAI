@@ -380,10 +380,21 @@ def _quarter_label(year: int, q: int) -> str:
 
 
 def _default_llm_call(system_prompt: str, user_prompt: str) -> str:
-    """Cheap-tier Anthropic call."""
+    """Cheap-tier Anthropic call.
+
+    Verified Plan Gap #5 (2026-05-22): gated by the operator-set
+    Anthropic daily cap. On cap-out returns "" — quarterly goal
+    review just skips for this cycle; runs again next quarter.
+    """
     try:
         import anthropic
     except ImportError:
+        return ""
+    from app import llm_anthropic_budget
+    if not llm_anthropic_budget.call_or_skip(
+        estimated_cost_usd=0.005,
+        source="identity:long_term_goal_review",
+    ):
         return ""
     try:
         client = anthropic.Anthropic()

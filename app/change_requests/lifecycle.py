@@ -158,6 +158,7 @@ def create_request(
     reason: str,
     risk_class: RiskClass = RiskClass.STANDARD,
     origin_pattern_signature: str | None = None,
+    pre_classified_zone: str | None = None,
 ) -> ChangeRequest:
     """Validate the change and persist as PENDING (or
     TIER_IMMUTABLE_REFUSED if path is protected).
@@ -180,6 +181,16 @@ def create_request(
             triggered this CR. Required for auto-apply CRs so the
             auto-revert watcher knows which pattern to monitor for
             recurrence post-apply. Ignored for STANDARD CRs.
+        pre_classified_zone: Phase A.3 closure (2026-05-22) —
+            optional caller-supplied trust zone (one of the
+            :class:`~app.risk_classifier.zones.Zone` values).
+            Lets multi-step callers (autonomous executor, batch
+            submit pipelines) pre-classify ONCE and pass the same
+            zone to every CR in the batch, avoiding repeated
+            ``zone_for_path()`` lookups + ensuring consistency.
+            When None (default), the two-reasoner review hook
+            computes the zone internally via ``zone_for_path(path)``
+            — pre-existing behavior preserved.
 
     Returns:
         The persisted ChangeRequest. Status is either PENDING (call
@@ -300,6 +311,85 @@ def create_request(
     except Exception:
         logger.debug("change_requests: relevant_history lookup failed", exc_info=True)
 
+    # Verified Implementation Plan Gap #1 (2026-05-22) — risk
+    # classifier integration. When ``risk_classifier_enabled=True``,
+    # run the full classify() decision tree and record the verdict in
+    # the CR. A REFUSE decision rejects the CR at creation time (the
+    # most-defensive posture); AUTO/GATED/TWO_PARTY are surfaced for
+    # observability and downstream routing.
+    #
+    # Failure-isolated: classifier exceptions never block CR creation.
+    # When master switch is OFF (default), behaviour is identical to
+    # the pre-gap state — the existing allowlist-union semantics in
+    # validator.py remain the authoritative auto-apply gate.
+    classifier_decision: str | None = None
+    classifier_zone: str | None = None
+    try:
+        from app import runtime_settings
+        if runtime_settings.get_risk_classifier_enabled():
+            from app.risk_classifier import Action, Decision, classify
+            # Inputs for the classifier — caller-supplied + diff-derived
+            added = max(
+                0, len(new_content.splitlines())
+                - len(old_content.splitlines()),
+            )
+            removed = max(
+                0, len(old_content.splitlines())
+                - len(new_content.splitlines()),
+            )
+            net = abs(added - removed) or max(added, removed)
+            action = Action(
+                action_type="write_file",
+                target_path=path,
+                requestor=requestor,
+                change_size_lines=net,
+                additive_only=(removed == 0),
+                has_deletions=(removed > 0),
+                rationale=reason[:200] if reason else "",
+            )
+            # Layer the runtime-settings allowlists + TIER_IMMUTABLE pins
+            try:
+                from app.change_requests import validator as _val
+                allowed_req = _val._effective_allowed_requestors()
+                allowed_paths = _val._effective_allowed_paths()
+            except Exception:
+                allowed_req = None
+                allowed_paths = None
+            try:
+                from app.auto_deployer import TIER_IMMUTABLE
+                immutable = TIER_IMMUTABLE
+            except Exception:
+                immutable = None
+            decision = classify(
+                action,
+                immutable_paths=immutable,
+                allowed_requestors=allowed_req,
+                allowed_paths=allowed_paths,
+            )
+            classifier_decision = decision.value
+            # Record verdict on the CR for operator visibility
+            cr.reason = (
+                f"{cr.reason}\n\n"
+                f"🔬 Risk classifier verdict: **{classifier_decision}**"
+            )
+            # REFUSE → reject the CR before persisting
+            if decision is Decision.REFUSE:
+                cr.status = Status.REJECTED
+                cr.decision_at = datetime.now(timezone.utc).isoformat()
+                cr.decision_by = "risk_classifier"
+                cr.decision_reason = (
+                    "risk_classifier returned REFUSE"
+                )
+                logger.info(
+                    "change_requests: classifier REFUSED %s by %s "
+                    "(path=%s)", request_id, requestor, path,
+                )
+    except Exception:
+        logger.debug(
+            "change_requests: risk-classifier hook failed",
+            exc_info=True,
+        )
+
     store.save(cr, audit_event="created")
     logger.info(
         "change_requests: created %s by %s for path=%s",
@@ -346,6 +436,39 @@ def create_request(
     except Exception:
         logger.debug(
             "change_requests: RPT-1 forecast registration failed",
+            exc_info=True,
+        )
+
+    # Phase 4 piece 2c (2026-05-20) — two-reasoner review hook.
+    # When the CR's classified zone is high-stakes (financial /
+    # security_sensitive / two_party), invoke the two-reasoner safety
+    # review and record its outcome alongside the CR via context_id.
+    # Observational only: the review outcome NEVER blocks CR creation
+    # — operator decides what to do with SAFE / UNSAFE / DISAGREE /
+    # UNCERTAIN. Failure-isolated end-to-end; both master switches
+    # must be ON for the review to fire.
+    try:
+        from app.risk_classifier import zone_for_path
+        from app.risk_classifier.two_reasoner import (
+            is_high_stakes_zone,
+            review_for_change_request,
+        )
+        # Phase A.3 closure (2026-05-22) — honour the caller's
+        # pre-classification when supplied; fall back to
+        # ``zone_for_path`` otherwise. Lets multi-step callers
+        # pre-classify once + pass the same zone to every CR.
+        if pre_classified_zone:
+            cr_zone = pre_classified_zone
+        else:
+            cr_zone = zone_for_path(path).value
+        if is_high_stakes_zone(cr_zone):
+            # ``review_for_change_request`` reads the master switch
+            # internally — when off it returns Verdict.DISABLED
+            # without making an LLM call.
+            review_for_change_request(cr, zone=cr_zone)
+    except Exception:
+        logger.debug(
+            "change_requests: two-reasoner review hook failed",
             exc_info=True,
         )
 

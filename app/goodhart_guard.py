@@ -303,6 +303,22 @@ def detect_gaming_signals(window_days: int = _GAMING_DETECTION_WINDOW_DAYS) -> l
             exc_info=True,
         )
 
+    # Verified Implementation Plan §3 Gap E closure (2026-05-23) —
+    # auto-apply lane signal. When the risk-classifier authorises a
+    # CR to ``auto_approve`` (DecisionSource.SELF_HEAL_AUTO_APPLY or
+    # DecisionSource.VACATION_AUTO_APPLY), the operator-loop bypass
+    # is the metric the system has been optimised against. Goodhart
+    # symptom: high auto-apply throughput combined with rising
+    # rollback rate is gaming-shaped — the system found a way to
+    # accumulate auto-applies that don't actually stick.
+    try:
+        signals.extend(_detect_auto_apply_gaming(window_days))
+    except Exception:
+        logger.debug(
+            "goodhart_guard: auto-apply detector raised",
+            exc_info=True,
+        )
+
     if signals:
         _persist_signals(signals)
         for s in signals:
@@ -414,6 +430,150 @@ def _detect_recipe_selection_divergence(window_days: int) -> list[GamingSignal]:
 _DIVERGENCE_MIN_OUTCOMES = 20    # need a sample size before judging
 _DIVERGENCE_MIN_RATED = 5        # need at least this many rated outcomes
 _DIVERGENCE_UP_RATE_THRESHOLD = 0.30  # below = divergence (high selection / low feedback)
+
+
+# ── Auto-apply lane gaming detector (Plan §3 Gap E, 2026-05-23) ─────
+#
+# When the risk-classifier authorises a CR to ``auto_approve`` rather
+# than going through the operator gate, the metric being optimised is
+# essentially "operator-loop bypass throughput." Goodhart symptom:
+# the system finds a way to accumulate auto-applies that the operator
+# subsequently rolls back. High throughput × high rollback rate = the
+# auto-apply lane is being gamed.
+#
+# Thresholds tuned conservative on purpose: false negatives are fine
+# (the operator still sees the rollback churn directly), false
+# positives waste operator attention.
+
+_AUTO_APPLY_MIN_OUTCOMES = 10        # need ≥10 auto-applies before judging
+_AUTO_APPLY_ROLLBACK_THRESHOLD = 0.30  # >30% rollbacks = gaming-shaped
+_AUTO_APPLY_HIGH_VOLUME_THRESHOLD = 50  # absolute volume the gaming detection cares about
+
+
+def _detect_auto_apply_gaming(window_days: int) -> list[GamingSignal]:
+    """Detect gaming in the auto-apply lane.
+
+    Reads the change-request audit log via ``change_requests.store``,
+    counts auto-applied CRs in the window vs auto-applied CRs that
+    were subsequently rolled back. Returns a :class:`GamingSignal`
+    when:
+
+      * ≥10 auto-applies in the window AND
+      * rollback rate > 30%, OR
+      * ≥50 auto-applies AND rollback rate > 15% (high-volume case).
+
+    Severity is HIGH when the rollback rate exceeds 50% (we're
+    accumulating apply-then-revert churn). MEDIUM otherwise.
+
+    Failure-isolated: missing store module / unreadable audit log
+    returns an empty list (no signal, no exception).
+    """
+    cutoff_ts = time.time() - window_days * 86400
+
+    try:
+        from app.change_requests import store as cr_store
+    except Exception:
+        logger.debug(
+            "auto_apply_gaming: change_requests.store import failed",
+            exc_info=True,
+        )
+        return []
+
+    try:
+        all_crs = cr_store.list_all(limit=2000)
+    except Exception:
+        logger.debug(
+            "auto_apply_gaming: list_all raised", exc_info=True,
+        )
+        return []
+
+    auto_applied = 0
+    rolled_back = 0
+    requestor_counts: dict[str, int] = {}
+    requestor_rollbacks: dict[str, int] = {}
+
+    for cr in all_crs:
+        # Filter by window
+        try:
+            from datetime import datetime
+            cr_ts_str = (
+                cr.applied_at or cr.decided_at or cr.created_at or ""
+            )
+            cr_ts = datetime.fromisoformat(
+                cr_ts_str.replace("Z", "+00:00"),
+            ).timestamp()
+            if cr_ts < cutoff_ts:
+                continue
+        except (ValueError, AttributeError, TypeError):
+            continue
+
+        decided_by = getattr(cr, "decided_by", None)
+        if decided_by is None:
+            continue
+        decided_val = (
+            decided_by.value if hasattr(decided_by, "value")
+            else str(decided_by)
+        )
+        if "auto-apply" not in decided_val:
+            continue
+        auto_applied += 1
+        req = getattr(cr, "requestor", "") or "unknown"
+        requestor_counts[req] = requestor_counts.get(req, 0) + 1
+        status = getattr(cr, "status", None)
+        status_val = (
+            status.value if hasattr(status, "value") else str(status)
+        )
+        if status_val == "rolled_back":
+            rolled_back += 1
+            requestor_rollbacks[req] = (
+                requestor_rollbacks.get(req, 0) + 1
+            )
+
+    if auto_applied < _AUTO_APPLY_MIN_OUTCOMES:
+        return []
+
+    rollback_rate = rolled_back / auto_applied
+    signals: list[GamingSignal] = []
+
+    high_volume_trip = (
+        auto_applied >= _AUTO_APPLY_HIGH_VOLUME_THRESHOLD
+        and rollback_rate > 0.15
+    )
+    standard_trip = rollback_rate > _AUTO_APPLY_ROLLBACK_THRESHOLD
+
+    if standard_trip or high_volume_trip:
+        # Identify the worst requestor (highest rollback rate among
+        # those with ≥3 applies) for the description; helps the
+        # operator zero in on the source.
+        worst: str = "(none)"
+        worst_rate = 0.0
+        for req, count in requestor_counts.items():
+            if count < 3:
+                continue
+            rate = requestor_rollbacks.get(req, 0) / count
+            if rate > worst_rate:
+                worst_rate = rate
+                worst = req
+
+        severity = "high" if rollback_rate > 0.50 else "medium"
+        signals.append(GamingSignal(
+            signal_type="auto_apply_rollback_churn",
+            severity=severity,
+            description=(
+                f"{auto_applied} auto-applies in last {window_days}d "
+                f"with {rolled_back} rollbacks ({rollback_rate:.0%}). "
+                f"Worst requestor: {worst!r} "
+                f"({worst_rate:.0%} rollback rate). "
+                f"The auto-apply trust-zone allowlist may be too wide "
+                f"or the upstream patch generator is producing "
+                f"low-quality fixes."
+            ),
+            metric_value=rollback_rate,
+            threshold=_AUTO_APPLY_ROLLBACK_THRESHOLD,
+            detected_at=time.time(),
+        ))
+
+    return signals
 
 
 def _persist_signals(signals: list[GamingSignal]) -> None:

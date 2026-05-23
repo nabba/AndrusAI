@@ -751,3 +751,32 @@ def research_orchestrator(spec_json: str) -> str:
 
     result = orchestrate_research(spec)
     return json.dumps(result, ensure_ascii=False, default=str)
+
+
+# ── Tool registry annotation (Phase C.1, 2026-05-22; passive) ────────
+# Surfaces ``research_orchestrator`` in the registry so ``tool_search``
+# and the React tool catalog can find it by capability tag. The
+# ``@tool`` decoration above remains the authoritative CrewAI binding;
+# registration is additive.
+try:
+    from app.tool_registry import Lifecycle, Tier, register_tool
+
+    @register_tool(
+        name="research_orchestrator",
+        capabilities=["searches-web", "reads-knowledge-base"],
+        description=(
+            "Orchestrate multi-subject × multi-field research with "
+            "partial streaming and per-domain circuit breakers. Input "
+            "is a JSON spec (subjects + fields + budget); output is "
+            "the assembled matrix. Use this for company-research / "
+            "competitive-landscape / large-table queries — much more "
+            "reliable than hand-driving web_search + firecrawl across "
+            "N entities."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _research_orchestrator_registry_factory():
+        return research_orchestrator
+except ImportError:
+    pass

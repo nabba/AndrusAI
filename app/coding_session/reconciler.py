@@ -119,12 +119,26 @@ def _classify(
     now: datetime,
     idle_seconds: int,
 ) -> tuple[str, str] | None:
-    """Return (reason, kind) if the session should expire, else None."""
+    """Return (reason, kind) if the session should expire, else None.
+
+    Phase 2 piece 2d: durable sessions are exempt from the idle
+    timeout (autonomous executor holds them across many Commander
+    dispatches). TTL still applies — defense against run-forever
+    leaks; if the executor needs more time, it refreshes activity
+    via ``manager.refresh_activity`` which the executor's driver
+    already calls before each step.
+    """
     expires_at = _parse_iso(cs.expires_at)
     last_activity = _parse_iso(cs.last_activity_at)
 
     if expires_at is not None and now >= expires_at:
         return f"ttl: created_at + ttl < now (expires_at={cs.expires_at})", "ttl"
+
+    # Durable sessions skip the idle check. The TTL above still
+    # bounds them — durability means "no idle-timeout" not "live
+    # forever".
+    if getattr(cs, "durable", False):
+        return None
 
     if last_activity is not None:
         idle = (now - last_activity).total_seconds()

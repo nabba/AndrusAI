@@ -145,6 +145,17 @@ IDENTITY_EVENT_KINDS: frozenset[str] = frozenset({
                                  # Records the year's / quarter's
                                  # trajectory verdict (shedding / stable /
                                  # growing) for posterity.
+    "executor_milestone",        # Verified Implementation Plan Gap #3
+                                 # (2026-05-22). Emitted by the autonomous
+                                 # executor on every step completion +
+                                 # every status transition (PLANNING /
+                                 # RUNNING / BLOCKED / COMPLETED / FAILED
+                                 # / BUDGET_EXHAUSTED / ABORTED). Annual
+                                 # reflection's summarise_drift Counter
+                                 # auto-surfaces "executor_milestone: N"
+                                 # so delegate-and-forget activity becomes
+                                 # visible in the identity-drift narrative
+                                 # without bespoke instrumentation.
 })
 
 

@@ -95,7 +95,22 @@ def is_blocking_mode_enabled() -> bool:
     Off by default (Phase 7 ships in observe-mode). Operators flip
     ``EPISTEMIC_BLOCKING_MODE=true`` after the soak window confirms
     low false-positive rates.
+
+    Priority: runtime_settings override → env var → False. The
+    runtime_settings overlay was added in 2026-05-20 (verification
+    extension) so the React dashboard can flip the mode without a
+    gateway restart. When the override is ``None`` (default),
+    behaviour is identical to the env-var-only design.
     """
+    try:
+        from app.runtime_settings import get_epistemic_blocking_mode_override
+        override = get_epistemic_blocking_mode_override()
+        if override is not None:
+            return override
+    except Exception:
+        # runtime_settings may not be importable in stripped-down test
+        # contexts — fall through to env-var.
+        pass
     val = os.getenv("EPISTEMIC_BLOCKING_MODE", "").strip().lower()
     return val in ("1", "true", "yes", "on")
 
@@ -122,6 +137,33 @@ def gate_output(
             blocking_mode=False,
         )
 
+    # Verified Plan §7 item 3 (2026-05-23) — output-streaming shortcut
+    # for trivial fast-path responses. When the routing layer matched
+    # a structurally trivial pattern (local-route calendar / briefing
+    # / threads / health lookup — no factual claim possible), the
+    # per-request skip flag is set by the orchestrator after _route()
+    # returns. We honour it here with a clean ship.
+    #
+    # Failure-isolated: any read error on the ContextVar degrades to
+    # running the gate (the safe default).
+    try:
+        from app.epistemic.skip_state import is_skip_set
+        if is_skip_set():
+            return GateResult(
+                action="ship",
+                final_text=proposal_text,
+                diagnostic_note=(
+                    "skip_verification flag set by routing — "
+                    "trivial pattern (no factual claim possible)"
+                ),
+                blocking_mode=False,
+            )
+    except Exception as exc:
+        logger.debug(
+            "epistemic gate_output: skip_state read failed (%s); "
+            "proceeding with full gate", exc,
+        )
+
     blocking = is_blocking_mode_enabled()
 
     try:
@@ -146,11 +188,35 @@ def gate_output(
             blocking_mode=blocking,
         )
 
+    # ── Verification extension chain (2026-05-20) ───────────────────
+    # Additive evaluators that can only ESCALATE the verdict, never
+    # weaken it. With ``verification_extension_enabled=False`` (the
+    # default), this is a no-op and behaviour is bit-identical to the
+    # pre-extension gate.
+    extension_notes: list[str] = []
+    try:
+        from app.epistemic.verification_extension import (
+            apply_verification_extension,
+        )
+        verdict, extension_notes = apply_verification_extension(
+            verdict=verdict,
+            proposal_text=proposal_text,
+            task_id=task_id,
+        )
+    except Exception as exc:
+        logger.debug(
+            "epistemic gate_output: verification extension failed: %s", exc,
+        )
+        # verdict stays unchanged — safe fallthrough.
+
+    extension_note_str = "; ".join(extension_notes) if extension_notes else ""
+
     # No biases fired → ship.
     if verdict.suggested_action == "ship":
         return GateResult(
             action="ship",
             final_text=proposal_text,
+            diagnostic_note=extension_note_str,
             verdict=verdict,
             blocking_mode=blocking,
         )
@@ -161,6 +227,7 @@ def gate_output(
             proposal_text=proposal_text,
             verdict=verdict,
             blocking=blocking,
+            extension_note=extension_note_str,
         )
 
     # Peer-review escalation path.
@@ -196,6 +263,7 @@ def _gate_for_non_critical(
     proposal_text: str,
     verdict: CalibrationVerdict,
     blocking: bool,
+    extension_note: str = "",
 ) -> GateResult:
     """Non-critical verdicts: hedge or verify suggestions.
 
@@ -205,15 +273,23 @@ def _gate_for_non_critical(
     actual hedging logic could be more sophisticated, but a one-line
     note preserves the user's flow without silently shipping a
     flagged claim as fact.
+
+    ``extension_note`` carries diagnostics from the verification
+    extension chain (2026-05-20) so the dashboard can see when
+    claim-source consistency or retrieval evaluators contributed to
+    the verdict. Empty when the extension is off or made no changes.
     """
     if not blocking:
+        base_note = (
+            f"calibration suggested {verdict.suggested_action!r} "
+            f"({len(verdict.biases_detected)} match(es)); observe-mode"
+        )
+        if extension_note:
+            base_note = f"{base_note} | {extension_note}"
         return GateResult(
             action="ship",
             final_text=proposal_text,
-            diagnostic_note=(
-                f"calibration suggested {verdict.suggested_action!r} "
-                f"({len(verdict.biases_detected)} match(es)); observe-mode"
-            ),
+            diagnostic_note=base_note,
             verdict=verdict,
             blocking_mode=blocking,
         )
@@ -223,11 +299,17 @@ def _gate_for_non_critical(
         "\n\nNote: I have low confidence in part of this — please verify "
         "the load-bearing claims before relying on the recommendation."
     )
+    post_mortem_note = verdict.note_for_post_mortem
+    if extension_note:
+        post_mortem_note = (
+            f"{post_mortem_note} | {extension_note}"
+            if post_mortem_note else extension_note
+        )
     return GateResult(
         action="revise",
         final_text=proposal_text + hedge,
         user_visible_reason="hedged — calibration flagged low-confidence claim(s)",
-        diagnostic_note=verdict.note_for_post_mortem,
+        diagnostic_note=post_mortem_note,
         revised=True,
         verdict=verdict,
         blocking_mode=blocking,

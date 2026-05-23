@@ -67,6 +67,22 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         if sub is not None:
             return sub
 
+    # ── Autonomous executor (Phase 2 piece 2c, 2026-05-20) ────────────
+    # /delegate <goal>                  create a new run (CREATED status)
+    # /delegate status                  list active runs
+    # /delegate status <run_id_prefix>  detail of one run
+    # /delegate abort <run_id_prefix>   transition to ABORTED
+    # /delegate help                    usage
+    if lower.startswith("/delegate") or lower.startswith("delegate "):
+        sub = _handle_delegate_command(user_input, sender)
+        if sub is not None:
+            return sub
+
+    # ── Connector budget (2026-05-22) ──────────────────────────────────
+    # /budgets                            today + 7d totals + per-connector
+    if lower in ("/budgets", "budgets", "/budget"):
+        return _handle_budgets_command()
+
     # ── Q4.2 (PROGRAM §42) — person correlation ───────────────────────
     # /person                                       list tracked people
     # /person mute <email>                          mute from surfaces
@@ -2661,6 +2677,267 @@ def _handle_thread_command(user_input: str) -> str | None:
     return _person_help()
 
 
+# ── Phase 2 piece 2c (2026-05-20) — /delegate autonomous-executor ───
+
+
+def _delegate_help() -> str:
+    return (
+        "/delegate <goal>                — create a new autonomous run\n"
+        "/delegate status                — list active runs\n"
+        "/delegate status <run_id>       — detail of one run (8-char "
+        "prefix ok)\n"
+        "/delegate abort <run_id>        — operator-initiated abort\n"
+        "/delegate resume <run_id> <hint>  — unblock a BLOCKED run with "
+        "an operator hint (typed-phrase resume per plan §1)\n"
+        "/delegate help                  — this message"
+    )
+
+
+def _resolve_executor_run(run_id_or_prefix: str):
+    """Resolve a full or 8-char run_id to an ExecutorRun. Returns None
+    if no match. Same shape as ``_resolve_thread_arg``."""
+    try:
+        from app.autonomous_executor import store
+    except Exception:
+        return None
+    arg = (run_id_or_prefix or "").strip()
+    if not arg:
+        return None
+    direct = store.get(arg)
+    if direct is not None:
+        return direct
+    # Prefix lookup against all runs (active + terminal).
+    for run in store.list_all(limit=500):
+        if run.run_id.startswith(arg):
+            return run
+    return None
+
+
+def _format_run_brief(run) -> str:
+    """One-line summary for list views."""
+    short = run.run_id[:8]
+    n_done = sum(
+        1 for s in run.plan
+        if s.status.value == "completed"
+    )
+    n_total = len(run.plan)
+    goal = (run.goal or "")[:50]
+    if len(run.goal) > 50:
+        goal += "…"
+    return (
+        f"{short}  [{run.status.value:<18}] "
+        f"{n_done}/{n_total} steps  {goal}"
+    )
+
+
+def _handle_delegate_command(
+    user_input: str,
+    sender: str,
+) -> str | None:
+    """Dispatch /delegate subcommands. Returns None if the input
+    didn't match (so try_command falls through)."""
+    text = user_input.strip()
+    if text.lower().startswith("/delegate"):
+        text = text[len("/delegate"):].strip()
+    elif text.lower().startswith("delegate "):
+        text = text[len("delegate "):].strip()
+    elif text.lower() == "delegate":
+        text = ""
+    else:
+        return None
+
+    # Empty or help
+    if not text or text.lower() in ("help", "?"):
+        return _delegate_help()
+
+    parts = text.split(maxsplit=1)
+    sub = parts[0].lower()
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    # /delegate status [run_id]
+    if sub == "status":
+        if not arg:
+            try:
+                from app.autonomous_executor import store
+                runs = store.list_active(limit=10) or []
+            except Exception:
+                return "Could not read executor runs."
+            if not runs:
+                return (
+                    "No active runs. Use /delegate <goal> to create one."
+                )
+            lines = [f"📋 {len(runs)} active run(s):"]
+            for r in runs:
+                lines.append("  " + _format_run_brief(r))
+            lines.append(
+                "Use /delegate status <run_id> for detail."
+            )
+            return "\n".join(lines)
+        run = _resolve_executor_run(arg.split()[0])
+        if run is None:
+            return f"Run {arg!r} not found."
+        lines = [
+            f"🤖 {run.goal[:80]}",
+            f"   id: {run.run_id}",
+            f"   status: {run.status.value}",
+            f"   created: {run.created_at[:16]}  "
+            f"last touched: {run.last_touched_at[:16]}",
+            f"   budget: spent ${run.budget.spent_usd:.4f}/"
+            f"${run.budget.cap_usd:.2f}  "
+            f"tokens {run.budget.spent_tokens}/{run.budget.cap_tokens}",
+        ]
+        if run.plan:
+            n_done = sum(
+                1 for s in run.plan
+                if s.status.value == "completed"
+            )
+            n_failed = sum(
+                1 for s in run.plan
+                if s.status.value == "failed"
+            )
+            lines.append(
+                f"   plan: {n_done} done / {n_failed} failed / "
+                f"{len(run.plan)} total"
+            )
+            for step in run.plan[:5]:
+                icon = {
+                    "pending":   "  ",
+                    "running":   "▶ ",
+                    "completed": "✅",
+                    "failed":    "❌",
+                    "skipped":   "⏭ ",
+                }.get(step.status.value, "  ")
+                desc = step.description[:60]
+                lines.append(f"     {icon} {step.step_id}  {desc}")
+        if run.failure_reason:
+            lines.append(f"   ⚠ {run.failure_reason[:80]}")
+        if run.abort_reason:
+            lines.append(f"   ⚫ {run.abort_reason[:80]}")
+        return "\n".join(lines)
+
+    # /delegate abort <run_id>
+    if sub == "abort":
+        if not arg:
+            return "Usage: /delegate abort <run_id>"
+        run = _resolve_executor_run(arg.split()[0])
+        if run is None:
+            return f"Run {arg!r} not found."
+        if run.is_terminal:
+            return (
+                f"Run {run.run_id[:8]} is already terminal "
+                f"(status={run.status.value})."
+            )
+        try:
+            from app.autonomous_executor import (
+                ExecutorStatus,
+                store as _store,
+            )
+            run.transition(
+                ExecutorStatus.ABORTED,
+                reason=f"Signal abort by {sender or 'operator'}",
+            )
+            _store.save(run)
+        except Exception as exc:
+            return f"Could not abort: {exc}"
+        return f"⚫ Aborted run {run.run_id[:8]}."
+
+    # /delegate resume <run_id> <hint>  —  Verified Plan §1 Gap B
+    # closure (2026-05-23). Operator types a hint in Signal to unblock
+    # a BLOCKED run. Mirrors the REST endpoint
+    # POST /api/cp/delegate/{run_id}/resume but works without leaving
+    # the Signal surface.
+    if sub == "resume":
+        if not arg:
+            return (
+                "Usage: /delegate resume <run_id> <hint>\n"
+                "  Example: /delegate resume a3b9c012 "
+                "\"AWS creds are in vault at path/to/key\""
+            )
+        # First token is run_id; everything after is the hint.
+        parts2 = arg.split(maxsplit=1)
+        run_id_arg = parts2[0]
+        hint = parts2[1].strip() if len(parts2) > 1 else ""
+        if not hint:
+            return (
+                f"Need a hint to resume run {run_id_arg!r}. "
+                "Usage: /delegate resume <run_id> <hint>"
+            )
+        run = _resolve_executor_run(run_id_arg)
+        if run is None:
+            return f"Run {run_id_arg!r} not found."
+        try:
+            from app.autonomous_executor.escalation import resume_blocker
+            result = resume_blocker(
+                run_id=run.run_id,
+                unblock_hint=hint,
+                operator=sender or "operator:signal",
+                signal_ts=None,
+            )
+        except Exception as exc:
+            return f"Could not resume: {exc}"
+        if not result.get("ok"):
+            err = result.get("error", "unknown error")
+            return f"Resume refused for {run.run_id[:8]}: {err}"
+        return (
+            f"▶ Resumed run {run.run_id[:8]} with hint."
+        )
+
+    # Anything else is treated as the goal for a new run.
+    # Re-assemble the original goal text (without the /delegate prefix).
+    goal = text.strip()
+    if len(goal) < 4:
+        return (
+            "Goal too short (need ≥4 chars). "
+            "Try: /delegate <describe what you want>"
+        )
+    try:
+        import uuid
+        from app.autonomous_executor import (
+            ExecutorRun,
+            store as _store,
+        )
+        from app.autonomous_executor.models import Budget
+        from app.runtime_settings import (
+            get_executor_default_budget_tokens,
+            get_executor_default_budget_usd,
+            get_executor_default_wall_clock_s,
+        )
+        budget = Budget(
+            cap_usd=get_executor_default_budget_usd(),
+            cap_tokens=get_executor_default_budget_tokens(),
+            cap_wall_clock_s=get_executor_default_wall_clock_s(),
+        )
+        run = ExecutorRun(
+            run_id=str(uuid.uuid4()),
+            goal=goal,
+            requestor=f"signal:{sender or 'unknown'}",
+            zone="autonomous",  # /delegate is by definition no-operator-in-loop
+            budget=budget,
+        )
+        _store.save(run)
+    except Exception as exc:
+        return f"Could not create run: {exc}"
+
+    # Surface a hint about the master switch when it's off, so the
+    # operator isn't confused why the run isn't progressing.
+    try:
+        from app.runtime_settings import get_autonomous_executor_enabled
+        enabled = get_autonomous_executor_enabled()
+    except Exception:
+        enabled = False
+    msg = (
+        f"✅ Filed run {run.run_id[:8]} (budget "
+        f"${run.budget.cap_usd:.2f}). Use /delegate status {run.run_id[:8]}."
+    )
+    if not enabled:
+        msg += (
+            "\n\n⚠ Note: autonomous_executor_enabled is OFF — the "
+            "scheduler will not advance this run until you flip the "
+            "master switch in /cp/settings."
+        )
+    return msg
+
+
 # ── Q9.6 (PROGRAM §46.9) — /goals quarterly review ────────────────
 
 
@@ -2946,3 +3223,16 @@ def _format_goals_summary() -> str:
         lines.append("🗓 No quarterly reviews on file yet.")
     lines.append("Use /goals review to compose a new one.")
     return "\n".join(lines)
+
+
+def _handle_budgets_command() -> str:
+    """``/budgets`` — vendor-level Anthropic cap + per-connector
+    budgets. Read-only; operator tunes caps via the React /cp/settings
+    cards.
+
+    Phase D.3 (2026-05-22): rendering extracted to
+    :mod:`app.agents.commander.budgets_render` so the format helpers
+    are unit-testable without the full commands.py import graph.
+    """
+    from app.agents.commander.budgets_render import render_budgets_command
+    return render_budgets_command()

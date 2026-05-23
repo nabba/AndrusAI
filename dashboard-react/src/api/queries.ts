@@ -630,6 +630,60 @@ export interface RuntimeSettings {
   gcp_bootstrap_enabled?: boolean;
   hardening_profile?: string;
   binauthz_mode?: string;
+  // ── Verification extension (2026-05-20) ──
+  // Overlays on EPISTEMIC_ENABLED / EPISTEMIC_BLOCKING_MODE env vars.
+  // null/undefined → fall through to env. true/false → override.
+  epistemic_enabled_override?: boolean | null;
+  epistemic_blocking_mode_override?: boolean | null;
+  verification_extension_enabled?: boolean;
+  verification_threshold_chat?: number;
+  verification_threshold_autonomous?: number;
+  verification_threshold_financial?: number;
+  verification_extension_retrieval_budget_per_task?: number;
+  // ── Risk classifier + trust zones (2026-05-20) ──
+  auto_apply_allowed_requestors?: string[];
+  auto_apply_allowed_paths?: string[];
+  risk_classifier_enabled?: boolean;
+  // ── Fast-route extended patterns (2026-05-20) ──
+  fast_route_extended_patterns_enabled?: boolean;
+  // ── Autonomous executor (Phase 2, 2026-05-20) ──
+  autonomous_executor_enabled?: boolean;
+  executor_default_budget_usd?: number;
+  executor_default_budget_tokens?: number;
+  executor_default_wall_clock_s?: number;
+  autonomous_executor_llm_planner_enabled?: boolean;
+  // ── Code intelligence (Phase 3, 2026-05-20) ──
+  code_intel_enabled?: boolean;
+  // ── Trust widening proposer (Phase 4, 2026-05-20) ──
+  widening_proposer_enabled?: boolean;
+  widening_min_approvals?: number;
+  widening_max_rollback_rate?: number;
+  widening_max_rejection_rate?: number;
+  widening_min_history_days?: number;
+  // ── Two-reasoner review (Phase 4 piece 2, 2026-05-20) ──
+  two_reasoner_review_enabled?: boolean;
+  two_reasoner_confidence_threshold?: number;
+  // ── Capability-regression alert (2026-05-22) ──
+  capability_regression_enabled?: boolean;
+  // ── Connector budgets (2026-05-22) ──
+  connector_budgets_enabled?: boolean;
+  connector_budget_overrides?: Record<
+    string,
+    { daily_cap_usd?: number; estimated_cost_usd?: number }
+  >;
+  // ── Pyright sidecar (Phase 3 v2, 2026-05-22) ──
+  pyright_sidecar_enabled?: boolean;
+  // ── Iterate-until-green agent tool (Phase A.1, 2026-05-22) ──
+  iterate_loop_enabled?: boolean;
+  // ── Benchmark suite (Phase C.3, 2026-05-22) ──
+  benchmarks_enabled?: boolean;
+  // ── Anthropic vendor-level daily cap (Phase D.3, 2026-05-22) ──
+  // Null = disabled; positive float = active ceiling.
+  // The dedicated AnthropicBudgetCard sets/clears this via
+  // /api/cp/anthropic-budget/cap — included here only so other
+  // settings cards can read the current value without an extra
+  // request.
+  anthropic_daily_cap_usd?: number | null;
 }
 
 export function useRuntimeSettingsQuery() {

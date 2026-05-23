@@ -51,6 +51,12 @@ class SubmitResult:
     change_request_id: str | None  # None if refused (TIER_IMMUTABLE / validator)
     status: str                    # change-request status string
     refusal_reason: str | None = None
+    # Phase 3 v2 (2026-05-22) — populated by submit_session when
+    # ``with_type_check=True`` AND ``path`` is a .py file. Each entry
+    # is the dict form of a ``PyrightDiagnostic`` filtered to
+    # severity="error". Stays empty otherwise. Backward-compat: old
+    # persisted rows lack the field, ``from_dict`` defaults to [].
+    type_errors: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -60,6 +66,10 @@ class SubmitResult:
         }
         if self.refusal_reason is not None:
             d["refusal_reason"] = self.refusal_reason
+        # Only serialise the field when non-empty — keeps the wire
+        # format compact for the common (clean) case.
+        if self.type_errors:
+            d["type_errors"] = list(self.type_errors)
         return d
 
     @classmethod
@@ -69,6 +79,7 @@ class SubmitResult:
             change_request_id=data.get("change_request_id"),
             status=data["status"],
             refusal_reason=data.get("refusal_reason"),
+            type_errors=list(data.get("type_errors") or []),
         )
 
 
@@ -97,6 +108,40 @@ class CodingSession:
     files_touched: list[str] = field(default_factory=list)
     run_count: int = 0
     bytes_written: int = 0
+
+    # ── Durability (Phase 2 piece 2d, 2026-05-20) ──────────────────
+    # Default False — every legacy code path constructs sessions
+    # without this field, and the dataclass default preserves the
+    # pre-2026-05-20 behaviour.
+    #
+    # When True, the session is opted-out of:
+    #   1. The reconciler's idle-timeout expiry — ACTIVE durable
+    #      sessions stay alive even after ``idle_seconds`` of no
+    #      activity. The TTL still applies (defense against
+    #      run-forever leaks); operators can refresh TTL via
+    #      ``manager.refresh_activity``.
+    #   2. The retention monitor's worktree cleanup — terminal
+    #      durable sessions are spared even when older than the
+    #      retention window. Operators delete them explicitly.
+    #
+    # The flag is **executor-set** at session creation when the
+    # autonomous executor needs to hold a worktree across multiple
+    # Commander dispatches. Operators can flip it via
+    # ``manager.set_durable``.
+    durable: bool = False
+
+    # ── Iterate-loop state (Verified Plan Gap II closure, 2026-05-22) ──
+    # When the ``coding_session_iterate`` tool runs against this
+    # session, the latest IterateResult is stashed here so:
+    #   1. Operators can see iterate-loop progress on /cp/coding-
+    #      sessions/<id> without rebuilding it from logs.
+    #   2. Across gateway restarts, the most recent iterate state is
+    #      preserved — the operator's "where did we get to?" answer
+    #      survives.
+    # The field is opaque (dict) on the model and only stringified
+    # when serialised. ``None`` (default) means "no iterate loop has
+    # run against this session yet" — preserves legacy behaviour.
+    iterate_loop_state: dict | None = None
 
     # ── Terminal metadata (set on transition out of ACTIVE) ────────
     terminated_at: str | None = None
@@ -136,6 +181,13 @@ class CodingSession:
             "run_count": self.run_count,
             "bytes_written": self.bytes_written,
         }
+        # Only persist ``durable`` when True so legacy session JSONs
+        # are byte-stable across the migration.
+        if self.durable:
+            d["durable"] = True
+        # Same posture for iterate_loop_state: only persist when set
+        if self.iterate_loop_state is not None:
+            d["iterate_loop_state"] = dict(self.iterate_loop_state)
         if self.terminated_at is not None:
             d["terminated_at"] = self.terminated_at
         if self.terminated_reason is not None:
@@ -161,6 +213,12 @@ class CodingSession:
             files_touched=list(data.get("files_touched") or []),
             run_count=int(data.get("run_count") or 0),
             bytes_written=int(data.get("bytes_written") or 0),
+            durable=bool(data.get("durable", False)),
+            iterate_loop_state=(
+                dict(data["iterate_loop_state"])
+                if data.get("iterate_loop_state") is not None
+                else None
+            ),
             terminated_at=data.get("terminated_at"),
             terminated_reason=data.get("terminated_reason"),
             submit_results=(

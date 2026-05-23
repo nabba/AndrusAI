@@ -124,9 +124,24 @@ def list_changes(
                 ),
             )
     items = list_all(status=status_enum, limit=limit)
+    # Phase 3 v2 follow-up (2026-05-22) — single-pass type-error
+    # count map so list rows can render a badge without N round trips.
+    # Failure-isolated: helper returns empty dict on any error.
+    try:
+        from app.coding_session.submit import build_type_error_count_map
+        type_error_counts = build_type_error_count_map()
+    except Exception:
+        type_error_counts = {}
+    rows = []
+    for c in items:
+        d = _serialize(c)
+        cnt = type_error_counts.get(c.id, 0)
+        if cnt > 0:
+            d["type_error_count"] = cnt
+        rows.append(d)
     return {
         "count": len(items),
-        "changes": [_serialize(c) for c in items],
+        "changes": rows,
     }
 
 
@@ -136,6 +151,180 @@ def get_change(request_id: str):
     if cr is None:
         raise HTTPException(status_code=404, detail=f"change request {request_id!r} not found")
     return _serialize(cr)
+
+
+@router.get("/{request_id}/review")
+def get_change_review(request_id: str):
+    """Return the most-recent two-reasoner review for this CR.
+
+    Phase 4 piece 2c (2026-05-20). The review hook in
+    ``change_requests.lifecycle.create_request`` fires when the CR's
+    classified zone is high-stakes. The outcome lands in the
+    two_reasoner audit log with the CR id as its ``context_id``.
+
+    Returns:
+      * 200 with the review outcome (matching the shape from
+        ``/api/cp/reviews``).
+      * 404 when the CR doesn't exist OR no review has been
+        recorded for it.
+
+    Note: a missing review can mean either "the CR's zone is not
+    high-stakes" or "the master switch is off — no review fired."
+    Operators can disambiguate via /cp/settings.
+    """
+    cr = get(request_id)
+    if cr is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"change request {request_id!r} not found",
+        )
+    from app.risk_classifier.two_reasoner import find_review_for_context
+    outcome = find_review_for_context(request_id)
+    if outcome is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"no two-reasoner review recorded for CR {request_id!r} "
+                "(zone may be low-stakes, master switch may be off, "
+                "or audit log may have been rotated)"
+            ),
+        )
+    return outcome.to_dict()
+
+
+@router.get("/{request_id}/type-errors")
+def get_change_type_errors(request_id: str):
+    """Return pyright type-check results for this CR, if any.
+
+    Phase 3 v2 follow-up (2026-05-22). When a coding session submits
+    with ``with_type_check=True``, each per-file ``SubmitResult``
+    captures the error-severity pyright diagnostics. This endpoint
+    cross-references the CR id back to the originating session and
+    surfaces those diagnostics so operators can see type-error
+    context at the gate moment.
+
+    Returns:
+      * 200 with ``{session_id, path, submitted_at, type_errors}``.
+        ``type_errors`` may be an empty list — that means "type
+        check ran clean," not "no type check ran."
+      * 404 when the CR doesn't exist, OR no coding session
+        references this CR id in its submit_results.
+
+    Note: a 404 can mean either "not from a coding session" (the
+    CR was filed by another path, e.g. the agent's
+    ``request_restricted_write`` tool) or "session did not opt into
+    ``with_type_check``" or "session was discarded before submitting."
+    """
+    cr = get(request_id)
+    if cr is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"change request {request_id!r} not found",
+        )
+    from app.coding_session.submit import find_type_errors_for_cr
+    payload = find_type_errors_for_cr(request_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"no type-check data recorded for CR {request_id!r} "
+                "(not from a coding session, session opted out of "
+                "type-check, or session was discarded)"
+            ),
+        )
+    return payload
+
+
+@router.post("/{request_id}/check-types")
+def check_types_now(request_id: str):
+    """Run pyright against the CR's proposed new_content immediately.
+
+    Phase 3 v2 follow-up (2026-05-22). Unlike the read-only /type-errors
+    endpoint which surfaces type-errors recorded by a coding session,
+    this endpoint runs a FRESH pyright pass against the CR's new_content
+    regardless of where the CR came from. Useful for:
+      * Agent-direct CRs (request_restricted_write) that bypass the
+        coding-session flow entirely.
+      * Operator verification after the originating session's
+        type-check is stale.
+
+    Cooperative response (always 200 unless CR is unknown):
+      * ``{ran: true, diagnostics: [...]}`` — pyright completed
+      * ``{ran: false, reason: "..."}`` — disabled / binary missing /
+        non-.py path / write failure / pyright crash
+
+    Never raises out — the React button shows the operator-readable
+    reason instead of an opaque HTTP error.
+    """
+    cr = get(request_id)
+    if cr is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"change request {request_id!r} not found",
+        )
+    if not cr.path.endswith(".py"):
+        return {
+            "ran": False,
+            "reason": f"path {cr.path!r} is not a Python file",
+        }
+
+    # Lazy imports — keep the endpoint dormant when sidecar unavailable
+    try:
+        from app.code_intel.pyright_sidecar import (
+            check_paths,
+            is_available,
+        )
+    except Exception as exc:
+        return {"ran": False, "reason": f"sidecar import failed: {exc}"}
+
+    if not is_available():
+        return {
+            "ran": False,
+            "reason": (
+                "pyright binary not on PATH. Install pyright in the "
+                "gateway image."
+            ),
+        }
+
+    # Write the proposed content to a temp file and run pyright on it.
+    # Use the file's basename so pyright reports paths the operator
+    # recognises rather than the /tmp/... random path.
+    import os
+    import tempfile
+    from pathlib import Path
+
+    base = os.path.basename(cr.path) or "proposed.py"
+    try:
+        with tempfile.TemporaryDirectory(prefix="cr-typecheck-") as tmp:
+            tmp_path = Path(tmp) / base
+            tmp_path.write_text(cr.new_content or "", encoding="utf-8")
+            report = check_paths([tmp_path], cwd=tmp_path.parent)
+    except Exception as exc:
+        return {"ran": False, "reason": f"check failed: {exc}"}
+
+    if report.disabled:
+        return {"ran": False, "reason": "sidecar disabled"}
+    if report.timed_out:
+        return {
+            "ran": False,
+            "reason": f"timed out after {report.duration_s:.1f}s",
+        }
+    if report.error:
+        return {"ran": False, "reason": report.error}
+
+    return {
+        "ran": True,
+        "path": cr.path,
+        "diagnostics": [d.to_dict() for d in report.diagnostics],
+        "error_count": len(report.errors),
+        "warning_count": len(report.warnings),
+        "duration_s": round(report.duration_s, 3),
+        # config_root is empty string when pyright ran with defaults
+        # (no pyrightconfig.json / pyproject.toml discovered above the
+        # tmp file). When non-empty, it points to the project root
+        # whose config pyright applied — useful debugging context.
+        "config_root": report.config_root,
+    }
 
 
 @router.post("/{request_id}/approve")

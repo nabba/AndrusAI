@@ -1,0 +1,46 @@
+# Simple arithmetic — every model should ace this.
+# Useful as a sanity check that the runner is wired correctly.
+tasks:
+  - id: arith_basic_addition
+    name: Basic addition
+    description: Two-operand integer addition; baseline sanity check.
+    category: arithmetic
+    input: |
+      What is 17 + 24? Answer with just the number, nothing else.
+    expected: "41"
+    scorer: exact_match
+    scorer_args:
+      case_sensitive: false
+      strip: true
+    model_targets: [cheap, default, smart]
+    max_tokens: 10
+
+  - id: arith_multi_step
+    name: Multi-step arithmetic
+    description: Order-of-operations + multi-digit multiplication.
+    category: arithmetic
+    input: |
+      Compute (47 * 13) + (208 / 4). Answer with just the number,
+      nothing else.
+    expected: "663"
+    scorer: exact_match
+    scorer_args:
+      case_sensitive: false
+      strip: true
+    model_targets: [default, smart]
+    max_tokens: 30
+
+  - id: arith_word_problem
+    name: Arithmetic word problem
+    description: Read prose, extract numbers, perform calculation.
+    category: arithmetic
+    input: |
+      A train leaves at 9:00 and travels for 2 hours and 45 minutes.
+      What time does it arrive? Answer in HH:MM 24-hour format only.
+    expected: "11:45"
+    scorer: exact_match
+    scorer_args:
+      case_sensitive: false
+      strip: true
+    model_targets: [default, smart]
+    max_tokens: 30

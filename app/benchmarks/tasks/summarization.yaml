@@ -1,0 +1,42 @@
+# Summarization — tests length-bounded output. Useful for tool-callable
+# models where the prompt asks for a one-line summary fitting in a UI
+# component.
+tasks:
+  - id: sum_one_liner
+    name: One-line summary
+    description: Summarise a paragraph in a single sentence (40-200 chars).
+    category: summarization
+    input: |
+      Summarise the following paragraph in one sentence between 40 and
+      200 characters. Output ONLY the summary, no quotes or preamble.
+
+      The aurora borealis appears in high-latitude regions when charged
+      particles from the solar wind interact with atoms in Earth's
+      atmosphere. The colors depend on which atom is hit and how high
+      the collision occurs: oxygen produces green and red, nitrogen
+      produces blue and purple.
+    expected:
+      min: 40
+      max: 200
+    scorer: length_within
+    model_targets: [default, smart]
+    max_tokens: 100
+
+  - id: sum_with_keywords
+    name: Summary covering key terms
+    description: Summary must mention specific entities.
+    category: summarization
+    input: |
+      Summarise the following in one sentence, including the words
+      "Helsinki" and "Tallinn" verbatim. Output ONLY the summary.
+
+      The Helsinki-Tallinn ferry route is one of the busiest passenger
+      sea routes in the world. Several companies operate the line,
+      with crossings taking about two hours each way.
+    expected: ["Helsinki", "Tallinn"]
+    scorer: contains
+    scorer_args:
+      case_sensitive: true
+      all_required: true
+    model_targets: [cheap, default, smart]
+    max_tokens: 100

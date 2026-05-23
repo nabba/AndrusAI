@@ -380,6 +380,28 @@ def create_commander_llm() -> LLM:
 
     settings = get_settings()
     mode = get_mode()
+
+    # Verified Plan §7 Gap A closure (2026-05-23) — local-tier override.
+    # If the routing layer marked the current dispatch as
+    # ``tier_hint="local"`` (interest-profile-aware queries) and
+    # ``_run_crew`` set the ContextVar, force mode="local" so the
+    # resolver picks an Ollama model. Cheap dispatch path for queries
+    # that don't need cloud reasoning. Failure-isolated: any error
+    # falls through to the existing mode (the safe default).
+    try:
+        from app.llm_selector import get_active_local_tier
+        if get_active_local_tier():
+            logger.info(
+                "create_commander_llm: local-tier override active — "
+                "forcing mode='local' for this dispatch",
+            )
+            mode = "local"
+    except Exception:
+        logger.debug(
+            "create_commander_llm: local-tier check raised",
+            exc_info=True,
+        )
+
     model_name = get_default_for_role("commander", mode)
     entry = get_model(model_name) or {}
 

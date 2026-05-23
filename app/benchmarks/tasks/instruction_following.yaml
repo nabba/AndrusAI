@@ -1,0 +1,33 @@
+# Instruction following — the LLM must obey a constraint that requires
+# careful reading. These often distinguish cheap from default tiers.
+tasks:
+  - id: instr_no_preamble
+    name: Output without preamble
+    description: Model must NOT prefix its output with "Here is..." etc.
+    category: instruction_following
+    input: |
+      Output the number 7. Do NOT include any preamble, quotation
+      marks, period, or any other text. Just the digit.
+    expected: "7"
+    scorer: exact_match
+    scorer_args:
+      case_sensitive: false
+      strip: true
+    model_targets: [cheap, default, smart]
+    max_tokens: 5
+
+  - id: instr_use_exact_phrase
+    name: Reuse exact phrase
+    description: Output must contain the supplied phrase verbatim.
+    category: instruction_following
+    input: |
+      Write a single sentence about the weather that includes the
+      exact phrase "windy and cold" verbatim. Output only the
+      sentence, nothing else.
+    expected: ["windy and cold"]
+    scorer: contains
+    scorer_args:
+      case_sensitive: true
+      all_required: true
+    model_targets: [cheap, default, smart]
+    max_tokens: 60

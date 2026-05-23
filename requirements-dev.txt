@@ -1,0 +1,49 @@
+# Development / test dependencies (Phase B.5 cleanup, 2026-05-22).
+#
+# These dependencies are needed to run the full test suite on the
+# dev host. The production gateway image (crewai-team-gateway) already
+# includes them transitively via requirements.txt + the FastAPI stack.
+#
+# Why they live here instead of requirements.txt:
+#
+#   * pydantic-settings is consumed by app/config.py which is imported
+#     transitively by many modules. The gateway has it installed but
+#     the bare-minimum dev install previously didn't, causing ~50
+#     tests to skip on host (visible as ``ModuleNotFoundError: No
+#     module named 'pydantic_settings'`` collection errors).
+#
+#   * Pinning here lets ``pip install -r requirements-dev.txt`` give
+#     the dev host the SAME validation surface CI runs against. No
+#     more "passed on host but breaks in CI" or vice versa.
+#
+# Activation:
+#
+#   pip install -r requirements-dev.txt
+#   pytest tests/  # full surface, zero skip-on-missing-deps
+#
+# This file is additive — does NOT shadow requirements.txt. Install
+# the runtime deps separately if your venv doesn't already have them:
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+
+# Pydantic settings — needed by app/config.py (BaseSettings subclass)
+# which transitively loads through ~every module that reads gateway
+# config. Without this, a wide swathe of test files fail at collection.
+pydantic-settings>=2.0.0
+
+# pytest is the test runner itself. Pinned so dev + CI run the same
+# version's collection + fixture semantics.
+pytest>=8.0.0
+
+# fastapi TestClient is used by REST-API test files (test_reviews_api,
+# test_capability_regression_api, test_force_type_check_endpoint, etc.).
+# Without it, those tests skip on host. The gateway runtime brings
+# fastapi via requirements.txt; dev gets it here.
+fastapi>=0.135.0
+httpx>=0.27.0  # required by TestClient
+
+# pydantic itself — needed by CrewAI tool args_schema (BaseModel).
+# The crewai package depends on it transitively, but a bare crewai
+# stub at conftest level doesn't pull pydantic. Adding here lets
+# tests that DO have crewai installed get the matching pydantic.
+pydantic>=2.5.0

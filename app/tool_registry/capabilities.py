@@ -139,6 +139,88 @@ CAPABILITIES: Final[dict[str, dict[str, str]]] = {
         ),
     },
 
+    # ── ratelimit: per-vendor quota constraints ─────────────────────
+    # Verified Implementation Plan Gap #6 (2026-05-22). Tier-3
+    # amendment applied 2026-05-23 — operator approval recorded at
+    # docs/proposed_tier3_amendments/ratelimit_capability_category.md
+    # (status: APPLIED).
+    #
+    # Tools that talk to rate-limited external services declare a
+    # quota-limited-<vendor> tag. The runtime enforcement lives in
+    # ``app/connector_budget/`` + ``app/llm_anthropic_budget.py``; the
+    # tag adds discoverability ("which tools share the Anthropic cap?")
+    # WITHOUT changing the runtime behaviour — capability tags are
+    # never consumed by the budget primitives themselves.
+    #
+    # Adding a vendor: open a new Tier-3 amendment. Removing a vendor:
+    # move the tag to DEPRECATED_CAPABILITIES first, then migrate
+    # tools off it in a separate PR.
+    "ratelimit": {
+        "quota-limited-anthropic": (
+            "Tool calls Anthropic Claude. Subject to "
+            "``anthropic_daily_cap_usd`` vendor-level cap + per-tier "
+            "circuit breakers. Cap-out → tool may return empty / refuse."
+        ),
+        "quota-limited-brave": (
+            "Tool calls Brave Search. Subject to the documented "
+            "free-tier monthly quota; the connector_budget primitive "
+            "enforces a daily call cap on top."
+        ),
+        "quota-limited-google-workspace": (
+            "Tool calls Google Workspace (Calendar / Gmail / Docs / "
+            "Sheets / Slides / Drive). Subject to per-day OAuth quota."
+        ),
+        "quota-limited-openai": (
+            "Tool calls OpenAI (GPT-4o / GPT-5 / embeddings). Subject "
+            "to the project's OpenAI org-level rate limit."
+        ),
+        "quota-limited-osv": (
+            "Tool calls OSV.dev /v1/querybatch. Subject to the "
+            "``dependency_radar_osv`` connector budget (50 calls/UTC-"
+            "day by default)."
+        ),
+        "quota-limited-github": (
+            "Tool calls GitHub API (unauthenticated). Subject to the "
+            "``dependency_radar_github`` connector budget (500 calls/"
+            "UTC-day by default) plus GitHub's 60/hr unauthenticated "
+            "ceiling."
+        ),
+    },
+
+    # ── code-intelligence: symbol-level code understanding ──────────
+    # Verified Implementation Plan §5 (2026-05-22). Tier-3 amendment
+    # applied 2026-05-23 — operator approval recorded at
+    # docs/proposed_tier3_amendments/code_intelligence_capability_category.md
+    # (status: APPLIED).
+    #
+    # Read-only queries over the code_intel index (AST + tree-sitter +
+    # pyright). Distinct from ``code-development`` (which is about
+    # MODIFYING code via ephemeral worktrees) — these tags advertise
+    # symbol/type/coverage retrieval that never mutates code.
+    #
+    # Coverage tags (``checks-types``, ``finds-test-coverage``,
+    # ``finds-deps``) describe READ surfaces. Mutation lives in
+    # ``code-development``.
+    "code-intelligence": {
+        "queries-code-symbols": (
+            "Query the code_intel symbol index (definitions, "
+            "references, callers) over the live codebase. Read-only."
+        ),
+        "checks-types": (
+            "Type-check a coding-session worktree via the pyright "
+            "sidecar. Returns structured ``TypeError`` records. "
+            "Read-only; never modifies code."
+        ),
+        "finds-test-coverage": (
+            "Find which tests cover a given file/symbol. Reads the "
+            "coverage snapshot. Read-only."
+        ),
+        "finds-deps": (
+            "Find which modules import / depend on a given symbol or "
+            "module. Reads the dependency graph. Read-only."
+        ),
+    },
+
     # ── code-development: agent-driven code modification with a    ──
     #    human gate. Phase 5.4 — see docs/CODING_SESSIONS.md.
     #    "Coding sessions" are ephemeral worktrees where the agent

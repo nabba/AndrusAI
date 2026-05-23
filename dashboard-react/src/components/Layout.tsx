@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { ProjectSwitcher } from './ProjectSwitcher';
 import { useHealthQuery } from '../api/queries';
+import { useChangesListQuery } from '../api/changes';
+import { useCapabilityRegressionStateQuery } from '../api/capability_regression';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '📊', exact: true },
@@ -34,14 +36,64 @@ const NAV_ITEMS = [
   { to: '/inquiries', label: 'Inquiries', icon: '📜', exact: false },
   { to: '/skills', label: 'Skills', icon: '🪄', exact: false },
   { to: '/workflows', label: 'Workflows', icon: '🔗', exact: false },
+  { to: '/delegate', label: 'Delegate', icon: '🤖', exact: false },
+  { to: '/widening', label: 'Widening', icon: '🔑', exact: false },
+  { to: '/reviews', label: 'Reviews', icon: '⚖️', exact: false },
+  { to: '/capability-regression', label: 'Capabilities', icon: '🔧', exact: false },
+  { to: '/benchmarks', label: 'Benchmarks', icon: '📊', exact: false },
   { to: '/files', label: 'Files', icon: '📁', exact: false },
   { to: '/life-companion', label: 'Life Companion', icon: '🌿', exact: false },
   { to: '/settings', label: 'Settings', icon: '⚙️', exact: false },
 ];
 
+// Phase 3 v2 follow-up (2026-05-22) — sidebar nav badge for an
+// integer count (e.g. "5 pending CRs") or a warning marker (e.g.
+// "!" when a regression exists). Hidden when count <= 0 and
+// `warn` is false so the sidebar stays calm.
+function NavBadge({
+  count,
+  warn,
+  title,
+}: {
+  count?: number;
+  warn?: boolean;
+  title?: string;
+}) {
+  const showCount = count !== undefined && count > 0;
+  const showWarn = !!warn && !showCount;
+  if (!showCount && !showWarn) return null;
+  if (showWarn) {
+    return (
+      <span
+        title={title}
+        className="ml-auto inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-semibold bg-[#f87171]/20 text-[#f87171] border border-[#f87171]/40"
+      >
+        !
+      </span>
+    );
+  }
+  return (
+    <span
+      title={title}
+      className="ml-auto inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full text-[10px] font-semibold bg-[#fbbf24]/20 text-[#fbbf24] border border-[#fbbf24]/40"
+    >
+      {count}
+    </span>
+  );
+}
+
+
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { data: health } = useHealthQuery();
+
+  // Phase 3 v2 follow-up (2026-05-22) — sidebar count badges.
+  // Light polling (8s / 30s) so the operator's queue is fresh
+  // without burning the gateway with frequent /api/cp/changes hits.
+  const pendingChangesQ = useChangesListQuery('pending');
+  const pendingChangesCount = pendingChangesQ.data?.changes?.length ?? 0;
+  const capabilityStateQ = useCapabilityRegressionStateQuery();
+  const hasRegression = !!capabilityStateQ.data?.last_regression?.has_regression;
 
   const statusColor =
     health?.status === 'ok'
@@ -89,24 +141,45 @@ export function Layout() {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.exact}
-              onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  isActive
-                    ? 'bg-[#60a5fa]/10 text-[#60a5fa] border border-[#60a5fa]/20'
-                    : 'text-[#7a8599] hover:text-[#e2e8f0] hover:bg-[#1e2738]'
-                }`
-              }
-            >
-              <span className="text-base leading-none">{item.icon}</span>
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+          {NAV_ITEMS.map((item) => {
+            // Phase 3 v2 follow-up (2026-05-22) — per-item badge data
+            let badge = null;
+            if (item.to === '/changes' && pendingChangesCount > 0) {
+              badge = (
+                <NavBadge
+                  count={pendingChangesCount}
+                  title={`${pendingChangesCount} pending change request${pendingChangesCount === 1 ? '' : 's'}`}
+                />
+              );
+            } else if (item.to === '/capability-regression' && hasRegression) {
+              badge = (
+                <NavBadge
+                  warn
+                  title="Capability regression detected — open to investigate"
+                />
+              );
+            }
+
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.exact}
+                onClick={() => setSidebarOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                    isActive
+                      ? 'bg-[#60a5fa]/10 text-[#60a5fa] border border-[#60a5fa]/20'
+                      : 'text-[#7a8599] hover:text-[#e2e8f0] hover:bg-[#1e2738]'
+                  }`
+                }
+              >
+                <span className="text-base leading-none">{item.icon}</span>
+                <span>{item.label}</span>
+                {badge}
+              </NavLink>
+            );
+          })}
         </nav>
 
         {/* Footer */}

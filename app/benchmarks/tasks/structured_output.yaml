@@ -1,0 +1,35 @@
+# Structured output — JSON with required fields. Tests instruction
+# following + format adherence, the highest-signal "is this model usable
+# as a tool-caller?" check.
+tasks:
+  - id: struct_address_json
+    name: Extract address into JSON
+    description: Parse a prose address into structured fields.
+    category: structured_output
+    input: |
+      Extract the parts of this address into JSON with exactly these
+      keys: street, city, postal_code, country. Output ONLY the JSON,
+      no preamble or commentary.
+
+      Address: 123 Main Street, Helsinki, 00100, Finland
+    expected: ["street", "city", "postal_code", "country"]
+    scorer: json_keys_present
+    scorer_args:
+      require_all: true
+    model_targets: [default, smart]
+    max_tokens: 200
+
+  - id: struct_book_metadata
+    name: Generate book metadata JSON
+    description: Produce structured book metadata for a known title.
+    category: structured_output
+    input: |
+      Return a JSON object describing the book "Foundation" by Isaac
+      Asimov. Include exactly these keys: title, author, genre,
+      first_published. Output ONLY the JSON.
+    expected: ["title", "author", "genre", "first_published"]
+    scorer: json_keys_present
+    scorer_args:
+      require_all: true
+    model_targets: [default, smart]
+    max_tokens: 200

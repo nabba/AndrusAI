@@ -190,3 +190,29 @@ def web_fetch(url: str) -> str:
         return text[:_MAX_TEXT_CHARS]
     except Exception:
         return "Fetch error: unable to retrieve URL content."
+
+
+# ── Tool registry annotation (Phase C.1, 2026-05-22; passive) ────────
+# Surfaces ``web_fetch`` in the registry so ``tool_search`` and the React
+# tool catalog can find it by capability tag. Existing call sites
+# continue to import the function directly — registration is additive.
+try:
+    from app.tool_registry import Lifecycle, Tier, register_tool
+
+    @register_tool(
+        name="web_fetch",
+        capabilities=["searches-web"],
+        description=(
+            "Fetch and extract clean text from a single public URL. "
+            "Strips ads / navigation / boilerplate via trafilatura, "
+            "falls back to BeautifulSoup; returns plain text capped at "
+            "~3K tokens. SSRF-hardened (no internal-network access, "
+            "DNS-rebinding check, response-size cap)."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _web_fetch_registry_factory():
+        return web_fetch
+except ImportError:
+    pass

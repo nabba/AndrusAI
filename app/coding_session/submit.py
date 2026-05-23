@@ -131,6 +131,11 @@ def submit_session(
     manager: Manager,
     port: ChangeRequestPort | None = None,
     cleanup_worktree: bool = True,
+    submit_mode: str = "per-file",
+    branch_name: str | None = None,
+    pr_title: str | None = None,
+    pr_body: str | None = None,
+    with_type_check: bool = False,
 ) -> tuple[CodingSession, list[SubmitResult]]:
     """Discover the worktree's changes, file change requests, and
     finalize the session.
@@ -146,6 +151,25 @@ def submit_session(
         cleanup_worktree: if True (default), tear down the worktree
             after submit. Tests pass False to inspect the worktree
             after submit.
+        submit_mode: ``"per-file"`` (default — pre-2026-05-20 behavior:
+            one change-request per touched file) or ``"branch"``
+            (Phase 2 piece 2i: one commit + push + PR for the whole
+            worktree). Branch mode requires the worktree backend to
+            expose ``submit_as_branch``; backends that don't
+            (LocalWorktreeBackend) raise ``IllegalTransition``.
+        branch_name: optional branch name for ``submit_mode="branch"``;
+            defaults to ``coding-session-<session_id_short>``.
+        pr_title: optional PR title; defaults to the session purpose
+            (first line, ≤80 chars).
+        pr_body: optional PR body; defaults to the session purpose +
+            submit_reason.
+        with_type_check: if True (Phase 3 v2 follow-up, 2026-05-22),
+            run the pyright sidecar against each touched ``.py`` file
+            and attach error-severity diagnostics to the resulting
+            ``SubmitResult.type_errors``. Observational — never blocks
+            submit or alters CR status. Requires both
+            ``pyright_sidecar_enabled=True`` AND a pyright binary on
+            PATH; either gate failing leaves ``type_errors`` empty.
 
     Returns:
         ``(updated_session, [SubmitResult, ...])`` — the session in
@@ -154,8 +178,15 @@ def submit_session(
         the tools layer).
 
     Raises:
-        :class:`IllegalTransition` — session not ACTIVE or not found.
+        :class:`IllegalTransition` — session not ACTIVE / not found,
+        or submit_mode/branch backend not supported.
     """
+    if submit_mode not in ("per-file", "branch"):
+        raise IllegalTransition(
+            f"submit: invalid submit_mode {submit_mode!r}; "
+            f"expected 'per-file' or 'branch'",
+        )
+
     cs = manager.get(session_id)
     if cs is None:
         raise IllegalTransition(f"submit: session {session_id!r} not found")
@@ -166,6 +197,18 @@ def submit_session(
 
     port = port or DefaultChangeRequestPort()
     backend = manager.backend  # WorktreeBackend has the read methods
+
+    if submit_mode == "branch":
+        return _submit_as_branch(
+            cs=cs,
+            backend=backend,
+            manager=manager,
+            submit_reason=submit_reason,
+            branch_name=branch_name,
+            pr_title=pr_title,
+            pr_body=pr_body,
+            cleanup_worktree=cleanup_worktree,
+        )
 
     # 1. Discover changed paths
     try:
@@ -252,6 +295,18 @@ def submit_session(
             )
         results.append(result)
 
+    # 2b. Phase 3 v2 (2026-05-22) — optional pyright type-check pass.
+    # Mutates each `.py` result's ``type_errors`` in place. Failure-
+    # isolated: a sick sidecar / missing binary / per-file exception
+    # never blocks the submit. Skips non-Python files, refusals
+    # (no real content was applied), and the synthetic migration-stub
+    # row (already covered by the human review of the SQL).
+    if with_type_check:
+        _attach_type_errors_to_results(
+            results=results,
+            worktree_path=cs.worktree_path,
+        )
+
     # 3. Mark session SUBMITTED + store the results
     updated = manager.submit(session_id, results=results)
 
@@ -265,6 +320,318 @@ def submit_session(
             )
 
     return updated, results
+
+
+# ── CR-keyed type-error lookup (Phase 3 v2 follow-up, 2026-05-22) ───
+
+
+def find_type_errors_for_cr(cr_id: str) -> dict | None:
+    """Look up the ``SubmitResult.type_errors`` recorded for the change
+    request with id ``cr_id``.
+
+    Walks every coding session in the store (newest-first), inspects
+    each session's ``submit_results``, and returns the first matching
+    row's payload. Returns ``None`` when no match is found.
+
+    Returns:
+      ``{session_id, path, submitted_at, type_errors}`` on hit;
+      ``None`` on miss.
+
+    Failure-isolated: a sick store / corrupt session row never
+    propagates — the caller treats None as "no data" the same way
+    it would treat a real miss.
+
+    Used by:
+      * ``GET /api/cp/changes/{id}/type-errors`` REST endpoint
+      * Any future operator surface that wants to render type-error
+        context alongside a CR
+    """
+    if not cr_id:
+        return None
+    try:
+        from app.coding_session import store as cs_store
+    except Exception:
+        return None
+    try:
+        sessions = cs_store.list_all() or []
+    except Exception:
+        logger.debug(
+            "find_type_errors_for_cr: list_all failed", exc_info=True,
+        )
+        return None
+
+    # Newest-first ordering — list_all may not sort; we sort defensively
+    # by ``submitted_at`` desc so the most recent attribution wins.
+    def _sort_key(cs):
+        return (getattr(cs, "submitted_at", "") or "") or ""
+
+    try:
+        sessions_sorted = sorted(sessions, key=_sort_key, reverse=True)
+    except Exception:
+        sessions_sorted = list(sessions)
+
+    for cs in sessions_sorted:
+        results = getattr(cs, "submit_results", None) or []
+        for r in results:
+            if getattr(r, "change_request_id", None) != cr_id:
+                continue
+            # Match found — surface the payload even if type_errors is
+            # empty (operator may want to know "type-check ran clean").
+            return {
+                "session_id": getattr(cs, "id", "") or "",
+                "path": getattr(r, "path", "") or "",
+                "submitted_at": getattr(cs, "submitted_at", "") or "",
+                "type_errors": list(getattr(r, "type_errors", None) or []),
+            }
+    return None
+
+
+def build_type_error_count_map() -> dict[str, int]:
+    """Build a single ``{cr_id: error_count}`` map across all sessions.
+
+    Optimised for the list-endpoint use case where we want a row-level
+    badge but don't want N round trips. One scan over the store, one
+    pass per session's submit_results — O(sessions × results), not
+    O(sessions × results × CRs).
+
+    Behavior:
+      * Sessions without submit_results: skipped silently.
+      * SubmitResults with empty type_errors: NOT included (operators
+        only care about CRs with positive error count).
+      * SubmitResults without change_request_id (refusals): skipped.
+      * Multiple sessions hitting the same CR id: newest wins (matches
+        :func:`find_type_errors_for_cr`).
+
+    Failure-isolated: a sick store → empty dict, never raises.
+    """
+    try:
+        from app.coding_session import store as cs_store
+    except Exception:
+        return {}
+    try:
+        sessions = cs_store.list_all() or []
+    except Exception:
+        logger.debug(
+            "build_type_error_count_map: list_all failed", exc_info=True,
+        )
+        return {}
+
+    # Sort oldest-first so newer rows overwrite as we iterate forward —
+    # the final state has the newest attribution for each CR id, which
+    # matches find_type_errors_for_cr's "newest wins" semantics.
+    def _sort_key(cs):
+        return (getattr(cs, "submitted_at", "") or "") or ""
+
+    try:
+        sessions_sorted = sorted(sessions, key=_sort_key)
+    except Exception:
+        sessions_sorted = list(sessions)
+
+    out: dict[str, int] = {}
+    for cs in sessions_sorted:
+        results = getattr(cs, "submit_results", None) or []
+        for r in results:
+            cr_id = getattr(r, "change_request_id", None)
+            if not cr_id:
+                continue
+            errors = getattr(r, "type_errors", None) or []
+            if not errors:
+                # Don't pollute the map with zero-count entries —
+                # the badge code treats missing as zero anyway.
+                out.pop(cr_id, None)
+                continue
+            out[cr_id] = len(errors)
+    return out
+
+
+# ── Type-check pass (Phase 3 v2 follow-up, 2026-05-22) ──────────────
+
+
+def _attach_type_errors_to_results(
+    *,
+    results: list[SubmitResult],
+    worktree_path: str | None,
+) -> None:
+    """Mutate ``results`` in place: for each .py SubmitResult whose
+    CR was actually created (change_request_id present), run the
+    pyright sidecar over the worktree-resolved path and attach the
+    error-severity diagnostics.
+
+    Skips:
+      * Refusals (no ``change_request_id`` — the file wasn't applied)
+      * Non-Python files (``.py`` suffix gate)
+      * Synthetic migration stubs (status="error" / unresolved CR)
+
+    Failure-isolated end-to-end:
+      * Sidecar disabled → all type_errors stay empty
+      * Binary missing → all type_errors stay empty
+      * Per-file exception → that result keeps empty type_errors,
+        the rest still get checked
+      * Missing worktree_path → no-op (can't resolve relative paths)
+    """
+    if not worktree_path:
+        return
+
+    try:
+        from app.code_intel.pyright_sidecar import check_file
+    except Exception:
+        logger.debug(
+            "submit: pyright_sidecar unavailable; skipping type-check pass",
+            exc_info=True,
+        )
+        return
+
+    from pathlib import Path
+    root = Path(worktree_path)
+
+    for r in results:
+        # Only check .py files with a successfully-created CR
+        if r.change_request_id is None:
+            continue
+        if not r.path.endswith(".py"):
+            continue
+        try:
+            report = check_file(root / r.path)
+        except Exception:
+            logger.debug(
+                "submit: pyright check_file raised for %s in session",
+                r.path, exc_info=True,
+            )
+            continue
+        # Only attach error-severity rows — warnings + info would
+        # bloat the SubmitResult without giving the operator
+        # actionable signal at the gate.
+        r.type_errors = [
+            d.to_dict() for d in report.diagnostics
+            if d.severity == "error"
+        ]
+
+
+# ── Branch path (Phase 2 piece 2i, 2026-05-20) ──────────────────────
+
+
+def _submit_as_branch(
+    *,
+    cs: CodingSession,
+    backend,
+    manager: Manager,
+    submit_reason: str,
+    branch_name: str | None,
+    pr_title: str | None,
+    pr_body: str | None,
+    cleanup_worktree: bool,
+) -> tuple[CodingSession, list[SubmitResult]]:
+    """Commit + push + open PR for the whole worktree as one branch.
+
+    Mirrors the dict-return shape of
+    ``BridgeWorktreeBackend.submit_as_branch`` — one SubmitResult
+    capturing the branch-submit outcome. On success: status="branch_submitted"
+    with the PR URL in ``refusal_reason`` (which doubles as the
+    operator-facing extra context). On failure: status="error".
+    """
+    if not hasattr(backend, "submit_as_branch"):
+        raise IllegalTransition(
+            "submit_mode='branch' requires a worktree backend with "
+            "submit_as_branch (production BridgeWorktreeBackend has "
+            "it; LocalWorktreeBackend does not). Use 'per-file' or "
+            "wire a branch-capable backend.",
+        )
+
+    branch = (branch_name or _default_branch_name(cs)).strip()
+    title = (pr_title or _default_pr_title(cs)).strip()
+    body = (pr_body or _default_pr_body(cs, submit_reason)).strip()
+    commit_message = title  # one-line commit; PR body holds prose
+
+    try:
+        result = backend.submit_as_branch(
+            worktree_path=cs.worktree_path,
+            branch=branch,
+            commit_message=commit_message,
+            pr_title=title,
+            pr_body=body,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "submit: backend.submit_as_branch raised for session %s: %s",
+            cs.id, exc, exc_info=True,
+        )
+        manager.fail(cs.id, reason=f"submit_as_branch raised: {exc}")
+        # Re-raise so the tool surface returns a clean error
+        raise
+
+    if not result.get("ok"):
+        sr = SubmitResult(
+            path=f"branch:{branch}",
+            change_request_id=None,
+            status="error",
+            refusal_reason=str(result.get("error") or "submit_as_branch failed"),
+        )
+        updated = manager.submit(cs.id, results=[sr])
+        if cleanup_worktree:
+            ok, err = manager.remove_worktree(updated)
+            if not ok:
+                logger.warning(
+                    "submit: branch-mode teardown failed for %s: %s",
+                    cs.id, err,
+                )
+        return updated, [sr]
+
+    # Success — pr_url goes into the refusal_reason slot as a
+    # diagnostic note (the field is mis-named for this path; future
+    # cleanup may add a dedicated `note` slot to SubmitResult).
+    pr_url = result.get("pr_url") or ""
+    note_parts = [f"commit {(result.get('commit_sha') or '')[:12]}"]
+    if pr_url:
+        note_parts.append(f"PR {pr_url}")
+    else:
+        note_parts.append("PR not opened (operator can open manually)")
+    sr = SubmitResult(
+        path=f"branch:{branch}",
+        change_request_id=None,
+        status="branch_submitted",
+        refusal_reason=" / ".join(note_parts),
+    )
+    updated = manager.submit(cs.id, results=[sr])
+    if cleanup_worktree:
+        ok, err = manager.remove_worktree(updated)
+        if not ok:
+            logger.warning(
+                "submit: branch-mode teardown failed for %s: %s",
+                cs.id, err,
+            )
+    return updated, [sr]
+
+
+def _default_branch_name(cs: CodingSession) -> str:
+    """coding-session-<id_short> — stable across retries (re-submit
+    of the same session reuses the same branch)."""
+    return f"coding-session-{cs.id[:8]}"
+
+
+def _default_pr_title(cs: CodingSession) -> str:
+    """First line of the session purpose, capped at 72 chars (git
+    commit convention) so the commit message stays readable."""
+    purpose = (cs.purpose or "").strip()
+    if not purpose:
+        return f"Coding session {cs.id[:8]}"
+    first_line = purpose.splitlines()[0]
+    if len(first_line) > 72:
+        first_line = first_line[:69] + "..."
+    return first_line
+
+
+def _default_pr_body(cs: CodingSession, submit_reason: str) -> str:
+    """Multi-line PR body: purpose + submit reason + session id for
+    traceability."""
+    parts = []
+    if cs.purpose:
+        parts.append(cs.purpose.strip())
+    if submit_reason and submit_reason.strip():
+        parts.append("")
+        parts.append(f"**Submit reason:** {submit_reason.strip()}")
+    parts.append("")
+    parts.append(f"_Filed by coding session `{cs.id}` (agent: `{cs.agent_id}`)._")
+    return "\n".join(parts)
 
 
 # ── Per-file path ───────────────────────────────────────────────────

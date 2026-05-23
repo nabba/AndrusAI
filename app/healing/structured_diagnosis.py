@@ -71,6 +71,45 @@ class StructuredFix:
         return (not self.declined) and bool(self.new_content) and self.path
 
 
+def _format_type_errors_hint(
+    type_errors_hint: list[dict] | None,
+) -> str:
+    """Format a pyright-shape diagnostic list as a prompt block.
+
+    Returns an empty string when the hint is None or empty so the
+    block is genuinely absent from the prompt (no "(empty)" leak).
+    Caps the rendering at 10 errors to keep prompt budget bounded —
+    operator visibility into the full list is via the CR drawer.
+    """
+    if not type_errors_hint:
+        return ""
+    lines = []
+    cap = 10
+    for d in type_errors_hint[:cap]:
+        if not isinstance(d, dict):
+            continue
+        line = (
+            f"  {d.get('file', '?')}:"
+            f"{d.get('line', '?')}:"
+            f"{d.get('column', '?')}  "
+            f"[{d.get('rule', '—')}]  "
+            f"{d.get('message', '(no message)')}"
+        )
+        lines.append(line)
+    if len(type_errors_hint) > cap:
+        lines.append(
+            f"  … and {len(type_errors_hint) - cap} more (omitted from prompt)"
+        )
+    if not lines:
+        return ""
+    return (
+        "=== current type errors in this file (pyright) ===\n"
+        "Address these in the same fix attempt if your edit covers them.\n"
+        + "\n".join(lines)
+        + "\n\n"
+    )
+
+
 # ── Public API ────────────────────────────────────────────────────────
 
 
@@ -82,6 +121,7 @@ def generate_structured_fix(
     file_content: str,
     pattern_signature: str = "",
     error_class: str = "",
+    type_errors_hint: list[dict] | None = None,
 ) -> Optional[StructuredFix]:
     """Generate a (path, new_content) fix proposal via LLM.
 
@@ -156,6 +196,7 @@ def generate_structured_fix(
         file_path=file_path,
         file_content=file_content,
         prior_attempts_hint=hot1_hint_for_prompt,
+        type_errors_hint=type_errors_hint,
     )
     if fix is None:
         return None
@@ -275,6 +316,7 @@ def _call_llm_for_fix(
     file_path: str,
     file_content: str,
     prior_attempts_hint: Optional[str] = None,
+    type_errors_hint: list[dict] | None = None,
 ) -> Optional[StructuredFix]:
     """Issue the LLM call. Returns None on infrastructure failure
     (caller falls back to prose). Returns StructuredFix on success
@@ -284,6 +326,13 @@ def _call_llm_for_fix(
     "what's been tried before" text from
     :mod:`app.healing.hot1_consultation`. When provided, it's
     prepended to the user message so the LLM doesn't propose blind.
+
+    Phase 3 v2 follow-up (2026-05-22): ``type_errors_hint`` is an
+    optional list of pyright-shape diagnostic dicts (file/line/column/
+    severity/rule/message). When supplied, the LLM is asked to fix
+    BOTH the test failure AND the listed type errors in a single
+    new_content payload — converges faster than iterating one signal
+    at a time.
     """
     try:
         from anthropic import Anthropic
@@ -302,9 +351,11 @@ def _call_llm_for_fix(
         f"=== prior_attempt_context ===\n{prior_attempts_hint}\n\n"
         if prior_attempts_hint else ""
     )
+    type_block = _format_type_errors_hint(type_errors_hint)
     user_msg = (
         f"file_path: {file_path}\n\n"
         f"{hint_block}"
+        f"{type_block}"
         f"=== error_message ===\n{error_message}\n\n"
         f"=== error_traceback ===\n{error_traceback[:2000]}\n\n"
         f"=== current file content ===\n{file_content}"

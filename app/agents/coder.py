@@ -82,6 +82,34 @@ ruff / mypy before asking the operator to review.
     The reason explains why; pick a different file or content.
   * `ERROR:` — infrastructure trouble (bridge unreachable, etc.).
     Retry once; if persistent, ask the operator.
+
+## Code intelligence (Phase 3 + v2)
+
+Four read-only query tools over a pre-built symbol index + a
+type-check sidecar:
+
+  * `code_intel_find_symbol(name)` — "where is X defined?"
+    Returns every function/class/method named X with file:line and
+    docstring. Use this BEFORE grep when you want a definition.
+
+  * `code_intel_find_references(name)` — "where is X used?"
+    Every callsite + import. Caps at 25 results; narrow with
+    `file_prefix` if you hit the cap.
+
+  * `code_intel_find_callers(func_name)` — "blast radius of X".
+    Caller functions only (skips module-level). Use before
+    changing a signature so you know what may need to update too.
+
+  * `code_intel_type_check(workspace_relative_path)` — "does X
+    type-check?" Runs pyright on the file inside the worktree and
+    returns a compact error list. Run AFTER editing a .py file to
+    catch type problems before the submit gate computes the same
+    signal.
+
+The index refreshes every 30 minutes on the idle scheduler. If
+`code_intel_find_*` returns "Code-intel index has not been built
+yet", proceed without it — the gateway operator will see the same
+state and will rebuild if needed.
 """
 
 CODER_BACKSTORY = (
@@ -190,6 +218,18 @@ def _legacy_create_coder(force_tier: str | None = None) -> Agent:
     with optional_tool_group("coder", "coding_session"):
         from app.tools.coding_session_tools import create_coding_session_tools
         tools.extend(create_coding_session_tools())
+    # Code intelligence — Phase 3 query tools + Phase 3 v2 type-check
+    # (2026-05-20 + 2026-05-22). 4 read-only tools:
+    #   * code_intel_find_symbol       — "where is X defined"
+    #   * code_intel_find_references   — "where is X used"
+    #   * code_intel_find_callers      — "who calls X" (blast radius)
+    #   * code_intel_type_check        — "does X type-check"
+    # The agent should reach for find_symbol BEFORE grep, and run
+    # type_check AFTER editing a .py file to catch type errors before
+    # the coding-session submit gate computes the same signal.
+    with optional_tool_group("coder", "code_intel"):
+        from app.code_intel.agent_tools import ALL_CODE_INTEL_TOOLS
+        tools.extend(ALL_CODE_INTEL_TOOLS)
 
     return Agent(
         role="Coder",
@@ -277,6 +317,12 @@ def _build_loadable_coder(*, force_tier: str | None = None) -> Agent:
     with optional_tool_group("coder", "coding_session"):
         from app.tools.coding_session_tools import create_coding_session_tools
         eager.extend(create_coding_session_tools())
+    with optional_tool_group("coder", "code_intel"):
+        # Phase 3 + v2 query tools: find_symbol / find_references /
+        # find_callers / type_check. See _legacy_create_coder for the
+        # rationale on each.
+        from app.code_intel.agent_tools import ALL_CODE_INTEL_TOOLS
+        eager.extend(ALL_CODE_INTEL_TOOLS)
 
     return build_loadable_agent(
         role="Coder",

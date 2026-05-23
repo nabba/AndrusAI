@@ -63,6 +63,21 @@ def run(path: Path) -> str:
     except ImportError as exc:
         raise RuntimeError(f"anthropic SDK unavailable: {exc}") from exc
 
+    # Vendor-level cap pre-check (Phase D.3, 2026-05-22). PDF extract
+    # is per-document not per-page; estimate $0.02 (over-estimated to
+    # bias the gate toward early refusal). Cap-out raises RuntimeError
+    # so inbox watcher records the file as 'failed'.
+    from app import llm_anthropic_budget
+    if not llm_anthropic_budget.call_or_skip(
+        estimated_cost_usd=0.02,
+        source="inbox:pdf_extract",
+    ):
+        raise RuntimeError(
+            "Anthropic daily cap exceeded — pdf_extract call refused. "
+            "Raise the cap in /cp/settings → Anthropic per-day cap, "
+            "or wait for the rolling-24h window to roll over."
+        )
+
     try:
         with open(path, "rb") as f:
             blob = f.read()

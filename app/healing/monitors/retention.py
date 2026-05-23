@@ -355,6 +355,7 @@ def run_worktrees() -> None:
         "removed": 0,
         "spared_active": 0,
         "spared_too_young": 0,
+        "spared_durable": 0,
         "leak_alert": False,
     }
 
@@ -369,6 +370,14 @@ def run_worktrees() -> None:
         status = (data.get("status") or "").lower()
         if status not in _WT_TERMINAL_STATES:
             summary["spared_active"] += 1
+            continue
+        # Phase 2 piece 2d: durable sessions are explicitly opted out
+        # of retention cleanup even when terminal-and-old. The
+        # autonomous executor sets this when it needs to hold a
+        # worktree across multiple dispatches; the operator deletes
+        # the session explicitly when done.
+        if bool(data.get("durable", False)):
+            summary["spared_durable"] += 1
             continue
         # Use the file's own mtime as the "last_modified" proxy.
         try:

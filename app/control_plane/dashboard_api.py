@@ -59,6 +59,9 @@ from app.control_plane.dashboard_routes_sentience_drills import (
 from app.control_plane.dashboard_routes_transfer_memory import (
     router as _transfer_memory_router,
 )
+from app.control_plane.upgrade_lifecycle_api import (
+    router as _upgrade_lifecycle_router,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,3 +79,4 @@ router.include_router(_llms_router)
 router.include_router(_ops_misc_router)
 router.include_router(_sentience_drills_router)
 router.include_router(_transfer_memory_router)
+router.include_router(_upgrade_lifecycle_router)

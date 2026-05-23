@@ -1,0 +1,47 @@
+# Factual recall — tests model's pre-training knowledge on stable facts.
+# These should be true regardless of when the model was trained.
+tasks:
+  - id: fact_capital_finland
+    name: Capital of Finland
+    description: Tests basic geographic recall.
+    category: factual_recall
+    input: |
+      What is the capital of Finland? Answer with just the city name,
+      nothing else.
+    expected: "Helsinki"
+    scorer: exact_match
+    scorer_args:
+      case_sensitive: false
+      strip: true
+    model_targets: [cheap, default, smart]
+    max_tokens: 10
+
+  - id: fact_python_version
+    name: Python release year
+    description: Tests technical-historical recall.
+    category: factual_recall
+    input: |
+      In what year was Python first released? Answer with just the
+      four-digit year.
+    expected: "1991"
+    scorer: exact_match
+    scorer_args:
+      case_sensitive: false
+      strip: true
+    model_targets: [cheap, default, smart]
+    max_tokens: 10
+
+  - id: fact_periodic_table
+    name: Periodic table element symbol
+    description: Tests scientific factual recall.
+    category: factual_recall
+    input: |
+      What is the chemical symbol for gold? Answer with just the symbol,
+      nothing else.
+    expected: "Au"
+    scorer: exact_match
+    scorer_args:
+      case_sensitive: true
+      strip: true
+    model_targets: [cheap, default, smart]
+    max_tokens: 5

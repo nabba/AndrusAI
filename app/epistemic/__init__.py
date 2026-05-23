@@ -67,14 +67,27 @@ __all__ = [
 
 
 def is_enabled() -> bool:
-    """Off by default. Flip EPISTEMIC_ENABLED=true to activate.
+    """Off by default. Flip EPISTEMIC_ENABLED=true (env) or override
+    via runtime_settings to activate.
 
-    Mirrors the pattern from ``app.recovery.loop.is_enabled``: a pure
-    environment-variable gate, not a Settings field. The reason is that
-    additive subsystems with a kill switch want a single deployment-level
-    knob, not a Settings round-trip — and they want the gate readable
-    from contexts (tests, scripts) that don't construct full Settings.
+    Priority: runtime_settings override → env var → False.
+
+    The env var remains canonical for boot-time / test / script
+    contexts (and matches the pattern from ``app.recovery.loop``).
+    The runtime_settings overlay lets the React ``/cp/settings`` flip
+    the gate without a gateway restart. When the override is None
+    (default), behaviour is identical to the env-var-only design.
     """
+    # Overlay takes precedence when explicitly set (True or False).
+    try:
+        from app.runtime_settings import get_epistemic_enabled_override
+        override = get_epistemic_enabled_override()
+        if override is not None:
+            return override
+    except Exception:
+        # runtime_settings may not be importable in stripped-down test
+        # contexts — fall through to env-var. Safe by construction.
+        pass
     val = os.getenv("EPISTEMIC_ENABLED", "").strip().lower()
     return val in ("1", "true", "yes", "on")
 

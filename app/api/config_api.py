@@ -327,6 +327,16 @@ async def set_runtime_settings_endpoint(request: Request):
         set_analogy_index_populator_enabled,
         # Productization plan WP D — cloud-migrate execute-gate
         set_migrate_live_execute,
+        # Verification-extension + risk-classifier + fast-route (2026-05-20)
+        set_epistemic_enabled_override,
+        set_epistemic_blocking_mode_override,
+        set_verification_extension_enabled,
+        set_verification_threshold,
+        set_verification_retrieval_budget_per_task,
+        set_auto_apply_allowed_requestors,
+        set_auto_apply_allowed_paths,
+        set_risk_classifier_enabled,
+        set_fast_route_extended_patterns_enabled,
         snapshot,
     )
 
@@ -556,6 +566,79 @@ async def set_runtime_settings_endpoint(request: Request):
         # phase `execute_policy_changed` to the identity ledger.
         if "migrate_live_execute" in payload:
             set_migrate_live_execute(bool(payload["migrate_live_execute"]))
+
+        # ─── Verification-extension + risk-classifier + fast-route ────
+        # (2026-05-20 — Phase 1 pieces 1 / 2 / 3).
+        #
+        # The override overlays (epistemic_enabled_override,
+        # epistemic_blocking_mode_override) accept None to mean
+        # "fall through to env var"; True/False to override. The
+        # explicit None handling differs from the bool() coercion the
+        # other switches use.
+        if "epistemic_enabled_override" in payload:
+            raw = payload["epistemic_enabled_override"]
+            set_epistemic_enabled_override(
+                None if raw is None else bool(raw),
+            )
+        if "epistemic_blocking_mode_override" in payload:
+            raw = payload["epistemic_blocking_mode_override"]
+            set_epistemic_blocking_mode_override(
+                None if raw is None else bool(raw),
+            )
+        if "verification_extension_enabled" in payload:
+            set_verification_extension_enabled(
+                bool(payload["verification_extension_enabled"]),
+            )
+        # Per-zone thresholds — three keys map to the same setter
+        # with a zone argument. Bounds + zone validity enforced in
+        # the setter.
+        for _zone in ("chat", "autonomous", "financial"):
+            _key = f"verification_threshold_{_zone}"
+            if _key in payload:
+                set_verification_threshold(
+                    _zone, float(payload[_key]),
+                )
+        if "verification_extension_retrieval_budget_per_task" in payload:
+            set_verification_retrieval_budget_per_task(
+                int(payload[
+                    "verification_extension_retrieval_budget_per_task"
+                ]),
+            )
+        # Trust-zone allowlists — list[str] payloads with sanity
+        # caps + path-traversal validation in the setter.
+        if "auto_apply_allowed_requestors" in payload:
+            raw = payload["auto_apply_allowed_requestors"]
+            if not isinstance(raw, list):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "auto_apply_allowed_requestors must be a JSON "
+                        "list of strings"
+                    ),
+                )
+            set_auto_apply_allowed_requestors(raw)
+        if "auto_apply_allowed_paths" in payload:
+            raw = payload["auto_apply_allowed_paths"]
+            if not isinstance(raw, list):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "auto_apply_allowed_paths must be a JSON list "
+                        "of strings"
+                    ),
+                )
+            set_auto_apply_allowed_paths(raw)
+        if "risk_classifier_enabled" in payload:
+            set_risk_classifier_enabled(
+                bool(payload["risk_classifier_enabled"]),
+            )
+        if "fast_route_extended_patterns_enabled" in payload:
+            set_fast_route_extended_patterns_enabled(
+                bool(payload["fast_route_extended_patterns_enabled"]),
+            )
+    except HTTPException:
+        # Preserve 400-with-detail from inline validation above.
+        raise
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

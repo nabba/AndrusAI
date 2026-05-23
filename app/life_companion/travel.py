@@ -293,13 +293,36 @@ def fetch_tripit() -> list[TripSegment]:
 
 # ── Aviationstack flight status ───────────────────────────────────────
 
+# Connector-budget cap (Phase B.4 cleanup, 2026-05-22).
+# Aviationstack's free tier is 100 calls/month — about 3.3/day. The
+# API is genuinely free at the boundary — no per-call dollar cost.
+# Modelling it as a synthetic dollar cost ($0.001/call) was misleading
+# in the operator surface; B.4 introduced call-count cap mode so we
+# can express "3 calls per day, $0 per call" directly. The wrap
+# activates only when ``connector_budgets_enabled`` is ON; when OFF,
+# the decorator is a pass-through and behavior is identical to
+# pre-2026-05-22.
+from app.connector_budget import (  # noqa: E402
+    ConnectorBudgetExceeded,
+    with_connector_budget,
+)
 
+
+@with_connector_budget(
+    "aviationstack",
+    daily_call_cap=3,            # free tier = 100/mo ≈ 3/day
+    estimated_cost_usd=0.0,      # free tier — no per-call cost
+)
 def fetch_flight_status(flight_number: str) -> FlightStatus | None:
     """Hit Aviationstack /v1/flights for one flight number. Returns
     None when the API key is absent OR the call fails OR no result.
 
     Free tier is HTTPS-only (paid is HTTP-only ironically; we go
     HTTPS). 100 calls/month — caller must avoid retrying.
+
+    Raises ``ConnectorBudgetExceeded`` when the daily budget cap is
+    hit and ``connector_budgets_enabled`` is ON. The cap-loop caller
+    is expected to catch this and break out of the per-flight loop.
     """
     if not _flight_tracking_enabled():
         return None
@@ -496,7 +519,19 @@ def run() -> dict[str, Any]:
         if s.kind == "flight" and s.flight_number
     ]
     for seg in imminent_flights[:3]:  # cap at 3/cycle to spare the quota
-        status = fetch_flight_status(seg.flight_number)
+        try:
+            status = fetch_flight_status(seg.flight_number)
+        except ConnectorBudgetExceeded:
+            # Daily budget hit — log once at debug, skip remaining
+            # flights in this cycle. The flight_status_map keeps the
+            # pre-existing snapshot rows; the next 6h-cycle has a
+            # fresh budget.
+            logger.debug(
+                "travel: aviationstack budget exceeded; skipping "
+                "remaining %d flight(s) this cycle",
+                len(imminent_flights[:3]) - imminent_flights[:3].index(seg),
+            )
+            break
         if status is not None:
             flight_status_map[seg.flight_number] = status.to_dict()
 

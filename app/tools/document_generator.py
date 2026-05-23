@@ -791,3 +791,72 @@ def create_document_tools() -> list:
         return [pdf_tool, docx_tool, html_tool, pptx_tool]
     except Exception:
         return []
+
+
+# ── Tool registry annotations (Phase C.1, 2026-05-22; passive) ────────
+# Surfaces the document-generator family in the registry so ``tool_search``
+# and the React tool catalog can find them by capability tag. The legacy
+# factory above continues to be the authoritative entry point used by
+# every existing call site — registration is additive.
+try:
+    from app.tool_registry import Lifecycle, Tier, register_tool
+
+    @register_tool(
+        name="create_pdf",
+        capabilities=["renders-pdf", "renders-document"],
+        description=(
+            "Generate a PDF document from a title + list of section "
+            "dicts. Uses ReportLab Platypus for typeset output: cover "
+            "page, table of contents, body sections with markdown-like "
+            "formatting. Writes to /workspace/output/."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _create_pdf_registry_factory():
+        return create_pdf
+
+    @register_tool(
+        name="create_docx",
+        capabilities=["renders-document"],
+        description=(
+            "Generate a DOCX (Microsoft Word) document from a title + "
+            "list of section dicts. Uses python-docx; preserves styles "
+            "and headings. Writes to /workspace/output/."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _create_docx_registry_factory():
+        return create_docx
+
+    @register_tool(
+        name="create_xlsx",
+        capabilities=["renders-document"],
+        description=(
+            "Generate an XLSX (Microsoft Excel) workbook from a list of "
+            "sheet dicts (name + headers + rows). Uses openpyxl. "
+            "Writes to /workspace/output/."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _create_xlsx_registry_factory():
+        return create_xlsx
+
+    @register_tool(
+        name="create_pptx",
+        capabilities=["renders-document"],
+        description=(
+            "Generate a PPTX (Microsoft PowerPoint) presentation from a "
+            "title + list of slide dicts (heading + bullets / image / "
+            "table). Uses python-pptx; supports theming. Writes to "
+            "/workspace/output/."
+        ),
+        tier=Tier.PRODUCTION,
+        lifecycle=Lifecycle.SINGLETON,
+    )
+    def _create_pptx_registry_factory():
+        return create_pptx
+except ImportError:
+    pass

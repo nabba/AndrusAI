@@ -51,6 +51,65 @@ _driver_started = False
 _stop_event = threading.Event()
 
 
+# ── Connector-budget integration (Phase D.2, 2026-05-22) ──────────────
+#
+# The two outbound HTTP services this module talks to are both free at
+# the API boundary but rate-limited at the operator-experience boundary:
+#
+#   * OSV.dev — generous quota, but a runaway loop firing /querybatch
+#     dozens of times in a minute will get the host throttled.
+#   * GitHub API (unauthenticated) — 60 req/hr per IP. With ~100
+#     direct deps the single weekly pass fits comfortably, but a buggy
+#     scheduler firing hourly would burn through the budget fast.
+#
+# Wrap both at the call site with call-count caps. Failure-isolated:
+# when the budget module isn't importable (stripped test env), wraps
+# degrade to pass-through.
+try:
+    from app.connector_budget import (
+        ConnectorBudgetExceeded as _BudgetExceeded,
+        with_connector_budget as _with_budget,
+    )
+
+    @_with_budget(
+        connector="dependency_radar_osv", daily_call_cap=50,
+    )
+    def _budgeted_osv_post(req, timeout: int) -> bytes:
+        """Wrapped OSV /v1/querybatch — gated at 50 calls/UTC-day."""
+        import urllib.request as _ur
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+
+    @_with_budget(
+        connector="dependency_radar_github", daily_call_cap=500,
+    )
+    def _budgeted_github_get(req, timeout: int) -> bytes:
+        """Wrapped GitHub repo-metadata fetch — gated at 500 calls/UTC-day.
+        The operator's ~100 direct deps need at most one pass-worth of
+        calls; the 5× headroom handles legitimate re-runs after partial
+        failures without surprising the operator."""
+        import urllib.request as _ur
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+
+    _BUDGET_AVAILABLE = True
+except Exception:
+    _BUDGET_AVAILABLE = False
+
+    class _BudgetExceeded(Exception):  # type: ignore[no-redef]
+        """Fallback so ``except _BudgetExceeded`` compiles."""
+
+    def _budgeted_osv_post(req, timeout: int) -> bytes:  # type: ignore[no-redef]
+        import urllib.request as _ur
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+
+    def _budgeted_github_get(req, timeout: int) -> bytes:  # type: ignore[no-redef]
+        import urllib.request as _ur
+        with _ur.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+
+
 # ── Types ───────────────────────────────────────────────────────────────
 
 
@@ -214,8 +273,8 @@ def _gather_cves(
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
+        body = _budgeted_osv_post(req, timeout=30)
+        payload = json.loads(body.decode("utf-8"))
         results = payload.get("results") or []
         out: dict[str, list[dict[str, Any]]] = {}
         for (pkg, _), result in zip(packages, results):
@@ -223,6 +282,10 @@ def _gather_cves(
             if vulns:
                 out[pkg] = vulns
         return out
+    except _BudgetExceeded:
+        # Cap-out: degrade gracefully. The operator already got a
+        # Signal alert from the connector_budget primitive.
+        return {}
     except Exception:
         logger.debug("dependency_radar: OSV fetch failed", exc_info=True)
         return {}
@@ -292,6 +355,11 @@ def _gather_abandonment(
 def _github_pushed_at(owner: str, repo: str) -> Optional[datetime]:
     """Single GitHub API call; returns the repo's ``pushed_at`` as a
     timezone-aware datetime, None on failure (rate-limited, 404, ...).
+
+    Connector-budget gated (Phase D.2, 2026-05-22): 500 calls/UTC-day
+    via the ``dependency_radar_github`` budget. Per-call cap-out is
+    indistinguishable from any other transient failure for the caller
+    — both return None — so the rest of the abandonment scan continues.
     """
     try:
         import urllib.request
@@ -299,12 +367,17 @@ def _github_pushed_at(owner: str, repo: str) -> Optional[datetime]:
         req = urllib.request.Request(
             url, headers={"Accept": "application/vnd.github+json"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        body = _budgeted_github_get(req, timeout=10)
+        data = json.loads(body.decode("utf-8"))
         pushed = data.get("pushed_at")
         if not pushed:
             return None
         return datetime.fromisoformat(pushed.replace("Z", "+00:00"))
+    except _BudgetExceeded:
+        # Cap-out: degrade silently. The connector_budget primitive
+        # already alerted; future packages in this pass also degrade
+        # cleanly because every call hits the same cap.
+        return None
     except Exception:
         return None
 
@@ -638,9 +711,47 @@ def run_one_pass(
             ):
                 proposed += 1
                 result.cr_proposals_filed += 1
+    # U4 (PROGRAM §62) — try MAJOR auto-CR before falling through
+    # to Signal-only. The orchestrator runs U1+U2 inline (cheap), looks
+    # up cached U3 trial results, and gates via the five conditions.
+    # On gate-pass, a CR is staged via proposal_bridge and the radar
+    # SKIPS the Signal alert for that finding. On gate-fail the radar
+    # falls through to the existing alert path unchanged.
+    auto_cr_packages: set[str] = set()
+    try:
+        from app.upgrade_lifecycle.orchestrator import try_auto_cr_for_major
+        for finding in findings:
+            if finding.severity != Severity.MAJOR:
+                continue
+            if not finding.latest_version:
+                continue
+            try:
+                filed, _ = try_auto_cr_for_major(
+                    package=finding.package,
+                    from_version=finding.current_version,
+                    to_version=finding.latest_version,
+                    stage_fn=stage_fn,
+                    now=now,
+                )
+                if filed:
+                    auto_cr_packages.add(finding.package)
+                    result.cr_proposals_filed += 1
+            except Exception:
+                logger.debug(
+                    "dependency_radar: MAJOR auto-CR orchestrator failed for %s",
+                    finding.package, exc_info=True,
+                )
+    except Exception:
+        logger.debug("dependency_radar: U4 orchestrator import failed",
+                     exc_info=True)
+
     result.alerts_fired = 0
     for finding in findings:
         if finding.severity in (Severity.MAJOR, Severity.CVE_NO_FIX, Severity.ABANDONED):
+            # Skip alerts for MAJOR findings that already got auto-CR'd
+            # by U4 — the operator will see them in /cp/changes instead.
+            if finding.severity == Severity.MAJOR and finding.package in auto_cr_packages:
+                continue
             if _alert_finding(finding, notify_fn=notify_fn):
                 result.alerts_fired += 1
 
