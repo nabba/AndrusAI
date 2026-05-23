@@ -13299,3 +13299,76 @@ morning briefing routing through `feedback_bridge.py`.
   writeup with file:line references.
 * `crewai-team/CLAUDE.md` — brief landing entry under
   "Architecture (read on demand)".
+
+# §66 — boot_diagnostics forensic record hardening (2026-05-23)
+
+Operational follow-up to the §63 boot-stagger ship. The
+`boot_diagnostics` probe daemon at
+`app/observability/boot_diagnostics.py` already captured slow + failed
+`/health` probes, but had a design flaw observed in production: its
+single output path was a JSONL ledger on the bind-mounted
+`workspace/observability/` — the very filesystem most-likely-congested
+during the asyncio-loop stalls the probe exists to observe. A stall
+in workspace IO would block the daemon thread on the same disk event
+it was trying to record, silently losing forensic data for the
+operator's post-hang analysis. The two restarts at 20:33 and 20:41
+EEST (between the §65 chip-3 commit and this one) recorded zero
+ledger entries despite hitting the watchdog's 120 s threshold.
+
+## §66.1 — Two-path observation record
+
+`_record_observation(row)` now dispatches to two independent sinks in
+fixed order:
+
+1. **Structured WARNING to stderr** via `_emit_observation_warning`.
+   Docker's logging driver captures stderr at the kernel level —
+   the path bypasses asyncio entirely and survives both event-loop
+   stalls AND container restart (the host can replay history via
+   `docker compose logs gateway --since=...`). Format is a canonical
+   `boot_diagnostics_observation {json}` prefix with sorted keys for
+   stable grep + `jq` slicing.
+
+2. **Local JSONL on container tmpfs** at
+   `/tmp/observability/event_loop_latency.jsonl` via
+   `_append_observation`. tmpfs writes are O(memory) and never touch
+   the slow path. Convenience for live querying within the current
+   container life — deliberately wiped on container restart, since
+   the WARNING surface above is the persistent record.
+
+The two sinks are failure-isolated per direction: a tmpfs OSError
+never suppresses the WARNING (pinned by
+`test_warning_fires_even_if_ledger_write_blows_up`); a broken
+stderr emitter never blocks the tmpfs write (pinned by
+`test_ledger_write_runs_even_if_warning_logger_misbehaves`).
+
+Override the local path via `BOOT_DIAGNOSTICS_LEDGER_PATH`; disable
+the whole subsystem via `BOOT_DIAGNOSTICS_ENABLED=false`. No new
+runtime_settings master switch — both knobs are env-only to match
+the existing observability-daemon pattern (`gateway_watchdog`,
+`signal_heartbeat`).
+
+## §66.2 — Tests
+
+7 pinning tests in `tests/test_boot_diagnostics.py`:
+
+* `test_default_ledger_path_is_tmpfs` — the load-bearing
+  architectural invariant. If a future refactor accidentally
+  routes the ledger back to `workspace/` this test fails first.
+* `test_ledger_path_env_override` — operator escape hatch.
+* `test_warning_carries_canonical_prefix_and_json_payload` — the
+  grep/jq contract.
+* `test_warning_keys_are_sorted_for_grep_stability` — guarantees
+  the log-line shape is stable across processes for downstream
+  tooling.
+* `test_record_observation_writes_both_paths` — composed
+  entry-point exercises both sinks.
+* `test_warning_fires_even_if_ledger_write_blows_up` — failure
+  isolation, WARNING-first direction.
+* `test_ledger_write_runs_even_if_warning_logger_misbehaves` —
+  failure isolation, ledger-second direction.
+
+## §66.3 — Cross-references
+
+* `crewai-team/docs/SIGNAL_RESILIENCE.md` — host-side watchdog
+  context (the layer this primitive provides forensic data to).
+* `app/healing/__init__.py` — boot anchor for the probe daemon.

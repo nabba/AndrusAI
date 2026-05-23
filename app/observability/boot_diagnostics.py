@@ -4,24 +4,42 @@ The gateway's ``/health`` route is a one-line ``async def`` returning a
 static dict — its round-trip latency is therefore a direct measure of
 asyncio event-loop responsiveness, untainted by DB or disk work. This
 daemon probes ``/health`` on a fixed cadence and records observations
-whose round-trip exceeds a slow threshold (or fails outright) to a
-JSONL ledger.
+whose round-trip exceeds a slow threshold (or fails outright).
 
-The intent is forensic, not corrective: when the host_substrate watchdog
+The intent is forensic, not corrective: when the host gateway-watchdog
 restarts the gateway (~120 s of unresponsive ``/health`` probes), the
-ledger lets us correlate the stall window against other logs to identify
-*which* concurrently-running job class blocked the loop. The probe runs
-purely against the local interface, costs ~one HTTP round-trip per
-:data:`_PROBE_INTERVAL_S`, and emits zero output when responsiveness is
-healthy — the warm-up window is the only chatter.
+observation record lets us correlate the stall window against other
+logs to identify *which* concurrently-running job class blocked the
+loop. The probe runs purely against the local interface, costs ~one
+HTTP round-trip per :data:`_PROBE_INTERVAL_S`, and emits zero output
+when responsiveness is healthy — the warm-up window is the only
+chatter.
 
-Boot-anchored via :mod:`app.healing`. Disable via
-``BOOT_DIAGNOSTICS_ENABLED=false``.
+Two output paths, deliberately layered:
 
-Composes with — does not replace — the existing
-``signal_heartbeat`` monitor (which watches signal-cli liveness) and
-the host-side ``gateway_watchdog`` (which restarts on stall). Those
-are remediators; this is the observability source they don't yet have.
+* **Structured WARNING to stderr** (``_emit_observation_warning``) —
+  the cross-restart forensic surface. Docker captures stderr at the
+  kernel level, so a stalled asyncio loop still gets the record
+  through to ``docker compose logs gateway --since=...``. Each
+  warning is prefixed ``boot_diagnostics_observation`` followed by
+  one canonical JSON line; the operator can ``grep`` + ``jq`` slice.
+* **Local JSONL on container tmpfs** at
+  ``/tmp/observability/event_loop_latency.jsonl`` — a convenience
+  for live querying within the current container life. Deliberately
+  NOT on the bind-mounted workspace: that is the very filesystem
+  most-likely-congested during the stall this probe exists to
+  observe. tmpfs writes are O(memory), never block on disk IO.
+
+The local ledger is wiped on container restart by design; the
+structured WARNING is the persistent record. Override the local
+path via ``BOOT_DIAGNOSTICS_LEDGER_PATH``; disable the whole
+subsystem via ``BOOT_DIAGNOSTICS_ENABLED=false``.
+
+Boot-anchored via :mod:`app.healing`. Composes with — does not
+replace — the existing ``signal_heartbeat`` monitor (signal-cli
+liveness) and the host-side ``gateway_watchdog`` (restarts on
+stall). Those are remediators; this is the observability source
+they don't yet have.
 """
 from __future__ import annotations
 
@@ -63,15 +81,56 @@ def _gateway_url() -> str:
 
 
 def _ledger_path() -> Path:
+    """Live ledger lives on container-local tmpfs.
+
+    Two failure modes drove this choice. (1) The bind-mounted
+    ``/app/workspace`` is the most-likely-congested filesystem when
+    the asyncio loop is stalled — writing the FORENSIC record there
+    would block the diagnostic daemon on the same disk-IO event it is
+    trying to observe. (2) Container-local writes are O(memory),
+    never touch the slow path. Tradeoff: tmpfs is wiped on container
+    restart, so the live ledger covers only the current process life.
+    The structured WARNING emitted in parallel (see
+    :func:`_emit_observation_warning`) is the cross-restart record —
+    Docker captures stderr-bound logs at the kernel level, surviving
+    container restart, and the host can read them with
+    ``docker compose logs --since=...``.
+    """
+    override = os.environ.get("BOOT_DIAGNOSTICS_LEDGER_PATH")
+    if override:
+        return Path(override)
+    return Path("/tmp/observability") / _LEDGER_NAME
+
+
+def _emit_observation_warning(row: dict) -> None:
+    """Emit a single-line structured WARNING.
+
+    This is the cross-restart forensic surface. Stderr writes from a
+    worker thread bypass the asyncio event loop entirely — they hit
+    the file descriptor directly, which Docker's logging driver
+    captures at the kernel level. So a stalled loop still gets the
+    record into ``docker compose logs gateway --since=...`` for
+    post-hang correlation.
+
+    Format: ``boot_diagnostics_observation {<json>}`` — one canonical
+    prefix lets the operator grep + ``jq`` slice the payload.
+    """
     try:
-        from app.paths import WORKSPACE_ROOT
-        return Path(WORKSPACE_ROOT) / "observability" / _LEDGER_NAME
+        payload = json.dumps(row, sort_keys=True)
+        logger.warning("boot_diagnostics_observation %s", payload)
     except Exception:
-        return Path("/app/workspace/observability") / _LEDGER_NAME
+        logger.debug("boot_diagnostics: warn emit failed", exc_info=True)
 
 
 def _append_observation(row: dict) -> None:
-    """Append-only ledger write with cap-based rotation. Failure-isolated."""
+    """Local ledger write with cap-based rotation. Failure-isolated.
+
+    Composed in parallel with :func:`_emit_observation_warning` so
+    that an OSError or unexpected exception in one path never
+    suppresses the other. The structured WARNING is the source of
+    truth for cross-restart forensics; this local ledger is a
+    convenience for live querying.
+    """
     path = _ledger_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,6 +155,17 @@ def _append_observation(row: dict) -> None:
         pass
 
 
+def _record_observation(row: dict) -> None:
+    """Single entry point — emit WARNING + local ledger in that order.
+
+    Order matters: WARNING is the forensic record we MUST not lose,
+    so it goes first. The local ledger is best-effort. If the ledger
+    write blocks or fails, the WARNING is already in flight.
+    """
+    _emit_observation_warning(row)
+    _append_observation(row)
+
+
 def _probe_once() -> None:
     """One round-trip against /health. Records on slow or failure."""
     import requests  # imported lazily; gateway image always has it
@@ -108,29 +178,19 @@ def _probe_once() -> None:
         elapsed = time.monotonic() - t0
         ok = resp.status_code == 200
         if elapsed >= _SLOW_THRESHOLD_S or not ok:
-            logger.warning(
-                "boot_diagnostics: /health probe %.2fs status=%d — "
-                "event-loop responsiveness degraded",
-                elapsed, resp.status_code,
-            )
-            _append_observation({
+            _record_observation({
                 "ts": started_wall,
                 "elapsed_s": round(elapsed, 3),
                 "status": resp.status_code,
                 "ok": ok,
             })
     except requests.exceptions.RequestException as exc:
-        # The hang case — /health itself failed to respond. This is the
-        # signal the host watchdog acts on; we log it from the inside so
-        # there's a record of WHEN the stall began (the watchdog only
-        # sees the 120 s aggregate).
+        # The hang case — /health itself failed to respond. This is
+        # the signal the host watchdog acts on; we record it from the
+        # inside so there's a per-probe timestamp of WHEN the stall
+        # began (the watchdog only sees the 120 s aggregate).
         elapsed = time.monotonic() - t0
-        logger.warning(
-            "boot_diagnostics: /health probe failed after %.2fs (%s) — "
-            "event loop unresponsive",
-            elapsed, type(exc).__name__,
-        )
-        _append_observation({
+        _record_observation({
             "ts": started_wall,
             "elapsed_s": round(elapsed, 3),
             "status": None,
