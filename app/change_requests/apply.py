@@ -94,6 +94,16 @@ def apply_change(request_id: str) -> ApplyResult:
     failed, calling apply_change again retries from scratch (re-
     writes file, re-tries git). Operators can retry via the React
     UI's "Retry apply" button if APPLY_FAILED.
+
+    Defense-in-depth (Round 2 audit follow-up 2026-05-23): re-runs
+    :func:`app.change_requests.validator.validate` against the CR's
+    path before the file write. The same call ran at
+    ``create_request`` time, but the validator's policy can tighten
+    between then and now (e.g. the 2026-05-23 audit added an
+    ``app/subia/`` prefix refusal). Without this re-validation, a CR
+    that was PENDING under an older policy could land via operator
+    approval. There's no immediate exposure (no PENDING CRs target
+    protected paths today) — this closes the architectural gap.
     """
     cr = store.get(request_id)
     if cr is None:
@@ -102,6 +112,41 @@ def apply_change(request_id: str) -> ApplyResult:
         return ApplyResult(
             ok=False,
             error=f"can only apply APPROVED requests; current={cr.status.value}",
+        )
+
+    # Re-validate the path under current policy. If the validator has
+    # tightened since this CR was created, refuse here as a
+    # TIER_IMMUTABLE_REFUSED transition. The lifecycle helper records
+    # the refusal in the audit trail and prevents the file write.
+    try:
+        from app.change_requests.validator import validate
+        result = validate(path=cr.path, new_content=cr.new_content)
+    except Exception:
+        logger.debug(
+            "apply_change: re-validation raised; deferring to write-time errors",
+            exc_info=True,
+        )
+        result = None
+    if result is not None and not result.ok:
+        reason = result.reason or "re-validation refused"
+        try:
+            lifecycle.mark_apply_failed(
+                request_id,
+                error=f"re-validation refused: {reason}",
+            )
+        except Exception:
+            logger.debug(
+                "apply_change: mark_apply_failed raised during refusal",
+                exc_info=True,
+            )
+        return ApplyResult(
+            ok=False,
+            error=(
+                f"re-validation refused at apply time: {reason}. "
+                f"The validator policy is stricter than when this CR "
+                f"was created; the change is no longer applicable "
+                f"through this path."
+            ),
         )
 
     bridge = _get_bridge()
