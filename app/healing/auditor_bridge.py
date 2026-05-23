@@ -289,19 +289,25 @@ def _is_running() -> bool:
     )
 
 
-def start() -> None:
+def start() -> bool:
     """Start the bridge daemon. Truly idempotent — checks thread liveness
     on every call, so the watchdog can safely re-call after a crash and
     no duplicate threads are spawned if another caller already restarted
     us.
+
+    Returns:
+        ``True`` if a new thread was spawned, ``False`` if disabled via
+        master switch or if a daemon thread is already alive. The
+        ``False`` return distinguishes a clean decline from a crash for
+        ``app.healing.watchdog``'s respawn contract.
     """
     global _started
     if not _enabled():
         logger.info("auditor_bridge: disabled via HEALING_AUDITOR_BRIDGE_ENABLED")
-        return
+        return False
     with _start_lock:
         if _is_running():
-            return  # already alive
+            return False  # already alive
         if _started:
             logger.warning(
                 "auditor_bridge: previous daemon thread is dead, re-spawning"
@@ -313,6 +319,7 @@ def start() -> None:
         thread.start()
         _started = True
         logger.info("auditor_bridge: daemon started (poll=%ds)", _POLL_INTERVAL_S)
+    return True
 
 
 def stop() -> None:

@@ -16,13 +16,29 @@ function is required to be idempotent + thread-liveness-aware — it
 checks ``threading.enumerate()`` itself before re-spawning, so a
 second caller won't create a duplicate.
 
+## ``start_fn`` return contract
+
+The registered ``start_fn`` SHOULD return one of:
+- ``True`` (or ``None``) when it spawned a thread or one was already
+  running; the watchdog confirms via ``threading.enumerate()`` and
+  records a successful respawn.
+- ``False`` when it intentionally chose not to spawn — e.g. the
+  daemon's master switch is off, or the prerequisites for running
+  aren't met. The watchdog treats this as a clean decline: it does
+  NOT count against the crash window and does NOT trigger the
+  give-up alert.
+
+A start_fn that raises is always treated as a real crash.
+
 ## Backoff
 
 A daemon that crashes 3+ times within an hour is *given up on*. The
 watchdog stops re-spawning it and emits a Signal alert so the operator
 can intervene. Without the cap, a daemon that crashes on import
 (e.g. broken dependency) would re-spawn at the watchdog's full
-60 s cadence indefinitely.
+60 s cadence indefinitely. Clean declines do not advance this
+counter — a daemon that is intentionally off stays off without ever
+tripping the give-up alert.
 
 ## Liveness footprint
 
@@ -61,8 +77,14 @@ _REGISTERED_DAEMONS: dict[str, tuple[str, str]] = {
 
 
 def register_daemon(thread_name: str, *, module: str, start_fn: str) -> None:
-    """Register a daemon for watchdog supervision. ``start_fn`` MUST be
-    idempotent (safe to call when the thread already runs).
+    """Register a daemon for watchdog supervision.
+
+    ``start_fn`` MUST be idempotent (safe to call when the thread
+    already runs) and SHOULD return ``False`` when it intentionally
+    declines to spawn (e.g. master switch off) so the watchdog can
+    distinguish a clean decline from a crash. Returning ``True`` or
+    ``None`` is treated as "started or already running" — the watchdog
+    confirms via thread-liveness.
     """
     _REGISTERED_DAEMONS[thread_name] = (module, start_fn)
 
@@ -118,29 +140,49 @@ def _is_alive(thread_name: str) -> bool:
     )
 
 
-def _attempt_start(daemon_name: str) -> bool:
-    """Import the module and call its start function. Returns success."""
+def _attempt_start(daemon_name: str) -> str:
+    """Import the module and call its start function.
+
+    Returns one of:
+    - ``"started"``  — start_fn returned non-False AND a daemon thread by
+                       the canonical name is now alive
+    - ``"declined"`` — start_fn returned ``False`` explicitly, signalling
+                       intentional decline (master switch off; daemon
+                       chose not to spawn). Not a crash.
+    - ``"failed"``   — import error, start_fn raised, or start_fn claimed
+                       success (returned True / None) but no thread is
+                       alive afterward. Counts as a crash.
+
+    The contract distinguishes a daemon that chose not to run from one
+    that tried and failed. Without this, daemons whose master switch is
+    off look identical to crashing daemons and the watchdog gives up on
+    them after 3 minutes with a false-positive Signal alert.
+    """
     module_path, fn_name = _REGISTERED_DAEMONS[daemon_name]
     try:
         mod = importlib.import_module(module_path)
-        start_fn: Callable[[], None] = getattr(mod, fn_name)
+        start_fn: Callable[[], bool | None] = getattr(mod, fn_name)
     except Exception:
         logger.warning(
             "watchdog: cannot import %s.%s", module_path, fn_name,
             exc_info=True,
         )
-        return False
+        return "failed"
     try:
-        start_fn()
+        result = start_fn()
     except Exception:
         logger.warning(
             "watchdog: %s.%s() raised", module_path, fn_name, exc_info=True,
         )
-        return False
+        return "failed"
+    if result is False:
+        return "declined"
     # The start_fn may have been a no-op if the daemon was already alive
     # (race). Re-check liveness to confirm a thread by the right name
     # exists.
-    return _is_alive(daemon_name)
+    if _is_alive(daemon_name):
+        return "started"
+    return "failed"
 
 
 def _touch_heartbeat() -> None:
@@ -190,6 +232,7 @@ def _check_and_respawn() -> dict:
     summary = {
         "alive": [],
         "respawned": [],
+        "declined": [],
         "given_up": [],
         "still_in_giveup": [],
     }
@@ -227,9 +270,18 @@ def _check_and_respawn() -> dict:
             _send_giveup_alert(daemon_name, len(history))
             continue
 
-        # Re-spawn attempt.
+        # Re-spawn attempt. The history bump happens AFTER we know the
+        # outcome so a clean decline (master switch off) doesn't get
+        # charged against the crash window — that's the bug this fix
+        # closes.
+        result = _attempt_start(daemon_name)
+        if result == "declined":
+            # start_fn returned False explicitly — the daemon chose not
+            # to run. Not a crash; do not advance the give-up counter.
+            summary["declined"].append(daemon_name)
+            continue
         history.append(now)
-        if _attempt_start(daemon_name):
+        if result == "started":
             summary["respawned"].append(daemon_name)
             _audit(
                 "watchdog_respawn",
@@ -238,7 +290,7 @@ def _check_and_respawn() -> dict:
             )
             logger.warning("watchdog: re-spawned %s", daemon_name)
         else:
-            # Failed to spawn — counts as a crash.
+            # result == "failed" — counts as a crash toward the cap.
             logger.warning("watchdog: spawn of %s failed", daemon_name)
 
     return summary

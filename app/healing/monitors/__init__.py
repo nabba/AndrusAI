@@ -800,7 +800,7 @@ def _is_running() -> bool:
     )
 
 
-def start() -> None:
+def start() -> bool:
     """Start the daemon driver. Truly idempotent — checks thread liveness
     on every call, so the watchdog can call this to re-spawn after death
     and the call is safe even if another thread already restarted us.
@@ -809,14 +809,20 @@ def start() -> None:
     drifted out of sync when the thread died (flag stayed True, no restart
     was possible). The new path detects death directly via
     ``threading.enumerate()``.
+
+    Returns:
+        ``True`` if a new thread was spawned, ``False`` if disabled via
+        master switch or if a daemon thread is already alive. The
+        ``False`` return distinguishes a clean decline from a crash for
+        ``app.healing.watchdog``'s respawn contract.
     """
     global _driver_started
     if not _enabled():
         logger.info("healing.monitors: disabled via HEALING_MONITORS_ENABLED")
-        return
+        return False
     with _driver_lock:
         if _is_running():
-            return  # already alive — nothing to do
+            return False  # already alive — nothing to do
         if _driver_started:
             logger.warning(
                 "healing.monitors: previous daemon thread is dead, re-spawning"
@@ -828,6 +834,7 @@ def start() -> None:
         thread.start()
         _driver_started = True
         logger.info("healing.monitors: daemon started (warm-up=%ds)", _WARMUP_S)
+    return True
 
 
 def stop() -> None:
