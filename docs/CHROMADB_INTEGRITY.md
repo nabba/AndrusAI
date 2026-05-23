@@ -130,6 +130,30 @@ cp workspace/<kb>/.sqlite_snapshots/<ts>.db workspace/<kb>/chroma.sqlite3
 docker compose up -d gateway
 ```
 
+### "Source-ledger hash chain broken on `<kb>` at row N" Signal alert (different class!)
+
+**This is NOT a chromadb-file-integrity failure.** The on-disk SQLite is
+fine; the alert is about the per-KB `.source_ledger.jsonl` hash chain
+(§56), not the chromadb files themselves.
+
+Two flavours, with different recovery paths:
+
+* **Concurrent-append race** (the 2026-05-23 incident class; PROGRAM §68) —
+  two writers completed `_last_hash` on the same prev and both appended.
+  Payloads intact, chain linkage broken. Diagnostic: adjacent rows
+  microseconds apart, both with the same `prev_hash`. Recovery: re-stitch
+  in place (no data loss). The PROGRAM §68 fix added a per-KB
+  `threading.Lock` + POSIX `flock` around the read-prev → write window so
+  future races are prevented.
+* **Tampering / bit-rot / external damage** — single corrupted row, file
+  truncated, or hash field flipped. Recovery: restore from off-host
+  snapshot (warm-spare / S3 / Google Drive).
+
+Full diagnostic flow + re-stitch runbook lives in
+`docs/SOURCE_LEDGER.md` under "Source-ledger hash chain broken". Don't
+quarantine the chromadb KB for this alert — that path is for SQLite
+damage and won't help here.
+
 ### "ChromaDB client wedged on `<kb>`" Signal alert (different class!)
 
 **This is NOT the same as the integrity-failure alert above.** Integrity

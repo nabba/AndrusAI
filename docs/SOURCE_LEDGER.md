@@ -160,7 +160,95 @@ through silently and the operator-restart alert fires immediately):
 **Critical** — the ledger itself has been damaged or tampered with.
 Don't trust auto-recovery here.
 
-Restore from off-host (most recent good copy):
+**Diagnose first** — chain breaks come in two flavours and the
+recovery path differs:
+
+```bash
+# Show the broken row + its two neighbours
+python -c "
+import json
+from app.memory.source_ledger import ledger_path
+ROW = <break-row-index>  # from the alert
+rows = [json.loads(l) for l in ledger_path('<kb>').read_text().splitlines() if l.strip()]
+for i in (ROW-1, ROW, ROW+1):
+    if 0 <= i < len(rows):
+        r = rows[i]
+        print(f'{i:>5}  ts={r[\"ts\"]:.6f}  col={r[\"collection\"]:<22}  prev={r[\"prev_hash\"][:8]}  hash={r[\"hash\"][:8]}  doc={r[\"doc_id\"][:8]}')
+"
+```
+
+* **Race** — adjacent rows are timestamped microseconds apart and
+  two rows reference the same `prev_hash`. Payloads are intact;
+  only the chain linkage is mathematically broken. → re-stitch
+  (below), don't restore.
+* **Tampering / bit-rot / external damage** — single-row hash or
+  prev_hash field corrupted, neighbour timestamps gapped, file
+  size much smaller than expected. → restore from off-host
+  (further below).
+
+### Re-stitch (race case)
+
+Loses **no data**. The cryptographic chain becomes
+operator-mediated at the break point — recorded in a
+`chromadb_corruption` continuity-ledger event so the audit trail
+is honest.
+
+```bash
+docker compose stop gateway  # quiet the writer
+
+python - <<'PY'
+import fcntl, os, shutil, time
+from app.memory.source_ledger import (
+    APPEND_LOCK_FILENAME, GENESIS_HASH, LedgerRow,
+    _canonical_json, _compute_hash, ledger_path, verify_chain,
+)
+OP_ADD = "add"
+kb = "<kb>"
+path = ledger_path(kb)
+lock = (path.parent / APPEND_LOCK_FILENAME).open("w")
+fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+try:
+    snap_dir = path.parent / ".restitch_snapshots"; snap_dir.mkdir(exist_ok=True)
+    snap = snap_dir / f"source_ledger.broken-{int(time.time())}.jsonl"
+    shutil.copyfile(path, snap); print(f"snapshot: {snap}")
+
+    rows = [LedgerRow.from_json(l) for l in path.read_text().splitlines() if l.strip()]
+    prev = GENESIS_HASH; bad = 0
+    for row in rows:
+        payload = {"ts": row.ts, "collection": row.collection, "doc_id": row.doc_id,
+                   "text": row.text, "metadata": row.metadata, "prev_hash": prev}
+        if row.op != OP_ADD: payload["op"] = row.op
+        expected = _compute_hash(prev, payload)
+        if row.prev_hash != prev or row.hash != expected:
+            row.prev_hash = prev; row.hash = expected; bad += 1
+        prev = row.hash
+
+    tmp = path.with_suffix(".jsonl.restitch.tmp")
+    with tmp.open("w") as f:
+        for row in rows:
+            f.write(_canonical_json(row.to_dict())); f.write("\n")
+    os.replace(tmp, path)
+    print(f"restitched {bad} rows")
+    cp = path.parent / ".source_ledger_verify_state.json"
+    if cp.exists(): cp.unlink(); print("cleared verify checkpoint")
+finally:
+    fcntl.flock(lock.fileno(), fcntl.LOCK_UN); lock.close()
+
+print(verify_chain(kb).to_dict())
+PY
+
+# Audit-trail the repair
+python -c "
+from app.identity.continuity_ledger import record_event
+record_event(kind='chromadb_corruption', actor='operator_repair',
+             summary='source_ledger <kb> chain re-stitched after concurrent-append race',
+             detail={'kb': '<kb>', 'first_bad_row': <ROW>, 'rows_restitched': <N>})
+"
+
+docker compose start gateway  # gateway picks up the lock fix; future races prevented
+```
+
+### Restore from off-host (tampering / damage case)
 
 ```bash
 # Q17.1 warm-spare (always-on)

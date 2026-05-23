@@ -84,10 +84,12 @@ Replay is idempotent on doc_id, so re-running it many times is safe.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -101,8 +103,96 @@ logger = logging.getLogger(__name__)
 
 
 LEDGER_FILENAME = ".source_ledger.jsonl"
+APPEND_LOCK_FILENAME = ".source_ledger.append.lock"
 GENESIS_HASH = "0" * 64
 _REPLAY_BATCH = 32  # rows per chromadb upsert call during replay
+
+
+# ── Per-KB append serialization ──────────────────────────────────────────
+#
+# The hash chain has a read-then-write window in _append_op:
+#
+#   prev = _last_hash(path)        # read tail
+#   payload = {..., "prev_hash": prev}
+#   _safe_append(path, line)       # write new tail
+#
+# Without serialization, two concurrent callers can both read the same
+# prev and both append rows that claim it as their predecessor. The
+# second row's prev_hash linkage is then mathematically broken; the
+# next verify_chain pass surfaces it as prev_hash_mismatch.
+#
+# The lock covers two writer populations:
+#
+#   * In-process threads — threading.Lock per KB (created lazily). Cheap
+#     and covers the common case of two chromadb hooks racing inside
+#     the gateway.
+#
+#   * Other processes — POSIX fcntl.flock on a sidecar file
+#     ``.source_ledger.append.lock``. Covers external operator tools
+#     (e.g. a re-stitch utility running outside the gateway). The
+#     gateway and the external tool share the same sidecar lock and
+#     serialize against each other.
+#
+# Failure-open: if fcntl is unavailable (Windows / restricted env) or
+# the sidecar can't be opened, the thread lock is the only protection.
+# The chain is still consistent within a single process, which covers
+# the failure that triggered this fix.
+
+
+_KB_APPEND_LOCKS: dict[str, threading.Lock] = {}
+_KB_APPEND_LOCKS_GUARD = threading.Lock()
+
+
+def _get_kb_lock(kb_name: str) -> threading.Lock:
+    """Return the per-KB threading lock, creating it on first use."""
+    with _KB_APPEND_LOCKS_GUARD:
+        lock = _KB_APPEND_LOCKS.get(kb_name)
+        if lock is None:
+            lock = threading.Lock()
+            _KB_APPEND_LOCKS[kb_name] = lock
+        return lock
+
+
+@contextlib.contextmanager
+def _append_lock(kb_name: str, path: Path) -> Iterator[None]:
+    """Serialize the read-prev → append sequence on the hash-chained ledger.
+
+    See module-level comment for the failure mode this prevents.
+    External tools that rewrite the ledger (e.g. re-stitch utilities)
+    must acquire the same flock — open ``<ledger_dir>/.source_ledger.append.lock``
+    and call ``fcntl.flock(fd, LOCK_EX)`` for the duration of the
+    rewrite.
+    """
+    thread_lock = _get_kb_lock(kb_name)
+    thread_lock.acquire()
+    flock_handle = None
+    try:
+        try:
+            import fcntl  # POSIX-only
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path = path.parent / APPEND_LOCK_FILENAME
+            flock_handle = lock_path.open("w")
+            fcntl.flock(flock_handle.fileno(), fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            if flock_handle is not None:
+                try:
+                    flock_handle.close()
+                except Exception:
+                    pass
+                flock_handle = None
+        yield
+    finally:
+        if flock_handle is not None:
+            try:
+                import fcntl
+                fcntl.flock(flock_handle.fileno(), fcntl.LOCK_UN)
+            except Exception:
+                pass
+            try:
+                flock_handle.close()
+            except Exception:
+                pass
+        thread_lock.release()
 
 
 def _workspace_root() -> Path:
@@ -311,31 +401,32 @@ def _append_op(kb_name: str, op: str, collection: str, doc_id: str,
         return None
     try:
         path = ledger_path(kb_name)
-        prev = _last_hash(path)
-        ts_v = float(ts) if ts is not None else time.time()
-        payload = {
-            "ts": ts_v,
-            "collection": collection,
-            "doc_id": doc_id,
-            "text": text,
-            "metadata": dict(metadata or {}),
-            "prev_hash": prev,
-        }
-        # Backward-compat: op is included in the hashed payload only
-        # when it's not the default ``add``. This way pre-tombstone
-        # ``add`` rows hash identically under both the old and new
-        # schema. See ``LedgerRow.payload_for_hash`` for the symmetric
-        # read path.
-        if op != OP_ADD:
-            payload["op"] = op
-        h = _compute_hash(prev, payload)
-        row = LedgerRow(
-            ts=ts_v, collection=collection, doc_id=doc_id, text=text,
-            metadata=dict(metadata or {}), prev_hash=prev, hash=h, op=op,
-        )
-        line = _canonical_json(row.to_dict())
-        _safe_append(path, line + "\n")
-        return row
+        with _append_lock(kb_name, path):
+            prev = _last_hash(path)
+            ts_v = float(ts) if ts is not None else time.time()
+            payload = {
+                "ts": ts_v,
+                "collection": collection,
+                "doc_id": doc_id,
+                "text": text,
+                "metadata": dict(metadata or {}),
+                "prev_hash": prev,
+            }
+            # Backward-compat: op is included in the hashed payload only
+            # when it's not the default ``add``. This way pre-tombstone
+            # ``add`` rows hash identically under both the old and new
+            # schema. See ``LedgerRow.payload_for_hash`` for the symmetric
+            # read path.
+            if op != OP_ADD:
+                payload["op"] = op
+            h = _compute_hash(prev, payload)
+            row = LedgerRow(
+                ts=ts_v, collection=collection, doc_id=doc_id, text=text,
+                metadata=dict(metadata or {}), prev_hash=prev, hash=h, op=op,
+            )
+            line = _canonical_json(row.to_dict())
+            _safe_append(path, line + "\n")
+            return row
     except Exception:
         logger.debug(
             "source_ledger: _append_op failed kb=%s op=%s collection=%s",
@@ -1432,67 +1523,76 @@ def compact_ledger(kb_name: str, force: bool = False) -> CompactionResult:
                 f.write(_canonical_json(row_dict) + "\n")
                 prev = h
 
-        # ── Final tail-stabilization check before swap ──────────
-        # If the ledger grew between writing the compacted file
-        # and now, re-fold + rewrite once more. Bounded to a
-        # single extra pass since the window between fold-and-swap
-        # is microseconds wide in practice.
-        final_size = ledger.stat().st_size
-        if final_size > snapshot_size and tail_passes < _COMPACTION_MAX_TAIL_PASSES:
-            _, tail_consumed = _fold_ledger_from(
-                ledger, start_offset=snapshot_size, base_state=state,
-            )
-            rows_consumed += tail_consumed
-            snapshot_size = final_size
-            # Rewrite compacted with the final state.
-            surviving = [
-                (col, doc_id, val)
-                for (col, doc_id), val in state.items()
-                if val is not None and val[0] and val[0].strip()
-            ]
-            surviving.sort(key=lambda x: (x[0], x[1]))
-            prev = GENESIS_HASH
-            with compacted.open("w", encoding="utf-8") as f:
-                for col, doc_id, val in surviving:
-                    text, meta, ts_v = val
-                    payload = {
-                        "ts": ts_v, "collection": col, "doc_id": doc_id,
-                        "text": text, "metadata": meta, "prev_hash": prev,
-                    }
-                    h = _compute_hash(prev, payload)
-                    row_dict = {
-                        "ts": ts_v, "op": OP_ADD, "collection": col,
-                        "doc_id": doc_id, "text": text, "metadata": meta,
-                        "prev_hash": prev, "hash": h,
-                    }
-                    f.write(_canonical_json(row_dict) + "\n")
-                    prev = h
-            result.rows_before = rows_consumed
-            result.rows_after = len(surviving)
-            result.rows_dropped = result.rows_before - result.rows_after
+        # ── Final tail-stabilization + history snapshot + swap ──
+        # Take the append lock for the entire critical section so a
+        # writer cannot append a row between the final fold and the
+        # atomic rename. Without this lock the late row would land in
+        # the history hard-link (which captures the OLD inode) but
+        # NOT in the new live ledger — replay would silently lose it
+        # until the next history backfill.
+        #
+        # The expensive part of compaction (full fold + compacted-
+        # file write above) is OUTSIDE the lock; only the final
+        # fold-pass + history snapshot + rename are serialized
+        # against writers. Lock hold is bounded by tail size, not
+        # ledger size.
+        with _append_lock(kb_name, ledger):
+            final_size = ledger.stat().st_size
+            if final_size > snapshot_size:
+                _, tail_consumed = _fold_ledger_from(
+                    ledger, start_offset=snapshot_size, base_state=state,
+                )
+                rows_consumed += tail_consumed
+                snapshot_size = final_size
+                # Rewrite compacted with the final state.
+                surviving = [
+                    (col, doc_id, val)
+                    for (col, doc_id), val in state.items()
+                    if val is not None and val[0] and val[0].strip()
+                ]
+                surviving.sort(key=lambda x: (x[0], x[1]))
+                prev = GENESIS_HASH
+                with compacted.open("w", encoding="utf-8") as f:
+                    for col, doc_id, val in surviving:
+                        text, meta, ts_v = val
+                        payload = {
+                            "ts": ts_v, "collection": col, "doc_id": doc_id,
+                            "text": text, "metadata": meta, "prev_hash": prev,
+                        }
+                        h = _compute_hash(prev, payload)
+                        row_dict = {
+                            "ts": ts_v, "op": OP_ADD, "collection": col,
+                            "doc_id": doc_id, "text": text, "metadata": meta,
+                            "prev_hash": prev, "hash": h,
+                        }
+                        f.write(_canonical_json(row_dict) + "\n")
+                        prev = h
+                result.rows_before = rows_consumed
+                result.rows_after = len(surviving)
+                result.rows_dropped = result.rows_before - result.rows_after
 
-        # Snapshot pre-compaction history BEFORE the atomic swap.
-        # Hard-link if possible (no extra disk); fall back to copy.
-        history_dir = ledger.parent / _HISTORY_DIRNAME
-        history_dir.mkdir(parents=True, exist_ok=True)
-        history_name = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ.jsonl")
-        history_file = history_dir / history_name
-        try:
-            os.link(ledger, history_file)
-        except (OSError, AttributeError):
+            # Snapshot pre-compaction history BEFORE the atomic swap.
+            # Hard-link if possible (no extra disk); fall back to copy.
+            history_dir = ledger.parent / _HISTORY_DIRNAME
+            history_dir.mkdir(parents=True, exist_ok=True)
+            history_name = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ.jsonl")
+            history_file = history_dir / history_name
             try:
-                import shutil
-                shutil.copy2(ledger, history_file)
-            except Exception as exc:
-                compacted.unlink(missing_ok=True)
-                result.error = f"history_archive_failed: {exc}"
-                return result
-        result.history_path = str(history_file)
+                os.link(ledger, history_file)
+            except (OSError, AttributeError):
+                try:
+                    import shutil
+                    shutil.copy2(ledger, history_file)
+                except Exception as exc:
+                    compacted.unlink(missing_ok=True)
+                    result.error = f"history_archive_failed: {exc}"
+                    return result
+            result.history_path = str(history_file)
 
-        # Atomic swap.
-        os.replace(compacted, ledger)
-        result.bytes_after = ledger.stat().st_size
-        result.ok = True
+            # Atomic swap.
+            os.replace(compacted, ledger)
+            result.bytes_after = ledger.stat().st_size
+            result.ok = True
 
         # B5 (2026-05-18) — tiered retention on the history dir. Gzip
         # snapshots older than the keep-window (default 52 ≈ one year

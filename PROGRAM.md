@@ -13537,3 +13537,122 @@ shape the test catches.
 * PROGRAM §62 — the upgrade-lifecycle subsystem whose
   dispatcher branches the test pins.
 
+# §68 — source_ledger append-race fix + re-stitch primitive (2026-05-23/24)
+
+Live incident closure. The `chromadb_integrity` monitor surfaced a
+`source-ledger hash chain broken on memory at row 2643:
+prev_hash_mismatch: expected=a5164e09 got=51b0568b` Signal alert at
+21:00 UTC on 2026-05-23. Diagnostic walk showed it was **not**
+corruption / tampering / bit-rot — rows 2642 (`scope_world_model`)
+and 2643 (`scope_beliefs`) were timestamped 0.9 ms apart, both
+referencing row 2641's hash as their `prev_hash`. Two concurrent
+chromadb writers each completed the `_last_hash` read, computed
+their next row against the same prev, and appended. The chain
+serialises at the byte level (POSIX append-mode atomicity in
+`safe_io.safe_append`) but the **read-prev → compute → write window
+in `_append_op` was lock-free**. The §56 iter-3 race fix
+(2026-05-17) closed an analogous race at **compaction** time; the
+append path itself had never been fixed.
+
+## §68.1 — Root-cause fix in `app/memory/source_ledger.py`
+
+Per-KB `threading.Lock` (in-process) + POSIX `fcntl.flock` on a
+sidecar file at `<kb>/.source_ledger.append.lock` (cross-process).
+The two-layer design covers both writer populations:
+
+* **Gateway threads** — every chromadb hook calling `append_row` /
+  `append_update` / `append_delete` now blocks on the per-KB
+  `threading.Lock` for the duration of `_last_hash → _safe_append`.
+  Lazy creation via `_get_kb_lock(kb_name)` so new KBs don't need
+  registration.
+* **External operator tools** — re-stitch utilities running outside
+  the gateway process (separate Python interpreter, separate
+  threading namespace) acquire the same sidecar `flock` and
+  serialise against the gateway. Required for any future repair
+  utility that rewrites the ledger while the gateway is up.
+
+Failure-open: on platforms without `fcntl` (Windows / restricted
+env) or if the sidecar can't be opened, the thread lock is the only
+protection. The chain is still consistent within a single process,
+which covers the failure that triggered this fix.
+
+New module-level constant `APPEND_LOCK_FILENAME = ".source_ledger.append.lock"`
+exposed so external tools have one canonical source for the lock
+path.
+
+## §68.2 — Re-stitch procedure (live-incident closure)
+
+Snapshot the broken ledger to `<kb>/.restitch_snapshots/source_ledger.broken-<ts>.jsonl`
+(kept forever as the audit artifact), load every row through
+`LedgerRow.from_json` so canonicalisation matches the writer side,
+walk forward from genesis recomputing each `(prev_hash, hash)` pair
+through `_compute_hash`, atomic temp-write + `os.replace` the
+ledger, then clear `.source_ledger_verify_state.json` so the daily
+daemon's next pass walks from genesis and re-confirms the full
+chain.
+
+Acquires the same sidecar `flock` the fix introduced so any gateway
+restart-race during the rewrite serialises correctly. The
+recommended order is still **stop gateway → re-stitch → start
+gateway** because the gateway's old code (pre-restart) doesn't
+respect the flock; once it picks up §68.1, future repairs can run
+hot.
+
+Re-stitch leaves row payloads byte-identical — only the
+`prev_hash` + `hash` fields change on the affected rows. No data
+loss; the cryptographic chain becomes operator-mediated at the
+break point, which is the honest record of what happened.
+
+## §68.3 — Audit trail
+
+The 2026-05-23 incident emitted a `chromadb_corruption` continuity-
+ledger event with `actor=operator_repair` carrying the break row,
+restitched count (1,357 rows), snapshot path, root-cause summary,
+and root-cause-fix reference. The annual reflection's
+`summarise_drift` Counter picks it up via the existing kind without
+new wiring.
+
+The 18-event-kind taxonomy was already correct for this case —
+`chromadb_corruption` covers both file-level damage (the original
+§55 quarantine flow) and chain-level damage (this incident). The
+detail payload's `root_cause` field is the discriminator a future
+reader uses to tell the two apart.
+
+## §68.4 — Concurrency smoke test
+
+8 threads × 25 appends → 200 rows, chain verifies clean in ~50 ms
+on the host. Without the lock, the same workload reproduced the
+race within a handful of attempts; with the lock it's deterministic.
+
+The smoke test is not committed as a permanent test fixture
+because the production verifier already pins the property the test
+exercises (chain-validity over the live ledger). A regression here
+would surface as a `prev_hash_mismatch` Signal alert on the next
+verify pass — same surface as the incident this fix closes.
+
+## §68.5 — What this does NOT cover
+
+* **Cross-host writers** — the `flock` is per-host. If a future
+  deployment ran two gateway replicas on different machines both
+  writing the same bind-mounted ledger, they would race again.
+  Current architecture is single-host (one canonical gateway per
+  partner pair via the Q17.1 warm-spare state machine), so this is
+  observational only.
+* **Compaction races** — §56 iter-3's tail-stabilisation loop
+  (`_COMPACTION_MAX_TAIL_PASSES=3`) is the dedicated fix for the
+  compaction-during-write window. The append-path lock composes
+  with it (both layers hold the per-KB `threading.Lock`) but
+  neither one subsumes the other.
+* **Pre-existing chain damage** — the fix prevents *new* races. A
+  ledger that's already broken still needs the §68.2 re-stitch
+  procedure (or restore from an off-host snapshot per §56 if the
+  break preserved no useful state — not the case here, both
+  payloads were intact).
+
+## §68.6 — Cross-references
+
+* `crewai-team/docs/SOURCE_LEDGER.md` §"Source-ledger hash chain broken" — operator-facing diagnostic flow + re-stitch runbook.
+* `crewai-team/docs/CHROMADB_INTEGRITY.md` — companion doc; the alert text routes here first, but the diagnostic flow now distinguishes file corruption from chain race.
+* PROGRAM §55 — chromadb file-level integrity (the protection layer this incident did NOT exercise).
+* PROGRAM §56 iter-3 — compaction-time race fix; same mechanism class, different code path.
+
