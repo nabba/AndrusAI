@@ -400,4 +400,47 @@ def get_idle_jobs() -> list[tuple[str, Callable[[], None], str]]:
         logger.debug(
             "companion.loop: operator_transition job skipped", exc_info=True,
         )
+
+    # ── Multi-year resilience gaps (Gap #1-#11, 2026-05-24) ──────────
+    # Each job is failure-isolated at the import + per-tick layers so a
+    # broken collector never takes down the rest of the companion loop.
+
+    # Gap #5 — capability inventory writer (weekly internal cadence).
+    try:
+        from app.capability_inventory import run_once as _capinv_run
+        _capinv_last_run_at = [0.0]
+        _CAPINV_INTERNAL_S = 7 * 24 * 3600
+
+        def _capability_inventory_run() -> None:
+            now = time.time()
+            if now - _capinv_last_run_at[0] < _CAPINV_INTERNAL_S:
+                return
+            _capinv_last_run_at[0] = now
+            _capinv_run()
+
+        jobs.append(
+            ("capability-inventory", _capability_inventory_run, JobWeight.LIGHT),
+        )
+    except Exception:
+        logger.debug("companion.loop: capability_inventory job skipped", exc_info=True)
+
+    # Gap #6 — discovery → adoption funnel writer.
+    try:
+        from app.observability.discovery_funnel import run_once as _funnel_run
+        _funnel_last_run_at = [0.0]
+        _FUNNEL_INTERNAL_S = 7 * 24 * 3600
+
+        def _discovery_funnel_run() -> None:
+            now = time.time()
+            if now - _funnel_last_run_at[0] < _FUNNEL_INTERNAL_S:
+                return
+            _funnel_last_run_at[0] = now
+            _funnel_run()
+
+        jobs.append(
+            ("discovery-funnel", _discovery_funnel_run, JobWeight.LIGHT),
+        )
+    except Exception:
+        logger.debug("companion.loop: discovery_funnel job skipped", exc_info=True)
+
     return jobs

@@ -100,6 +100,67 @@ def get_budgets(project_id: str = Query(None)):
     return get_budget_enforcer().get_status(project_id)
 
 
+@router.get("/budgets/total")
+def budgets_total():
+    """Gap #2 (2026-05-24) — top-level monthly system cost ceiling.
+
+    Aggregates ``cost_usd`` from control_plane.audit_log for the
+    current calendar month across every actor + agent. Compared
+    to the operator-set ``total_cost_monthly_cap_usd`` (default
+    $200/mo). Brake flag is True when MEDIUM + HEAVY idle jobs are
+    paused by the ceiling.
+    """
+    from app.healing.monitors.total_cost_ceiling import (
+        _monthly_cap_usd, _month_progress, _query_mtd_total_cost,
+        _brake_is_engaged, evaluate,
+    )
+    now_ts = datetime.now(timezone.utc).timestamp()
+    cap = _monthly_cap_usd()
+    spend = _query_mtd_total_cost(now=now_ts)
+    if spend is None:
+        return {
+            "available": False,
+            "reason": "audit_log_db_unreachable",
+            "cap_usd": cap,
+            "brake_engaged": _brake_is_engaged(),
+            "as_of": datetime.now(timezone.utc).isoformat(),
+        }
+    dom, dim = _month_progress(now_ts)
+    decision = evaluate(
+        spend, cap,
+        day_of_month=dom,
+        days_in_month=dim,
+        brake_currently_engaged=_brake_is_engaged(),
+    )
+    return {
+        "available": True,
+        "spend_usd": round(spend, 4),
+        "cap_usd": round(cap, 2),
+        "pct": round(decision["pct"], 4),
+        "level": decision["level"],
+        "brake_engaged": _brake_is_engaged(),
+        "projected_end_of_month_usd": round(decision["projected_end_of_month"], 2),
+        "day_of_month": dom,
+        "days_in_month": dim,
+        "as_of": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/funnel")
+def get_discovery_funnel(window_days: int = Query(90, ge=7, le=365)):
+    """Gap #6 (2026-05-24) — discovery → adoption funnel.
+
+    Per-source counts: stagings → CR filed → CR applied/rejected/rolled
+    back/pending. Surfaces stagnant sources (≥5 stagings, 0 applied) so
+    the operator can see when observation is producing no action.
+
+    Pure read; safe to poll. Heavy on file walks but bounded by the
+    workspace ledgers' size.
+    """
+    from app.observability.discovery_funnel import compute
+    return compute(window_days=window_days)
+
+
 @router.get("/budgets/forecast")
 def budgets_forecast(
     project_id: str = Query(None),

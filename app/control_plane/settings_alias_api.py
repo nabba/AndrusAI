@@ -55,3 +55,14 @@ async def set_settings(request: Request) -> dict[str, Any]:
     """
     from app.api.config_api import set_runtime_settings_endpoint
     return await set_runtime_settings_endpoint(request)
+
+
+@router.get("/settings/genealogy")
+async def get_settings_genealogy_alias(limit: int = 50) -> dict[str, Any]:
+    """Mirror of ``GET /config/settings_genealogy`` under /api/cp.
+
+    React reads from ``/api/cp/settings/genealogy`` for consistency with
+    the rest of the control-plane surface.
+    """
+    from app.api.config_api import get_settings_genealogy
+    return await get_settings_genealogy(limit=limit)

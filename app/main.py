@@ -3044,6 +3044,14 @@ try:
 except Exception:
     logger.debug("Workspace Companion API not available", exc_info=True)
 
+# ── Privacy aggregator API (Gap #7, 2026-05-24) ──────────────────────────────
+try:
+    from app.api.privacy_api import router as privacy_router
+    app.include_router(privacy_router)
+    logger.info("Privacy aggregator API mounted at /api/cp/privacy/")
+except Exception:
+    logger.debug("Privacy aggregator API not available", exc_info=True)
+
 # ── Vacation Mode API (PROGRAM §51 Q16 Theme 3) ─────────────────────────────
 try:
     from app.api.vacation_api import router as vacation_router

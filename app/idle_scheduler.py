@@ -100,6 +100,26 @@ def _substrate_defer_reason(weight: str) -> str | None:
         return None
 
 
+def _budget_brake_engaged() -> bool:
+    """Gap #2 (2026-05-24) — read the total-cost-ceiling brake flag.
+
+    When True, MEDIUM and HEAVY idle jobs skip this cycle. LIGHT jobs
+    are unaffected — they're cheap observability work that the brake
+    is not designed to throttle. The brake is set by
+    ``app.healing.monitors.total_cost_ceiling`` at 95% of monthly cap
+    and auto-releases at 70% (hysteresis avoids flapping).
+
+    Fail-safe: if runtime_settings is unreadable for any reason, return
+    False (proceed) so a corrupted state file can't silently halt the
+    system's idle work.
+    """
+    try:
+        from app.runtime_settings import get_idle_pause_due_to_budget
+        return get_idle_pause_due_to_budget()
+    except Exception:
+        return False
+
+
 def _publish_deferral(job_name: str, weight: str, reason: str) -> None:
     """Emit a visible event when an idle job is deferred for resource posture.
 
@@ -753,14 +773,21 @@ def _run_idle_loop(jobs) -> None:
         if medium_jobs:
             name, fn = medium_jobs[medium_idx % len(medium_jobs)]
             medium_idx += 1
-            # Productization plan T2.5 — consult substrate resource policy.
-            # Heavy/medium work defers under disk pressure or host alerts;
-            # the deferral is published as a visible event (no silent skip).
-            defer_reason = _substrate_defer_reason(JobWeight.MEDIUM)
-            if defer_reason:
-                _publish_deferral(name, JobWeight.MEDIUM, defer_reason)
+            # Gap #2 (2026-05-24) — total monthly cost ceiling brake.
+            # When tripped (>95% of cap), MEDIUM/HEAVY jobs skip; brake
+            # auto-releases under 70% of cap (hysteresis). LIGHT jobs
+            # continue regardless — they are cheap observability work.
+            if _budget_brake_engaged():
+                _publish_deferral(name, JobWeight.MEDIUM, "budget_brake")
             else:
-                _run_single_job(name, fn, TIME_CAPS[JobWeight.MEDIUM])
+                # Productization plan T2.5 — consult substrate resource policy.
+                # Heavy/medium work defers under disk pressure or host alerts;
+                # the deferral is published as a visible event (no silent skip).
+                defer_reason = _substrate_defer_reason(JobWeight.MEDIUM)
+                if defer_reason:
+                    _publish_deferral(name, JobWeight.MEDIUM, defer_reason)
+                else:
+                    _run_single_job(name, fn, TIME_CAPS[JobWeight.MEDIUM])
 
         if _stop_event.is_set() or not is_idle():
             continue
@@ -776,12 +803,16 @@ def _run_idle_loop(jobs) -> None:
                     continue  # Skip: ran less than 1 hour ago
                 _last_training_run = time.monotonic()
 
-            # Substrate resource policy — productization plan T2.5.
-            defer_reason = _substrate_defer_reason(JobWeight.HEAVY)
-            if defer_reason:
-                _publish_deferral(name, JobWeight.HEAVY, defer_reason)
+            # Gap #2 budget brake — same gate as the MEDIUM phase.
+            if _budget_brake_engaged():
+                _publish_deferral(name, JobWeight.HEAVY, "budget_brake")
             else:
-                _run_single_job(name, fn, _heavy_cap)
+                # Substrate resource policy — productization plan T2.5.
+                defer_reason = _substrate_defer_reason(JobWeight.HEAVY)
+                if defer_reason:
+                    _publish_deferral(name, JobWeight.HEAVY, defer_reason)
+                else:
+                    _run_single_job(name, fn, _heavy_cap)
 
         # Brief pause between cycles
         for _ in range(INTER_JOB_PAUSE_SECONDS):

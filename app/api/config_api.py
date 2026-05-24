@@ -272,6 +272,12 @@ async def set_runtime_settings_endpoint(request: Request):
     if not _config_rate_check():
         raise HTTPException(status_code=429, detail="Too many config changes. Try again later.")
     payload = await request.json()
+    # Settings genealogy (Gap #4) — capture pre-flip snapshot so the
+    # diff after the write produces one ledger row per changed key.
+    # Reason field is optional in the POST body; defaults to empty.
+    from app.runtime_settings import snapshot as _genealogy_snapshot
+    _genealogy_before = _genealogy_snapshot()
+    _genealogy_reason = str(payload.pop("__reason__", "") or "").strip()
     from app.runtime_settings import (
         set_voice_mode, set_vision_cu_enabled,
         set_vision_cu_monthly_cap_usd, set_concierge_persona_enabled,
@@ -353,6 +359,17 @@ async def set_runtime_settings_endpoint(request: Request):
         set_upgrade_lifecycle_dockerfile_writer_enabled,
         set_upgrade_lifecycle_pyproject_writer_enabled,
         set_upgrade_lifecycle_absence_policy_enabled,
+        # Multi-year resilience gaps (Gap #1-#11, 2026-05-24).
+        set_config_coherence_monitor_enabled,
+        set_total_cost_ceiling_enabled,
+        set_total_cost_monthly_cap_usd,
+        set_capability_inventory_enabled,
+        set_discovery_funnel_enabled,
+        set_knowledge_currency_monitor_enabled,
+        set_hardware_health_monitor_enabled,
+        set_privacy_audit_enabled,
+        set_deadman_last_resort_enabled,
+        set_drill_prompt_injection_resistance_enabled,
         snapshot,
     )
 
@@ -706,6 +723,45 @@ async def set_runtime_settings_endpoint(request: Request):
             set_upgrade_lifecycle_absence_policy_enabled(
                 bool(payload["upgrade_lifecycle_absence_policy_enabled"]),
             )
+        # Multi-year resilience gaps (Gap #1-#11, 2026-05-24).
+        if "config_coherence_monitor_enabled" in payload:
+            set_config_coherence_monitor_enabled(
+                bool(payload["config_coherence_monitor_enabled"]),
+            )
+        if "total_cost_ceiling_enabled" in payload:
+            set_total_cost_ceiling_enabled(
+                bool(payload["total_cost_ceiling_enabled"]),
+            )
+        if "total_cost_monthly_cap_usd" in payload:
+            set_total_cost_monthly_cap_usd(
+                float(payload["total_cost_monthly_cap_usd"]),
+            )
+        if "capability_inventory_enabled" in payload:
+            set_capability_inventory_enabled(
+                bool(payload["capability_inventory_enabled"]),
+            )
+        if "discovery_funnel_enabled" in payload:
+            set_discovery_funnel_enabled(
+                bool(payload["discovery_funnel_enabled"]),
+            )
+        if "knowledge_currency_monitor_enabled" in payload:
+            set_knowledge_currency_monitor_enabled(
+                bool(payload["knowledge_currency_monitor_enabled"]),
+            )
+        if "hardware_health_monitor_enabled" in payload:
+            set_hardware_health_monitor_enabled(
+                bool(payload["hardware_health_monitor_enabled"]),
+            )
+        if "privacy_audit_enabled" in payload:
+            set_privacy_audit_enabled(bool(payload["privacy_audit_enabled"]))
+        if "deadman_last_resort_enabled" in payload:
+            set_deadman_last_resort_enabled(
+                bool(payload["deadman_last_resort_enabled"]),
+            )
+        if "drill_prompt_injection_resistance_enabled" in payload:
+            set_drill_prompt_injection_resistance_enabled(
+                bool(payload["drill_prompt_injection_resistance_enabled"]),
+            )
     except HTTPException:
         # Preserve 400-with-detail from inline validation above.
         raise
@@ -722,6 +778,21 @@ async def set_runtime_settings_endpoint(request: Request):
         )
     except Exception:
         logger.debug("runtime_settings audit log failed", exc_info=True)
+
+    # Settings genealogy (Gap #4) — one ledger row per *actually-changed*
+    # key, restricted to keys the operator named in the payload so a
+    # default-seeded boot read can't manufacture phantom rows.
+    try:
+        from app.settings_genealogy import record_diff
+        record_diff(
+            _genealogy_before,
+            snapshot(),
+            actor="operator",
+            reason=_genealogy_reason,
+            only_keys=list(payload.keys()),
+        )
+    except Exception:
+        logger.debug("settings_genealogy: record failed", exc_info=True)
 
     return {"status": "ok", **snapshot()}
 
@@ -1258,3 +1329,22 @@ async def get_structured_diagnosis_telemetry(window: int = 30):
         }
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ── Settings genealogy (Gap #4) ────────────────────────────────────────────
+
+
+@router.get("/settings_genealogy")
+async def get_settings_genealogy(limit: int = 50):
+    """Return the most-recent runtime-settings flips with before/after
+    + actor + reason. ``limit`` is capped at 500 to keep payloads bounded
+    on a long-running deployment.
+    """
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be in [1, 500]")
+    from app.settings_genealogy import recent, index_by_key, verify_chain
+    return {
+        "rows": recent(limit=limit),
+        "last_by_key": index_by_key(),
+        "chain": verify_chain(),
+    }

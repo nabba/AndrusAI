@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>org.andrus.botarmy.host-smart-collector</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>cd /Users/andrus/BotArmy/crewai-team &amp;&amp; /usr/bin/env python3 scripts/host_smart_collector.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/andrus/BotArmy/crewai-team</string>
+
+  <!-- Daily at 04:00 local time. Same cadence as the host backup plist
+       so the operator only has to remember one host-side cadence. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>4</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>KeepAlive</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/andrus/BotArmy/crewai-team/workspace/healing/.host_smart.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/andrus/BotArmy/crewai-team/workspace/healing/.host_smart.log</string>
+</dict>
+</plist>

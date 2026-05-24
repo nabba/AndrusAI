@@ -20,3 +20,5 @@ from app.resilience_drills.drills import embedding_rotation  # noqa: F401
 from app.resilience_drills.drills import task_recovery  # noqa: F401
 # Gap 1 (2026-05-24 ultrathink analysis) — fresh-host bootstrap (10th drill).
 from app.resilience_drills.drills import fresh_host_bootstrap  # noqa: F401
+# Gap 9 (2026-05-24 ultrathink analysis) — adversarial-probe resistance (11th drill).
+from app.resilience_drills.drills import prompt_injection_resistance  # noqa: F401

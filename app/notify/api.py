@@ -120,6 +120,19 @@ def notify(
     if web_push:
         delivered["web_push_count"] = _send_web_push(title, body, url=url, tag=tag)
 
+    # Gap #12 (2026-05-24) — SMS + email last-resort for critical alerts
+    # whose Signal AND Web Push both failed. Master switch gated; never
+    # raises. The fallback only fires for critical=True so routine
+    # notifies can't flood the operator's phone with SMS.
+    if critical:
+        try:
+            from app.notify.last_resort import maybe_fire_last_resort
+            delivered = maybe_fire_last_resort(
+                title, body, delivered=delivered, critical=critical,
+            )
+        except Exception:
+            logger.debug("notify: last_resort raised", exc_info=True)
+
     return delivered
 
 

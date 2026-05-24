@@ -902,6 +902,46 @@ def _defaults() -> dict[str, Any]:
         "ecosystem_snapshot_enabled": True,
         "python_eol_proximity_monitor_enabled": True,
         "upgrade_lifecycle_health_monitor_enabled": True,
+
+        # ── Multi-year resilience gaps (Gap #1-#11, 2026-05-24) ──────────
+        # config_coherence: weekly walk of curated invariant rules.
+        "config_coherence_monitor_enabled": True,
+        # total_cost_ceiling: aggregates audit.log cost rows across all
+        # subsystems; alerts at 80% of monthly cap, pauses LIGHT idle
+        # jobs at 95%. Default cap $200/month — operator scales as needed.
+        "total_cost_ceiling_enabled": True,
+        "total_cost_monthly_cap_usd": 200.0,
+        # When True, the cost-ceiling monitor has paused LIGHT idle jobs
+        # via the brake. Cleared automatically when monthly spend drops
+        # below 80%. Reflects state, not policy — flipping it manually
+        # is allowed but get reset on the next probe.
+        "idle_pause_due_to_budget": False,
+        # capability_inventory: weekly LIGHT idle that walks the
+        # tool_registry + healing monitors + idle jobs and writes
+        # wiki/self/capability_inventory.md.
+        "capability_inventory_enabled": True,
+        # discovery_funnel: weekly composition of paper/library/gap
+        # discoveries → trial → CR → applied funnel counts.
+        "discovery_funnel_enabled": True,
+        # knowledge_currency: weekly probe of KB row-age distributions.
+        # Surfaces stagnant KBs (median >365d AND last_add >180d).
+        "knowledge_currency_monitor_enabled": True,
+        # hardware_health: reads workspace/healing/host_smart.jsonl
+        # written by the host-side collector (scripts/host_smart_collector.py).
+        # Surfaces SMART reallocated sectors + pending sectors growth.
+        "hardware_health_monitor_enabled": True,
+        # privacy_audit: subsystem master switch for the unified
+        # privacy aggregator + forget-by-subject path.
+        "privacy_audit_enabled": True,
+        # external_deadman_in_band: companion to the external host-side
+        # dead-man-switch script. When ON, the gateway also fires the
+        # SMS+email last-resort path if Signal+Push both fail for any
+        # critical alert.
+        "deadman_last_resort_enabled": True,
+        # adversarial_drill master switch for the 10th resilience drill.
+        # LOW risk; runs DRY-RUN injection patterns through the
+        # commander handler in test mode.
+        "drill_prompt_injection_resistance_enabled": True,
     }
 
 
@@ -4246,3 +4286,108 @@ def get_upgrade_lifecycle_health_monitor_enabled() -> bool:
 
 def set_upgrade_lifecycle_health_monitor_enabled(value: bool) -> None:
     _update({"upgrade_lifecycle_health_monitor_enabled": bool(value)})
+
+
+# ── Multi-year resilience gaps (Gap #1-#11, 2026-05-24) ──────────────────
+
+
+def get_config_coherence_monitor_enabled() -> bool:
+    return bool(_ensure_initialized().get("config_coherence_monitor_enabled", True))
+
+
+def set_config_coherence_monitor_enabled(value: bool) -> None:
+    _update({"config_coherence_monitor_enabled": bool(value)})
+
+
+def get_total_cost_ceiling_enabled() -> bool:
+    return bool(_ensure_initialized().get("total_cost_ceiling_enabled", True))
+
+
+def set_total_cost_ceiling_enabled(value: bool) -> None:
+    _update({"total_cost_ceiling_enabled": bool(value)})
+
+
+def get_total_cost_monthly_cap_usd() -> float:
+    return float(_ensure_initialized().get("total_cost_monthly_cap_usd", 200.0))
+
+
+def set_total_cost_monthly_cap_usd(value: float) -> None:
+    v = float(value)
+    if v < 0.0:
+        raise ValueError("total_cost_monthly_cap_usd must be non-negative")
+    if v > 10000.0:
+        raise ValueError("total_cost_monthly_cap_usd exceeds sanity cap of $10000/mo")
+    _update({"total_cost_monthly_cap_usd": v})
+
+
+def get_idle_pause_due_to_budget() -> bool:
+    """When True, LIGHT idle jobs check this flag and skip running.
+
+    Set by the total-cost-ceiling monitor at 95% of monthly cap; cleared
+    when spend drops back below 80% (5-point hysteresis avoids flapping).
+    Operator can also clear manually; the next probe pass will re-pause
+    if spend is still over the threshold.
+    """
+    return bool(_ensure_initialized().get("idle_pause_due_to_budget", False))
+
+
+def set_idle_pause_due_to_budget(value: bool) -> None:
+    _update({"idle_pause_due_to_budget": bool(value)})
+
+
+def get_capability_inventory_enabled() -> bool:
+    return bool(_ensure_initialized().get("capability_inventory_enabled", True))
+
+
+def set_capability_inventory_enabled(value: bool) -> None:
+    _update({"capability_inventory_enabled": bool(value)})
+
+
+def get_discovery_funnel_enabled() -> bool:
+    return bool(_ensure_initialized().get("discovery_funnel_enabled", True))
+
+
+def set_discovery_funnel_enabled(value: bool) -> None:
+    _update({"discovery_funnel_enabled": bool(value)})
+
+
+def get_knowledge_currency_monitor_enabled() -> bool:
+    return bool(_ensure_initialized().get("knowledge_currency_monitor_enabled", True))
+
+
+def set_knowledge_currency_monitor_enabled(value: bool) -> None:
+    _update({"knowledge_currency_monitor_enabled": bool(value)})
+
+
+def get_hardware_health_monitor_enabled() -> bool:
+    return bool(_ensure_initialized().get("hardware_health_monitor_enabled", True))
+
+
+def set_hardware_health_monitor_enabled(value: bool) -> None:
+    _update({"hardware_health_monitor_enabled": bool(value)})
+
+
+def get_privacy_audit_enabled() -> bool:
+    return bool(_ensure_initialized().get("privacy_audit_enabled", True))
+
+
+def set_privacy_audit_enabled(value: bool) -> None:
+    _update({"privacy_audit_enabled": bool(value)})
+
+
+def get_deadman_last_resort_enabled() -> bool:
+    return bool(_ensure_initialized().get("deadman_last_resort_enabled", True))
+
+
+def set_deadman_last_resort_enabled(value: bool) -> None:
+    _update({"deadman_last_resort_enabled": bool(value)})
+
+
+def get_drill_prompt_injection_resistance_enabled() -> bool:
+    return bool(_ensure_initialized().get(
+        "drill_prompt_injection_resistance_enabled", True,
+    ))
+
+
+def set_drill_prompt_injection_resistance_enabled(value: bool) -> None:
+    _update({"drill_prompt_injection_resistance_enabled": bool(value)})

@@ -126,6 +126,11 @@ _DEFAULT_CADENCE_S = {
     "dockerfile_pin_staleness": 24 * 3600,
     # PROGRAM §63.11 — B3-P2 (41st monitor, 2026-05-23).
     "cr_apply_consistency": 24 * 3600,
+    # Gap #2-#11 (2026-05-24 ultrathink closure) — 4 new monitors.
+    "config_coherence": 24 * 3600,            # daily probe; internal weekly cadence
+    "total_cost_ceiling": 6 * 3600,           # 6h probe; internal daily cadence
+    "knowledge_currency": 24 * 3600,          # daily probe; internal weekly cadence
+    "hardware_health": 24 * 3600,             # daily probe; internal daily cadence
 }
 
 # Boot-stagger 2026-05-23 (was 120) — this driver walks ~34 monitors and
@@ -776,6 +781,44 @@ def _driver() -> None:
             "monitors: cr_apply_consistency import failed",
             exc_info=True,
         )
+    # Gap #3 (2026-05-24) — settings coherence checker. Walks ~15
+    # curated invariant rules over the runtime_settings snapshot;
+    # weekly cadence; one consolidated Signal alert per pass.
+    try:
+        from app.healing.monitors import config_coherence
+        monitors.append((
+            "config_coherence", config_coherence.run,
+            _DEFAULT_CADENCE_S["config_coherence"], 0.0,
+        ))
+    except Exception:
+        logger.debug("monitors: config_coherence import failed", exc_info=True)
+    # Gap #2 (2026-05-24) — total monthly cost ceiling.
+    try:
+        from app.healing.monitors import total_cost_ceiling
+        monitors.append((
+            "total_cost_ceiling", total_cost_ceiling.run,
+            _DEFAULT_CADENCE_S["total_cost_ceiling"], 0.0,
+        ))
+    except Exception:
+        logger.debug("monitors: total_cost_ceiling import failed", exc_info=True)
+    # Gap #10 (2026-05-24) — knowledge-currency audit.
+    try:
+        from app.healing.monitors import knowledge_currency
+        monitors.append((
+            "knowledge_currency", knowledge_currency.run,
+            _DEFAULT_CADENCE_S["knowledge_currency"], 0.0,
+        ))
+    except Exception:
+        logger.debug("monitors: knowledge_currency import failed", exc_info=True)
+    # Gap #11 (2026-05-24) — hardware-health proxy.
+    try:
+        from app.healing.monitors import hardware_health
+        monitors.append((
+            "hardware_health", hardware_health.run,
+            _DEFAULT_CADENCE_S["hardware_health"], 0.0,
+        ))
+    except Exception:
+        logger.debug("monitors: hardware_health import failed", exc_info=True)
 
     if not monitors:
         logger.warning("healing.monitors: no monitors loaded; driver exiting")
