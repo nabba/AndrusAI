@@ -83,6 +83,7 @@ _DEFAULT_CADENCE_S = {
     "architecture_adoption": 24 * 3600,        # daily probe; proposes rollback CR for unused subsystems; PROGRAM §45.1 Q7.1
     "migration_drill": 24 * 3600,              # daily probe; alerts at 100d stale; PROGRAM §48 Q13.1
     "tz_drift": 24 * 3600,                     # daily probe; alerts on hand-rolled vs zoneinfo divergence; PROGRAM §48 Q13.3
+    "latency_slo": 24 * 3600,                  # daily probe; internal cadence-gated; Tier 2.2 (2026-05-24)
     "identity_drift_digest": 24 * 3600,        # daily probe; internal monthly cadence; PROGRAM §49 Q14.1
     "feedback_loop_drift": 24 * 3600,          # daily probe; internal weekly cadence; PROGRAM §49 Q14.2
     "embedding_drift": 24 * 3600,              # daily probe; internal weekly cadence; PROGRAM §49 Q14.4
@@ -406,6 +407,17 @@ def _driver() -> None:
         ))
     except Exception:
         logger.debug("monitors: tz_drift import failed", exc_info=True)
+    # Tier 2.2 (2026-05-24 ultrathink) — p99 latency drift monitor.
+    # 42nd healing monitor. Reads audit.log paired request/response
+    # rows; rolling 7d window; alerts on >30% drift vs baseline.
+    try:
+        from app.healing.monitors import latency_slo
+        monitors.append((
+            "latency_slo", latency_slo.run,
+            _DEFAULT_CADENCE_S["latency_slo"], 0.0,
+        ))
+    except Exception:
+        logger.debug("monitors: latency_slo import failed", exc_info=True)
     # PROGRAM §49 Q14.1 — rolling identity-drift digest. Daily
     # probe, internal monthly cadence. Alerts when 30d amendment
     # count exceeds 2× the annualised baseline.

@@ -108,6 +108,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--window-months", type=int, default=24)
     p.set_defaults(func=commands.cmd_recall)
 
+    # ---- recall-history --------------------------------------------------- #
+    # Gap 4 (2026-05-24) — search the unified decade_recall index over
+    # the 6 hash-chained audit/ledger files. Different surface from
+    # `recall` (which searches conversation history only).
+    p = add(
+        "recall-history",
+        help="Search hash-chained audit history (decade_recall).",
+    )
+    p.add_argument("query")
+    p.add_argument(
+        "--scope",
+        action="append",
+        choices=[
+            "continuity",
+            "changes",
+            "drills",
+            "executor",
+            "agreement",
+            "governance",
+        ],
+        help=(
+            "Filter by source (repeatable). Default = all sources."
+        ),
+    )
+    p.add_argument("--top-k", type=int, default=10)
+    p.add_argument("--window-years", type=int, default=10)
+    p.set_defaults(func=commands.cmd_recall_history)
+
     # ---- briefing --------------------------------------------------------- #
     p = add("briefing", help="Compose a daily briefing.")
     p.add_argument(

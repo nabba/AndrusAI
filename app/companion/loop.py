@@ -180,6 +180,49 @@ def get_idle_jobs() -> list[tuple[str, Callable[[], None], str]]:
             "companion.loop: cross_modal_patterns job skipped", exc_info=True,
         )
 
+    # Gap 2 (2026-05-24 ultrathink) — interest-driven autonomous research
+    # goal emitter. Reads cross_modal_patterns convergence; on qualified
+    # sustained signals (>=21d, >=3 modalities, strength >= 0.7), spawns
+    # a LOW-budget autonomous_executor run + Signal alert with 👍/👎.
+    # Master switch default OFF; failure-isolated.
+    try:
+        from app.companion.interest_goal_emitter import run as _ige_run
+        jobs.append(("interest-goal-emitter", _ige_run, JobWeight.LIGHT))
+    except Exception:
+        logger.debug(
+            "companion.loop: interest_goal_emitter job skipped", exc_info=True,
+        )
+
+    # Gap 4 (2026-05-24 ultrathink) — decade_recall unified audit index.
+    # Daily incremental scan over 6 hash-chained ledger files into a
+    # combined token-overlap index. Master switch default ON; failure-
+    # isolated; pure stdlib (no LLM/embedding model dependency).
+    try:
+        from app.decade_recall.indexer import run_scan as _dr_scan
+        jobs.append(("decade-recall", _dr_scan, JobWeight.LIGHT))
+    except Exception:
+        logger.debug(
+            "companion.loop: decade_recall job skipped", exc_info=True,
+        )
+
+    # Tier 2.1 (2026-05-24) — substrate_radar (OS/container/cloud EOL).
+    try:
+        from app.substrate_radar.radar import run_one_pass as _sr_run
+        jobs.append(("substrate-radar", _sr_run, JobWeight.LIGHT))
+    except Exception:
+        logger.debug(
+            "companion.loop: substrate_radar job skipped", exc_info=True,
+        )
+
+    # Tier 2.3 (2026-05-24) — MCP/connector auto-discovery weekly poll.
+    try:
+        from app.mcp_discovery.poller import run_discovery_pass as _mcpd_run
+        jobs.append(("mcp-discovery", _mcpd_run, JobWeight.LIGHT))
+    except Exception:
+        logger.debug(
+            "companion.loop: mcp_discovery job skipped", exc_info=True,
+        )
+
     # Q5 (PROGRAM §43.2) — Targeted sentience experiments. Four
     # observational idle jobs reifying functional approximations of
     # capabilities the Butlin scorecard declares architecturally

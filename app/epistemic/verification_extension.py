@@ -430,6 +430,36 @@ def apply_verification_extension(
             "verification_extension: retrieval evaluator raised: %s", exc,
         )
 
+    # Evaluator 3 (Gap 3, 2026-05-24): gate_philosophy — escalation only.
+    # Activates on autonomous/financial zones; consults the philosophy
+    # panel; on unresolved tensions, escalates to peer_review and files
+    # a Q4.1 tension + Q8 thread. Master switch default OFF.
+    try:
+        provisional = _max_action(actions)
+        provisional_verdict = (
+            replace(verdict, suggested_action=provisional)
+            if provisional != verdict.suggested_action
+            else verdict
+        )
+        from app.epistemic.gate_philosophy import evaluate as _phil_evaluate
+
+        phil_action, phil_note = _phil_evaluate(
+            proposal_text=proposal_text,
+            task_id=task_id,
+            verdict=provisional_verdict,
+        )
+        if phil_action is not None:
+            actions.append(phil_action)
+            if phil_note:
+                notes.append(f"philosophy: {phil_note}")
+        elif phil_note:
+            notes.append(f"philosophy: {phil_note}")
+    except Exception as exc:
+        logger.debug(
+            "verification_extension: gate_philosophy evaluator raised: %s",
+            exc,
+        )
+
     final_action = _max_action(actions)
     if final_action == verdict.suggested_action:
         return verdict, notes

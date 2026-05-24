@@ -587,6 +587,52 @@ def _defaults() -> dict[str, Any]:
         "drill_task_recovery_enabled": True,
         "drill_task_recovery_live_enabled": False,
         "drill_task_recovery_llm_variants_enabled": True,
+        # Gap 1 — fresh-host bootstrap drill (10th drill). Quarterly
+        # LOW-risk; rebuilds from DR export into a scratch container
+        # and verifies a fresh-host install would work. Never touches
+        # the live workspace. ``_dockerized_enabled`` is a second
+        # switch that, when ON, additionally runs the import inside
+        # an ephemeral Docker container — operator-controlled because
+        # it requires the Docker daemon to be reachable from the
+        # gateway.
+        "drill_fresh_host_bootstrap_enabled": True,
+        "drill_fresh_host_bootstrap_dockerized_enabled": False,
+        # Gap 2 — interest-driven autonomous research goals. The
+        # complement to ``affect/goal_emitter.py`` (physiology-driven
+        # autonomous goals); this one emits goals from sustained
+        # cross-modal convergence in operator inputs. Default OFF
+        # because it spawns autonomous_executor runs that consume
+        # LLM budget; operator opts in via /cp/settings.
+        "interest_goal_emitter_enabled": False,
+        # Gap 3 — gate_philosophy 5th evaluator in gate_output chain.
+        # Activates only on autonomous/financial zones; consults the
+        # philosophy panel and on unresolved tensions escalates to
+        # peer_review + files Q4.1 tension + Q8 thread. Default OFF
+        # until the operator calibrates on a few weeks of advisory
+        # observations.
+        "gate_philosophy_enabled": False,
+        # Gap 4 — decade_recall unified audit index. Daily incremental
+        # scan over 6 hash-chained ledger files (continuity / changes /
+        # drills / executor / agreement / governance). Pure-stdlib
+        # token-overlap retrieval — robust against embedding-model
+        # rotation. Default ON; observational; no decisions act on it.
+        "decade_recall_enabled": True,
+        # Tier 2.1 — OS / container / cloud EOL radar. Sibling to
+        # dependency_radar. Default ON; observational; routes high-
+        # severity findings to Signal alerts.
+        "substrate_radar_enabled": True,
+        # Tier 2.2 — p99 response-time monitor (42nd healing monitor).
+        # Computes rolling 7-day p99 from audit.log paired
+        # request_received / response_sent rows; alerts on drift
+        # > 30% vs baseline. Default ON; observational.
+        "latency_slo_monitor_enabled": True,
+        # Tier 2.3 — MCP/connector auto-discovery. Weekly poll of
+        # registry; stages new high-rated connectors as proposals.
+        # Default OFF (security-sensitive surface, opt-in only).
+        "mcp_discovery_enabled": False,
+        # Tier 2.4 — auto-open Q8 thread when Commander + Recovery
+        # Loop both fail. Default OFF (operator-visible surface).
+        "recovery_auto_thread_enabled": False,
 
         # Post-amendment restart-claim queue (PROGRAM §40.2 Item 1+9,
         # 2026-05-11). When a Tier-3 amendment applies a code change
@@ -3682,6 +3728,152 @@ def get_drill_task_recovery_live_enabled() -> bool:
 
 def set_drill_task_recovery_live_enabled(value: bool) -> None:
     _update({"drill_task_recovery_live_enabled": bool(value)})
+
+
+def get_drill_fresh_host_bootstrap_enabled() -> bool:
+    """Gap 1 — 10th resilience drill.
+
+    Master switch for the fresh-host bootstrap drill. Restores the
+    most-recent DR export into a scratch directory and verifies the
+    minimum file set + integrity is what a clean-machine install
+    would need. Default ON.
+
+    Composes with the existing DR drill (``backup_restore``) — that
+    drill verifies the export round-trips; this drill verifies the
+    export plus the install path constitute a working substrate.
+    """
+    return bool(_ensure_initialized().get("drill_fresh_host_bootstrap_enabled", True))
+
+
+def set_drill_fresh_host_bootstrap_enabled(value: bool) -> None:
+    _update({"drill_fresh_host_bootstrap_enabled": bool(value)})
+
+
+def get_drill_fresh_host_bootstrap_dockerized_enabled() -> bool:
+    """Companion to ``drill_fresh_host_bootstrap_enabled``.
+
+    When ON, the drill additionally launches an ephemeral Docker
+    container with the restored workspace bind-mounted and runs the
+    gateway boot path. Default OFF — operator-controlled because it
+    requires Docker daemon access from the gateway and is the only
+    part of the drill that consumes non-trivial CPU/memory.
+    """
+    return bool(
+        _ensure_initialized().get(
+            "drill_fresh_host_bootstrap_dockerized_enabled", False
+        )
+    )
+
+
+def set_drill_fresh_host_bootstrap_dockerized_enabled(value: bool) -> None:
+    _update({"drill_fresh_host_bootstrap_dockerized_enabled": bool(value)})
+
+
+def get_interest_goal_emitter_enabled() -> bool:
+    """Gap 2 (2026-05-24) — interest-driven autonomous research goals.
+
+    Master switch for ``app.companion.interest_goal_emitter``. When
+    ON, sustained cross-modal convergence (>=21d, >=3 modalities,
+    strength >= 0.7) emits a LOW-priority autonomous research goal
+    routed through ``autonomous_executor`` with a $2 per-goal budget
+    cap. Default OFF — operator opts in.
+
+    Composes with ``autonomous_executor_enabled``: both must be ON
+    for the emitter to actually spawn a run.
+    """
+    return bool(_ensure_initialized().get("interest_goal_emitter_enabled", False))
+
+
+def set_interest_goal_emitter_enabled(value: bool) -> None:
+    _update({"interest_goal_emitter_enabled": bool(value)})
+
+
+def get_gate_philosophy_enabled() -> bool:
+    """Gap 3 (2026-05-24) — gate_philosophy 5th evaluator.
+
+    Master switch for the philosophy-panel evaluator added to the
+    gate_output verification-extension chain. Activates only on
+    autonomous/financial zones; consults
+    ``app.philosophy.dialectics.consult_panel`` and on unresolved
+    tensions escalates the verdict to peer_review (no auto-ship).
+    Also files a Q4.1 tension store entry + Q8 thread so the
+    operator's existing decision surfaces pick up the conflict.
+
+    Default OFF — escalation-only, but adds ~7d-TTL'd panel I/O on
+    the output path. Operator opts in after calibrating advisory
+    observations.
+    """
+    return bool(_ensure_initialized().get("gate_philosophy_enabled", False))
+
+
+def set_gate_philosophy_enabled(value: bool) -> None:
+    _update({"gate_philosophy_enabled": bool(value)})
+
+
+def get_decade_recall_enabled() -> bool:
+    """Gap 4 (2026-05-24) — decade_recall unified audit index.
+
+    Master switch for ``app.decade_recall``. When ON, a daily LIGHT
+    idle job incrementally scans 6 hash-chained ledger files into a
+    combined token-overlap index at
+    ``workspace/decade_recall/index.jsonl``. Agent tool
+    ``recall_history`` reads from this index.
+
+    Default ON because the index is observational + cheap (no LLM,
+    no embedding model) and powers the audit-synthesis surface for
+    years-3-through-10 operation.
+    """
+    return bool(_ensure_initialized().get("decade_recall_enabled", True))
+
+
+def set_decade_recall_enabled(value: bool) -> None:
+    _update({"decade_recall_enabled": bool(value)})
+
+
+def get_substrate_radar_enabled() -> bool:
+    """Tier 2.1 (2026-05-24) — OS / container / cloud EOL radar."""
+    return bool(_ensure_initialized().get("substrate_radar_enabled", True))
+
+
+def set_substrate_radar_enabled(value: bool) -> None:
+    _update({"substrate_radar_enabled": bool(value)})
+
+
+def get_latency_slo_monitor_enabled() -> bool:
+    """Tier 2.2 (2026-05-24) — p99 response-time drift monitor."""
+    return bool(_ensure_initialized().get("latency_slo_monitor_enabled", True))
+
+
+def set_latency_slo_monitor_enabled(value: bool) -> None:
+    _update({"latency_slo_monitor_enabled": bool(value)})
+
+
+def get_mcp_discovery_enabled() -> bool:
+    """Tier 2.3 (2026-05-24) — MCP/connector auto-discovery poller.
+
+    Default OFF — security-sensitive surface. Operator opts in
+    explicitly and reviews each surfaced candidate through the
+    standard change-request gate.
+    """
+    return bool(_ensure_initialized().get("mcp_discovery_enabled", False))
+
+
+def set_mcp_discovery_enabled(value: bool) -> None:
+    _update({"mcp_discovery_enabled": bool(value)})
+
+
+def get_recovery_auto_thread_enabled() -> bool:
+    """Tier 2.4 (2026-05-24) — auto-open Q8 thread on hard questions.
+
+    Default OFF — operator-visible surface (the threads list).
+    Operator opts in once the rate-limit and dedup behavior is
+    calibrated for their workflow.
+    """
+    return bool(_ensure_initialized().get("recovery_auto_thread_enabled", False))
+
+
+def set_recovery_auto_thread_enabled(value: bool) -> None:
+    _update({"recovery_auto_thread_enabled": bool(value)})
 
 
 def get_drill_task_recovery_llm_variants_enabled() -> bool:

@@ -18,3 +18,5 @@ from app.resilience_drills.drills import source_ledger_replay  # noqa: F401
 from app.resilience_drills.drills import embedding_rotation  # noqa: F401
 # Survey response to arXiv:2604.27096 §4.3.4 — task-layer recovery drill (9th drill).
 from app.resilience_drills.drills import task_recovery  # noqa: F401
+# Gap 1 (2026-05-24 ultrathink analysis) — fresh-host bootstrap (10th drill).
+from app.resilience_drills.drills import fresh_host_bootstrap  # noqa: F401

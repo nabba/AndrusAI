@@ -192,6 +192,49 @@ def cmd_recall(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_recall_history(args: argparse.Namespace) -> int:
+    """Gap 4 (2026-05-24) — search the unified audit-history index."""
+    try:
+        from app.decade_recall.retrieval import recall_history
+    except ImportError as exc:
+        return output.die(f"decade_recall unavailable: {exc}", code=1)
+
+    scopes = getattr(args, "scope", None) or None
+    results = recall_history(
+        args.query,
+        scopes=scopes,
+        top_k=args.top_k,
+        window_years=args.window_years,
+    )
+
+    def render(items):
+        if not items:
+            return "(no matches)"
+        lines = []
+        for r in items:
+            d = r.to_dict() if hasattr(r, "to_dict") else r
+            ts = (d.get("ts") or "?")[:19]
+            scope = d.get("scope") or "?"
+            kind = d.get("kind") or "?"
+            preview = (d.get("preview") or "").replace("\n", " ")
+            if len(preview) > 200:
+                preview = preview[:197] + "..."
+            score = float(d.get("score") or 0.0)
+            lines.append(
+                f"{ts} [{scope}:{kind}] score={score:.2f}\n  {preview}"
+            )
+        return "\n\n".join(lines)
+
+    if _mode(args) == "json":
+        payload = [
+            r.to_dict() if hasattr(r, "to_dict") else r for r in results
+        ]
+        output.render(payload, mode="json")
+    else:
+        output.render(results, mode="text", text_renderer=render)
+    return 0
+
+
 def cmd_briefing(args: argparse.Namespace) -> int:
     try:
         from app.life_companion import daily_briefing

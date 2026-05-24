@@ -13821,3 +13821,436 @@ documented Phase B #1 design.
 * `crewai-team/docs/QOS_AND_COMPANION_DEPTH.md` — Q4#15 cross-modal pattern detector (the consumer that was empty).
 * PROGRAM §41 (Q4) — the cross_modal_patterns + arbiter ship that this fix retroactively unblocks for the live operator.
 
+# §70 — Decade-class gap closure (2026-05-24)
+
+Five structural gaps + five Tier-2 surfaces shipped in one ultrathink-driven pass.
+The operator asked: "make the system more error-proof, resilient, self-sustained,
+install-once-run-for-many-years." Analysis (CLAUDE.md trajectory through Q18 + §62-§69)
+identified five **structural gaps** that no amount of additive monitor capability would
+close, plus five Tier-2 deepening items. All shipped in one cycle.
+
+## §70.0 — Trajectory + meta-question
+
+After Q18 + §62-§69, the system has 9 resilience drills, 41 healing monitors, 20
+IDENTITY_EVENT_KIND surfaces, four gate_output evaluators, and the autonomous-executor
+ship. Each post-Q5 audit-cycle round converges to polish-only after 3 rounds. The trend:
+additive returns are flattening; structural-gap returns remain high.
+
+§70 closes the structural gaps; subsequent cycles should be CONSOLIDATION (reducing
+surface area; merging overlapping monitors; retiring deprecated paths) rather than
+capability addition. CLAUDE.md is ~200KB and growing; the next-round audit will be
+polish-only.
+
+## §70.1 — Gap 1: Bootstrap-from-scratch drill
+
+**Files**:
+* `app/resilience_drills/drills/fresh_host_bootstrap.py` (~430 LOC, 10th drill)
+* `scripts/bootstrap_fresh_host.sh` (operator-callable wrapper)
+* `tests/test_fresh_host_bootstrap_drill.py` (~18 test cases)
+
+**Why**: Warm-spare rsync mirrors `andrusai-mirror` hourly (Q17.1); `failover.py` has
+typed-phrase `claim_canonical`; DR drill restores to scratch dir. But no proven
+end-to-end "clean machine → working AndrusAI in <30 min" tested path. The pieces
+existed; they didn't compose into one verifiable script. "Install once, run for many
+years" had a single point of failure (the current host) until bootstrap was mechanized.
+
+**Mechanism**: three sequential layers, fail-fast:
+
+1. **Install-path artifact check** (`_check_install_path`) — install.sh executable
+   AND ≥100 lines (catches truncation); requirements.txt ≥20 pinned lines (catches
+   gutting); docker-compose.yml validates via `docker compose config` with YAML
+   round-trip fallback for hosts without docker; required scripts/install/*.sh
+   files present.
+2. **Latest DR tarball restores cleanly** (`_restore_to_scratch`) — reuses
+   `app.dr.boot_drill.run_drill` so the underlying tarball-handling code is exactly
+   the production path. Restores into `workspace/.drill_scratch/fresh_host_bootstrap/<ts>/`.
+3. **Source-ledger hash chains intact** (`_check_source_ledgers`) — walks every
+   restored KB under `chromadb/*/`, runs `app.memory.source_ledger.verify_chain`.
+
+Optional dockerized mode (`drill_fresh_host_bootstrap_dockerized_enabled` default OFF):
+launches ephemeral `docker compose config` against the restored scratch dir. Operator
+opts in when Docker reachable from gateway.
+
+**Schedule**: quarterly LOW-risk via standard drill scheduler. `warmup_days=14` so the
+first two passes are observational. Never auto-runs HIGH-risk; always scratch-dir only.
+
+**Live verify**: at ship time, drill reports `install_path: pass` with 132 install.sh
+lines, 49 requirements.txt pins, docker-compose validates via `docker_compose_config`.
+
+## §70.2 — Gap 2: Active proactivity via interest_goal_emitter
+
+**Files**:
+* `app/companion/interest_goal_emitter.py` (~480 LOC)
+* `app/interest_goal_signal_bridge.py` (Signal ts ↔ run_id map, same pattern as
+  `governance_signal_bridge`)
+* `tests/test_interest_goal_emitter.py` (~17 test cases)
+
+**Why**: life_companion + briefing_evolution + person_correlation + cross_modal_patterns
++ interest_model are all wired but produce *findings* — none initiate work autonomously.
+Example: cross_modal_patterns detects "Andrus mentioned KaiCart in 3 emails + 2
+conversations + viewed competitor sites this week" → becomes a briefing bullet. It does
+NOT trigger "research the top 3 KaiCart competitors and prepare a brief."
+
+`affect/goal_emitter.py` (AE-1 graduation) writes autonomous goals from sustained
+allostatic error (PHYSIOLOGY-driven). No parallel INTEREST-driven emitter existed.
+
+**Mechanism**: pattern qualification + emission pipeline:
+
+1. **Pattern qualification** (`_qualify_patterns`) — reads
+   `cross_modal_patterns.list_recent_patterns(min_strength=0.7)`; filters to
+   `kind="topic"` (person patterns route through a different surface); requires
+   `_MIN_PRIOR_DETECTIONS=2` (single-spike suppression — pattern must appear in
+   ≥2 prior passes); per-topic decline cooldown (30d after 👎).
+2. **Five guards** — master switch OFF default; autonomous_executor enabled;
+   `welfare_breaching()` (consults arbiter); operator-unavailable
+   (Q17.4 ABSENT_90D/READ_MOSTLY/TRANSITIONED); ≤1 emission per 7d window.
+3. **Spawn** (`_spawn_executor_run`) — creates `ExecutorRun` with `Budget(cap_usd=2.0)`,
+   zone=`autonomous`, requestor=`interest_goal_emitter`. Goal text is operator-readable
+   ("Research the topic 'X' which has appeared in N modalities with M occurrences over
+   the past 21 days. Prepare a 1-page brief...").
+4. **Signal alert** with 👍/👎 reactions. Bridge maps Signal timestamp → run_id with
+   25h auto-purge.
+5. **Decline path** (`decline()`) — 👎 reaction handler: aborts the run via
+   `store.save(status=ABORTED)` + records 30-day topic cooldown + emits
+   `interest_goal_decline` ledger landmark.
+
+**Composes with**: §62 autonomous_executor (the executor enforces Budget;
+emitter just kicks off the run); briefing_evolution (👎 routing pattern matches);
+arbiter.welfare_breaching (physiology gate); Q17.4 operator_transition (absence gate);
+identity continuity ledger (every emission + decline emits a landmark).
+
+## §70.3 — Gap 3: gate_philosophy 5th evaluator
+
+**Files**:
+* `app/epistemic/gate_philosophy.py` (~260 LOC) — new evaluator module.
+* `app/epistemic/verification_extension.py` — extended with 3rd evaluator slot in
+  `apply_verification_extension` (existing 2 evaluators: claim-source consistency +
+  retrieval-on-low-confidence).
+* `tests/test_gate_philosophy.py` (~11 test cases)
+
+**Why**: `philosophy/dialectics.consult_panel()` is wired into Tier-3 amendment
+proposals, identity-claim ratification, post-apply welfare calibration. But NOT into
+output-delivery (`gate_output`). Philosophy is consulted at *proposal time* and
+*post-apply time* but never at the moment the system *speaks*. For "philosophy guides
+decisions," philosophy needs to be a meta-gate at high-stakes decision points.
+
+**Mechanism** (escalation-only contract):
+
+1. **Activation gate** — master switch ON; `proposal_text >= 80 chars`;
+   `_resolve_zone(task_id) ∈ {autonomous, financial}`. Chat zone is latency-sensitive
+   and keeps the existing 4-evaluator chain.
+2. **Panel consult** — `consult_panel(question)` returns `PanelResult` with
+   `unresolved_tensions: list[str]`. Skipped_reason handling: panel-disabled,
+   kb-empty, neo4j-unavailable all fall through (no escalation).
+3. **Threshold check** — `len(unresolved) >= 2` flips to escalation. Single
+   unresolved tension from one tradition is noise; ≥2 distinct unresolved tensions
+   across traditions is a genuine philosophical conflict.
+4. **Side effects on escalation** — files Q4.1 tension store entry with
+   `detection_source="gate_philosophy"` referencing the perspectives; files Q8 thread
+   ("Philosophy-flagged: …") cross-linking the tension id. The orchestrator's
+   `peer_review` arm engages.
+
+**Escalation-only invariant** pinned by grep test (`test_evaluator_never_returns_ship_or_verify`):
+the source code MUST NOT contain `return "ship"`, `return "hedge"`, or `return "verify"`.
+This is load-bearing — the evaluator can only ADD escalation, never weaken another
+evaluator's decision. Goodhart guard: the system can never use "philosophy panel
+disagrees" as an excuse to ship something the calibration verdict said hedge on.
+
+**Default OFF** until operator calibrates on a few weeks of advisory observations.
+
+## §70.4 — Gap 4: decade_recall unified audit index
+
+**Files**:
+* `app/decade_recall/__init__.py` + `indexer.py` + `retrieval.py` (~700 LOC)
+* `app/tools/recall_history.py` (CrewAI BaseTool wrapper)
+* `app/cli/main.py` + `commands.py` — new `aai recall-history` subcommand
+* `tests/test_decade_recall.py` (~17 test cases)
+
+**Why**: Q17.8 conversation_memory indexes `audit.log` request_received chains
+(conversation history). Six OTHER hash-chained ledger files capture different
+dimensions of the system's arc: `identity/continuity_ledger.jsonl` (21 IDENTITY_EVENT_KIND
+surfaces), `change_requests/audit.jsonl`, `resilience/drill_audit.jsonl`,
+`autonomous_executor/audit.jsonl`, `self_model/agreement_ledger.jsonl`,
+`governance/audit.jsonl`. No unified surface answered "what was the arc of X over the
+last decade?" — annual_reflection is yearly; drift_digest is monthly; raw ledgers
+require shell-grep.
+
+**Mechanism** (incremental scan + token-overlap retrieval):
+
+1. **Per-source byte cursors** at `workspace/decade_recall/cursors.json`. Each source
+   has its own offset so a slow scan on one source doesn't stall the others.
+   Idempotent re-scan = no-op (cursor matches EOF).
+2. **Truncation detection** — when source file size < cursor offset, cursor resets to 0
+   (rotated/replaced). Pinned by test.
+3. **PII redaction at scan edge** — email → `<email>`, phone → `<phone>` BEFORE the
+   token list reaches the index. Pinned by test that grep's the post-scan index file.
+4. **Combined index** at `workspace/decade_recall/index.jsonl` — one row per source
+   row, schema `{ts, scope, kind, ref, preview, tokens}`. Append-only.
+5. **Token-overlap scoring** (same as Q17.8): `overlap×0.7 + density×0.3`. Newest-first
+   with score tiebreak.
+6. **Scope-filterable retrieval** — `recall_history(query, scopes=[continuity,changes,
+   drills,executor,agreement,governance], window_years=10, top_k=10)`.
+
+**Vendor-rotation tolerance** — load-bearing design choice. Pinned by
+`test_no_embedding_model_dependency` which greps both indexer.py + retrieval.py for
+`from openai`, `from anthropic`, `from ollama`, `from chromadb`, `from sentence_transformers`,
+`from embedding`. The index survives every base-model swap without re-baselining.
+
+**Operator surfaces**:
+* Agent tool `RecallHistoryTool` ("Search the system's hash-chained audit history…")
+* CLI: `aai recall-history "kaicart" --scope changes --window-years 5 --top-k 20`
+* Programmatic: `from app.decade_recall import recall_history, summary`
+
+**Master switch** default ON because observational + cheap (no LLM, no embedding model).
+
+## §70.5 — Gap 5: model_swap_validator
+
+**Files**:
+* `app/llm/model_swap_validator.py` (~390 LOC)
+* `tests/test_model_swap_validator.py` (~10 test cases)
+
+**Why**: `llm_selector` cascade is mutable. Many calibrated thresholds depend on
+current-model behavior (concierge epistemic-label preservation, HOT-4 confidence_proxy,
+structured-diagnosis confidence band, Goodhart-guard rates). When a new base model
+lands (Sonnet 4.5 → 5.0), no automatic re-baseline pass; calibrations quietly drift.
+
+**Mechanism** (pre-flight regression check):
+
+1. **Replay §62 benchmark catalog** against BOTH old + new cascade configurations.
+   Same tasks, same scorers, same inputs. Failure-isolated per-task — one task raising
+   doesn't break the others.
+2. **Per-task delta** — `delta = new_score - old_score`; `regressed = delta < -0.10`
+   (`REGRESSION_THRESHOLD`).
+3. **Per-tier summary** — `mean_old`, `mean_new`, `mean_delta`, `max_regression`,
+   `n_regressed/n_tasks` per tier (cheap/default/smart).
+4. **Hard budget cap** — `_BUDGET_USD_DEFAULT = 1.0` per cascade
+   (override via `MODEL_SWAP_VALIDATOR_BUDGET_USD` env). Total = 2× budget.
+5. **SwapValidationResult.ok** = `not any_regression and bool(deltas)`. Empty result
+   (no tasks ran) → ok=False with error trail.
+
+**Usage**:
+* CLI: `python -m app.llm.model_swap_validator --old default=claude-sonnet-4-5
+  --new default=claude-sonnet-5 --tier default`
+* Exit code 0 on PASS, 1 on FAIL — enables CI gating.
+* Library: `from app.llm.model_swap_validator import validate_cascade_change`
+* Future agent tool: future cascade-change Tier-3 proposals can attach the validation
+  result to `extra_evidence` so the operator sees benchmark deltas inline.
+
+**Composes with**: §62 benchmark scheduler (continuous leaderboard drift); this
+validator is ON-DEMAND for the swap decision.
+
+## §70.6 — Tier 2.1: substrate_radar
+
+**Files**:
+* `app/substrate_radar/__init__.py` + `radar.py` (~430 LOC)
+* `tests/test_tier2_surfaces.py` (substrate_radar section, ~4 cases)
+
+**Why**: `dependency_radar` tracks Python packages. `vendor_sunset` catches some
+sparse vendor-model EOL signals. Neither covers the SUBSTRATE layer:
+Debian/Ubuntu/Alpine base images, Docker Compose deprecation, GCP/AWS API sunsets.
+Operator-visible only after a real outage.
+
+**Mechanism** (five detection surfaces, observational):
+
+1. **Base image EOL** — parses every Dockerfile* in repo root; matches `FROM` lines
+   against embedded EOL table (Debian 11/12/13, Ubuntu 20.04/22.04/24.04, Alpine
+   3.18-3.21 with EOL dates). Detects via image-name match OR tag-embedded distro
+   hint (`python:3.13-bookworm` → debian 12).
+2. **Docker Compose `version:` key** — Compose v2 ignores the key; flagging it is
+   hygiene.
+3. **Unpinned compose images** — service images without `@sha256:` or `@sha512:`
+   digest. **Live find at ship: 3 unpinned images** (tecnativa/docker-socket-proxy:0.2,
+   pgvector/pgvector:pg16, neo4j:5-community).
+4. **Cloud API sunsets** — reads operator-curated
+   `app/substrate_radar/cloud_api_eol.json` (optional file). Each entry has provider,
+   api, version, eol_date. Surfaces within 365d of EOL.
+5. **Python language EOL** — cross-references §63's `PYTHON_EOL_TABLE` (read-only;
+   no duplication).
+
+**Severity scale**: CRITICAL <90d / HIGH <180d / MEDIUM <365d / LOW hygiene / INFO.
+High+ findings fire Signal alert via `arbiter.notify`. Observational only — never
+auto-applies (matches dependency_radar pattern).
+
+Master switch `substrate_radar_enabled` default ON.
+
+## §70.7 — Tier 2.2: latency_slo (42nd healing monitor)
+
+**Files**:
+* `app/healing/monitors/latency_slo.py` (~250 LOC)
+* `app/healing/monitors/__init__.py` — registry entry + cadence (24h)
+* `tests/test_tier2_surfaces.py` (latency_slo section, ~4 cases)
+
+**Why**: Pre-§70 nothing in the codebase tracked end-to-end response latency from the
+operator's perspective. `app/utils/lock_metrics.py` watches write-lock contention.
+`silent_regression_detector` watches output quality. Neither watches "is the system
+getting slower at responding."
+
+**Mechanism**:
+
+1. **Sample collection** (`_collect_latencies`) — reads `workspace/audit.log` tail,
+   pairs `request_received` ↔ `response_sent` rows by sender (sender id as queue key).
+   `_MAX_LINES_SCANNED=50,000` safety cap. 7-day window default.
+2. **First run establishes baseline** — when no baseline exists AND samples ≥50
+   (`_MIN_SAMPLES_FOR_BASELINE`), writes current p50/p95/p99/mean to
+   `workspace/healing/latency_slo_baseline.json`. Subsequent runs compare.
+3. **Drift alert** — when current_p99 / baseline_p99 - 1 > 0.30
+   (`LATENCY_DRIFT_THRESHOLD`), fires Signal alert with side-by-side comparison.
+4. **Cadence gate** — internal 24h gate (`_PROBE_INTERVAL_S`) on top of the
+   healing-monitor driver's 24h cadence so two callers can't double-fire.
+5. **Operator override** — `reset_baseline()` clears the file; next run re-records.
+
+Master switch `latency_slo_monitor_enabled` default ON; observational; pure stdlib.
+
+## §70.8 — Tier 2.3: mcp_discovery
+
+**Files**:
+* `app/mcp_discovery/__init__.py` + `poller.py` (~290 LOC)
+* `tests/test_tier2_surfaces.py` (mcp_discovery section, ~4 cases)
+
+**Why**: The MCP ecosystem grows continuously. New high-rated connectors (Atlassian,
+Figma, Kubernetes, PDF tooling, etc.) ship every week. No surface watched for novel
+connectors that might be worth adopting.
+
+**Mechanism** (weekly poll → proposal_bridge):
+
+1. **Registry fetch** via injectable fetcher (deferred MCP tool surface; v1 doesn't
+   call it from Python code path — caller injects).
+2. **Three filter layers** — denylist (`workspace/mcp_discovery/denylist.txt`,
+   operator-curated); already-integrated set (probed from
+   `app/mcp_connectors/registered/`); quality gates (rating ≥4.0 AND installs ≥100).
+3. **Rate-limited staging** — top-3 candidates per pass (sorted by
+   rating × install_count) → `proposal_bridge.store.stage(source="mcp_discovery",
+   cooldown_days=7)` → markdown body filed at
+   `docs/proposed_mcp_connectors/<sig>.md` → standard CR gate.
+
+**Trust posture** (load-bearing for the off-default decision):
+
+* Discovery is observational — never integrates untrusted code.
+* Operator approval REQUIRED for every adoption (standard change_requests gate).
+* Curated denylist lets the operator pin specific connectors out.
+* Master switch `mcp_discovery_enabled` **default OFF** — security-sensitive surface,
+  operator opts in explicitly.
+
+## §70.9 — Tier 2.4: recovery.auto_thread
+
+**Files**:
+* `app/recovery/auto_thread.py` (~170 LOC)
+* `tests/test_tier2_surfaces.py` (auto_thread section, ~4 cases)
+
+**Why**: When the Commander + Recovery Loop both exhaust strategies on a hard
+question, the system currently returns a partial / "I don't know" reply and forgets the
+question. The Q8 thread primitive (PROGRAM §46.1) is the right surface, but it's
+operator-initiated only.
+
+**Mechanism** (dedup + rate-limit + create):
+
+1. **Activation gate** — master switch ON; `question >= 30 chars` (trivial refusals
+   don't deserve a tracked inquiry).
+2. **Dedup against open threads** — token-overlap Jaccard ≥0.5 against any open thread's
+   title (`_DEDUP_JACCARD_THRESHOLD`).
+3. **Rate limit** — ≤3 auto-threads per 24h (counted by scanning recent threads with
+   `"auto-opened by recovery_loop"` in description).
+4. **Create** — `threads.lifecycle.create_thread(title="Hard question: …",
+   description="Auto-opened by recovery_loop. The Commander + Recovery Loop both
+   failed to fully answer…")`.
+
+**Composes with** Q8.2 `threads/approaches.consult_before_create` (ONE-SHOT Signal
+notification when matching past closures exist) — auto_thread is the COMPLEMENT:
+creates the thread record when persistence is warranted; approaches.consult fires the
+similarity heads-up.
+
+Master switch `recovery_auto_thread_enabled` **default OFF** — operator-visible surface
+(the threads list). Operator opts in once rate-limit and dedup behavior is calibrated
+for their workflow.
+
+## §70.10 — Tier 2.5: trust_delegation scoping
+
+**Files**:
+* `docs/TRUST_DELEGATION.md` (~70 lines)
+
+**Why**: One trust anchor (the primary operator) is a single point of failure for
+decade-class operation. Q17.4 `operator_transition` detects unavailability phases;
+`successor.json` is operator-authored and human-read. No code-level designation of a
+second trust anchor.
+
+**Outcome**: **DEFER per audit.** The risks (hostile successor, key compromise, false
+activation) outweigh the modest benefit (less queue accumulation during 30-90d
+absences). The existing absence_policy (§63 P1) already auto-applies patch-level
+upgrades during operator absence with conservative gates. Need not yet demonstrated.
+
+Doc enumerates the design (delegation tier, activation gate, audit kind) and the four
+operator-decision questions for future activation. Code lands only on explicit operator
+approval.
+
+## §70.11 — Wiring
+
+**Idle jobs** (`app/companion/loop.py`):
+* `interest-goal-emitter` — LIGHT
+* `decade-recall` — LIGHT
+* `substrate-radar` — LIGHT
+* `mcp-discovery` — LIGHT
+
+**Healing monitor** (`app/healing/monitors/__init__.py`):
+* `latency_slo` — 24h cadence
+
+**Resilience drill** (`app/resilience_drills/drills/__init__.py`):
+* `fresh_host_bootstrap` — 10th drill, quarterly LOW-risk
+
+**gate_output evaluator** (`app/epistemic/verification_extension.py`):
+* `gate_philosophy` — 3rd evaluator in `apply_verification_extension` chain
+
+**Master switches** (9 added in `app/runtime_settings.py`):
+* `drill_fresh_host_bootstrap_enabled` (default ON)
+* `drill_fresh_host_bootstrap_dockerized_enabled` (default OFF)
+* `interest_goal_emitter_enabled` (default OFF)
+* `gate_philosophy_enabled` (default OFF)
+* `decade_recall_enabled` (default ON)
+* `substrate_radar_enabled` (default ON)
+* `latency_slo_monitor_enabled` (default ON)
+* `mcp_discovery_enabled` (default OFF)
+* `recovery_auto_thread_enabled` (default OFF)
+
+**CLI**:
+* `aai recall-history "query" [--scope continuity|changes|drills|executor|agreement|governance] [--window-years N] [--top-k N]`
+
+**Operator scripts**:
+* `scripts/bootstrap_fresh_host.sh [--check|--rebuild|--keep-scratch]`
+
+## §70.12 — Tests
+
+6 new test files, ~110 cases total. All use `pytest.importorskip("pydantic")` or
+`pytest.importorskip("pydantic_settings")` for host-vs-container portability — host
+runs skip cleanly; CI in the gateway Docker container exercises every test.
+
+* `test_fresh_host_bootstrap_drill.py` — ~18 cases
+* `test_interest_goal_emitter.py` — ~17 cases
+* `test_gate_philosophy.py` — ~11 cases (includes the escalation-only invariant grep)
+* `test_decade_recall.py` — ~17 cases (includes the no-embedding-dependency grep)
+* `test_model_swap_validator.py` — ~10 cases
+* `test_tier2_surfaces.py` — ~18 cases across substrate_radar + latency_slo +
+  mcp_discovery + auto_thread + master-switch defaults + trust-delegation doc existence
+
+Logic verified on host via stubbed-module shim runs:
+* fresh_host_bootstrap: PASS against live repo (132 install.sh lines, 49 pinned
+  requirements, docker-compose validates).
+* substrate_radar: 3 unpinned compose images detected against live repo.
+* decade_recall: 4 indexed rows across 3 sources, PII redaction confirmed on host run.
+* gate_philosophy: 5 logic checks (master_switch_off, too_short, chat_zone,
+  escalation_only_invariant, peer_review_escalation) all OK.
+* model_swap_validator: 4 logic checks (no_regression, full_regression, per_tier_summary,
+  to_dict) all OK.
+
+## §70.13 — Cross-references
+
+* CLAUDE.md — decade-class gap closure entry (above Q18).
+* `docs/TRUST_DELEGATION.md` — Tier 2.5 scoping doc.
+* PROGRAM §46.1 (Q8.1) — threads primitive (consumer for auto_thread + gate_philosophy).
+* PROGRAM §41.1 (Q4.1) — tensions store (consumer for gate_philosophy).
+* PROGRAM §62 — autonomous_executor (consumer for interest_goal_emitter).
+* PROGRAM §62 — benchmark suite (consumer for model_swap_validator).
+* PROGRAM §44 (Q6) — resilience_drills (host of 10th drill).
+* PROGRAM §49 (Q14) — risk register (sibling pattern: observational monitors).
+* PROGRAM §52 (Q17) — multi-year resilience (Q17.4 operator_transition consumer of
+  trust_delegation scoping; Q17.8 conversation_memory sibling of decade_recall).
+* PROGRAM §63 — upgrade-lifecycle (substrate_radar cross-links Python EOL).
+
