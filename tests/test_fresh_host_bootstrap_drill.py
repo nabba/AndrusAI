@@ -337,9 +337,10 @@ def test_spec_in_registry():
     """Importing app.resilience_drills.drills must register the
     10th drill into the global registry."""
     from app.resilience_drills.drills import fresh_host_bootstrap  # noqa: F401
-    from app.resilience_drills.protocol import _registry
+    from app.resilience_drills.protocol import get_registry
 
-    assert "fresh_host_bootstrap" in _registry.list_names()
+    names = {s.name for s in get_registry().list_specs()}
+    assert "fresh_host_bootstrap" in names
 
 
 def test_runtime_settings_master_switch_default_on():
