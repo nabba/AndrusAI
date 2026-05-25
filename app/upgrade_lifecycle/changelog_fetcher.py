@@ -25,6 +25,7 @@ out of the daemon loop.
 from __future__ import annotations
 
 import hashlib
+import html.parser as html_parser
 import json
 import logging
 import os
@@ -94,6 +95,12 @@ try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read()
 
+    @_with_budget(connector="upgrade_lifecycle_changelog", daily_call_cap=200)
+    def _budgeted_changelog_get(url: str, timeout: int) -> bytes:
+        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+
     _BUDGET_AVAILABLE = True
 except Exception:
     _BUDGET_AVAILABLE = False
@@ -107,6 +114,11 @@ except Exception:
             return resp.read()
 
     def _budgeted_github_get(url: str, timeout: int) -> bytes:  # type: ignore[no-redef]
+        req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read()
+
+    def _budgeted_changelog_get(url: str, timeout: int) -> bytes:  # type: ignore[no-redef]
         req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read()
@@ -524,18 +536,34 @@ def _assemble_excerpt(
     to_version: str,
     pypi_metadata: Optional[dict[str, Any]],
     github_releases: list[dict[str, Any]],
+    changelog_section: Optional[str] = None,
 ) -> tuple[str, str]:
     """Build the changelog text the LLM will read.
 
-    Returns ``(text, source_label)`` where source_label is the most
-    authoritative source we found (``"github_releases"`` is preferred
-    over ``"pypi"`` because GitHub release bodies are typically much
-    richer than PyPI's ``description`` field).
+    Returns ``(text, source_label)`` where source_label reflects the
+    most authoritative source we found:
+
+      * ``"changelog_url"`` — project CHANGELOG.md sliced to the version
+        range (Gap 5 third adapter; often the richest signal for
+        packages with a curated changelog).
+      * ``"github_releases"`` — GitHub release bodies.
+      * ``"pypi"`` — PyPI ``description`` field.
+
+    When multiple sources are present, the changelog section is
+    PREPENDED to the GitHub release bodies (LLM sees both). The label
+    reports the most authoritative source actually included.
     """
     chunks: list[str] = [f"# {package} {from_version} → {to_version}"]
     source_label = "pypi"
+    have_content = False
+    if changelog_section and changelog_section.strip():
+        chunks.append("\n## project changelog\n")
+        chunks.append(changelog_section.strip())
+        source_label = "changelog_url"
+        have_content = True
     if github_releases:
-        source_label = "github_releases"
+        if source_label == "pypi":
+            source_label = "github_releases"
         for rel in github_releases:
             tag = rel.get("tag_name") or rel.get("name") or "?"
             published = rel.get("published_at") or ""
@@ -543,7 +571,8 @@ def _assemble_excerpt(
             chunks.append(f"\n## release {tag}  ({published})")
             if body:
                 chunks.append(body)
-    elif pypi_metadata:
+        have_content = True
+    if not have_content and pypi_metadata:
         info = pypi_metadata.get("info") or {}
         desc = (info.get("description") or "").strip()
         if desc:
@@ -555,6 +584,194 @@ def _assemble_excerpt(
     return text, source_label
 
 
+# ── Gap 5: CHANGELOG.md URL adapter (third content source) ──────────────
+
+
+class _ChangelogTextExtractor(html_parser.HTMLParser):
+    """Strip HTML tags, preserving text content and inserting newlines
+    for block-level elements so heading slicing still works on rendered
+    pages. Stdlib-only — no BeautifulSoup dependency."""
+
+    _BLOCK_TAGS = frozenset({
+        "p", "br", "div", "section", "article", "li", "ul", "ol",
+        "h1", "h2", "h3", "h4", "h5", "h6", "pre", "blockquote", "tr",
+    })
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self._skip_depth += 1
+        elif tag in self._BLOCK_TAGS:
+            self._parts.append("\n")
+        if tag.startswith("h") and len(tag) == 2 and tag[1].isdigit():
+            # Re-emit a markdown-style heading marker so the version
+            # slicer can find boundaries on rendered HTML.
+            level = int(tag[1])
+            self._parts.append("\n" + ("#" * level) + " ")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style") and self._skip_depth > 0:
+            self._skip_depth -= 1
+        elif tag in self._BLOCK_TAGS:
+            self._parts.append("\n")
+
+    def handle_data(self, data):
+        if self._skip_depth == 0:
+            self._parts.append(data)
+
+    def get_text(self) -> str:
+        joined = "".join(self._parts)
+        # Collapse 3+ consecutive newlines to 2 (paragraph break) and
+        # leading whitespace on each line trimmed.
+        joined = re.sub(r"\n{3,}", "\n\n", joined)
+        joined = "\n".join(line.rstrip() for line in joined.splitlines())
+        return joined.strip()
+
+
+def _strip_html(text: str) -> str:
+    """Return the textual content of an HTML document, preserving
+    semantic block boundaries (so version-heading slicing still works)."""
+    parser = _ChangelogTextExtractor()
+    try:
+        parser.feed(text)
+        parser.close()
+    except Exception:
+        # html.parser is permissive but not infallible — on parse error
+        # fall back to a naive tag-strip rather than dropping the source.
+        return re.sub(r"<[^>]+>", "", text)
+    return parser.get_text()
+
+
+_VERSION_HEADING_RE = re.compile(
+    # Match common changelog heading shapes:
+    #   ## 1.2.3
+    #   ## v1.2.3
+    #   ## [1.2.3]
+    #   ## 1.2.3 (2026-01-01)
+    #   1.2.3
+    #   -----
+    # The version capture is the numeric core; the ``v`` prefix and any
+    # surrounding brackets are absorbed by the alternation.
+    r"^(?:#{1,6}\s+)?\[?v?(?P<ver>\d+(?:\.\d+){1,3})\]?(?:\s|$|\(|—|-)",
+    re.MULTILINE,
+)
+
+
+def _slice_changelog_versions(
+    text: str, from_version: str, to_version: str,
+) -> str:
+    """Slice the changelog text to the section bracketing ``from_version``
+    (exclusive) and ``to_version`` (inclusive).
+
+    Returns an empty string when no heading for ``to_version`` is found
+    — in that case the whole text would be misleading, so we decline
+    and the LLM gets PyPI + GitHub material only.
+    """
+    if not text.strip():
+        return ""
+    needle_to = _normalize_version(to_version)
+    needle_from = _normalize_version(from_version)
+
+    # Collect every (position, normalized_version) heading occurrence.
+    matches: list[tuple[int, str]] = []
+    for m in _VERSION_HEADING_RE.finditer(text):
+        matches.append((m.start(), _normalize_version(m.group("ver"))))
+    if not matches:
+        return ""
+
+    # Find the first heading that matches `to_version`.
+    to_idx: Optional[int] = None
+    for i, (_, ver) in enumerate(matches):
+        if ver == needle_to:
+            to_idx = i
+            break
+    if to_idx is None:
+        return ""
+
+    # The slice runs from the to_version heading downward through every
+    # heading until (but not including) the from_version heading. If
+    # from_version is not found, take everything from to_idx to the end
+    # — better to over-include than under-include for fresh-cut releases.
+    end_pos: Optional[int] = None
+    for i in range(to_idx + 1, len(matches)):
+        if matches[i][1] == needle_from:
+            end_pos = matches[i][0]
+            break
+    start = matches[to_idx][0]
+    section = text[start:end_pos] if end_pos is not None else text[start:]
+    return section.strip()
+
+
+def _changelog_url_from_pypi(
+    pypi_metadata: Optional[dict[str, Any]],
+) -> Optional[str]:
+    """Extract the project-declared CHANGELOG URL from PyPI metadata.
+
+    PEP 621 standardises ``project.urls`` (PyPI exposes via
+    ``info.project_urls``). Maintainers commonly use ``Changelog``,
+    ``Changes``, ``Release Notes``, or ``History`` — we accept any of
+    those keys case-insensitively, since enforcing one canonical name
+    would miss many projects."""
+    if not pypi_metadata:
+        return None
+    info = pypi_metadata.get("info") or {}
+    urls = info.get("project_urls") or {}
+    if not isinstance(urls, dict):
+        return None
+    accepted_keys = ("changelog", "changes", "release notes",
+                     "release-notes", "history")
+    for key, val in urls.items():
+        if isinstance(key, str) and key.strip().lower() in accepted_keys:
+            if isinstance(val, str) and val.startswith(("http://", "https://")):
+                return val
+    return None
+
+
+def _fetch_changelog_section(
+    pypi_metadata: Optional[dict[str, Any]],
+    from_version: str,
+    to_version: str,
+) -> Optional[str]:
+    """Fetch the project CHANGELOG (when declared) and slice it to the
+    version range. Returns None on any failure path — adapter never
+    blocks the rest of the pipeline.
+
+    Failure modes (each silent, recoverable):
+      * No Changelog URL in project_urls
+      * URL fetch blocked by connector budget
+      * URL fetch raises (404, timeout, DNS)
+      * No version heading matches ``to_version``
+    """
+    url = _changelog_url_from_pypi(pypi_metadata)
+    if not url:
+        return None
+    try:
+        body = _budgeted_changelog_get(url, timeout=_REQUEST_TIMEOUT_S)
+    except (_BudgetExceeded, urllib.error.URLError, urllib.error.HTTPError,
+            TimeoutError):
+        return None
+    except Exception:
+        logger.debug("ul: changelog fetch failed for %s", url, exc_info=True)
+        return None
+    try:
+        text = body.decode("utf-8", errors="replace")
+    except Exception:
+        return None
+    # HTML pages (most readthedocs / sphinx sites) require tag-strip;
+    # plain markdown passes through. We detect with a permissive sniff.
+    sniff = text[:1024].lower()
+    if "<html" in sniff or "<!doctype html" in sniff or "<body" in sniff:
+        text = _strip_html(text)
+    section = _slice_changelog_versions(text, from_version, to_version)
+    if not section:
+        return None
+    return section
+
+
 def _extract_with_llm(
     *,
     excerpt: str,
@@ -562,11 +779,15 @@ def _extract_with_llm(
     from_version: str,
     to_version: str,
     llm_builder: Optional[Callable[[], Any]] = None,
+    system_prompt_suffix: str = "",
 ) -> Optional[dict[str, Any]]:
     """Issue the LLM call via the factory. Returns parsed dict or None.
 
     ``llm_builder`` is injectable for tests so they can return a
     deterministic stub instead of hitting the real factory + network.
+
+    ``system_prompt_suffix`` is appended to the system prompt — used by
+    the linter retry path to strengthen the constraint after a HARD_FAIL.
     """
     try:
         if llm_builder is None:
@@ -582,6 +803,10 @@ def _extract_with_llm(
         logger.debug("ul: llm factory unavailable", exc_info=True)
         return None
 
+    system_prompt = _LLM_SYSTEM_PROMPT
+    if system_prompt_suffix:
+        system_prompt = f"{system_prompt}\n\n{system_prompt_suffix}"
+
     user_msg = (
         f"package: {package}\nfrom_version: {from_version}\n"
         f"to_version: {to_version}\n\n"
@@ -590,7 +815,7 @@ def _extract_with_llm(
     try:
         raw = str(llm.call(
             [
-                {"role": "system", "content": _LLM_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_msg},
             ]
         )).strip()
@@ -598,6 +823,98 @@ def _extract_with_llm(
         logger.debug("ul: llm call failed", exc_info=True)
         return None
     return _parse_strict_json(raw)
+
+
+# ── Phenomenal-language discipline at the producer (Gap 3) ──────────────
+
+
+_TEXT_FIELDS_LIST = ("new_features", "deprecations", "breaking_changes",
+                     "security_fixes", "perf_notes")
+_TEXT_FIELDS_STR = ("license_change", "notes")
+
+
+def _iter_text_fragments(parsed: dict[str, Any]) -> list[tuple[str, str]]:
+    """Flatten the LLM-parsed dict into ``(field, fragment)`` pairs for
+    linting. Each list entry becomes its own fragment so a HARD_FAIL on
+    one entry doesn't taint sibling entries."""
+    fragments: list[tuple[str, str]] = []
+    for field in _TEXT_FIELDS_LIST:
+        for entry in parsed.get(field) or ():
+            if isinstance(entry, str) and entry.strip():
+                fragments.append((field, entry))
+    for field in _TEXT_FIELDS_STR:
+        val = parsed.get(field)
+        if isinstance(val, str) and val.strip():
+            fragments.append((field, val))
+    return fragments
+
+
+def _lint_extraction(parsed: dict[str, Any]) -> tuple[set[str], list]:
+    """Return ``(failing_fields, violations)``.
+
+    A field is "failing" if any of its fragments HARD_FAILs the linter.
+    The caller decides whether to retry the LLM or blank the failing
+    fields. Failure-isolated: if the linter module isn't importable,
+    return (empty set, empty list) so extraction proceeds.
+    """
+    try:
+        from app.subia.inquiry.linter import PhenomenalLanguageLinter
+    except Exception:
+        return set(), []
+    linter = PhenomenalLanguageLinter()
+    failing: set[str] = set()
+    all_violations: list = []
+    for field, text in _iter_text_fragments(parsed):
+        try:
+            result = linter.lint(text)
+        except Exception:
+            continue
+        if not result.ok:
+            failing.add(field)
+            all_violations.extend(result.hard_fails)
+    return failing, all_violations
+
+
+def _blank_failing_fields(parsed: dict[str, Any],
+                          failing: set[str]) -> dict[str, Any]:
+    """Return a shallow copy with every failing field replaced by its
+    empty value (list → [], str → ""). Successful fields are preserved
+    verbatim — partial extraction beats refusing the whole row."""
+    cleaned = dict(parsed)
+    for field in failing:
+        if field in _TEXT_FIELDS_LIST:
+            cleaned[field] = []
+        elif field in _TEXT_FIELDS_STR:
+            cleaned[field] = ""
+    return cleaned
+
+
+def _record_linter_rejection(*, package: str, to_version: str,
+                              violations: list, parsed: dict[str, Any]) -> None:
+    """Append a row to the shared linter-rejection telemetry. Reuses
+    ``app.threads.linter_telemetry`` (the surface the daily briefing
+    already aggregates from). Failure-isolated."""
+    try:
+        from app.threads.linter_telemetry import record_rejection
+        # body_text_len is the closest analogue to "how much LLM
+        # output was scrubbed" — sum each fragment's length.
+        body_len = sum(len(t) for _, t in _iter_text_fragments(parsed))
+        record_rejection(
+            thread_id=f"capability:{package}:{to_version}",
+            violations=violations,
+            body_text_len=body_len,
+        )
+    except Exception:
+        logger.debug("ul: linter rejection telemetry failed", exc_info=True)
+
+
+_LINT_RETRY_SUFFIX = (
+    "IMPORTANT — discipline reminder. Treat the changelog as a technical "
+    "document. Use third-person, factual language ('The library adds X', "
+    "'API Y was removed'). Do NOT use first-person phenomenal claims "
+    "('I noticed', 'I felt', 'I am curious', etc.) — these are forbidden "
+    "and will be rejected."
+)
 
 
 def _parse_strict_json(text: str) -> Optional[dict[str, Any]]:
@@ -668,6 +985,8 @@ def extract_for_package(
     *,
     metadata_fetcher: Optional[Callable[[str], Optional[dict[str, Any]]]] = None,
     releases_fetcher: Optional[Callable[[str, str], list[dict[str, Any]]]] = None,
+    changelog_fetcher: Optional[Callable[[Optional[dict], str, str],
+                                          Optional[str]]] = None,
     llm_builder: Optional[Callable[[], Any]] = None,
 ) -> Optional[Capability]:
     """End-to-end extraction for one upgrade.
@@ -713,7 +1032,18 @@ def extract_for_package(
                 raw_releases, from_version=from_version, to_version=to_version,
             )
 
-    if not pypi_metadata and not releases:
+    # Gap 5 — third content source. CHANGELOG.md (or equivalent) often
+    # has richer, semver-headed release notes than either PyPI's
+    # description or sparse GitHub release bodies. Adapter is failure-
+    # isolated end-to-end — None on any error path.
+    changelog_section: Optional[str] = None
+    cl_fn = changelog_fetcher or _fetch_changelog_section
+    try:
+        changelog_section = cl_fn(pypi_metadata, from_version, to_version)
+    except Exception:
+        logger.debug("ul: changelog adapter raised; ignored", exc_info=True)
+
+    if not pypi_metadata and not releases and not changelog_section:
         logger.debug("ul: no source material for %s %s→%s",
                      package, from_version, to_version)
         return None
@@ -724,6 +1054,7 @@ def extract_for_package(
         to_version=to_version,
         pypi_metadata=pypi_metadata,
         github_releases=releases,
+        changelog_section=changelog_section,
     )
     if not excerpt.strip():
         return None
@@ -745,6 +1076,46 @@ def extract_for_package(
     )
     if not parsed:
         return None
+
+    # Gap 3 — phenomenal-language discipline at the producer. Lint each
+    # LLM-emitted text fragment; on HARD_FAIL retry the call once with
+    # a strengthened system prompt. If still failing, blank only the
+    # offending fields (preserve clean siblings) and record telemetry.
+    # Capped at one retry to bound cost — at $0.10/call the worst case
+    # is $0.20 per linted extraction.
+    failing, _ = _lint_extraction(parsed)
+    if failing:
+        retried = _extract_with_llm(
+            excerpt=excerpt,
+            package=package,
+            from_version=from_version,
+            to_version=to_version,
+            llm_builder=llm_builder,
+            system_prompt_suffix=_LINT_RETRY_SUFFIX,
+        )
+        _record_extraction_attempt(
+            package=package, to_version=to_version,
+            succeeded=bool(retried),
+        )
+        if retried:
+            parsed = retried
+            failing, retry_violations = _lint_extraction(parsed)
+            if failing:
+                _record_linter_rejection(
+                    package=package, to_version=to_version,
+                    violations=retry_violations, parsed=parsed,
+                )
+                parsed = _blank_failing_fields(parsed, failing)
+        else:
+            # Retry hit a transient LLM failure — keep the first parse
+            # but scrub the offending fields rather than serving a
+            # phenomenal claim. Telemetry uses the first-pass parse.
+            _, first_violations = _lint_extraction(parsed)
+            _record_linter_rejection(
+                package=package, to_version=to_version,
+                violations=first_violations, parsed=parsed,
+            )
+            parsed = _blank_failing_fields(parsed, failing)
 
     excerpt_for_hash = excerpt[:_MAX_EXCERPT_FOR_HASH].encode("utf-8")
     cap = Capability(

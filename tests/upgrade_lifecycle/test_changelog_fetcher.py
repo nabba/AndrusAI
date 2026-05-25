@@ -600,3 +600,345 @@ def test_read_capabilities_round_trip(isolated_dir, enabled, fake_llm_returning)
         "New http.Client supports streaming uploads",
     )
     assert cap.security_fixes[0].startswith("CVE-2026")
+
+
+# ── Gap 3: PhenomenalLanguageLinter at the producer ─────────────────────
+
+
+@pytest.fixture
+def fake_llm_sequence():
+    """Return a builder that yields a sequence of canned replies — one per
+    call. Used to model retry-after-HARD_FAIL paths."""
+    def _make(replies: list[str]):
+        class _SeqLLM:
+            def __init__(self, replies: list[str]) -> None:
+                self._replies = list(replies)
+                self.calls = 0
+
+            def call(self, _messages):
+                self.calls += 1
+                if not self._replies:
+                    return self._replies and "" or ""  # exhausted
+                return self._replies.pop(0)
+
+        llm = _SeqLLM(replies)
+        return lambda: llm, llm
+    return _make
+
+
+def _dirty_llm_reply() -> str:
+    """Reply containing a HARD_FAIL phrase ('I am curious') in notes."""
+    return json.dumps({
+        "new_features": ["Added asyncio.TaskGroup for structured concurrency"],
+        "deprecations": [],
+        "breaking_changes": [],
+        "security_fixes": [],
+        "perf_notes": [],
+        "license_change": "",
+        "notes": "I am curious about whether this release improves throughput.",
+    })
+
+
+def _clean_llm_reply() -> str:
+    return json.dumps({
+        "new_features": ["Added asyncio.TaskGroup for structured concurrency"],
+        "deprecations": [],
+        "breaking_changes": [],
+        "security_fixes": [],
+        "perf_notes": [],
+        "license_change": "",
+        "notes": "The release improves throughput on nested-dict workloads.",
+    })
+
+
+def test_linter_retry_succeeds_on_second_call(
+    isolated_dir, enabled, fake_llm_sequence,
+):
+    """Gap 3 — first reply contains 'I am curious' (HARD_FAIL on notes
+    field); the retry returns a clean reply; the stored Capability has
+    the clean notes verbatim."""
+    builder, llm = fake_llm_sequence([_dirty_llm_reply(), _clean_llm_reply()])
+    cap = cf.extract_for_package(
+        "alpha", "1.0", "2.0",
+        metadata_fetcher=_meta_fetcher_for(description="release notes"),
+        releases_fetcher=lambda fv, tv: [],
+        llm_builder=builder,
+    )
+    assert cap is not None
+    assert llm.calls == 2                       # one retry happened
+    assert "I am curious" not in cap.notes
+    assert "improves throughput" in cap.notes
+    assert "TaskGroup" in cap.new_features[0]
+
+
+def test_linter_failure_after_retry_blanks_only_failing_field(
+    isolated_dir, enabled, fake_llm_sequence, monkeypatch,
+):
+    """Gap 3 — both first AND retry replies contain HARD_FAIL in notes;
+    only the notes field is blanked. Clean siblings (new_features)
+    survive verbatim. Telemetry row is recorded."""
+    recorded: list[dict] = []
+    def _capture(**kwargs):
+        recorded.append(kwargs)
+        return True
+    monkeypatch.setattr(
+        "app.threads.linter_telemetry.record_rejection", _capture,
+    )
+
+    builder, llm = fake_llm_sequence([_dirty_llm_reply(), _dirty_llm_reply()])
+    cap = cf.extract_for_package(
+        "beta", "1.0", "2.0",
+        metadata_fetcher=_meta_fetcher_for(description="notes"),
+        releases_fetcher=lambda fv, tv: [],
+        llm_builder=builder,
+    )
+    assert cap is not None
+    assert llm.calls == 2                       # exactly one retry
+    # Clean siblings preserved
+    assert cap.new_features == (
+        "Added asyncio.TaskGroup for structured concurrency",
+    )
+    # Failing field blanked
+    assert cap.notes == ""
+    # Telemetry recorded with capability-scoped thread_id
+    assert len(recorded) == 1
+    assert recorded[0]["thread_id"] == "capability:beta:2.0"
+    assert recorded[0]["violations"]            # non-empty
+
+
+def test_linter_bounds_retries_to_one_even_on_persistent_failure(
+    isolated_dir, enabled, fake_llm_sequence,
+):
+    """Gap 3 — cost cap. Even with three dirty replies queued, only the
+    first two are consumed (one initial + one retry); the third remains
+    in the queue."""
+    builder, llm = fake_llm_sequence(
+        [_dirty_llm_reply(), _dirty_llm_reply(), _dirty_llm_reply()],
+    )
+    cap = cf.extract_for_package(
+        "gamma", "1.0", "2.0",
+        metadata_fetcher=_meta_fetcher_for(description="notes"),
+        releases_fetcher=lambda fv, tv: [],
+        llm_builder=builder,
+    )
+    assert cap is not None
+    assert llm.calls == 2
+
+
+def test_linter_clean_reply_does_not_trigger_retry(
+    isolated_dir, enabled, fake_llm_sequence,
+):
+    """Gap 3 — when the first reply is clean, no retry; LLM called once."""
+    builder, llm = fake_llm_sequence([_clean_llm_reply()])
+    cap = cf.extract_for_package(
+        "delta", "1.0", "2.0",
+        metadata_fetcher=_meta_fetcher_for(description="notes"),
+        releases_fetcher=lambda fv, tv: [],
+        llm_builder=builder,
+    )
+    assert cap is not None
+    assert llm.calls == 1
+    assert "improves throughput" in cap.notes
+
+
+# ── Gap 5: CHANGELOG.md URL adapter ─────────────────────────────────────
+
+
+_FAKE_CHANGELOG_MD = """# Changelog
+
+## 2.0.0 (2026-01-15)
+
+* Added asyncio.TaskGroup support for structured concurrency
+* Removed legacy Server.start_loop(); use Server.run() instead
+
+## 1.9.5 (2025-12-01)
+
+* Bugfix: parse_url crash on empty input
+
+## 1.0 (2025-01-01)
+
+* Initial release
+"""
+
+_FAKE_CHANGELOG_HTML = """<!DOCTYPE html>
+<html><body>
+<h1>Changelog</h1>
+<h2>2.0.0 (2026-01-15)</h2>
+<ul>
+<li>Added asyncio.TaskGroup for structured concurrency</li>
+<li>Removed legacy Server.start_loop()</li>
+</ul>
+<h2>1.9.5</h2>
+<ul><li>Bugfix: parse_url</li></ul>
+<h2>1.0</h2>
+<ul><li>Initial release</li></ul>
+</body></html>
+"""
+
+
+def test_changelog_url_extraction_finds_standard_keys():
+    """Gap 5 — accept Changelog / Changes / Release Notes / History."""
+    for key in ("Changelog", "Changes", "Release Notes", "History",
+                "release-notes", "CHANGELOG"):
+        md = {"info": {"project_urls": {key: "https://example.org/changes"}}}
+        assert cf._changelog_url_from_pypi(md) == "https://example.org/changes"
+
+
+def test_changelog_url_extraction_ignores_non_http_values():
+    md = {"info": {"project_urls": {"Changelog": "not-a-url"}}}
+    assert cf._changelog_url_from_pypi(md) is None
+
+
+def test_changelog_url_extraction_returns_none_when_absent():
+    md = {"info": {"project_urls": {"Source": "https://github.com/x/y"}}}
+    assert cf._changelog_url_from_pypi(md) is None
+
+
+def test_slice_changelog_versions_markdown_inclusive_to_exclusive_from():
+    """Section [to=2.0.0 .. from=1.0) bounded — 1.9.5 included, 1.0 excluded."""
+    section = cf._slice_changelog_versions(
+        _FAKE_CHANGELOG_MD, from_version="1.0", to_version="2.0.0",
+    )
+    assert "TaskGroup" in section
+    assert "1.9.5" in section
+    assert "Initial release" not in section
+
+
+def test_slice_changelog_versions_returns_empty_when_to_missing():
+    """No heading matches to_version → empty string (caller falls back)."""
+    section = cf._slice_changelog_versions(
+        _FAKE_CHANGELOG_MD, from_version="1.0", to_version="9.9.9",
+    )
+    assert section == ""
+
+
+def test_slice_changelog_versions_handles_v_prefix_and_brackets():
+    text = """## [v2.1.0]
+- Foo
+
+## v1.0.0
+- Bar
+"""
+    section = cf._slice_changelog_versions(text, "1.0.0", "2.1.0")
+    assert "Foo" in section
+    assert "Bar" not in section
+
+
+def test_strip_html_preserves_headings_for_slicing():
+    text = cf._strip_html(_FAKE_CHANGELOG_HTML)
+    # Headings re-emitted with markdown markers
+    assert "## 2.0.0" in text
+    assert "TaskGroup" in text
+    # script / style content excluded (none in fixture; just verify clean)
+    assert "<script" not in text
+
+
+def test_strip_html_drops_script_and_style_content():
+    text = cf._strip_html(
+        "<html><script>alert('x');</script><h2>1.0</h2>"
+        "<style>body{color:red}</style><p>real</p></html>"
+    )
+    assert "alert" not in text
+    assert "color:red" not in text
+    assert "real" in text
+    assert "1.0" in text
+
+
+def test_fetch_changelog_section_success_markdown(monkeypatch):
+    """Gap 5 — full path with monkeypatched HTTP returning markdown."""
+    captured_urls: list[str] = []
+    def _fake_get(url, timeout):
+        captured_urls.append(url)
+        return _FAKE_CHANGELOG_MD.encode("utf-8")
+    monkeypatch.setattr(cf, "_budgeted_changelog_get", _fake_get)
+
+    md = {"info": {"project_urls": {
+        "Changelog": "https://example.org/CHANGELOG.md",
+    }}}
+    section = cf._fetch_changelog_section(md, "1.0", "2.0.0")
+    assert section is not None
+    assert "TaskGroup" in section
+    assert captured_urls == ["https://example.org/CHANGELOG.md"]
+
+
+def test_fetch_changelog_section_returns_none_when_no_url():
+    md = {"info": {"project_urls": {}}}
+    assert cf._fetch_changelog_section(md, "1.0", "2.0.0") is None
+
+
+def test_fetch_changelog_section_returns_none_on_fetch_failure(monkeypatch):
+    def _fake_get(url, timeout):
+        raise TimeoutError("simulated")
+    monkeypatch.setattr(cf, "_budgeted_changelog_get", _fake_get)
+    md = {"info": {"project_urls": {"Changelog": "https://example.org/x"}}}
+    assert cf._fetch_changelog_section(md, "1.0", "2.0") is None
+
+
+def test_assemble_excerpt_prepends_changelog_section_to_releases():
+    """Gap 5 — when both changelog + GitHub releases present, changelog
+    is included first and label upgrades to 'changelog_url'."""
+    text, label = cf._assemble_excerpt(
+        package="x", from_version="1.0", to_version="2.0",
+        pypi_metadata={"info": {"description": "pypi"}},
+        github_releases=[{"tag_name": "v2.0", "body": "release body",
+                          "published_at": "2026-01-15"}],
+        changelog_section="## 2.0\nAdded structured concurrency",
+    )
+    assert label == "changelog_url"
+    assert "structured concurrency" in text
+    assert "release body" in text                # not lost
+    pos_cl = text.find("structured concurrency")
+    pos_gh = text.find("release body")
+    assert pos_cl < pos_gh                       # changelog comes first
+
+
+def test_assemble_excerpt_falls_back_when_no_changelog():
+    text, label = cf._assemble_excerpt(
+        package="x", from_version="1.0", to_version="2.0",
+        pypi_metadata=None,
+        github_releases=[{"tag_name": "v2.0", "body": "release body",
+                          "published_at": "2026-01-15"}],
+        changelog_section=None,
+    )
+    assert label == "github_releases"
+    assert "release body" in text
+
+
+def test_extract_for_package_uses_changelog_when_releases_empty(
+    isolated_dir, enabled, fake_llm_returning,
+):
+    """Gap 5 — full pipeline: changelog adapter supplies the only
+    content; capability is stored with source='changelog_url'."""
+    builder, _ = fake_llm_returning(_good_llm_reply())
+    cap = cf.extract_for_package(
+        "lonely", "1.0", "2.0.0",
+        metadata_fetcher=_meta_fetcher_for(
+            project_urls={"Changelog": "https://example.org/c.md"},
+        ),
+        releases_fetcher=lambda fv, tv: [],
+        changelog_fetcher=lambda md, fv, tv: "## 2.0.0\nAdded asyncio.TaskGroup",
+        llm_builder=builder,
+    )
+    assert cap is not None
+    assert cap.source == "changelog_url"
+
+
+def test_extract_for_package_changelog_adapter_failure_does_not_block(
+    isolated_dir, enabled, fake_llm_returning,
+):
+    """Gap 5 — changelog adapter raising must not break extraction;
+    pipeline falls back to PyPI + GitHub paths."""
+    builder, _ = fake_llm_returning(_good_llm_reply())
+    def _exploding_changelog(md, fv, tv):
+        raise RuntimeError("simulated changelog failure")
+    cap = cf.extract_for_package(
+        "robust", "1.0", "2.0",
+        metadata_fetcher=_meta_fetcher_for(
+            description="## Changelog\n\nv2.0 - added X",
+        ),
+        releases_fetcher=lambda fv, tv: [],
+        changelog_fetcher=_exploding_changelog,
+        llm_builder=builder,
+    )
+    assert cap is not None
+    assert cap.source == "pypi"

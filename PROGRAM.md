@@ -12557,7 +12557,6 @@ via existing `summarise_drift` Counter — no manual wiring.
 * `upgrade_lifecycle_major_auto_cr_enabled`
 * `upgrade_lifecycle_capability_adoption_enabled`
 * `upgrade_lifecycle_capability_budget_usd_quarterly` (numeric, 20.0)
-* `upgrade_lifecycle_use_shinka_for_refactor` (opt-in, default OFF)
 * `ecosystem_snapshot_enabled`
 * `python_eol_proximity_monitor_enabled`
 * `upgrade_lifecycle_health_monitor_enabled`
@@ -13015,6 +13014,192 @@ absence; don't delete the wiki page after cutover).
 262 passing + 15 environment-skipped in ``tests/upgrade_lifecycle/``.
 Regression on adjacent modules (proposal_bridge + Q13 +
 phase_d_connector_wraps): 75 + 2 skipped.
+
+
+## §63.11 — Same-day gap closure pass (G1–G5, 2026-05-26)
+
+Audit of the §63 ship after §63.10 surfaced seven specific gaps
+between the plan and the implementation. Two were deliberate
+improvements over the plan (consolidated docs, operationally softened
+threshold) and stayed as-shipped. Five were real gaps; closed in one
+pass. All additive, no TIER_IMMUTABLE touches, no behavior change at
+master-switch-OFF, 41 new tests.
+
+### §63.11.1 — G1: Dead `upgrade_lifecycle_use_shinka_for_refactor` switch
+
+The plan deferred U5.1 (ShinkaEvolve-driven multi-variant refactors)
+to a follow-on phase but landed the runtime_settings entry + getter +
+setter anyway, including a row in the operator-facing Default-OFF
+table in ``docs/UPGRADE_LIFECYCLE.md``. Zero consumers existed in
+``app/upgrade_lifecycle/``; the switch was misleading code that
+implied a capability the system didn't have.
+
+Deleted the default + accessors from ``app/runtime_settings.py``,
+removed the doc table row, removed the bullet from §63.3. Re-add the
+switch in the same PR that implements U5.1 — the scorer-synthesis
+problem (how to score a refactor candidate without already having
+tests for the new behaviour) is the real hurdle there, not the
+wiring.
+
+### §63.11.2 — G2: Smoke-runner hook on `run_trial`
+
+The plan's U3 included an *optional* "shadow-data smoke" — ephemeral
+chromadb client against a bind-mounted snapshot. Shipped without it.
+Real gap because pytest exercises code the test suite knows about
+while real production data formats often aren't in scope; a bump that
+changes on-disk format would pass pytest but fail in production.
+
+Closed by adding a **generic hook** to ``app/upgrade_lifecycle/
+trial_runner.py``: ``run_trial(..., smoke_runners=...)`` accepts a
+tuple of ``Callable[[Path], dict]``. New field
+``TrialResult.smoke_results: tuple[dict, ...]``. **Smoke failures DO
+NOT downgrade trial status** — they're append-only signals that U4's
+gate and operator review consume separately.
+
+New ``app/upgrade_lifecycle/smokes/`` package with a per-package
+registry (``register(package, runner)`` / ``runners_for(package)``)
+and a reference implementation at ``smokes/chromadb.py``: copies the
+latest ``.sqlite_snapshots/*.db`` under ``WORKSPACE_ROOT`` to a
+scratch dir, runs the BUMPED chromadb in the trial venv as a
+subprocess (via ``<venv>/bin/python -c <snippet>``), reports
+collection count + ok/fail/error. Failure-isolated end to end — a
+raising runner becomes a recorded ``status="error"`` row.
+
+Auto-registers at module import. 7 new trial_runner tests + 12 new
+chromadb-smoke tests, all passing.
+
+### §63.11.3 — G3: PhenomenalLanguageLinter at U1 capability extraction
+
+The plan called for "phenomenal-language linter applied (same as
+annual reflection)" on the ecosystem snapshot. Shipped without it.
+The right *location* for the lint is upstream of the snapshot — the
+only LLM-generated text in the snapshot is ``capability_summary``,
+which originates at U1 (``changelog_fetcher``). Linting at the
+producer catches phenomenal language as it enters the system, not at
+every downstream rendering site.
+
+Added ``_lint_extraction(parsed) -> (failing_fields, violations)`` to
+``changelog_fetcher.py`` — runs ``PhenomenalLanguageLinter`` over
+every text fragment (one per list entry plus ``license_change`` /
+``notes``). On HARD_FAIL the LLM call retries ONCE with a strengthened
+system prompt (``_LINT_RETRY_SUFFIX``). If the retry still fails, only
+the offending fields are blanked via ``_blank_failing_fields`` —
+clean siblings are preserved verbatim (partial extraction beats
+refusing the row). A rejection row is written through the existing
+``app.threads.linter_telemetry.record_rejection`` with
+``thread_id="capability:<pkg>:<ver>"`` so the existing daily-briefing
+"🚫 Phenomenal-language rejections" surface aggregates it.
+
+Cost ceiling: 2× normal extraction cost in the worst case (one
+retry); typical extraction is unaffected since technical-changelog
+text rarely contains phenomenal claims. 4 new tests pin every branch.
+
+### §63.11.4 — G4: Snapshot-creation Signal notify
+
+The plan promised "Notify on annual snapshot creation with dual-
+device dashboard links (``dashboard_links.signal_links_block
+("/cp/ecosystem")``)". Shipped logging-only. Operator-blind-spot: the
+year's major-upgrade plan landed silently every January and the
+operator could miss it until next-year drift caused a separate
+surface to fire.
+
+Added ``_notify_snapshot_ready(snapshot)`` to ``idle_jobs.py``: fires
+``notify(title="📅 Ecosystem snapshot <year>", body=<summary +
+signal_links_block("/cp/ecosystem")>, url="/cp/ecosystem")``. Body
+mentions major-upgrade count + Python EOL distance (when <365 days).
+Failure-isolated: a broken push must never break the idle job. 2 new
+tests pin the success-fires-notify and notify-failure-swallowed
+paths.
+
+### §63.11.5 — G5: Third content source — project CHANGELOG.md URL
+
+The plan listed three content sources for U1: PyPI metadata, GitHub
+releases, project CHANGELOG URL (fall-through). Only the first two
+shipped (PyPI primary, GitHub as a connectivity fallback when PyPI is
+down — different mechanism). Many high-impact packages (pydantic,
+fastapi, anthropic SDK) have semver-headed CHANGELOG.md files that
+are far richer than either PyPI's description field or sparse GitHub
+release annotations.
+
+Closed with a real third adapter:
+
+  * ``_changelog_url_from_pypi`` reads ``info.project_urls`` and
+    accepts ``Changelog`` / ``Changes`` / ``Release Notes`` /
+    ``History`` (and case variants) — most projects use one of these.
+  * ``_budgeted_changelog_get`` is a new connector budget
+    ``upgrade_lifecycle_changelog`` (200 daily calls) so a misbehaving
+    upstream can't burn through unrelated budgets.
+  * ``_strip_html`` is a stdlib ``html.parser`` subclass that
+    preserves heading markers so the version slicer still works on
+    rendered HTML pages (readthedocs, sphinx). Script/style content
+    excluded.
+  * ``_slice_changelog_versions`` matches semver headings via a
+    permissive regex (``## 1.2.3``, ``## [v1.2.3]``, ``## 1.2.3
+    (date)``, ``1.2.3\n-----``) and returns the bracketed section —
+    ``to_version`` inclusive, ``from_version`` exclusive. Empty
+    string when ``to_version`` not found (caller falls back to PyPI
+    + GitHub).
+  * ``_assemble_excerpt`` accepts the new ``changelog_section`` kwarg
+    and **prepends** it to the GitHub release bodies. ``source``
+    label upgrades to ``changelog_url`` when present. LLM sees both.
+
+13 new tests cover the URL extractor (key variants), HTML stripper
+(headings preserved, script/style excluded), version slicer
+(inclusive/exclusive boundaries, v-prefix, brackets, missing
+``to_version``), full pipeline (success + adapter-raises-doesn't-
+block + sources-stacked + label-upgrades).
+
+### §63.11.6 — Non-gaps documented
+
+Two of the seven candidate gaps were left as-shipped because the
+shipping decision was deliberately better than the plan:
+
+  * **Separate ``ECOSYSTEM_SNAPSHOT.md`` doc** — the plan proposed
+    splitting into two docs; the ship folded everything into
+    ``UPGRADE_LIFECYCLE.md`` (which already has 13 numbered sections
+    covering activation, troubleshooting, monitors, etc.). Operators
+    think of "the upgrade system" as one mental model; fragmenting
+    would force a context switch. Keep as-is.
+  * **Backlog-staleness threshold 7d → 30d** — the plan called for
+    7d, the ship is 30d
+    (``_BACKLOG_STALENESS_DAYS = 30`` in
+    ``app/healing/monitors/upgrade_lifecycle_health.py``). 7d would
+    fire false-positive alerts during natural slow weeks (no
+    qualifying package releases, quarterly budget throttle, weekly
+    LIGHT idle cadence). 30d is the actionable threshold: "a whole
+    month with zero new capabilities — daemon is wedged."
+
+### §63.11.7 — Tests
+
+* ``tests/upgrade_lifecycle/test_idle_jobs.py``: +2 (snapshot notify)
+* ``tests/upgrade_lifecycle/test_changelog_fetcher.py``: +15 (4 Gap
+  3 + 13 Gap 5; -2 overlap is illusory)
+* ``tests/upgrade_lifecycle/test_trial_runner.py``: +7 (smoke hook)
+* ``tests/upgrade_lifecycle/test_smokes_chromadb.py``: 12 (new)
+
+Total cumulative ``tests/upgrade_lifecycle/``: 323 passed + 18
+skipped, 0 failures. Zero regressions on adjacent modules.
+
+### §63.11.8 — Files
+
+**Modified (10):**
+
+  * ``app/runtime_settings.py`` (deletion only)
+  * ``app/upgrade_lifecycle/changelog_fetcher.py`` (Gap 3 + Gap 5)
+  * ``app/upgrade_lifecycle/idle_jobs.py`` (Gap 4)
+  * ``app/upgrade_lifecycle/protocol.py`` (Gap 2 — ``smoke_results``)
+  * ``app/upgrade_lifecycle/trial_runner.py`` (Gap 2)
+  * ``docs/UPGRADE_LIFECYCLE.md`` (sections 2.1, 2.3, 6.4)
+  * ``PROGRAM.md`` (§63.3, §63.11 added)
+  * ``tests/upgrade_lifecycle/test_changelog_fetcher.py``
+  * ``tests/upgrade_lifecycle/test_idle_jobs.py``
+  * ``tests/upgrade_lifecycle/test_trial_runner.py``
+
+**New (3):**
+
+  * ``app/upgrade_lifecycle/smokes/__init__.py``
+  * ``app/upgrade_lifecycle/smokes/chromadb.py``
+  * ``tests/upgrade_lifecycle/test_smokes_chromadb.py``
 
 
 # §64 — Alignment-audit response: external-action gate + concierge label preservation (2026-05-23)

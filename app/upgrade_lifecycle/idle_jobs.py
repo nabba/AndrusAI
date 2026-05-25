@@ -87,7 +87,40 @@ def run_annual_snapshot() -> dict:
             "ul.idle: annual snapshot generated year=%d majors=%d",
             snapshot.year, len(snapshot.major_upgrades),
         )
+        _notify_snapshot_ready(snapshot)
     return out
+
+
+def _notify_snapshot_ready(snapshot) -> None:
+    """Fire a Signal + Web Push ping with iPhone/Mac links to /cp/ecosystem.
+
+    Without this, the annual major-upgrade plan lands silently in
+    ``wiki/self/ecosystem/<year>.md`` and the operator may not ratify
+    until next year's drift causes a separate surface to fire.
+    Failure-isolated: a broken notify must not break the idle job.
+    """
+    try:
+        from app.notify import notify
+        from app.dashboard_links import signal_links_block
+
+        body_lines = [
+            f"Year {snapshot.year}: {len(snapshot.major_upgrades)} "
+            f"major upgrades proposed.",
+        ]
+        days = snapshot.python_eol.get("days_until_eol")
+        if isinstance(days, (int, float)) and days < 365:
+            body_lines.append(f"Python EOL: {int(days)}d away.")
+        body_lines.append("")
+        body_lines.append(signal_links_block("/cp/ecosystem"))
+
+        notify(
+            title=f"📅 Ecosystem snapshot {snapshot.year}",
+            body="\n".join(body_lines),
+            url="/cp/ecosystem",
+            tag="upgrade_lifecycle",
+        )
+    except Exception:
+        logger.debug("ul.idle: snapshot notify failed", exc_info=True)
 
 
 # ── Capability-adoption pass (weekly; daily fire defers internally) ─────

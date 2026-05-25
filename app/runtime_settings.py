@@ -872,7 +872,6 @@ def _defaults() -> dict[str, Any]:
         # for ~150 outdated packages × turnover, but tight enough
         # that a buggy loop can't burn through credits.
         "upgrade_lifecycle_extraction_budget_usd_monthly": 5.0,
-        "upgrade_lifecycle_use_shinka_for_refactor": False,
         # P0#1a (PROGRAM §63 follow-up) — curated requirements.txt
         # writer. Default OFF until operator opts in — once on, the
         # apply_hook will mutate requirements.txt directly on approved
@@ -4287,19 +4286,6 @@ def set_upgrade_lifecycle_extraction_budget_usd_monthly(value: float) -> None:
     logger.info(
         "runtime_settings: upgrade_lifecycle monthly extraction budget = $%.2f", v,
     )
-
-
-def get_upgrade_lifecycle_use_shinka_for_refactor() -> bool:
-    """Opt-in switch for U5.1 — use ShinkaEvolve to drive multi-variant
-    refactor generation instead of a single direct factory LLM call.
-    Default OFF."""
-    return bool(_ensure_initialized().get(
-        "upgrade_lifecycle_use_shinka_for_refactor", False,
-    ))
-
-
-def set_upgrade_lifecycle_use_shinka_for_refactor(value: bool) -> None:
-    _update({"upgrade_lifecycle_use_shinka_for_refactor": bool(value)})
 
 
 def get_upgrade_lifecycle_requirements_writer_enabled() -> bool:

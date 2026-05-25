@@ -134,6 +134,11 @@ class TrialResult:
       * ``"install_failure"`` — pip install failed
       * ``"timeout"`` — pytest exceeded the wallclock cap
       * ``"infrastructure_error"`` — worktree spin / cleanup error
+
+    ``smoke_results`` (Gap 2) — per-smoke-runner verdicts. Each entry is
+    a dict with at minimum ``{"name": str, "status": "ok"|"fail"|"error",
+    "details": str}``. Runner-specific extra fields permitted. Empty when
+    no smoke runners are configured for the package.
     """
 
     package: str
@@ -146,6 +151,7 @@ class TrialResult:
     elapsed_s: float = 0.0
     cost_estimate_usd: float = 0.0
     session_id: str = ""
+    smoke_results: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -159,4 +165,5 @@ class TrialResult:
             "elapsed_s": self.elapsed_s,
             "cost_estimate_usd": self.cost_estimate_usd,
             "session_id": self.session_id,
+            "smoke_results": list(self.smoke_results),
         }

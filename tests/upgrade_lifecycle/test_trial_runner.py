@@ -265,3 +265,167 @@ def test_tempdir_cleanup_after_exception(stub_repo, enabled, monkeypatch):
     # All tempdirs cleaned up
     for tmpdir in called:
         assert not Path(tmpdir).exists(), f"tempdir leak: {tmpdir}"
+
+
+# ── Gap 2: smoke_runners hook ────────────────────────────────────────────
+
+
+def test_no_smoke_runners_yields_empty_smoke_results(stub_repo, enabled):
+    """Default path — no runners configured, no smoke phase ran."""
+    result = tr.run_trial(
+        package="some_pkg", from_version="1.0", to_version="2.0",
+        repo_root=stub_repo,
+        pip_installer=_make_pip(0),
+        pytest_runner=_make_pytest(0, stdout="3 passed\n"),
+    )
+    assert result.status == "ok"
+    assert result.smoke_results == ()
+
+
+def test_smoke_runner_passing_appended_to_results(stub_repo, enabled):
+    """A passing smoke runner contributes one ok row; trial status
+    remains the pytest verdict (smoke does not downgrade)."""
+    def _smoke_ok(sandbox):
+        return {"name": "ok_smoke", "status": "ok", "details": "all clear"}
+
+    result = tr.run_trial(
+        package="pkg", from_version="1.0", to_version="2.0",
+        repo_root=stub_repo,
+        pip_installer=_make_pip(0),
+        pytest_runner=_make_pytest(0, stdout="3 passed\n"),
+        smoke_runners=(_smoke_ok,),
+    )
+    assert result.status == "ok"
+    assert len(result.smoke_results) == 1
+    assert result.smoke_results[0]["status"] == "ok"
+    assert result.smoke_results[0]["name"] == "ok_smoke"
+
+
+def test_smoke_runner_failing_does_not_downgrade_trial_status(
+    stub_repo, enabled,
+):
+    """Gap 2 — pytest passed, smoke failed → trial status stays 'ok';
+    smoke failure is an append-only signal for downstream consumers."""
+    def _smoke_fail(sandbox):
+        return {"name": "fail_smoke", "status": "fail",
+                "details": "snapshot rejected by bumped client"}
+
+    result = tr.run_trial(
+        package="pkg", from_version="1.0", to_version="2.0",
+        repo_root=stub_repo,
+        pip_installer=_make_pip(0),
+        pytest_runner=_make_pytest(0, stdout="3 passed\n"),
+        smoke_runners=(_smoke_fail,),
+    )
+    assert result.status == "ok"                      # pytest verdict wins
+    assert result.smoke_results[0]["status"] == "fail"
+
+
+def test_smoke_runner_raising_recorded_as_error(stub_repo, enabled):
+    """A raising runner becomes a status='error' row — trial never
+    crashes through it."""
+    def _smoke_explode(sandbox):
+        raise RuntimeError("simulated smoke crash")
+
+    result = tr.run_trial(
+        package="pkg", from_version="1.0", to_version="2.0",
+        repo_root=stub_repo,
+        pip_installer=_make_pip(0),
+        pytest_runner=_make_pytest(0),
+        smoke_runners=(_smoke_explode,),
+    )
+    assert result.status == "ok"
+    assert result.smoke_results[0]["status"] == "error"
+    assert "simulated" in result.smoke_results[0]["details"]
+
+
+def test_smoke_runner_non_dict_return_recorded_as_error(stub_repo, enabled):
+    """Runners that return something other than a dict get coerced to
+    an error row (defensive — protects downstream consumers)."""
+    def _smoke_bad(sandbox):
+        return "not a dict"
+
+    result = tr.run_trial(
+        package="pkg", from_version="1.0", to_version="2.0",
+        repo_root=stub_repo,
+        pip_installer=_make_pip(0),
+        pytest_runner=_make_pytest(0),
+        smoke_runners=(_smoke_bad,),
+    )
+    assert result.smoke_results[0]["status"] == "error"
+    assert "str" in result.smoke_results[0]["details"]
+
+
+def test_multiple_smoke_runners_all_execute(stub_repo, enabled):
+    """All smoke runners fire — order preserved, each contributes one row."""
+    def _smoke_a(sandbox):
+        return {"name": "a", "status": "ok", "details": "a"}
+    def _smoke_b(sandbox):
+        return {"name": "b", "status": "fail", "details": "b"}
+    def _smoke_c(sandbox):
+        return {"name": "c", "status": "ok", "details": "c"}
+
+    result = tr.run_trial(
+        package="pkg", from_version="1.0", to_version="2.0",
+        repo_root=stub_repo,
+        pip_installer=_make_pip(0),
+        pytest_runner=_make_pytest(0),
+        smoke_runners=(_smoke_a, _smoke_b, _smoke_c),
+    )
+    names = [r["name"] for r in result.smoke_results]
+    assert names == ["a", "b", "c"]
+
+
+@pytest.fixture
+def fresh_smoke_registry():
+    """Save the registry around mutating tests so the chromadb auto-
+    registration (and any other production wiring) survives the test."""
+    from app.upgrade_lifecycle import smokes
+    saved = dict(smokes._REGISTRY)
+    smokes._REGISTRY.clear()
+    try:
+        yield smokes
+    finally:
+        smokes._REGISTRY.clear()
+        smokes._REGISTRY.update(saved)
+
+
+def test_smoke_runner_registry_consulted_when_no_explicit_runners(
+    stub_repo, enabled, fresh_smoke_registry,
+):
+    """When ``smoke_runners=None``, the registry is consulted via
+    ``smokes.runners_for(package)``. Registered runner fires."""
+    smokes = fresh_smoke_registry
+
+    def _registered_runner(sandbox):
+        return {"name": "registered", "status": "ok", "details": "from registry"}
+    smokes.register("targetpkg", _registered_runner)
+
+    result = tr.run_trial(
+        package="targetpkg", from_version="1.0", to_version="2.0",
+        repo_root=stub_repo,
+        pip_installer=_make_pip(0),
+        pytest_runner=_make_pytest(0),
+        # smoke_runners=None — explicit registry consultation
+    )
+    assert len(result.smoke_results) == 1
+    assert result.smoke_results[0]["name"] == "registered"
+
+
+def test_smoke_runner_registry_not_consulted_for_other_packages(
+    stub_repo, enabled, fresh_smoke_registry,
+):
+    """A runner registered for ``foo`` does not fire when trial is for ``bar``."""
+    smokes = fresh_smoke_registry
+
+    def _foo_runner(sandbox):
+        return {"name": "foo", "status": "ok", "details": "fired"}
+    smokes.register("foo", _foo_runner)
+
+    result = tr.run_trial(
+        package="bar", from_version="1.0", to_version="2.0",
+        repo_root=stub_repo,
+        pip_installer=_make_pip(0),
+        pytest_runner=_make_pytest(0),
+    )
+    assert result.smoke_results == ()

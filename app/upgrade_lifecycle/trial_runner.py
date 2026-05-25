@@ -248,6 +248,53 @@ def _enabled() -> bool:
         return True
 
 
+def _run_smokes(
+    *,
+    sandbox: Path,
+    package: str,
+    runners: Optional[tuple[Callable[[Path], dict], ...]],
+) -> tuple[dict, ...]:
+    """Execute every smoke runner registered for *package* (plus any
+    explicitly passed via ``runners=`` for tests). Each runner is
+    wrapped in try/except so a raising runner becomes a recorded
+    ``status="error"`` row — never crashes the trial.
+
+    Returns a tuple of result dicts (empty when no runners apply).
+    """
+    if runners is not None:
+        configured: tuple[Callable[[Path], dict], ...] = tuple(runners)
+    else:
+        try:
+            from app.upgrade_lifecycle import smokes
+            configured = smokes.runners_for(package)
+        except Exception:
+            configured = ()
+    if not configured:
+        return ()
+    out: list[dict] = []
+    for runner in configured:
+        name = getattr(runner, "__name__", "smoke")
+        try:
+            r = runner(sandbox)
+            if not isinstance(r, dict):
+                out.append({
+                    "name": name, "status": "error",
+                    "details": f"runner returned {type(r).__name__}, not dict",
+                })
+                continue
+            # Always ensure the dict has the contract fields.
+            r.setdefault("name", name)
+            r.setdefault("status", "error")
+            r.setdefault("details", "")
+            out.append(r)
+        except Exception as exc:
+            out.append({
+                "name": name, "status": "error",
+                "details": f"runner raised: {exc!s}"[:300],
+            })
+    return tuple(out)
+
+
 # ── Pytest output parsing ────────────────────────────────────────────────
 
 
@@ -303,6 +350,7 @@ def run_trial(
     pytest_runner: Optional[PytestRunner] = None,
     wallclock_s: int = _DEFAULT_WALLCLOCK_S,
     install_timeout_s: int = _DEFAULT_INSTALL_TIMEOUT_S,
+    smoke_runners: Optional[tuple[Callable[[Path], dict], ...]] = None,
 ) -> TrialResult:
     """Trial-run an upgrade for *package* in a throwaway temp directory.
 
@@ -388,12 +436,20 @@ def run_trial(
             # Non-zero rc but no failures parsed — treat as test_failure.
             status = "test_failure"
 
+        # Gap 2 — smoke phase. Append-only signal: a smoke failure does
+        # NOT downgrade ``status``; downstream consumers (auto-CR gate,
+        # operator review) inspect ``smoke_results`` separately.
+        smoke_results = _run_smokes(
+            sandbox=sandbox, package=package, runners=smoke_runners,
+        )
+
         return TrialResult(
             package=package, from_version=from_version, to_version=to_version,
             status=status,
             pass_count=pass_count, fail_count=fail_count,
             failures=failures,
             elapsed_s=elapsed,
+            smoke_results=smoke_results,
         )
 
     except Exception as exc:

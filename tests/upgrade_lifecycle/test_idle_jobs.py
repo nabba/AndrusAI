@@ -116,6 +116,65 @@ def test_snapshot_job_skipped_when_master_switch_off(isolated_dir, monkeypatch):
     assert out["status"] == "skipped_disabled"
 
 
+def test_snapshot_job_notifies_on_success(isolated_dir, monkeypatch):
+    """Gap 4 — when a fresh snapshot is generated, Signal/Web Push fire
+    with iPhone + Mac dashboard links to /cp/ecosystem."""
+    real_dt = datetime
+    class _FakeDT(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_dt(2026, 1, 3, tzinfo=tz or timezone.utc)
+    monkeypatch.setattr(ij, "datetime", _FakeDT)
+
+    from app.upgrade_lifecycle import ecosystem_snapshot as eco
+    monkeypatch.setattr(eco, "_enabled", lambda: True)
+    monkeypatch.setattr(eco, "_default_framework_fetcher",
+                       lambda pkg: {"latest_version": "x"})
+    monkeypatch.setattr(eco, "_default_cost_by_provider", lambda: {})
+
+    calls: list[dict] = []
+    def _capture(**kwargs):
+        calls.append(kwargs)
+        return {"signal": True, "web_push_count": 1, "signal_ts": None}
+    monkeypatch.setattr("app.notify.notify", _capture)
+
+    out = ij.run_annual_snapshot()
+    assert out["status"] == "ok"
+    assert len(calls) == 1
+    assert "Ecosystem snapshot 2026" in calls[0]["title"]
+    body = calls[0]["body"]
+    # Both link prefixes from signal_links_block
+    assert "📱 iPhone:" in body
+    assert "💻 Mac:" in body
+    assert "/cp/ecosystem" in body
+    assert calls[0]["url"] == "/cp/ecosystem"
+
+
+def test_snapshot_job_notify_failure_is_swallowed(isolated_dir, monkeypatch):
+    """Gap 4 — a broken notify must not break the idle job."""
+    real_dt = datetime
+    class _FakeDT(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_dt(2026, 1, 4, tzinfo=tz or timezone.utc)
+    monkeypatch.setattr(ij, "datetime", _FakeDT)
+
+    from app.upgrade_lifecycle import ecosystem_snapshot as eco
+    monkeypatch.setattr(eco, "_enabled", lambda: True)
+    monkeypatch.setattr(eco, "_default_framework_fetcher",
+                       lambda pkg: {"latest_version": "x"})
+    monkeypatch.setattr(eco, "_default_cost_by_provider", lambda: {})
+
+    def _explode(**kwargs):
+        raise RuntimeError("simulated push outage")
+    monkeypatch.setattr("app.notify.notify", _explode)
+
+    out = ij.run_annual_snapshot()
+    # Snapshot still landed cleanly — job status stays ok.
+    assert out["status"] == "ok"
+    assert out["year"] == 2026
+
+
 # ── 5: Capability-adoption job forwards result ──────────────────────────
 
 

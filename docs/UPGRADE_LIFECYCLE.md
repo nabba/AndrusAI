@@ -70,6 +70,13 @@ one (mostly cooldowns). **Nothing happens to your code automatically
 unless you opted in to specific writer switches.** The defaults are
 detect + propose + alert — execution requires explicit consent.
 
+**Annual snapshot surfacing**: when the January idle tick generates a
+new `wiki/self/ecosystem/<year>.md`, a Signal + Web Push ping fires
+with iPhone + Mac dashboard links to `/cp/ecosystem` so the operator
+can ratify the year's major-upgrade plan without manually checking
+the page. Notify is failure-isolated — a broken push never blocks the
+idle job.
+
 ---
 
 ## 2. Operator activation order
@@ -100,6 +107,28 @@ Budget: monthly $5 default. Capped via
 `upgrade_lifecycle_extraction_budget_usd_monthly`. Each PyPI/GitHub
 changelog extraction is ~$0.10 (Anthropic Haiku-class).
 
+**Three content sources** (composed, not exclusive):
+
+1. **PyPI metadata** — `info.description` field.
+2. **GitHub releases** — release-body text between the from/to tags.
+3. **Project CHANGELOG URL** — `info.project_urls.{Changelog, Changes,
+   Release Notes, History}` (PEP 621). HTML pages get stripped to
+   text with heading markers preserved; sliced to the version range
+   bracketed by `from_version` (exclusive) and `to_version`
+   (inclusive). Daily budget `upgrade_lifecycle_changelog` (200
+   calls). When all three are present the LLM sees them stacked
+   (changelog first, then GitHub releases), which usually produces
+   the richest extraction.
+
+**Phenomenal-language discipline** — every text fragment the LLM
+emits (one per list entry plus `license_change` / `notes`) is run
+through `PhenomenalLanguageLinter`. On HARD_FAIL the call is retried
+once with a strengthened system prompt; if the retry still fails,
+ONLY the offending fields are blanked (clean siblings preserved) and
+a row lands in `workspace/threads/linter_rejections.jsonl` with
+`thread_id="capability:<pkg>:<ver>"`. Cost ceiling: 2× normal worst
+case.
+
 ### Phase 2: enable the auto-CR gate
 
 `/cp/settings` → `upgrade_lifecycle_major_auto_cr_enabled` (default
@@ -112,6 +141,20 @@ under standard operator gate.
 `/cp/settings` → `upgrade_lifecycle_trial_enabled` (default ON).
 Spins venv-isolated pytest runs for queued upgrades. Hourly cadence,
 1 trial per tick. Trials inform the U4 gate but don't apply changes.
+
+**Smoke runners** — pytest exercises code paths the test suite knows
+about; real production data formats often aren't in scope. The trial
+harness exposes a per-package `smoke_runners` hook (registered via
+`app.upgrade_lifecycle.smokes.register(package, runner)`) that fires
+AFTER pytest, against the BUMPED library installed in the trial venv.
+Reference implementation at `app/upgrade_lifecycle/smokes/chromadb.py`:
+copies the latest `.sqlite_snapshots/*.db` to a scratch dir, opens it
+with the bumped chromadb in a subprocess, reports collection count.
+
+A smoke failure is an **append-only signal** — it lands in
+`TrialResult.smoke_results` as a row with `status="fail"` but does
+NOT downgrade the trial's overall status. U4's auto-CR gate and
+operator review treat smoke output as advisory.
 
 ### Phase 4: enable the writers (apply path)
 
@@ -193,7 +236,6 @@ All switches live in `runtime_settings.py`. Toggle from
 | `upgrade_lifecycle_pyproject_writer_enabled` | pyproject.toml (uv/poetry/pdm) writes |
 | `upgrade_lifecycle_dockerfile_writer_enabled` | Dockerfile FROM python: writes (drops SHA pin) |
 | `upgrade_lifecycle_absence_policy_enabled` | Widens auto-apply during ABSENT_90D+ |
-| `upgrade_lifecycle_use_shinka_for_refactor` | Future opt-in for ShinkaEvolve refactor variants |
 
 ### Numeric
 
@@ -382,6 +424,13 @@ now" button) or via REST:
 POST /api/cp/ecosystem/snapshots/generate
 Body: {"year": 2027, "force": false}
 ```
+
+When the job DOES fire successfully you'll see a Signal + Web Push
+notification titled `📅 Ecosystem snapshot <year>` with iPhone + Mac
+dashboard links straight to `/cp/ecosystem`. If the snapshot landed
+on disk (`wiki/self/ecosystem/<year>.md` exists) but no notify fired,
+check `notify` arbiter state and Web Push subscription health —
+notify is failure-isolated so the snapshot itself is unaffected.
 
 ### "Capability extraction stopped"
 
