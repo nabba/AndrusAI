@@ -218,6 +218,58 @@ def difficulty_to_tier(difficulty: int, mode: str) -> str | None:
 _MULTIMODAL_MODELS = [name for name, info in CATALOG.items() if info.get("multimodal")]
 
 
+# ── Role capability requirements (single source of truth) ──────────────
+# Which roles need tool calling.  Previously this set was duplicated at
+# four call sites (the local resource-aware picker, the force_tier
+# branch, the Step 5 retry, and the fallback walker), which made the
+# capability contract diffuse — adding a new tool-requiring role meant
+# touching four places.  Hoisted here so:
+#   * adding a role is a one-line edit,
+#   * the contract is named (``role_needs_tools``) rather than reverse-
+#     inferred from a set membership check.
+ROLES_NEEDING_TOOLS: frozenset[str] = frozenset({
+    "coding", "research", "writing", "media",
+    "self_improve", "critic",
+})
+
+
+def role_needs_tools(role: str) -> bool:
+    """Return True iff *role* requires the chosen model to support tool
+    calling (CrewAI Agents need this for `delegate_work_to_coworker` and
+    every agent tool registered by `app/tool_registry`).
+    """
+    return role in ROLES_NEEDING_TOOLS
+
+
+def model_capable_for(name: str, role: str, task_type: str) -> bool:
+    """Return True iff catalog entry *name* satisfies the hard
+    capability requirements for the role/task combination.
+
+    Hard requirements (all AND):
+      * If ``role_needs_tools(role)``: model must NOT have
+        ``supports_tools=False`` (missing field treated as "unknown,
+        assume yes" — matches the historical filter semantics).
+      * If ``task_type == "multimodal"``: model must have
+        ``multimodal=True``.
+
+    Cost, recency, and score are *not* hard filters — they enter via
+    the selector's scoring + Pareto / budget steps.
+
+    Used by :func:`select_model` to validate the overlay-picked
+    ``default_model`` BEFORE running the scoring pipeline, so the
+    Step 5 retry pattern becomes a defensive backstop rather than a
+    routine code path.
+    """
+    entry = get_model(name)
+    if entry is None:
+        return False
+    if role_needs_tools(role) and entry.get("supports_tools") is False:
+        return False
+    if task_type == "multimodal" and not entry.get("multimodal"):
+        return False
+    return True
+
+
 def detect_task_type(role: str, task_hint: str = "") -> str:
     """Thin delegator to :func:`app.llm_catalog.canonical_task_type`.
 
@@ -320,8 +372,7 @@ def _select_local_resource_aware(
     except Exception:
         pass
 
-    _ROLES_NEEDING_TOOLS = {"coding", "research", "writing", "media", "self_improve", "critic"}
-    needs_tools = role in _ROLES_NEEDING_TOOLS
+    needs_tools = role_needs_tools(role)
 
     best_loaded = None      # Best model already in VRAM
     best_fits = None        # Best model that fits in available RAM
@@ -524,6 +575,31 @@ def select_model(
     mode = get_mode()
     default_model = get_default_for_role(role, mode)
 
+    # Step 2a — Capability gate on the overlay pick.
+    # ``get_default_for_role`` may surface a hand-pinned model from
+    # ``control_plane.role_assignments`` BEFORE the score-based resolver
+    # filters by capability.  If the operator pinned a model that can't
+    # do tool calls for a tool-needing role (e.g. ``codestral`` for
+    # ``coding``), surface the mismatch loudly and route through the
+    # resolver — which calls ``_filter_candidates`` and respects
+    # ``supports_tools`` natively.  This makes capability a HARD
+    # constraint applied early, rather than a Step-5 retry that quietly
+    # re-runs the cascade.
+    task_type_early = detect_task_type(role, task_hint)
+    if not model_capable_for(default_model, role, task_type_early):
+        prior_default = default_model
+        from app.llm_catalog import resolve_role_default
+        default_model = resolve_role_default(role, mode)
+        if default_model != prior_default:
+            logger.info(
+                "llm_selector: capability gate — overlay pick %r unsuitable "
+                "for role=%s task=%s (needs_tools=%s, needs_multimodal=%s); "
+                "falling through to resolver pick %r",
+                prior_default, role, task_type_early,
+                role_needs_tools(role), task_type_early == "multimodal",
+                default_model,
+            )
+
     # Step 2b — Output-ceiling check (2026-05-03 audit cleanup, item 5).
     # When the caller passes expected_output_tokens, swap out a default
     # whose model can't deliver that many tokens.  Pre-fix the H2 clamp
@@ -561,8 +637,9 @@ def select_model(
             # Selector is best-effort; never block the call
             pass
 
-    # Step 3: Task-specific overrides
-    task_type = detect_task_type(role, task_hint)
+    # Step 3: Task-specific overrides — reuse the task_type computed in
+    # Step 2a above; detecting twice would be wasteful.
+    task_type = task_type_early
 
     # Cache model lookups within this call to avoid redundant dict scans
     _model_cache: dict[str, dict | None] = {}
@@ -635,8 +712,7 @@ def select_model(
             else:
                 forced = tier_candidates[0][0]
                 # Tool-use compatibility check
-                _ROLES_NEEDING_TOOLS_EARLY = {"coding", "research", "writing", "media", "self_improve", "critic"}
-                if role in _ROLES_NEEDING_TOOLS_EARLY:
+                if role_needs_tools(role):
                     forced_entry = _cached_get_model(forced)
                     if forced_entry and forced_entry.get("supports_tools") is False:
                         for name, _score in tier_candidates[1:]:
@@ -733,14 +809,28 @@ def select_model(
                 )
                 default_model = best[0]
 
-    # Step 5: Tool-use compatibility check
-    # CrewAI agents need tool calling for most roles (research, coding, writing, media).
-    # Models that don't support tools (e.g. codestral via Ollama) will get a 400 error.
-    _ROLES_NEEDING_TOOLS = {"coding", "research", "writing", "media", "self_improve", "critic"}
-    if role in _ROLES_NEEDING_TOOLS:
+    # Step 5: Tool-use compatibility check (defensive backstop)
+    # ──────────────────────────────────────────────────────────────────
+    # The Step 2a capability gate above already routes tool-needing
+    # roles to a tool-capable model via the resolver, which in turn
+    # invokes ``_filter_candidates`` with ``needs_tools=True``.  This
+    # block exists as a belt-and-suspenders backstop in case a later
+    # rule (multimodal swap, recency filter, output-ceiling swap,
+    # benchmark override, Pareto demote, budget enforce) routes the
+    # default to a non-capable model.  If it fires, that is a bug in
+    # one of those rules — the WARNING below makes it visible rather
+    # than letting the cascade quietly re-run.
+    if role_needs_tools(role):
         default_entry = _cached_get_model(default_model)
         if default_entry and default_entry.get("supports_tools") is False:
-            logger.info(f"llm_selector: {default_model} doesn't support tools, skipping for role={role}")
+            logger.warning(
+                "llm_selector: defensive backstop fired — %r reached "
+                "Step 5 without tool support for role=%s.  An earlier "
+                "rule selected an incompatible model.  Falling through "
+                "to _find_fallback (this should be rare; investigate if "
+                "the same model surfaces repeatedly).",
+                default_model, role,
+            )
             default_model = _find_fallback(role, task_type, settings, max_ram_gb)
 
     # Step 5.5: Runtime chat-capability blocklist (Q2 self-heal auto-action)
@@ -766,6 +856,45 @@ def select_model(
         logger.debug(
             "llm_selector: chat_blocked_models check failed", exc_info=True,
         )
+
+    # Step 5.7: Mode-pool enforcement (replaces the old
+    # ``_pool_constrained_select`` parallel path in llm_factory.py).
+    # Any of the swap steps above (multimodal, recency, output-
+    # ceiling, benchmark override, Pareto, budget) can push
+    # ``default_model`` outside the active mode's tier/provider
+    # whitelist.  ``model_in_mode_pool`` is the single source of
+    # truth for the per-mode contract — when the chosen model is
+    # out of pool we walk the pool-respecting fallback chain.  Mode
+    # ``balanced`` admits every tier and is therefore always satisfied.
+    from app.llm_catalog import model_in_mode_pool
+    if not model_in_mode_pool(default_model, mode):
+        prior_default = default_model
+        # The fallback walker checks ``_model_available`` per tier and
+        # respects tool-use requirements, so a pool fallback also
+        # satisfies the rest of the contract.  We restrict the search
+        # to mode-allowed tiers by filtering the candidate list.
+        from app.llm_catalog import _MODE_TIER_WHITELIST
+        allowed = _MODE_TIER_WHITELIST.get(
+            mode, _MODE_TIER_WHITELIST.get("balanced", frozenset()),
+        )
+        for tier in allowed:
+            cands = get_candidates_by_tier(task_type, [tier])
+            for cand_name, _score in cands:
+                if not model_in_mode_pool(cand_name, mode):
+                    continue
+                if role_needs_tools(role):
+                    cand_entry = _cached_get_model(cand_name)
+                    if cand_entry and cand_entry.get("supports_tools") is False:
+                        continue
+                if _model_available(cand_name, settings, max_ram_gb):
+                    logger.info(
+                        "llm_selector: mode-pool swap (mode=%s) — %s → %s",
+                        mode, prior_default, cand_name,
+                    )
+                    default_model = cand_name
+                    break
+            if default_model != prior_default:
+                break
 
     # Step 6: Availability check
     if _model_available(default_model, settings, max_ram_gb):
@@ -800,7 +929,7 @@ def _model_available(model_name: str, settings, max_ram_gb: float) -> bool:
     return False
 
 def _find_fallback(role: str, task_type: str, settings, max_ram_gb: float) -> str:
-    _needs_tools = role in {"coding", "research", "writing", "media", "self_improve", "critic"}
+    _needs_tools = role_needs_tools(role)
     for tier in ("free", "budget", "mid", "premium"):
         candidates = get_candidates_by_tier(task_type, [tier])
         for name, _score in candidates:

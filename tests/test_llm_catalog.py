@@ -377,7 +377,16 @@ class TestUnifiedRuntimeMode(unittest.TestCase):
         from app.llm_catalog import (
             resolve_role_default, _MODE_TIER_WHITELIST,
         )
-        assert _MODE_TIER_WHITELIST["free"] == frozenset({"local", "free"})
+        # ``_MODE_TIER_WHITELIST`` switched from frozenset to tuple
+        # (2026-05-25) for deterministic iteration in the Step 5.7
+        # mode-pool fallback walker.  Compare via membership rather
+        # than identity so the test pins the contract (these two
+        # tiers exist in the free pool) without re-asserting the
+        # underlying data structure.
+        free_pool = _MODE_TIER_WHITELIST["free"]
+        assert "local" in free_pool
+        assert "free" in free_pool
+        assert len(free_pool) == 2
         # For roles that have a premium tier floor, the effective floor
         # is reconciled down to the highest allowed tier in free mode
         # ("free") — the resolver honours the user's explicit choice

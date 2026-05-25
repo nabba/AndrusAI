@@ -89,20 +89,20 @@ def _model_to_anthropic_id(model: str) -> str:
 
 
 def _call_judge_anthropic_direct(prompt: str, model: str) -> str | None:
-    """Try Anthropic's direct API. Returns raw text, or None on failure.
+    """Try Anthropic's direct API via the factory. Returns raw text, or None on failure.
 
     Re-raises the credit-exhausted error so the caller can trip the
     shared breaker and failover to OpenRouter — same pattern as
     ``CreditAwareAnthropicCompletion`` uses for the agent stack.
+
+    The ``model`` parameter is retained for backward-compat callers
+    that key telemetry on it, but routing is now factory-driven via
+    ``anthropic_client_for_role(role="vetting")``.
     """
-    from anthropic import Anthropic  # type: ignore
-    from app.config import get_settings
-    settings = get_settings()
-    api_key = settings.anthropic_api_key.get_secret_value()
-    client = Anthropic(api_key=api_key)
+    from app.llm_factory import anthropic_client_for_role
+    client = anthropic_client_for_role(role="vetting", task_hint="semantic audit")
 
     response = client.messages.create(
-        model=_model_to_anthropic_id(model),
         max_tokens=2000,
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],

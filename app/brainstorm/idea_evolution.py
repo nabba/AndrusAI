@@ -453,19 +453,11 @@ def _default_mutator(
     Phase D.3 (2026-05-22): gated by the operator-set Anthropic daily
     cap. Brainstorm evolution can fire many mutator calls per
     session, so this is the highest-impact site to wire the cap to.
-    Returns "" on cap-out so the population just stops growing —
-    judge calls on already-mutated children continue.
+    The factory's ``.messages.create`` pre-check enforces the cap;
+    the existing ``except Exception`` below returns "" on cap-out so
+    the population just stops growing — judge calls on already-mutated
+    children continue.
     """
-    try:
-        import anthropic
-    except ImportError:
-        return ""
-    from app import llm_anthropic_budget
-    if not llm_anthropic_budget.call_or_skip(
-        estimated_cost_usd=0.001,
-        source="brainstorm:idea_mutator",
-    ):
-        return ""
     neighbours_block = "\n".join(
         f"- {t[:240]}" for t in neighbour_texts[:5]
     ) or "(no neighbours)"
@@ -489,9 +481,9 @@ def _default_mutator(
         f"Child idea:"
     )
     try:
-        client = anthropic.Anthropic()
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting", task_hint="brainstorm mutator")
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
             max_tokens=240,
             system=system,
             messages=[{"role": "user", "content": user}],
@@ -517,19 +509,10 @@ def _default_judge(
     continues.
 
     Phase D.3 (2026-05-22): gated by the operator-set Anthropic daily
-    cap. On cap-out the judge returns (0.0, "cap reached") so the
-    caller's loop sees a low score and naturally throttles down.
+    cap. On cap-out the existing ``except Exception`` below returns
+    (0.0, "judge raised: …") so the caller's loop sees a low score
+    and naturally throttles down.
     """
-    try:
-        import anthropic
-    except ImportError:
-        return 0.0, "anthropic unavailable"
-    from app import llm_anthropic_budget
-    if not llm_anthropic_budget.call_or_skip(
-        estimated_cost_usd=0.0005,
-        source="brainstorm:idea_judge",
-    ):
-        return 0.0, "Anthropic daily cap reached"
     constraints_block = "\n".join(
         f"- {c}" for c in constraints[:6]
     ) or "(no explicit constraints — judge on intrinsic merit)"
@@ -549,9 +532,12 @@ def _default_judge(
         f"JSON judgement:"
     )
     try:
-        client = anthropic.Anthropic()
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting", task_hint="brainstorm judge")
+    except Exception:
+        return 0.0, "factory unavailable"
+    try:
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
             max_tokens=200,
             system=system,
             messages=[{"role": "user", "content": user}],

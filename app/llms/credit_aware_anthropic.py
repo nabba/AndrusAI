@@ -66,6 +66,7 @@ import concurrent.futures
 import logging
 import os
 import threading
+import time
 from typing import Any, Callable, Optional
 
 from pydantic import PrivateAttr
@@ -112,6 +113,53 @@ def is_credit_exhausted_error(exc: BaseException) -> bool:
 
 _DEFAULT_CALL_TIMEOUT_SECS = 180.0
 _TIMEOUT_MARKER = "anthropic-call-timeout"
+
+
+# Cap-engaged Signal alert dedup.  When CreditAware fails over to OR
+# because of ``AnthropicDailyCapExceeded`` (not credit exhaustion, not
+# timeout), the operator deserves an alert — otherwise the cap is
+# silently bypassed and spend just shifts to OR.  Module-level dedup
+# at 1/day granularity (per-process, resets on restart) keeps the
+# alert visible without spamming during sustained cap engagement.
+_CAP_ALERT_DEDUP_SECS = 24 * 3600.0
+_cap_alert_state: dict[str, float] = {"last_sent_at": 0.0}
+_cap_alert_lock = threading.Lock()
+
+
+def _maybe_alert_cap_engaged(cause: str) -> None:
+    """Send a deduped Signal alert when the daily cap forces failover.
+
+    ``cause`` is a short string ("sync" / "async" / "brake-engaged")
+    surfaced in the alert body for operator triage.  Failure-isolated —
+    a Signal send error never blocks the failover.
+    """
+    now = time.monotonic()
+    with _cap_alert_lock:
+        if now - _cap_alert_state["last_sent_at"] < _CAP_ALERT_DEDUP_SECS:
+            return
+        _cap_alert_state["last_sent_at"] = now
+    try:
+        from app.signal_client import send_message
+        from app.config import get_settings
+        recipient = (get_settings().signal_owner_number or "").strip()
+        if not recipient:
+            return
+        body = (
+            "💸 Anthropic daily-cap failover engaged — calls now "
+            "routing through OpenRouter Claude.\n\n"
+            f"Trigger: {cause}.\n\n"
+            "Cost has shifted from Anthropic to OpenRouter; the OR "
+            "credit ledger is independent of the Anthropic per-day "
+            "cap so this CAN incur spend.  Raise the cap or wait for "
+            "the rolling-24h window to roll over if you want Anthropic-"
+            "direct service restored.  (Deduped: 1 alert per 24h.)"
+        )
+        send_message(recipient, body)
+    except Exception:
+        logger.debug(
+            "CreditAwareAnthropicCompletion: cap-engaged alert send "
+            "failed", exc_info=True,
+        )
 
 
 def _resolve_call_timeout() -> float:
@@ -186,6 +234,12 @@ class CreditAwareAnthropicCompletion(AnthropicCompletion):
     _fallback_factory: Optional[Callable[[], Any]] = PrivateAttr(default=None)
     _fallback_llm: Optional[Any] = PrivateAttr(default=None)
     _fallback_build_lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
+    # Catalog per-million-token cost fields, captured at construction
+    # so the per-call pre-check can pass a real worst-case estimate
+    # rather than the previous 0.0 placeholder.  See
+    # :meth:`_estimate_call_cost_usd`.
+    _cost_input_per_m: float = PrivateAttr(default=0.0)
+    _cost_output_per_m: float = PrivateAttr(default=0.0)
 
     def set_fallback_factory(
         self, factory: Callable[[], Any]
@@ -196,6 +250,48 @@ class CreditAwareAnthropicCompletion(AnthropicCompletion):
         """
         self._fallback_factory = factory
         return self
+
+    def set_cost_estimates(
+        self,
+        cost_input_per_m: float,
+        cost_output_per_m: float,
+    ) -> "CreditAwareAnthropicCompletion":
+        """Capture catalog cost fields for the per-call pre-check.
+
+        The factory calls this at construction so :meth:`_estimate_call_cost_usd`
+        can produce a worst-case USD estimate instead of the previous
+        ``estimated_cost_usd=0.0`` placeholder.  Returns self for
+        chaining.
+        """
+        self._cost_input_per_m = float(cost_input_per_m or 0.0)
+        self._cost_output_per_m = float(cost_output_per_m or 0.0)
+        return self
+
+    def _estimate_call_cost_usd(self) -> float:
+        """Conservative per-call USD estimate based on cost fields and
+        max_tokens.
+
+        We don't know the prompt length, so we assume a typical 2000
+        input tokens (rounding up from the project's median observed
+        prompt size).  Output is capped at ``self.max_tokens`` — a
+        worst-case ceiling, since real responses are usually shorter.
+        Both numbers are in tokens; the catalog stores cost per
+        million.  Returns 0.0 when either cost field is missing so
+        the gate degrades to its previous behaviour rather than
+        blocking legitimate calls on a misconfigured catalog row.
+        """
+        if self._cost_output_per_m <= 0:
+            return 0.0
+        input_tokens = 2000  # heuristic; tighten via call-site hints later
+        try:
+            output_tokens = int(self.max_tokens or 0)
+        except Exception:
+            output_tokens = 0
+        cost = (
+            input_tokens * self._cost_input_per_m
+            + output_tokens * self._cost_output_per_m
+        ) / 1_000_000.0
+        return max(0.0, cost)
 
     # ── Overrides ───────────────────────────────────────────────────
     #
@@ -216,20 +312,98 @@ class CreditAwareAnthropicCompletion(AnthropicCompletion):
 
     def call(self, *args, **kwargs):
         from app import circuit_breaker
+        from app.llm_factory_probe import (
+            call_with_observation, classify_failure,
+        )
+        from app.llm_anthropic_budget import AnthropicDailyCapExceeded
+
+        bare_model = getattr(self, "model", "") or ""
+
+        # Total-spend brake check — engaged mid-flight by the operator
+        # or the ``total_cost_ceiling`` monitor.  The construction-time
+        # brake in ``_check_candidate_basics`` catches NEW LLMs; this
+        # call-time check catches CACHED LLMs whose construction
+        # preceded the brake.  Same recovery as cap-exceed: failover
+        # to OR if configured, raise typed otherwise.
+        try:
+            from app.runtime_settings import get_idle_pause_due_to_budget
+            if get_idle_pause_due_to_budget():
+                fallback = self._ensure_fallback()
+                if fallback is not None:
+                    logger.info(
+                        "CreditAwareAnthropicCompletion: total-cost-ceiling "
+                        "brake engaged — failing over to OpenRouter Claude.",
+                    )
+                    _maybe_alert_cap_engaged(
+                        "sync call hit idle_pause_due_to_budget brake"
+                    )
+                    return fallback.call(*args, **kwargs)
+                raise AnthropicDailyCapExceeded(
+                    today_spent_usd=0.0,
+                    daily_cap_usd=0.0,
+                    estimated_cost_usd=0.0,
+                )
+        except AnthropicDailyCapExceeded:
+            raise
+        except Exception:
+            logger.debug(
+                "CreditAwareAnthropicCompletion: brake check raised "
+                "unexpectedly — letting call proceed", exc_info=True,
+            )
+
+        # Credits-breaker OPEN → use OR fallback directly, no probe.
         if not circuit_breaker.is_available("anthropic_credits"):
-            # Breaker already open — use fallback directly, no direct probe.
             fallback = self._ensure_fallback()
             if fallback is not None:
                 return fallback.call(*args, **kwargs)
             # No fallback configured: try direct and let the error speak.
 
         try:
-            return self._call_with_timeout(*args, **kwargs)
+            # Single observation envelope — pre_check + outcome
+            # observation in one helper, shared with
+            # :class:`app.llm_factory.AnthropicClientHandle`.  The
+            # estimate is a worst-case ceiling derived from
+            # ``self.max_tokens`` × ``cost_output_per_m`` so the gate
+            # catches "next call would push over cap" cases (not just
+            # "already-over-cap").
+            return call_with_observation(
+                bare_model,
+                lambda: self._call_with_timeout(*args, **kwargs),
+                estimated_cost_usd=self._estimate_call_cost_usd(),
+            )
+        except AnthropicDailyCapExceeded:
+            # Cap-exceed: fall over to OR Claude (its credit ledger is
+            # independent of Anthropic's daily cap).  If no fallback,
+            # the cap exception propagates — orchestrator catches it.
+            fallback = self._ensure_fallback()
+            if fallback is not None:
+                logger.info(
+                    "CreditAwareAnthropicCompletion: Anthropic daily "
+                    "cap exceeded — failing over to OpenRouter Claude.",
+                )
+                _maybe_alert_cap_engaged("sync call hit daily cap")
+                return fallback.call(*args, **kwargs)
+            raise
         except Exception as exc:
-            # Both credit-exhausted 400s AND wall-clock timeouts route
-            # through the same failover path. The timeout case was added
-            # 2026-04-30 after a 28-min PIM stall where a hung Anthropic
-            # call blocked the agent until the orchestrator gave up.
+            # Three other failure classes, each with its own routing:
+            #   * model-id-level 404 → mark_dead already fired inside
+            #     observe_outcome; try OR fallback (model may exist
+            #     under a different id via the OR remap).
+            #   * credit-exhausted 400 / wall-clock timeout → trip the
+            #     anthropic_credits breaker, fall over to OR.
+            #   * anything else (rate limit, network) → propagate
+            #     unchanged.
+            if classify_failure(exc) and bare_model:
+                fallback = self._ensure_fallback()
+                if fallback is not None:
+                    logger.info(
+                        "CreditAwareAnthropicCompletion: model-not-found "
+                        "for %s on Anthropic-direct — failing over to "
+                        "OpenRouter Claude.", bare_model,
+                    )
+                    return fallback.call(*args, **kwargs)
+                raise
+
             if not (is_credit_exhausted_error(exc) or is_anthropic_timeout(exc)):
                 raise
             circuit_breaker.record_failure("anthropic_credits")
@@ -237,11 +411,6 @@ class CreditAwareAnthropicCompletion(AnthropicCompletion):
             if fallback is None:
                 raise
             cause = "credit-exhausted 400" if is_credit_exhausted_error(exc) else "wall-clock timeout"
-            # INFO not WARN: failover IS the by-design behavior of
-            # this layer.  The original credit-exhausted 400 already
-            # tripped the breaker (which logs once at OPEN); the
-            # downstream call goes to OpenRouter and recovers.  No
-            # operator action is needed beyond the breaker alert.
             logger.info(
                 "CreditAwareAnthropicCompletion: %s from Anthropic — "
                 "failing over mid-call to OpenRouter Claude.", cause,
@@ -250,14 +419,81 @@ class CreditAwareAnthropicCompletion(AnthropicCompletion):
 
     async def acall(self, *args, **kwargs):
         from app import circuit_breaker
+        from app.llm_factory_probe import (
+            acall_with_observation, classify_failure,
+        )
+        from app.llm_anthropic_budget import AnthropicDailyCapExceeded
+
+        bare_model = getattr(self, "model", "") or ""
+
+        # Total-spend brake check (async sibling of the sync path
+        # above).  Same recovery semantics — failover to OR if
+        # configured, raise typed otherwise.
+        try:
+            from app.runtime_settings import get_idle_pause_due_to_budget
+            if get_idle_pause_due_to_budget():
+                fallback = self._ensure_fallback()
+                if fallback is not None:
+                    logger.info(
+                        "CreditAwareAnthropicCompletion: total-cost-ceiling "
+                        "brake engaged (async) — failing over to OpenRouter "
+                        "Claude.",
+                    )
+                    _maybe_alert_cap_engaged(
+                        "async call hit idle_pause_due_to_budget brake"
+                    )
+                    return await fallback.acall(*args, **kwargs)
+                raise AnthropicDailyCapExceeded(
+                    today_spent_usd=0.0,
+                    daily_cap_usd=0.0,
+                    estimated_cost_usd=0.0,
+                )
+        except AnthropicDailyCapExceeded:
+            raise
+        except Exception:
+            logger.debug(
+                "CreditAwareAnthropicCompletion: brake check raised "
+                "unexpectedly (async) — letting call proceed",
+                exc_info=True,
+            )
+
+        # Credits-breaker OPEN → use OR fallback directly, no probe.
         if not circuit_breaker.is_available("anthropic_credits"):
             fallback = self._ensure_fallback()
             if fallback is not None:
                 return await fallback.acall(*args, **kwargs)
 
         try:
-            return await self._acall_with_timeout(*args, **kwargs)
+            return await acall_with_observation(
+                bare_model,
+                lambda: self._acall_with_timeout(*args, **kwargs),
+                estimated_cost_usd=self._estimate_call_cost_usd(),
+            )
+        except AnthropicDailyCapExceeded:
+            fallback = self._ensure_fallback()
+            if fallback is not None:
+                logger.info(
+                    "CreditAwareAnthropicCompletion: Anthropic daily "
+                    "cap exceeded (async) — failing over to OpenRouter "
+                    "Claude.",
+                )
+                _maybe_alert_cap_engaged("async call hit daily cap")
+                return await fallback.acall(*args, **kwargs)
+            raise
         except Exception as exc:
+            # Same three-class triage as the sync ``call`` path; see
+            # that method for the per-class rationale.
+            if classify_failure(exc) and bare_model:
+                fallback = self._ensure_fallback()
+                if fallback is not None:
+                    logger.info(
+                        "CreditAwareAnthropicCompletion: model-not-found "
+                        "for %s on Anthropic-direct (async) — failing "
+                        "over to OpenRouter Claude.", bare_model,
+                    )
+                    return await fallback.acall(*args, **kwargs)
+                raise
+
             if not (is_credit_exhausted_error(exc) or is_anthropic_timeout(exc)):
                 raise
             circuit_breaker.record_failure("anthropic_credits")
@@ -265,8 +501,6 @@ class CreditAwareAnthropicCompletion(AnthropicCompletion):
             if fallback is None:
                 raise
             cause = "credit-exhausted 400" if is_credit_exhausted_error(exc) else "wall-clock timeout"
-            # INFO not WARN: see sync-path note above — failover is the
-            # designed behavior; the breaker logs once at OPEN.
             logger.info(
                 "CreditAwareAnthropicCompletion: %s from Anthropic (async) — "
                 "failing over mid-call to OpenRouter Claude.", cause,

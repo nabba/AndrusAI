@@ -383,23 +383,16 @@ def _default_llm_call(system_prompt: str, user_prompt: str) -> str:
     """Cheap-tier Anthropic call.
 
     Verified Plan Gap #5 (2026-05-22): gated by the operator-set
-    Anthropic daily cap. On cap-out returns "" — quarterly goal
-    review just skips for this cycle; runs again next quarter.
+    Anthropic daily cap.  The cap is enforced by the factory's
+    pre-flight inside ``.messages.create``; the existing
+    ``except Exception`` below absorbs ``AnthropicDailyCapExceeded``
+    and returns "" — quarterly goal review just skips for this
+    cycle; runs again next quarter.
     """
     try:
-        import anthropic
-    except ImportError:
-        return ""
-    from app import llm_anthropic_budget
-    if not llm_anthropic_budget.call_or_skip(
-        estimated_cost_usd=0.005,
-        source="identity:long_term_goal_review",
-    ):
-        return ""
-    try:
-        client = anthropic.Anthropic()
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting", task_hint="goal review")
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
             max_tokens=2400,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],

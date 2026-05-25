@@ -264,22 +264,14 @@ Output ONLY the JSON object, no preface, no markdown fence."""
 def _summarize(title: str, abstract: str) -> dict | None:
     """Call the cheap LLM. Returns parsed JSON dict or None on failure."""
     try:
-        from anthropic import Anthropic
-        from app.config import get_anthropic_api_key
-    except Exception:
-        return None
-    key = get_anthropic_api_key()
-    if not key:
-        return None
-    try:
-        client = Anthropic(api_key=key)
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting")
     except Exception:
         return None
 
     user_msg = f"Title: {title}\n\nAbstract: {abstract}"
     try:
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
             max_tokens=600,
             system=_LLM_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}],

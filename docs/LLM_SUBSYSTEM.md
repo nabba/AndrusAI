@@ -491,6 +491,46 @@ api_key, params)` so sharing across requests is safe. Saves
 used for telemetry attribution and the dashboard's "currently using"
 indicator.
 
+### 8.4 Construction-failure taxonomy
+
+Earlier versions silently swallowed every construction error and let
+the chain walker continue; the caller never knew whether a fallback
+happened or why. The factory now raises typed exceptions:
+
+| Exception | Raised when | Caller behaviour |
+|---|---|---|
+| `ConstructionFailed(reason, …)` | A single catalog entry fails to instantiate (`shape_invalid` / `unhealthy` / `budget_paused` / `cap_exceeded` / `key_missing` / `instantiate_error`) | Chain walker catches and moves to the next candidate |
+| `NoWorkingModelAvailable` | The walker exhausts every candidate in the chain | Orchestrator catches with a loud, user-visible Signal reply naming the role + chain length |
+| `CapExceededError` (base) + `AnthropicDailyCapExceeded` + `OpenRouterDailyCapExceeded` | Per-call or per-construction `pre_check` refuses because the operator-configured daily cap would be breached | Orchestrator's `isinstance(exc, CapExceededError)` arm names the provider in the user reply; CreditAware silently fails over to OR Claude when configured |
+
+The base class `CapExceededError` lives in the neutral
+`app.llm_cost_exceptions` module so both per-provider modules and
+generic wrappers (`BudgetAwareCompletion`) catch the family without
+string-matching class names. `ConstructionFailed.reason` is a closed
+vocabulary checked by tests so future contributors can't add silent
+new failure modes.
+
+### 8.5 Observation envelope
+
+Every LLM call now flows through one of two envelope helpers in
+`app/llm_factory_probe.py`:
+
+  * `call_with_observation(llm, *args, **kwargs)` — sync
+  * `acall_with_observation(llm, *args, **kwargs)` — async
+
+The envelope wraps the call in a `try/finally` that records the
+outcome (success / latency / error class) to a shared health cache
+keyed by `(provider, model_id)`. The cache persists to disk
+(`workspace/llm_health.json`) so a gateway restart doesn't lose
+recent dead-marks. Persistent failure escalates via
+`mark_dead → vendor_sunset` so the dashboard surfaces models that have
+stopped working without an operator having to spot the pattern.
+
+The factory's `AnthropicClientHandle` (the raw-SDK substitute for
+22 migrated bypass sites) also routes its `messages.create` calls
+through `call_with_observation`, so the SDK and CrewAI paths share
+one health view.
+
 ---
 
 ## 9. Vetting
@@ -847,12 +887,22 @@ Fine-grained event log inside a crew run.
 
 | File | Role |
 |---|---|
-| `app/llm_catalog.py` | Catalog dict + `RUNTIME_MODES` + policy dicts + resolver |
+| `app/llm_catalog.py` | Catalog dict + `RUNTIME_MODES` + policy dicts + resolver + `derived_id(entry, route)` + `validate_entry()` + `fallback_chain()` |
 | `app/llm_catalog_builder.py` | Auto-population from AA + OpenRouter + Ollama |
 | `app/llm_mode.py` | Runtime-mutable mode singleton (`get_mode`/`set_mode`) |
-| `app/llm_factory.py` | Single LLM gateway (`create_specialist_llm`, `create_vetting_llm`) |
-| `app/llm_selector.py` | Selector with env overrides + difficulty + ContextVars |
+| `app/llm_factory.py` | Single LLM gateway (`create_specialist_llm`, `create_vetting_llm`, `anthropic_client_for_role`); typed `ConstructionFailed` + `NoWorkingModelAvailable`; chain walker + `_resolved_budget_usd` |
+| `app/llm_factory_probe.py` | Per-`(provider, model_id)` health cache + observation envelope (`call_with_observation` / `acall_with_observation`) + `mark_dead → vendor_sunset` escalation |
+| `app/llm_selector.py` | Selector with env overrides + difficulty + ContextVars; capability gate (`role_needs_tools`) and mode-pool fallback |
 | `app/llm_role_assignments.py` | DB overlay (hand-pins + auto-promotions) |
+| `app/llms/credit_aware_anthropic.py` | CrewAI `LLM` subclass — Anthropic per-call cap + cost-estimate plumbing + brake check + 1/day-deduped failover Signal alerts |
+| `app/llms/budget_aware.py` | CrewAI `LLM` subclass with injected per-call `pre_check` (used to wrap OR-routed LLMs against `llm_openrouter_budget`); lazy class construction so importing this file is cheap |
+| `app/llm_cost_exceptions.py` | Neutral `CapExceededError` base; subclassed by `AnthropicDailyCapExceeded` and `OpenRouterDailyCapExceeded` so generic wrappers catch the family without string matching |
+| `app/llm_anthropic_budget.py` | Anthropic per-day cap (`AnthropicDailyCapExceeded`, `pre_check`, `today_spent_usd`, `state_snapshot`); delegates reads to `llm_cost_ledger` |
+| `app/llm_openrouter_budget.py` | OpenRouter per-day cap; symmetric to the Anthropic sibling |
+| `app/llm_role_spend.py` | `RoleCostProfile` dataclass + `_ROLE_PROFILES` (single source of truth for per-call ceiling + hourly baseline) + `adaptive_budget_factor` (multiplier in `[0.25, 1.0]`) |
+| `app/llm_cost_ledger.py` | Canonical SQLite reader (`spend_by_provider`, `spend_by_role`, `daily_spend_by_provider_for_advisor`); flushes buffered writes before reads |
+| `app/llm_provider_classify.py` | Single `classify_provider(model_id)` — replaces three earlier duplicates |
+| `app/llm_cost_advisor/` | Weekly cap-adjustment proposer (analyzer + proposer + 24h cadence guard); files CRs via `proposal_bridge`, never auto-applies |
 | `app/llm_promotions.py` | Promotion CRUD |
 | `app/llm_discovery.py` | Pareto-dominance discovery + governance gating |
 | `app/llm_registry_scanner.py` | ollama.com crawler + host-capacity probe + 3 proposal filters (dominance/quant/rejection) |
@@ -945,6 +995,9 @@ Dashboard → Tasks tab → click any row. Drawer opens; toggle 🌳 Tree
 | Postgres unreachable | `role_assignments` queries return `None`; resolver layer 1 silently skips | Layer 3 pool scoring still works |
 | CrewAI version doesn't expose event types | `span_events.install_listeners()` logs warning, sets installed flag, returns | Crews still run; just no spans get persisted |
 | Hand-pin points at retired model | `set_assignment()` rejects writes that aren't in live `CATALOG`; old pins surface as stale | Resolver layer 1 verifies `pin in CATALOG` before returning |
+| Anthropic / OpenRouter daily cap fires | `pre_check` raises `AnthropicDailyCapExceeded` / `OpenRouterDailyCapExceeded` (both inherit `CapExceededError`) | At call time CreditAware silently fails over to OR Claude when configured + emits a 1/day-deduped Signal alert; at construction time the chain walker converts to `ConstructionFailed("cap_exceeded")` and falls through to local Ollama; orchestrator's typed catch arm names the provider in the user reply |
+| Monthly total-cost brake engages | `idle_pause_due_to_budget` true → paid providers skipped at construction in `_check_candidate_basics` | Chain falls through to local Ollama; React Settings card shows the brake state; clears at 70% (hysteresis) |
+| Role burns >1.5× expected hourly pace | `adaptive_budget_factor(role)` returns `< 1.0` for the next call | Selector's Pareto demote picks a cheaper alternative; under-pace roles are unaffected |
 | Vetting hangs | Bounded `llm.call()` timeout (~30 s) | Parent task's soft-timeout still fires |
 | Span never finishes (CrewAI bus crash) | 10-min watchdog `close_stale_spans` marks them failed | Dashboard doesn't show eternally-running spans |
 | Discovery promotes the wrong model | Demote button on dashboard or `demote <model>` Signal | Catalog rehydrates immediately |
@@ -969,6 +1022,7 @@ Dashboard → Tasks tab → click any row. Drawer opens; toggle 🌳 Tree
 | `tests/test_llm_discovery.py` | Pareto-dominance, governance gating |
 | `tests/test_llm_registry_scanner.py` | Tags-page parser, host-capacity probe, dominance / quant / rejection-learning filters |
 | `tests/test_llm_telemetry.py` | Per-call recording, ContextVar hygiene |
+| `tests/test_llm_factory_route_invariants.py` | Route-aware id derivation, chain walker fallback, typed `ConstructionFailed` vocabulary, `NoWorkingModelAvailable`, observation envelope, raw-SDK bypass-grep pin, end-to-end SQLite ledger smoke test (73 cases) |
 | `tests/test_vetting_feedback.py` | Vetting failure → tier bump |
 | `tests/test_crew_task_spans.py` | Span persistence, ContextVar correlation, event-map roundtrip |
 
@@ -1005,12 +1059,56 @@ pytest tests/test_llm_*.py tests/test_vetting_feedback.py tests/test_crew_task_s
 | **Lineage base / version** | Result of `_family_base_and_version()`: a family name like `qwen3.5` is split into base (`qwen`) and version (`3.5`). Two families share a lineage iff their bases match; the higher version dominates the lower for governance-proposal purposes. Families without trailing digits (`codestral`, `glm-ocr`) parse as `(family, None)` and don't participate in cross-version dominance — their candidates pass through Rule 3 unchanged. |
 | **Quant rank** | Numeric ordering over quantizations (q4_K_M=4, q5_K_M=5, q8_0=7, fp16=9). Used by `filter_quant_dominated` to skip "bigger for marginal gain" variants of an installed base. |
 | **Rejection learning** | `filter_recently_rejected` reads `governance_requests` for `local_model_pull` rejections in the last 30 days and suppresses re-proposing the same `model_id`. Stops the idle-cycle nag loop. |
+| **Route** | One of `native_anthropic` / `litellm` / `openrouter` / `ollama_native`. `derived_id(entry, route)` returns the model-id form the targeted SDK expects (Anthropic native takes bare ids; LiteLLM-routed CrewAI LLM wants `anthropic/<bare>`). Replaces a tangle of ad-hoc string mutations across the factory. |
+| **Observation envelope** | `call_with_observation(llm, …)` / `acall_with_observation` in `llm_factory_probe.py` — `try/finally` that records success/latency/error to a shared `(provider, model_id)` health cache. Every CrewAI LLM call and every `AnthropicClientHandle.messages.create` flows through it. |
+| **Construction failure** | Typed `ConstructionFailed(reason, …)` with a closed `reason` vocabulary: `shape_invalid` / `unhealthy` / `budget_paused` / `cap_exceeded` / `key_missing` / `instantiate_error`. Chain walker catches and moves on; exhausting the chain raises `NoWorkingModelAvailable` for the orchestrator. |
+| **Cap-exceeded family** | `CapExceededError` base in `llm_cost_exceptions` + `AnthropicDailyCapExceeded` + `OpenRouterDailyCapExceeded` subclasses. Generic wrappers and the orchestrator catch the base class — no string-matching on exception names. |
+| **`AnthropicClientHandle`** | The factory-supplied substitute for raw `Anthropic()` SDK instantiation. Routes `.messages.create` / `.beta.messages.create` through `call_with_observation` so the 22 migrated bypass sites share one health view + one cap-enforcement path. Obtained via `anthropic_client_for_role(role, task_hint)`. |
+| **Role cost profile** | `RoleCostProfile(budget_usd, expected_hourly_usd)` in `llm_role_spend.py:_ROLE_PROFILES`. Adding a new role: add one row. Both consumers (factory's `_resolved_budget_usd` and `adaptive_budget_factor`) read from this single source. |
+| **Adaptive back-pressure** | `adaptive_budget_factor(role)` returns a multiplier in `[0.25, 1.0]` from rolling 1h spend vs the role's `expected_hourly_usd`. Only tightens — under-pace roles get the base budget. |
+| **Cost advisor** | `app/llm_cost_advisor` — weekly LIGHT idle job that watches 7-day spend trends + per-role baselines and proposes cap raises / lowers via `proposal_bridge` (standard CR gate). Never auto-applies. Internal 24h cadence guard. |
 
 ---
 
 ## 20. Cross-references
 
 - High-level system architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Cost discipline — 7 layers + operator levers + failover behaviour: [`COST_MODEL.md`](COST_MODEL.md)
 - Control-plane patterns: [`CONTROL_PLANES.md`](CONTROL_PLANES.md)
 - Self-improvement pipeline (uses LLM-as-Judge for evolution variants): [`SELF_IMPROVEMENT.md`](SELF_IMPROVEMENT.md)
 - Dashboard surfaces (LLMs tab + Tasks tab + drawer): React app at `dashboard-react/src/components/{LlmsPage,TasksPage,TaskFlowDrawer}.tsx`
+
+---
+
+## 21. Construction & cost discipline
+
+Detailed operator guide lives in [`COST_MODEL.md`](COST_MODEL.md). Brief
+summary for context:
+
+The factory enforces **seven** cost mechanisms across three layers:
+
+1. **Selection** (which model is picked): `cost_mode` filter (free /
+   budget / balanced / quality / insane / anthropic) → per-role
+   `budget_usd` Pareto demote → adaptive back-pressure multiplier from
+   1h rolling spend.
+2. **Construction** (which model can be instantiated right now):
+   per-call shape validation → health-cache skip → monthly-cap brake
+   (`idle_pause_due_to_budget`) → per-provider daily-cap pre-check →
+   API-key presence.
+3. **Per call** (gating an already-constructed LLM): per-provider
+   `pre_check` inside `CreditAwareAnthropicCompletion.call` /
+   `BudgetAwareCompletion.call` / `AnthropicClientHandle.messages.create`.
+
+All seven mechanisms read cost data from one source — the canonical
+`token_usage` SQLite table at `workspace/llm_benchmarks.db`, accessed
+through `app/llm_cost_ledger.py`. Provider classification is a single
+function (`app/llm_provider_classify.py`).
+
+When a cap fires the orchestrator catches `CapExceededError` (the
+base class) and names the provider in the user reply. CreditAware
+silently fails over to OR Claude when configured and emits a
+1/day-deduped Signal alert so the operator finds out.
+
+The `llm_cost_advisor` weekly idle job watches 7-day spend trends and
+files cap-adjustment CRs through the standard `proposal_bridge` gate
+— operators approve / reject via React or Signal. Never auto-applies.

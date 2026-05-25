@@ -185,30 +185,16 @@ def _default_llm_call(system: str, user: str) -> str:
     """Anthropic Haiku 4.5 call. Empty string on any failure.
 
     Phase D.3 (2026-05-22): gated by the operator-set Anthropic daily
-    cap via ``llm_anthropic_budget.call_or_skip``. When the cap would
-    be breached, the call is refused and the populator silently skips
-    this iteration — same "" sentinel any other LLM failure produces,
-    so the rest of the pass continues unaffected. Estimated cost
-    ~$0.001 per Haiku call (over-estimated to 0.005 so the gate fires
-    conservatively).
+    cap.  The cap is enforced by the factory's ``.messages.create``
+    pre-check; on cap-out the existing ``except Exception`` below
+    returns "" — populator silently skips this iteration.  Same ""
+    sentinel any other LLM failure produces, so the rest of the
+    pass continues unaffected.  Estimated cost ~$0.001 per Haiku call.
     """
     try:
-        import anthropic
-    except ImportError:
-        return ""
-
-    # Vendor-level cap pre-check. No-op when disabled (default).
-    from app import llm_anthropic_budget
-    if not llm_anthropic_budget.call_or_skip(
-        estimated_cost_usd=0.005,
-        source="creativity:analogy_populator",
-    ):
-        return ""
-
-    try:
-        client = anthropic.Anthropic()
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting", task_hint="creative analogy")
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
             max_tokens=900,
             system=system,
             messages=[{"role": "user", "content": user}],

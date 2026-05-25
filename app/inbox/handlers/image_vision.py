@@ -51,30 +51,13 @@ def run(path: Path) -> str:
             f"{_MAX_FILE_BYTES / 1024 / 1024:.0f} MB cap"
         )
 
-    try:
-        import anthropic
-    except ImportError as exc:
-        raise RuntimeError(
-            f"anthropic SDK unavailable: {exc}"
-        ) from exc
-
-    # Vendor-level cap pre-check (Phase D.3, 2026-05-22). Vision calls
-    # are the most expensive Haiku invocations (~$0.01 per page);
-    # estimate at $0.015 so the gate fires conservatively. On cap-out
-    # we raise RuntimeError — caller (inbox watcher) records the file
-    # as 'failed' with an actionable error message, same as the
-    # file-too-large branch above.
-    from app import llm_anthropic_budget
-    if not llm_anthropic_budget.call_or_skip(
-        estimated_cost_usd=0.015,
-        source="inbox:image_vision",
-    ):
-        raise RuntimeError(
-            "Anthropic daily cap exceeded — image_vision call refused. "
-            "Raise the cap in /cp/settings → Anthropic per-day cap, "
-            "or wait for the rolling-24h window to roll over."
-        )
-
+    # Vendor-level cap is now enforced by the factory's
+    # ``_InstrumentedMessages.create`` pre-check; this site no longer
+    # gates explicitly.  If the cap fires, ``AnthropicDailyCapExceeded``
+    # propagates out of ``client.messages.create`` and the existing
+    # ``except Exception`` below converts it to a RuntimeError that
+    # the inbox watcher records as 'failed' — same operator-visible
+    # behaviour as the prior explicit pre-check.
     try:
         with open(path, "rb") as f:
             blob = f.read()
@@ -83,10 +66,15 @@ def run(path: Path) -> str:
         raise RuntimeError(f"image read failed: {exc}") from exc
 
     media_type = _media_type(path)
-    client = anthropic.Anthropic()
+    # Vision requires a multimodal-capable model — route through the
+    # factory with a multimodal task_hint so the resolver picks an
+    # appropriate Anthropic candidate (today the bootstrap survivor
+    # claude-sonnet-4.6 satisfies both Anthropic-provider AND
+    # multimodal=True).
+    from app.llm_factory import anthropic_client_for_role
+    client = anthropic_client_for_role(role="media", task_hint="multimodal")
     try:
         msg = client.messages.create(
-            model=_MODEL,
             max_tokens=_MAX_OUTPUT_TOKENS,
             system=_SYSTEM,
             messages=[{

@@ -355,18 +355,12 @@ def _default_judge_fn(qa: QAPair, answer: str) -> tuple[int, str, str]:
     question as inconclusive rather than as a real fail.
     """
     try:
-        import anthropic
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting", task_hint="qos judge")
     except Exception as exc:
         raise RuntimeError(
-            f"anthropic SDK unavailable for judge call: {exc}"
+            f"factory could not supply Anthropic judge client: {exc}"
         )
-    from app import llm_anthropic_budget
-    if not llm_anthropic_budget.call_or_skip(
-        estimated_cost_usd=0.001,
-        source="qos:answer_regression_judge",
-    ):
-        return (0, "error", "Anthropic daily cap exceeded — judge skipped")
-    client = anthropic.Anthropic()
     judge_prompt = (
         "You are evaluating an answer for an internal regression suite. "
         "Score the answer on a 0..10 integer scale; pick a single "
@@ -380,11 +374,19 @@ def _default_judge_fn(qa: QAPair, answer: str) -> tuple[int, str, str]:
         '{"score": <int 0..10>, "verdict": "pass|partial|fail", '
         '"reasoning": "<one short sentence>"}'
     )
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=200,
-        messages=[{"role": "user", "content": judge_prompt}],
-    )
+    # Daily-cap is enforced by the factory's pre-check inside
+    # ``.messages.create``; on cap-out the regression suite degrades
+    # to "judge skipped" rather than propagating the exception.
+    try:
+        response = client.messages.create(
+            max_tokens=200,
+            messages=[{"role": "user", "content": judge_prompt}],
+        )
+    except Exception as exc:
+        from app.llm_anthropic_budget import AnthropicDailyCapExceeded
+        if isinstance(exc, AnthropicDailyCapExceeded):
+            return (0, "error", "Anthropic daily cap exceeded — judge skipped")
+        raise
     # Pull text from the response content blocks.
     text = ""
     for block in response.content:

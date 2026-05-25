@@ -5,7 +5,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from crewai import Agent, Task, Crew
 from app.config import get_settings
-from app.llm_factory import create_commander_llm, is_using_local
+from app.llm_factory import (
+    create_commander_llm, is_using_local,
+    NoWorkingModelAvailable,
+)
+from app.llm_anthropic_budget import AnthropicDailyCapExceeded
+from app.llm_cost_exceptions import CapExceededError
 from app.vetting import vet_response
 from app.sanitize import wrap_user_input
 from app.tools.memory_tool import create_memory_tools
@@ -2821,6 +2826,107 @@ class Commander:
                 attachments=attachments,
             )
         except Exception as exc:
+            # Three-arm catch: the two typed-factory exceptions get
+            # explicit user replies *and* loud operator alerts so the
+            # silent-drop class of bugs cannot recur for ANY factory-
+            # surfaced error.  Generic ``except Exception:`` is reserved
+            # for the truly opaque case (the routing LLM did respond
+            # but downstream JSON parsing / dispatch logic raised —
+            # that genuinely IS "we couldn't understand the model's
+            # reply").  Imports are at module top so a partial-import
+            # of either exception module can't silently route through
+            # the generic arm.
+            if isinstance(exc, NoWorkingModelAvailable):
+                # Loud operator alert with the full attempt list.  The
+                # Signal channel is the right surface — this is an
+                # outage-level event the operator must see immediately,
+                # not a routine error in the daily-briefing digest.
+                attempt_lines = [
+                    f"  • {name}: {failure.reason_code} — {failure.detail[:120]}"
+                    for name, failure in exc.attempts
+                ]
+                alert_body = (
+                    "🚨 LLM cascade exhausted — every candidate model "
+                    f"failed for role={exc.role!r}.\n\n"
+                    "Attempts:\n" + "\n".join(attempt_lines) + "\n\n"
+                    "Fix: check provider API keys (ANTHROPIC_API_KEY, "
+                    "OPENROUTER_API_KEY), restore connectivity to Ollama "
+                    "if expected, or amend the catalog if a model id is "
+                    "wrong (see `app/llm_catalog.py:validate_entry`)."
+                )
+                try:
+                    from app.signal_client import send_message
+                    from app.config import get_settings
+                    recipient = (get_settings().signal_owner_number or "").strip()
+                    if recipient:
+                        send_message(recipient, alert_body)
+                except Exception:
+                    logger.exception(
+                        "Failed to send Signal alert for "
+                        "NoWorkingModelAvailable — falling back to "
+                        "logger.error only.",
+                    )
+                logger.error(
+                    "Commander._route: NoWorkingModelAvailable for "
+                    "role=%s; attempts=%s",
+                    exc.role,
+                    [(n, f.reason_code) for n, f in exc.attempts],
+                )
+                crew_failed("commander", task_id, f"cascade_exhausted: {exc!s}"[:200])
+                return (
+                    "⚠️ Router LLM is currently unavailable — every "
+                    "candidate model in the cascade failed. The operator "
+                    "has been alerted. Please try again shortly."
+                )
+
+            elif isinstance(exc, CapExceededError):
+                # Per-provider daily cap exceeded AND no fallback
+                # absorbed it.  Provider is named in the exception's
+                # ``provider`` attribute so the user-facing reply
+                # is correct whether Anthropic, OpenRouter, or any
+                # future provider with its own cap class.
+                provider_name = getattr(exc, "provider", "Provider")
+                alert_body = (
+                    f"💸 {provider_name} daily cap reached — router "
+                    "can't serve this request without exceeding the "
+                    "operator-set ceiling.\n\n"
+                    f"Spent: ${exc.today_spent_usd:.4f}\n"
+                    f"Cap:   ${exc.daily_cap_usd:.4f}\n"
+                    f"Next call estimate: ${exc.estimated_cost_usd:.4f}\n\n"
+                    f"Fix: raise the cap in /cp/settings → "
+                    f"{provider_name} per-day cap, OR configure a "
+                    "fallback provider so the factory can transparently "
+                    "failover.  The cap window rolls over after 24h."
+                )
+                try:
+                    from app.signal_client import send_message
+                    from app.config import get_settings
+                    recipient = (get_settings().signal_owner_number or "").strip()
+                    if recipient:
+                        send_message(recipient, alert_body)
+                except Exception:
+                    logger.exception(
+                        "Failed to send Signal alert for cap-exceeded "
+                        "(%s).", provider_name,
+                    )
+                logger.warning(
+                    "Commander._route: %s daily cap exceeded "
+                    "(spent=%.4f cap=%.4f estimate=%.4f)",
+                    provider_name,
+                    exc.today_spent_usd, exc.daily_cap_usd,
+                    exc.estimated_cost_usd,
+                )
+                crew_failed(
+                    "commander", task_id,
+                    f"{provider_name.lower()}_cap_exceeded: {exc!s}"[:200],
+                )
+                return (
+                    f"⚠️ Today's {provider_name} budget is exhausted "
+                    "— the router can't run until the cap window "
+                    "rolls over or a fallback provider is configured. "
+                    "The operator has been alerted."
+                )
+
             crew_failed("commander", task_id, str(exc)[:200])
             return "Sorry, I had trouble understanding that request. Please try again."
         _phase_log("route", _route_t0, decisions=len(decisions))

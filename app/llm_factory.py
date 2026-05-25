@@ -26,14 +26,88 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from crewai import LLM  # type hints only — no runtime import cost
-from app.config import get_settings, get_anthropic_api_key
+from app.config import get_settings, get_anthropic_api_key, get_openrouter_api_key
 from app.llm_catalog import (
     get_model, get_model_id, get_provider, get_tier,
     get_default_for_role, CATALOG,
+    derived_id, validate_entry, fallback_chain,
 )
 from app import circuit_breaker
+from app import llm_factory_probe
+from app.runtime_settings import get_idle_pause_due_to_budget
 
 logger = logging.getLogger(__name__)
+
+
+# ── Typed construction failures ─────────────────────────────────────────
+# The factory is the single source of truth for "give me a working LLM
+# for this role".  Every callable construction path either returns a live
+# LLM or raises a typed exception in the hierarchy below.  Callers (the
+# Commander's ``_route``, the vetting crew, anything else) get
+# unambiguous failure semantics: a generic ``except Exception`` is no
+# longer the right tool — orchestrator code must catch
+# :class:`NoWorkingModelAvailable` specifically so a typo'd model id in
+# the catalog cannot reach the user as "Sorry, I had trouble understanding".
+
+class ConstructionFailed(Exception):
+    """Raised by :func:`_construct_from_entry` when a single catalog
+    candidate cannot be turned into a usable LLM.
+
+    Carries a short ``reason_code`` (one of the strings in
+    :data:`_REASON_CODES`) and a free-form ``detail`` for logging.  The
+    chain walker collects these and folds them into a
+    :class:`NoWorkingModelAvailable` if every candidate fails.
+
+    A ``ConstructionFailed`` is *recoverable* — it means "this catalog
+    entry doesn't work, try the next one".  It is NOT a fatal error and
+    should not propagate past the chain walker.
+    """
+    def __init__(self, reason_code: str, detail: str):
+        self.reason_code = reason_code
+        self.detail = detail
+        super().__init__(f"{reason_code}: {detail}")
+
+
+# Canonical reason codes — exact string match is part of the API the
+# chain walker logs and tests assert against.  Adding a new code: add it
+# here, add a raise-site, add a test row to the contract suite.
+_REASON_CODES = (
+    "not_in_catalog",      # catalog_key has no entry in CATALOG
+    "shape_invalid",       # validate_entry returned problems
+    "missing_key",         # required API key env var not set
+    "marked_dead",         # health cache recorded a recent model-id 404
+    "build_failed",        # underlying constructor raised
+    "disabled",            # subsystem (e.g. local Ollama) disabled by settings
+    "unknown_provider",    # provider field doesn't match any handler
+    "budget_paused",       # operator-engaged spend brake skips paid providers
+)
+
+
+class NoWorkingModelAvailable(Exception):
+    """Raised by :func:`_walk_chain` when every candidate in the fallback
+    chain fails construction.  Carries the full list of attempts so the
+    operator alert can describe the entire failure surface in one
+    Signal message instead of a vague "router LLM unavailable".
+
+    Catching this exception in the orchestrator (rather than relying on
+    a generic ``except Exception``) is the design contract for surfacing
+    LLM-cascade exhaustion as a user-visible event.  See
+    ``agents/commander/orchestrator.py`` for the catch site.
+    """
+    def __init__(
+        self,
+        role: str,
+        attempts: list[tuple[str, "ConstructionFailed"]],
+    ):
+        self.role = role
+        self.attempts = attempts
+        summary = ", ".join(
+            f"{name}({exc.reason_code})" for name, exc in attempts
+        ) or "<empty chain>"
+        super().__init__(
+            f"No working model available for role={role!r} after "
+            f"{len(attempts)} attempts: {summary}"
+        )
 
 # Thread-local storage for last model/tier — prevents race conditions
 # when multiple crews process concurrently in the commander thread pool (Q7).
@@ -270,6 +344,684 @@ def _cached_llm(
         return llm
 
 
+# ── Single-candidate construction + fallback-chain walker ──────────────
+#
+# These two helpers are the *only* sanctioned way to turn a catalog key
+# into an LLM:
+#
+#   * :func:`_construct_from_entry` builds a single candidate, applies
+#     every legitimacy check the factory promises (shape validation,
+#     health-cache short-circuit, API-key presence, provider dispatch),
+#     and raises :class:`ConstructionFailed` with a typed reason code on
+#     any failure mode the chain walker should skip past.
+#
+#   * :func:`_walk_chain` iterates a list of candidate catalog keys,
+#     returning the first one that constructs.  If every candidate fails,
+#     it raises :class:`NoWorkingModelAvailable` carrying the full list
+#     of attempts so the operator alert can describe the entire failure
+#     surface in one place.
+#
+# Every public ``create_*_llm`` function in this module composes these
+# two primitives — that is the contract the factory enforces.  The
+# orchestrator's catch boundary expects :class:`NoWorkingModelAvailable`
+# specifically; no generic ``except Exception`` swallows construction
+# failures into "Sorry, I had trouble understanding" any more.
+
+
+def _check_candidate_basics(
+    name: str,
+    entry: dict,
+    *,
+    require_provider: str | None = None,
+) -> "ConstructionFailed | None":
+    """Run the shared pre-build checks: provider filter, shape, health,
+    brake, key.  Returns ``None`` if the candidate passes every check,
+    or the first failing :class:`ConstructionFailed` otherwise.
+
+    Used by both :func:`_construct_from_entry` (CrewAI LLM path) and
+    :meth:`AnthropicClientHandle._select` (raw-SDK path) so the two
+    factory surfaces share validation logic rather than diverging.
+
+    *require_provider* restricts the check to a single provider — the
+    raw-SDK handle uses this to reject non-Anthropic candidates with
+    a typed reason code rather than silently passing them through.
+    """
+    if require_provider is not None and entry.get("provider") != require_provider:
+        return ConstructionFailed(
+            "unknown_provider",
+            f"provider={entry.get('provider')!r} != required {require_provider!r}",
+        )
+
+    # Shape validation
+    problems = validate_entry(name, entry)
+    if problems:
+        return ConstructionFailed("shape_invalid", problems[0])
+
+    provider = entry["provider"]
+
+    # Health-cache short-circuit
+    bare = derived_id(entry, "native_anthropic")
+    health = llm_factory_probe.health_of(provider, bare)
+    if health is not None and not health.is_alive:
+        return ConstructionFailed("marked_dead", health.last_reason)
+
+    # Total-spend brake (paid providers only)
+    if provider in ("anthropic", "openrouter"):
+        try:
+            if get_idle_pause_due_to_budget():
+                return ConstructionFailed(
+                    "budget_paused",
+                    f"idle_pause_due_to_budget is engaged — skipping "
+                    f"{provider} candidate to honour the monthly cap; "
+                    "chain walker will fall through to local Ollama",
+                )
+        except Exception:
+            pass
+
+    # Provider-specific API-key check
+    if provider == "anthropic" and not get_anthropic_api_key():
+        return ConstructionFailed("missing_key", "ANTHROPIC_API_KEY not set")
+    if provider == "openrouter" and not get_openrouter_api_key():
+        return ConstructionFailed("missing_key", "OPENROUTER_API_KEY not set")
+
+    return None
+
+
+def _construct_from_entry(
+    name: str,
+    entry: dict,
+    max_tokens: int,
+    role: str,
+    *,
+    phase: str | None = None,
+) -> "LLM":
+    """Build an LLM from a single catalog entry, or raise :class:`ConstructionFailed`.
+
+    Failure modes are exhaustive — every code path that does NOT return
+    an LLM raises with a typed ``reason_code``:
+
+    ``shape_invalid``
+        :func:`validate_entry` flagged a provider/prefix mismatch.
+        Subset of "the catalog itself is wrong about this model".
+    ``marked_dead``
+        The health cache has a recent record of a model-id-level
+        rejection (404 ``not_found_error``).  Skip for the TTL window.
+    ``missing_key``
+        The provider's API-key env var is unset.  In a multi-key
+        environment this is a per-provider availability signal.
+    ``disabled``
+        A subsystem-level disable flag (e.g. ``local_llm_enabled``)
+        forbids the route.
+    ``build_failed``
+        Underlying constructor raised — usually a network blip, a
+        misconfigured base_url, or a CrewAI/litellm internal bug.
+    ``unknown_provider``
+        Catalog entry's ``provider`` field doesn't match any handler.
+        Indicates a catalog drift bug.
+    ``budget_paused``
+        Operator-engaged total-cost-ceiling brake skips paid providers.
+    """
+    # Pre-build checks (shape, health, brake, key) — shared with the
+    # raw-SDK handle path via :func:`_check_candidate_basics`.
+    fail = _check_candidate_basics(name, entry)
+    if fail is not None:
+        raise fail
+
+    provider = entry["provider"]
+
+    # Provider dispatch — each branch must end in either a return
+    # or a raise; no implicit fall-through.  Key + brake checks have
+    # already passed inside ``_check_candidate_basics``.
+    if provider == "anthropic":
+        try:
+            return _build_claude_llm(
+                name, entry["model_id"], max_tokens=max_tokens, role=role,
+                phase=phase,
+                tier=entry.get("tier", "premium"),
+                cost_out=entry.get("cost_output_per_m", 15.0),
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ConstructionFailed("build_failed", f"{exc!s}") from exc
+
+    if provider == "openrouter":
+        # OpenRouter daily-cap pre-check.  Symmetric with the
+        # Anthropic gate, applied at construction (not per-call —
+        # OpenRouter LLMs reach litellm via crewai.LLM with no
+        # wrapping layer for a per-call hook).  Translates the typed
+        # cap-exceeded exception into ``ConstructionFailed
+        # ("budget_paused", …)`` so the chain walker falls through
+        # to local Ollama uniformly with the Anthropic and
+        # idle-pause-due-to-budget paths.
+        try:
+            from app.llm_openrouter_budget import (
+                pre_check as _or_pre_check, OpenRouterDailyCapExceeded,
+            )
+            _or_pre_check(estimated_cost_usd=0.0)
+        except OpenRouterDailyCapExceeded as exc:
+            raise ConstructionFailed("budget_paused", str(exc)) from exc
+        except Exception:
+            # Failure-OPEN — broken budget module doesn't block calls.
+            pass
+
+        try:
+            # ``_try_api`` returns ``None`` on circuit-breaker-open or
+            # other recoverable failures; translate to typed
+            # ``build_failed`` so the chain walker sees a uniform
+            # contract.
+            llm = _try_api(name, entry, max_tokens, role, phase=phase)
+            if llm is None:
+                raise ConstructionFailed(
+                    "build_failed",
+                    "OpenRouter unavailable (breaker open or _try_api returned None)",
+                )
+            return llm
+        except ConstructionFailed:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ConstructionFailed("build_failed", f"{exc!s}") from exc
+
+    if provider == "ollama":
+        settings = get_settings()
+        if not settings.local_llm_enabled:
+            raise ConstructionFailed("disabled", "local_llm_enabled=False")
+        try:
+            llm = _try_local(name, entry, max_tokens, role, phase=phase)
+            if llm is None:
+                raise ConstructionFailed(
+                    "build_failed", "Ollama spawn returned None"
+                )
+            return llm
+        except ConstructionFailed:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ConstructionFailed("build_failed", f"{exc!s}") from exc
+
+    raise ConstructionFailed("unknown_provider", f"provider={provider!r}")
+
+
+def _walk_chain(
+    candidates: list[str],
+    max_tokens: int,
+    role: str,
+    *,
+    phase: str | None = None,
+) -> "LLM":
+    """Return an LLM for the first candidate that constructs, else raise.
+
+    Order of *candidates* matters — the resolver-picked model usually
+    appears first, then the bootstrap survivors in premium → budget →
+    local order.  See :func:`app.llm_catalog.fallback_chain` for the
+    canonical sequence.
+
+    Duplicates in *candidates* are skipped (cheap one-pass dedup).
+    """
+    attempts: list[tuple[str, ConstructionFailed]] = []
+    seen: set[str] = set()
+    for name in candidates:
+        if name in seen:
+            continue
+        seen.add(name)
+        entry = get_model(name)
+        if entry is None:
+            attempts.append((name, ConstructionFailed("not_in_catalog", "")))
+            continue
+        try:
+            llm = _construct_from_entry(
+                name, entry, max_tokens, role, phase=phase,
+            )
+            if attempts:
+                # Useful operator signal — the walker had to fall
+                # through, so the resolver's top pick was unavailable.
+                # INFO level because this is the chain walker doing
+                # exactly what it is designed to do; the original
+                # failure was already logged at its raise site.
+                logger.info(
+                    "llm_factory walker: role=%s landed on %s after "
+                    "skipping %d candidate(s): %s",
+                    role, name, len(attempts),
+                    "; ".join(f"{n}({e.reason_code})" for n, e in attempts),
+                )
+            return llm
+        except ConstructionFailed as exc:
+            logger.debug(
+                "llm_factory walker: role=%s skipping candidate %s — %s",
+                role, name, exc,
+            )
+            attempts.append((name, exc))
+            continue
+    raise NoWorkingModelAvailable(role, attempts)
+
+
+def _chain_for_role(
+    role: str,
+    primary: str | None = None,
+) -> list[str]:
+    """Compose the ordered candidate list for *role*.
+
+    *primary* (typically the resolver-picked model name) is prepended if
+    given; the standard fallback chain follows.  The chain walker
+    dedups, so listing the same key twice is harmless.
+    """
+    chain = list(fallback_chain(role))
+    if primary:
+        chain.insert(0, primary)
+    return chain
+
+
+# ── Raw-SDK factory surface for non-CrewAI callers ──────────────────
+#
+# Many subsystems (vision, JSON-mode classification, structured
+# diagnosis, brainstorm, concierge, …) want the raw Anthropic SDK
+# rather than the CrewAI ``LLM`` wrapper.  Reasons include: native
+# image content blocks, structured ``tool_use`` outputs, custom
+# system prompts, streaming, or just historical inertia from before
+# the factory existed.
+#
+# Pre-factory those sites all did:
+#
+#     from anthropic import Anthropic
+#     client = Anthropic(api_key=key)
+#     resp = client.messages.create(model="claude-haiku-4-5-…", …)
+#
+# which hardcoded a model id (no catalog awareness, no failover, no
+# health cache, no budget) and instantiated an SDK client per call
+# (no connection pooling).  When Anthropic deprecated such an id
+# upstream, every one of those sites silently broke.  The 2026-05-24
+# incident root cause for the router was the *same* problem in a
+# different layer.
+#
+# :func:`anthropic_client_for_role` is the factory-supplied
+# alternative.  It returns a handle that:
+#
+#   * picks the model via the catalog + chain walker (filtered to
+#     ``provider="anthropic"`` entries — the SDK only speaks Anthropic),
+#   * consults the health cache before each call (skips dead models),
+#   * instruments call outcomes (mark_alive on 2xx, mark_dead on
+#     model-not-found 404) so the same feedback loop the router uses
+#     applies to every bypass site,
+#   * exposes ``.messages.create(**kwargs)`` matching the SDK shape so
+#     migrating call sites is a one-line edit.
+#
+# The returned object is NOT cached across calls — each call
+# re-selects to pick up health-cache updates and governance overlay
+# changes.  SDK client construction is cheap (it's a thin
+# ``httpx.Client`` wrapper).
+
+
+class AnthropicClientHandle:
+    """Factory-managed raw Anthropic SDK handle.
+
+    Exposes the same ``.messages.create(**kwargs)`` surface as
+    ``anthropic.Anthropic().messages``, with the ``model`` kwarg
+    auto-injected from catalog selection and call outcomes wired into
+    the health cache.
+
+    Construction selects the model once.  Subsequent calls re-validate
+    against the health cache and, if the original pick is now marked
+    dead, re-select via the chain walker before issuing the call.
+
+    Per-call selection means a busy site sees the most recent health
+    information without re-instantiating; per-construction selection
+    keeps the common-case latency unchanged.
+    """
+
+    def __init__(self, role: str, task_hint: str = ""):
+        self._role = role
+        self._task_hint = task_hint
+        # Build lazily so a fresh process without ANTHROPIC_API_KEY
+        # raises only when something actually tries to call.
+        self._catalog_key: str | None = None
+        self._bare_model: str | None = None
+        self._client = None
+        # Serialise re-selection so two concurrent ``.messages.create()``
+        # calls on the same handle don't both invoke ``_select`` and
+        # race on mutating ``_client`` / ``_bare_model`` /
+        # ``_catalog_key`` mid-flight.  Re-selection is rare (only on
+        # first call or after a model is marked dead in the health
+        # cache) so contention is negligible — the lock is here as a
+        # correctness guarantee, not a performance feature.
+        self._selection_lock = threading.Lock()
+
+    @property
+    def model_id(self) -> str:
+        """Return the currently-selected bare model id (re-selecting
+        if not yet chosen or marked dead since last call)."""
+        self._ensure_fresh_selection()
+        assert self._bare_model is not None  # _ensure_fresh_selection postcondition
+        return self._bare_model
+
+    @property
+    def catalog_key(self) -> str:
+        """Return the catalog key for the currently-selected model."""
+        self._ensure_fresh_selection()
+        assert self._catalog_key is not None
+        return self._catalog_key
+
+    def _ensure_fresh_selection(self) -> None:
+        # Fast path — lock-free read.  ``_bare_model`` is a single
+        # reference assignment, atomic in CPython.  A reader that
+        # observes a stale value would still pass through the health-
+        # cache check below; the worst case is one wasted call on a
+        # dead id, which the call-site instrumentation will then
+        # mark_dead.  We re-validate under the lock to avoid two
+        # concurrent re-selections.
+        if self._bare_model is not None:
+            health = llm_factory_probe.health_of("anthropic", self._bare_model)
+            if health is None or health.is_alive:
+                return  # cached selection still good
+        with self._selection_lock:
+            # Double-check after acquiring the lock — another thread
+            # may have re-selected while we waited.
+            if self._bare_model is not None:
+                health = llm_factory_probe.health_of("anthropic", self._bare_model)
+                if health is None or health.is_alive:
+                    return
+            self._select()
+
+    def _select(self) -> None:
+        """Walk the chain for the first Anthropic-provider candidate
+        that constructs.  Raises :class:`NoWorkingModelAvailable` if
+        every Anthropic entry in the chain fails — the caller decides
+        whether to surface the error or degrade.
+
+        Pre-build checks (provider, shape, health, brake, key) are
+        delegated to :func:`_check_candidate_basics` so the SDK-handle
+        path shares validation logic with the CrewAI-LLM path
+        (:func:`_construct_from_entry`).  Only the construction step
+        differs — this method builds an Anthropic SDK client; the
+        CrewAI path builds a ``CreditAwareAnthropicCompletion``.
+        """
+        # Compose the chain — resolver pick for the role first, then
+        # bootstrap survivors.  Per-candidate filtering to
+        # provider="anthropic" happens in ``_check_candidate_basics``.
+        from app.llm_mode import get_mode
+        primary = get_default_for_role(self._role, get_mode())
+        chain = _chain_for_role(self._role, primary=primary)
+
+        attempts: list[tuple[str, ConstructionFailed]] = []
+        for catalog_key in chain:
+            entry = get_model(catalog_key)
+            if entry is None:
+                attempts.append(
+                    (catalog_key, ConstructionFailed("not_in_catalog", ""))
+                )
+                continue
+            fail = _check_candidate_basics(
+                catalog_key, entry, require_provider="anthropic",
+            )
+            if fail is not None:
+                attempts.append((catalog_key, fail))
+                continue
+
+            # Construct the SDK client.  We import lazily so the
+            # factory module's import graph stays flat for processes
+            # that never need Anthropic.
+            try:
+                from anthropic import Anthropic
+            except ImportError as exc:
+                attempts.append(
+                    (catalog_key, ConstructionFailed(
+                        "build_failed", f"anthropic SDK not installed: {exc!s}",
+                    ))
+                )
+                continue
+            try:
+                self._client = Anthropic(api_key=get_anthropic_api_key())
+            except Exception as exc:  # noqa: BLE001
+                attempts.append(
+                    (catalog_key, ConstructionFailed("build_failed", f"{exc!s}"))
+                )
+                continue
+
+            self._catalog_key = catalog_key
+            self._bare_model = derived_id(entry, "native_anthropic")
+            logger.info(
+                "anthropic_client_for_role: role=%s task_hint=%r → %s (bare=%s)",
+                self._role, self._task_hint, catalog_key, self._bare_model,
+            )
+            return
+
+        raise NoWorkingModelAvailable(
+            f"anthropic-sdk[{self._role}]", attempts,
+        )
+
+    @property
+    def messages(self):
+        """SDK-compatible ``.messages`` namespace.
+
+        Returns an :class:`_InstrumentedMessages` proxy that auto-injects
+        ``model=`` and wires call outcomes into the health cache.
+        """
+        self._ensure_fresh_selection()
+        return _InstrumentedMessages(
+            client=self._client,
+            bare_model=self._bare_model,
+            source_tag=self._source_tag(),
+        )
+
+    # Expose a `.beta` passthrough for sites that use Anthropic's beta
+    # features (e.g. prompt caching, computer use, message batches).
+    # Same instrumentation pattern.
+    @property
+    def beta(self):
+        self._ensure_fresh_selection()
+        return _InstrumentedBeta(
+            client=self._client,
+            bare_model=self._bare_model,
+            source_tag=self._source_tag(),
+        )
+
+    def _source_tag(self) -> str:
+        """Compact role/task-hint string for source-attributed log lines."""
+        if self._task_hint:
+            return f"{self._role}:{self._task_hint}"
+        return self._role
+
+
+class _InstrumentedMessages:
+    """Wrapper around ``anthropic.Anthropic().messages`` that injects
+    ``model=`` and records call outcomes into the health cache.
+
+    Pre-flight cost gate
+    --------------------
+
+    Before issuing the call, consults
+    :func:`app.llm_anthropic_budget.pre_check` so the daily Anthropic
+    cap is enforced uniformly across every factory-managed Anthropic
+    call.  The factory-level gate is now the single contract — sites
+    that previously called ``llm_anthropic_budget.call_or_skip``
+    inline before constructing should just catch
+    :class:`app.llm_anthropic_budget.AnthropicDailyCapExceeded` if
+    they want to degrade gracefully.
+
+    Estimated cost defaults to ``0.0`` — callers can pass
+    ``_estimated_cost_usd=`` to bias the cap accurately for known-
+    expensive operations.  The kwarg is stripped before forwarding to
+    the SDK so the SDK never sees it.
+
+    Source attribution
+    ------------------
+
+    On :class:`AnthropicDailyCapExceeded` we emit a single ``INFO``
+    log line tagged with ``role``/``task_hint`` from the parent
+    handle so operators debugging "where did this spend pressure
+    come from?" can trace it back to the caller.  Replaces the
+    per-site ``source="…"`` logging that used to live in
+    :func:`llm_anthropic_budget.call_or_skip`.
+    """
+
+    def __init__(self, client, bare_model: str, *, source_tag: str = ""):
+        self._client = client
+        self._bare_model = bare_model
+        self._source_tag = source_tag
+
+    def create(self, **kwargs):
+        # Caller MUST NOT pass model — the factory owns that choice.
+        # If they do, log and override so the call doesn't silently
+        # bypass the catalog.
+        if "model" in kwargs and kwargs["model"] != self._bare_model:
+            logger.warning(
+                "AnthropicClientHandle: caller passed model=%r — "
+                "overriding with factory-selected %r.  Drop the model "
+                "kwarg from the call site to silence this.",
+                kwargs["model"], self._bare_model,
+            )
+        kwargs["model"] = self._bare_model
+
+        estimated_cost = float(kwargs.pop("_estimated_cost_usd", 0.0) or 0.0)
+
+        # Streaming path observes at iteration boundaries, not at
+        # call-open, so it manages its own envelope.
+        if kwargs.get("stream"):
+            return self._instrumented_stream(
+                estimated_cost_usd=estimated_cost, **kwargs
+            )
+
+        # Non-streaming path: single shot through the standard
+        # observation envelope (pre_check + outcome).  See
+        # :func:`app.llm_factory_probe.call_with_observation` for
+        # the contract — ``AnthropicDailyCapExceeded`` and model-id-
+        # level 404s propagate; other errors are unchanged.
+        try:
+            return llm_factory_probe.call_with_observation(
+                self._bare_model,
+                lambda: self._client.messages.create(**kwargs),
+                estimated_cost_usd=estimated_cost,
+            )
+        except Exception as exc:
+            # Source-attributed cap-exceed log.  Replaces the
+            # per-site ``source="…"`` logging that previously lived
+            # in ``llm_anthropic_budget.call_or_skip``.  Only fires
+            # for the cap-exceed exception class; other exceptions
+            # propagate without this log line.
+            from app.llm_anthropic_budget import AnthropicDailyCapExceeded
+            if isinstance(exc, AnthropicDailyCapExceeded):
+                logger.info(
+                    "Anthropic call refused for source=%r: %s",
+                    self._source_tag or self._bare_model, exc,
+                )
+            raise
+
+    def _instrumented_stream(self, estimated_cost_usd: float = 0.0, **kwargs):
+        """Streaming variant: open the upstream stream, then return a
+        generator that yields events through while observing the
+        terminal outcome (mark_alive on graceful exhaustion,
+        mark_dead on a model-id-level error).
+
+        Callers iterate the returned object exactly as they would the
+        raw Anthropic SDK stream — health-cache updates happen
+        transparently at iteration boundaries.
+
+        The pre-check happens BEFORE the stream is opened; per-token
+        cost is picked up post-hoc by the audit log the same way as
+        non-streaming calls.
+        """
+        # Pre-flight cap gate — runs once at stream open.
+        from app.llm_anthropic_budget import pre_check
+        pre_check(estimated_cost_usd=estimated_cost_usd)
+
+        try:
+            stream = self._client.messages.create(**kwargs)
+        except BaseException as exc:
+            llm_factory_probe.observe_outcome(self._bare_model, exc=exc)
+            raise
+
+        bare = self._bare_model
+
+        def _gen():
+            try:
+                for event in stream:
+                    yield event
+            except BaseException as exc:
+                llm_factory_probe.observe_outcome(bare, exc=exc)
+                raise
+            else:
+                llm_factory_probe.observe_outcome(bare, exc=None)
+
+        return _gen()
+
+
+class _InstrumentedBeta:
+    """Wrapper around ``anthropic.Anthropic().beta`` — exposes
+    ``.messages.create`` with the same instrumentation as the non-beta
+    path.
+
+    Beta-passthrough contract
+    -------------------------
+
+    ``.messages`` is fully instrumented (health cache + cost gate +
+    streaming wrapper).  Every OTHER attribute on ``.beta`` (e.g.
+    ``.beta.batches``, ``.beta.tools``, ``.beta.files``) is passed
+    through to the raw SDK via ``__getattr__`` and is therefore
+    **uninstrumented** — call outcomes do NOT update the health cache
+    and the cost pre-check does NOT fire.
+
+    This is deliberate: the load-bearing path is ``.beta.messages``
+    (e.g. prompt-caching extra-headers); no current call site uses
+    other beta endpoints.  When a new beta endpoint becomes load-
+    bearing, promote it to a dedicated wrapper class with the same
+    discipline as ``_InstrumentedMessages`` rather than relying on the
+    passthrough.
+
+    A test pin (``test_beta_messages_instrumented`` + a future
+    ``test_beta_passthrough_uninstrumented`` regression check if
+    needed) keeps this contract visible.
+    """
+
+    def __init__(self, client, bare_model: str, *, source_tag: str = ""):
+        self._client = client
+        self._bare_model = bare_model
+        self._source_tag = source_tag
+
+    @property
+    def messages(self):
+        return _InstrumentedMessages(
+            client=self._client.beta,
+            bare_model=self._bare_model,
+            source_tag=self._source_tag,
+        )
+
+    def __getattr__(self, name):
+        # Passthrough for uninstrumented beta endpoints — accept this
+        # asymmetry by deliberate choice; see class docstring.
+        return getattr(self._client.beta, name)
+
+
+def anthropic_client_for_role(
+    role: str,
+    task_hint: str = "",
+) -> AnthropicClientHandle:
+    """Return a factory-managed Anthropic SDK handle for *role*.
+
+    The single sanctioned way for raw-Anthropic-SDK callers (vision,
+    JSON-mode classification, structured diagnosis, etc.) to obtain a
+    client.  See :class:`AnthropicClientHandle` for the call surface.
+
+    Migration shape — before::
+
+        from anthropic import Anthropic
+        client = Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            messages=[...],
+            max_tokens=1024,
+        )
+
+    after::
+
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting")
+        resp = client.messages.create(messages=[...], max_tokens=1024)
+        # No model kwarg — the factory picks it.
+
+    Raises :class:`NoWorkingModelAvailable` if every Anthropic
+    candidate in the role's chain fails (no key, all marked dead,
+    SDK not installed, …).  Catch this exception at the call site if
+    the operation has a non-Anthropic fallback path.
+    """
+    return AnthropicClientHandle(role=role, task_hint=task_hint)
+
+
 def _is_anthropic_model(model_id: str) -> bool:
     """Check if a model ID is an Anthropic Claude model."""
     lower = model_id.lower()
@@ -402,66 +1154,31 @@ def create_commander_llm() -> LLM:
             exc_info=True,
         )
 
-    model_name = get_default_for_role("commander", mode)
-    entry = get_model(model_name) or {}
-
-    provider = entry.get("provider")
-    if provider == "anthropic":
-        anthropic_key = get_anthropic_api_key()
-        if anthropic_key:
-            logger.info(f"create_commander_llm: resolved {model_name} (anthropic)")
-            return _build_claude_llm(
-                model_name, entry["model_id"], max_tokens=1024, role="commander",
-                tier=entry.get("tier", "premium"),
-                cost_out=entry.get("cost_output_per_m", 15.0),
-            )
-        logger.warning(
-            "create_commander_llm: resolver picked %s but ANTHROPIC_API_KEY is missing",
-            model_name,
-        )
-    elif provider == "openrouter":
-        or_key = get_openrouter_api_key()
-        if or_key:
-            logger.info(f"create_commander_llm: resolved {model_name} (openrouter)")
-            return _cached_llm(
-                entry["model_id"], max_tokens=1024,
-                base_url="https://openrouter.ai/api/v1", api_key=or_key,
-            )
-        logger.warning(
-            "create_commander_llm: resolver picked %s but OPENROUTER_API_KEY is missing",
-            model_name,
-        )
-    elif provider == "ollama":
-        # Commander via local Ollama — model_id is "ollama_chat/..."
-        logger.info(f"create_commander_llm: resolved {model_name} (ollama local)")
-        return _cached_llm(entry["model_id"], max_tokens=1024)
-
-    # Fall-through: pick the cheapest API-tier survivor whose key is set.
-    logger.warning(
-        "create_commander_llm: resolver pick %r unreachable, falling back",
-        model_name,
+    # ── Chain walker is the single point of construction ────────────
+    # The resolver's pick goes first; bootstrap survivors follow in
+    # ``fallback_chain("commander")`` order (premium → budget → local).
+    # ``_walk_chain`` consults the health cache, validates entry shape,
+    # checks API keys, and falls through cleanly on every recoverable
+    # failure.  A fully exhausted chain raises
+    # :class:`NoWorkingModelAvailable` which the orchestrator catches
+    # explicitly — see ``agents/commander/orchestrator.py``.
+    #
+    # We route through ``select_model`` (not ``get_default_for_role``
+    # directly) so the per-call budget cap engages — commander is the
+    # router and runs on every user message, so leaving its budget
+    # dimension dormant was the largest single contributor to the
+    # "cost not a selection signal" gap.
+    from app.llm_selector import select_model
+    model_name = select_model(
+        "commander", task_hint="",
+        budget_usd=_resolved_budget_usd("commander"),
     )
-    anthropic_key = get_anthropic_api_key()
-    if anthropic_key:
-        sonnet = get_model("claude-sonnet-4.6")
-        if sonnet:
-            return _build_claude_llm(
-                "claude-sonnet-4.6", sonnet["model_id"], max_tokens=1024,
-                role="commander",
-                tier=sonnet.get("tier", "premium"),
-                cost_out=sonnet.get("cost_output_per_m", 15.0),
-            )
-    or_key = get_openrouter_api_key()
-    if or_key:
-        deepseek = get_model("deepseek-v3.2")
-        if deepseek:
-            return _cached_llm(
-                deepseek["model_id"], max_tokens=1024,
-                base_url="https://openrouter.ai/api/v1", api_key=or_key,
-            )
-    return _cached_llm(
-        "openrouter/deepseek/deepseek-chat", max_tokens=1024, api_key=or_key,
+    chain = _chain_for_role("commander", primary=model_name)
+    logger.info(
+        "create_commander_llm: walking chain %r (resolver pick: %s)",
+        chain, model_name,
     )
+    return _walk_chain(chain, max_tokens=1024, role="commander")
 
 
 # Roles that auto-apply a recency floor unless the caller passes
@@ -474,6 +1191,70 @@ _DEFAULT_RECENCY_DAYS_BY_ROLE: dict[str, int] = {
 }
 
 
+# Per-role budget defaults — US dollars per call.  Engages the selector's
+# Pareto demotion + budget enforcement which would otherwise be dormant
+# because no caller used to pass ``budget_usd``.  Values are conservative
+# ceilings — they only fire when a cheaper alternative scores within
+# ``quality_gap=0.10`` of the default's blended benchmark.  Operators
+# can tighten via the env var ``LLM_FACTORY_BUDGET_OVERRIDE_USD`` (single
+# value, applied to every role), or by passing ``budget_usd=`` explicitly
+# at the call site.
+#
+# The per-role budget data lives in :data:`app.llm_role_spend._ROLE_PROFILES`
+# alongside the per-role expected-hourly baseline used by the adaptive
+# back-pressure — one source of truth for the per-role cost envelope,
+# not two parallel tables.
+
+
+def _resolved_budget_usd(role: str, override: float | None = None) -> float:
+    """Return the effective budget USD for *role*.
+
+    Resolution order (first non-None wins):
+
+    1. Explicit ``override`` parameter — the ``budget_usd`` kwarg passed
+       by a caller that has a precise estimate.  Must be non-negative.
+    2. ``LLM_FACTORY_BUDGET_OVERRIDE_USD`` environment variable — a
+       single non-negative value that applies to every role.  Useful for
+       operators who want to tighten the global ceiling in cost-saving
+       mode without editing per-role defaults.
+    3. Per-role row in :data:`_DEFAULT_BUDGET_USD_BY_ROLE`.
+    4. :data:`_BUDGET_FALLBACK_USD` catch-all.
+
+    The return type is always ``float`` — there is no opt-out sentinel.
+    The selector's Pareto demotion + budget enforcement only fires when
+    the default-estimated cost exceeds the budget, so a "loose enough"
+    budget is effectively the same as no budget.  If a caller truly
+    wants to bypass cost-driven demotion, pass a very large number
+    (e.g. ``budget_usd=1_000_000``) — the gate becomes a no-op without
+    needing a special-cased None code path.
+    """
+    if override is not None:
+        return max(0.0, float(override))
+    import os as _os
+    raw = _os.environ.get("LLM_FACTORY_BUDGET_OVERRIDE_USD", "").strip()
+    if raw:
+        try:
+            v = float(raw)
+            if v >= 0:
+                return v
+        except ValueError:
+            pass
+    from app.llm_role_spend import profile_for
+    base = float(profile_for(role).budget_usd)
+
+    # Adaptive back-pressure — when *role* is spending faster than its
+    # expected hourly pace (observed via the audit log), the factor
+    # tightens the next call's budget so the selector demotes to a
+    # cheaper alternative.  Strictly observational; never loosens
+    # (under-pace gets the base, not a free pass).  Failure-OPEN.
+    try:
+        from app import llm_role_spend
+        factor = llm_role_spend.adaptive_budget_factor(role)
+    except Exception:
+        factor = 1.0
+    return base * factor
+
+
 def create_specialist_llm(
     max_tokens: int = 8192,
     role: str = "default",
@@ -481,6 +1262,7 @@ def create_specialist_llm(
     force_tier: str | None = None,
     phase: str | None = None,
     min_recency: date | None = None,
+    budget_usd: float | None = None,
 ) -> LLM:
     """
     Create an LLM for a specialist role using the tier cascade.
@@ -528,75 +1310,42 @@ def create_specialist_llm(
     elif min_recency == date.min:
         min_recency = None  # explicit opt-out
 
-    # ── Restrictive modes (free / budget / quality / insane / anthropic)
-    #    constrain the candidate pool, then run the regular LLM selector
-    #    inside that pool. Every role still gets its normal score-driven
-    #    pick — the mode only narrows the shortlist.
+    # ── Select the primary candidate ────────────────────────────────
+    # Single call into the selector for every mode.  The mode-pool
+    # invariant (free / budget / quality / insane / anthropic restrict
+    # the allowed tiers + providers) is enforced inside
+    # ``select_model`` via Step 5.7 (``model_in_mode_pool``); the old
+    # ``_pool_constrained_select`` parallel path was deleted as
+    # patchwork.
     #
-    #    ``balanced`` (default) gets the unconstrained selector + full
-    #    tier-cascading fallback path below.
-    if mode != "balanced":
-        chosen = _pool_constrained_select(role, task_hint, mode, force_tier)
-        if not chosen:
-            logger.warning(
-                "llm_factory: mode=%s has no usable model for role=%s, falling back to Claude",
-                mode, role,
-            )
-            return _claude_fallback(role, max_tokens, phase=phase)
-        model_name, entry = chosen
-        return _build_from_entry(
-            model_name, entry, max_tokens, role,
-            phase=phase, mode=mode, settings=settings,
-        )
-
-    # ── BALANCED mode: unconstrained selector + full cascade (default) ──
+    # ``budget_usd`` is the per-call USD ceiling that engages the
+    # selector's Pareto demotion + budget enforcement steps
+    # (llm_selector.py Steps 4b-4c).  We resolve through
+    # ``_resolved_budget_usd`` so a caller can override per-call, an
+    # operator can override globally via env, or — by default — the
+    # per-role table fires.  Pass ``budget_usd=-1.0`` to opt out of
+    # the budget gate entirely (the existing soft Pareto-by-quality-
+    # gap still runs).
+    effective_budget = _resolved_budget_usd(role, override=budget_usd)
     model_name = select_model(
         role, task_hint, force_tier=force_tier, min_recency=min_recency,
+        budget_usd=effective_budget,
     )
-    entry = get_model(model_name)
 
-    if not entry:
-        logger.warning(f"llm_factory: model {model_name!r} not in catalog, falling back")
-        return _claude_fallback(role, max_tokens, phase=phase)
-
-    tier = entry["tier"]
-    provider = entry["provider"]
-
-    # ── HYBRID mode: full cascade ────────────────────────────────────
-    # Try local Ollama first
-    if tier == "local" and settings.local_llm_enabled:
-        llm = _try_local(model_name, entry, max_tokens, role, phase=phase)
-        if llm:
-            # Stage 4.3 — race local vs API on short prompts (default OFF).
-            return _maybe_race_wrap(llm, role, max_tokens, phase)
-        # Local failed — try API tier
-        if settings.api_tier_enabled:
-            logger.info(f"llm_factory: local failed for role={role}, trying API tier")
-            api_model = get_default_for_role(role, mode)
-            api_entry = get_model(api_model)
-            if api_entry and api_entry["tier"] in ("free", "budget", "mid"):
-                llm = _try_api(api_model, api_entry, max_tokens, role, phase=phase)
-                if llm:
-                    return llm
-        return _claude_fallback(role, max_tokens, phase=phase)
-
-    # Try API tier (OpenRouter)
-    if tier in ("free", "budget", "mid") and settings.api_tier_enabled:
-        llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
-        if llm:
-            return llm
-        return _claude_fallback(role, max_tokens, phase=phase)
-
-    # Premium tier (Anthropic or OpenRouter)
-    if provider == "anthropic":
-        return _create_anthropic(model_name, entry, max_tokens, role, phase=phase)
-    elif provider == "openrouter":
-        llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
-        if llm:
-            return llm
-        return _claude_fallback(role, max_tokens, phase=phase)
-
-    return _claude_fallback(role, max_tokens, phase=phase)
+    # ── Walk the chain ──────────────────────────────────────────────
+    # The walker tries the primary first, then the bootstrap survivors
+    # (premium → budget → local).  Each candidate is shape-validated,
+    # health-cache-checked, API-key-checked, and provider-dispatched
+    # uniformly — see ``_construct_from_entry`` for the per-candidate
+    # contract.  A fully exhausted chain raises
+    # :class:`NoWorkingModelAvailable` rather than fabricating a Claude
+    # call that might itself fail.
+    chain = _chain_for_role(role, primary=model_name)
+    logger.info(
+        "create_specialist_llm: role=%s mode=%s walking chain %r",
+        role, mode, chain,
+    )
+    return _walk_chain(chain, max_tokens=max_tokens, role=role, phase=phase)
 
 
 def create_vetting_llm() -> LLM:
@@ -607,150 +1356,48 @@ def create_vetting_llm() -> LLM:
     need to pin vetting to a specific model, install a row in
     ``control_plane.role_assignments`` (via Signal / governance
     approval). The resolver + overlay are the single source of truth.
+
+    Construction is delegated to :func:`_walk_chain` — the resolver's
+    pick goes first, then bootstrap survivors in standard order.
+    Per-call budget engaged via ``_resolved_budget_usd("vetting")``.
     """
-    from app.config import get_openrouter_api_key
-    from app.llm_mode import get_mode
-    settings = get_settings()
+    from app.llm_selector import select_model
 
-    model_name = get_default_for_role("vetting", get_mode())
-    entry = get_model(model_name) or {}
-
-    provider = entry.get("provider") if entry else None
-
-    if provider == "anthropic":
-        anthropic_key = get_anthropic_api_key()
-        if anthropic_key:
-            logger.info(f"create_vetting_llm: resolved {model_name} (anthropic)")
-            return _build_claude_llm(
-                model_name, entry["model_id"], max_tokens=4096, role="vetting",
-                tier=entry.get("tier", "premium"),
-                cost_out=entry.get("cost_output_per_m", 15.0),
-            )
-    elif provider == "openrouter":
-        or_key = get_openrouter_api_key()
-        if or_key:
-            logger.info(f"create_vetting_llm: resolved {model_name} (openrouter)")
-            return _cached_llm(
-                entry["model_id"], max_tokens=4096,
-                base_url="https://openrouter.ai/api/v1", api_key=or_key,
-            )
-    elif provider == "ollama":
-        logger.info(f"create_vetting_llm: resolved {model_name} (ollama local)")
-        return _cached_llm(entry["model_id"], max_tokens=4096)
-
-    # Fall-through to bootstrap survivors.
-    logger.warning(
-        "create_vetting_llm: resolver pick %r unreachable, falling back", model_name,
+    model_name = select_model(
+        "vetting", task_hint="",
+        budget_usd=_resolved_budget_usd("vetting"),
     )
-    anthropic_key = get_anthropic_api_key()
-    if anthropic_key:
-        return _build_claude_llm(
-            "claude-sonnet-4.6", "anthropic/claude-sonnet-4-6",
-            max_tokens=4096, role="vetting",
-        )
-    or_key = get_openrouter_api_key()
-    fallback = get_model("deepseek-v3.2") or {}
-    model_id = fallback.get("model_id", "openrouter/deepseek/deepseek-chat")
-    return _cached_llm(
-        model_id, max_tokens=4096,
-        base_url="https://openrouter.ai/api/v1", api_key=or_key,
+    chain = _chain_for_role("vetting", primary=model_name)
+    logger.info(
+        "create_vetting_llm: walking chain %r (resolver pick: %s)",
+        chain, model_name,
     )
+    return _walk_chain(chain, max_tokens=4096, role="vetting")
 
 
 def create_cheap_vetting_llm() -> LLM:
     """Cheap verification gate — budget model for quick yes/no quality checks.
-    Falls back to Sonnet if OpenRouter key is not set."""
-    settings = get_settings()
-    or_key = settings.openrouter_api_key.get_secret_value()
-    if settings.api_tier_enabled and or_key:
-        budget_model = get_model("deepseek-v3.2")
-        if budget_model:
-            return _cached_llm(budget_model["model_id"], max_tokens=256,
-                               base_url="https://openrouter.ai/api/v1", api_key=or_key)
-    return _build_claude_llm(
-        "claude-sonnet-4.6", "anthropic/claude-sonnet-4-6",
-        max_tokens=256, role="cheap-vetting",
+
+    Routed through ``select_model`` like the other three entry points so
+    the cheap-vetting budget (``_DEFAULT_BUDGET_USD_BY_ROLE["cheap-vetting"]
+    = $0.005``) actually engages the selector's Pareto demote +
+    budget-enforcement steps.  ``force_tier="budget"`` keeps the
+    deliberately-cheap intent — the selector picks the highest-scoring
+    budget-tier model that fits the cap, and the chain walker falls
+    through to premium / local survivors if the budget tier is dead.
+    """
+    from app.llm_selector import select_model
+    model_name = select_model(
+        "cheap-vetting", task_hint="",
+        force_tier="budget",
+        budget_usd=_resolved_budget_usd("cheap-vetting"),
     )
-
-
-class _RacingLLM:
-    """Stage 4.3 — cascade race wrapper (hybrid mode, short prompts only).
-
-    On `.call(prompt)`:
-      * if len(prompt) >= threshold, delegates to primary (cost-safe).
-      * otherwise races primary + secondary, returns first non-error.
-
-    Invariant: primary is always the Ollama local LLM; secondary is the
-    OpenRouter fallback. Both are crewai.LLM objects (same .call() contract).
-
-    Gated by settings.cascade_race_short — default False.
-    """
-
-    def __init__(self, primary, secondary, *, threshold_chars: int, timeout_s: float):
-        self._primary = primary
-        self._secondary = secondary
-        self._threshold = threshold_chars
-        self._timeout = timeout_s
-        self.model = getattr(primary, "model", "racing-llm")
-
-    def __str__(self):
-        return f"race({self._primary}, {self._secondary})"
-
-    def call(self, prompt, **kwargs):
-        from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-        prompt_str = prompt if isinstance(prompt, str) else str(prompt)
-        if len(prompt_str) >= self._threshold:
-            return self._primary.call(prompt, **kwargs)
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="llm-race") as ex:
-            f_primary = ex.submit(self._primary.call, prompt, **kwargs)
-            f_secondary = ex.submit(self._secondary.call, prompt, **kwargs)
-            done, pending = wait(
-                {f_primary, f_secondary}, timeout=self._timeout,
-                return_when=FIRST_COMPLETED,
-            )
-            for p in pending:
-                p.cancel()
-            for f in done:
-                try:
-                    return f.result(timeout=0.1)
-                except Exception:
-                    continue
-            # Both futures failed or timed out in the first window — give
-            # primary a bit more time, then fall through to secondary.
-            try:
-                return f_primary.result(timeout=2.0)
-            except Exception:
-                return f_secondary.result(timeout=2.0)
-
-    # Some callers invoke LLM attributes directly; forward to primary.
-    def __getattr__(self, name):
-        return getattr(self._primary, name)
-
-
-def _maybe_race_wrap(primary, role: str, max_tokens: int, phase: str | None):
-    """If cascade_race_short is enabled, return a _RacingLLM wrapping primary
-    with an API-tier secondary. On any failure, returns primary unwrapped.
-    """
-    try:
-        settings = get_settings()
-        if not getattr(settings, "cascade_race_short", False):
-            return primary
-        if not settings.api_tier_enabled:
-            return primary
-        from app.llm_mode import get_mode
-        api_model = get_default_for_role(role, get_mode())
-        api_entry = get_model(api_model)
-        if not (api_entry and api_entry.get("tier") in ("free", "budget", "mid")):
-            return primary
-        secondary = _try_api(api_model, api_entry, max_tokens, role, phase=phase)
-        if secondary is None:
-            return primary
-        threshold_chars = int(settings.cascade_race_token_threshold * 4)  # ~4 chars/tok
-        timeout_s = float(settings.cascade_race_timeout_s)
-        return _RacingLLM(primary, secondary,
-                          threshold_chars=threshold_chars, timeout_s=timeout_s)
-    except Exception:
-        return primary
+    chain = _chain_for_role("cheap-vetting", primary=model_name)
+    logger.info(
+        "create_cheap_vetting_llm: walking chain %r (resolver pick: %s)",
+        chain, model_name,
+    )
+    return _walk_chain(chain, max_tokens=256, role="cheap-vetting")
 
 
 def is_using_local() -> bool:
@@ -812,162 +1459,15 @@ def _sampling(phase: str | None, provider: str) -> tuple[dict, str]:
     return build_llm_kwargs(phase, provider, affect_state), cache_key
 
 
-# ── Mode pool filters ────────────────────────────────────────────────────────
-#
-# Every non-hybrid mode narrows the candidate pool the selector scores across.
-# Shape: {mode: {"tiers": [...] | None, "provider": str | None}}.
-# "tiers=None" means any tier is acceptable.
-def _mode_pool(mode: str) -> dict[str, object]:
-    """Return ``{"tiers": [...], "provider": str | None}`` for a mode.
-
-    Reads from the unified policy dicts in ``app.llm_catalog``. The
-    factory no longer maintains its own shadow table — the policy is
-    defined once, in the catalog, and this function is just a thin
-    adapter keeping the existing ``_pool_constrained_select`` signature.
-    """
-    from app.llm_catalog import (
-        _MODE_TIER_WHITELIST, _MODE_PROVIDER_WHITELIST, _normalize_mode,
-    )
-    canon = _normalize_mode(mode)
-    tiers = _MODE_TIER_WHITELIST.get(canon)
-    provider_set = _MODE_PROVIDER_WHITELIST.get(canon)
-    # _pool_constrained_select expects a list (or None) for tiers and a
-    # single string (or None) for provider. Anthropic is the only mode
-    # with a provider lock today, and its whitelist is a single value.
-    provider: str | None = None
-    if provider_set is not None and len(provider_set) == 1:
-        provider = next(iter(provider_set))
-    return {
-        "tiers": list(tiers) if tiers is not None else None,
-        "provider": provider,
-    }
-
-
-def _entry_in_pool(entry: dict, tiers: list[str] | None, provider: str | None) -> bool:
-    """Return True when ``entry`` satisfies a mode's pool filter."""
-    if tiers is not None and entry.get("tier") not in tiers:
-        return False
-    if provider is not None and entry.get("provider") != provider:
-        return False
-    return True
-
-
-def _pool_constrained_select(
-    role: str,
-    task_hint: str,
-    mode: str,
-    force_tier: str | None,
-) -> tuple[str, dict] | None:
-    """Run the LLM selector inside the active mode's candidate pool.
-
-    Strategy:
-      1. Ask the normal selector for its preferred model. If it already sits
-         in the allowed pool, use it.
-      2. Otherwise re-run the selector with ``force_tier`` for each allowed
-         tier; first match wins.
-      3. Last resort: catalog scan scored by the role's ``strengths`` map
-         (falling back to ``general``). Ties break on context size.
-    Returns (name, entry) or None if nothing in the pool is usable.
-    """
-    from app.llm_catalog import CATALOG
-    from app.llm_selector import select_model as _select
-
-    pool = _mode_pool(mode)
-    tiers = pool.get("tiers")  # type: ignore[assignment]
-    provider = pool.get("provider")  # type: ignore[assignment]
-
-    # 1. Selector's default pick
-    try:
-        base_name = _select(role, task_hint, force_tier=force_tier)
-    except Exception:
-        base_name = None
-    if base_name:
-        base_entry = get_model(base_name)
-        if base_entry and _entry_in_pool(base_entry, tiers, provider):
-            return base_name, base_entry
-
-    # 2. Try forcing each allowed tier
-    if tiers:
-        for forced in tiers:
-            try:
-                alt = _select(role, task_hint, force_tier=forced)
-            except Exception:
-                continue
-            if not alt:
-                continue
-            alt_entry = get_model(alt)
-            if alt_entry and _entry_in_pool(alt_entry, tiers, provider):
-                return alt, alt_entry
-
-    # 3. Catalog walk scored by role strengths
-    candidates = [
-        (name, dict(entry))
-        for name, entry in CATALOG.items()
-        if _entry_in_pool(entry, tiers, provider)
-    ]
-    if not candidates:
-        return None
-
-    def _score(name_entry: tuple[str, dict]) -> tuple[float, int]:
-        _name, entry = name_entry
-        strengths = entry.get("strengths", {}) or {}
-        role_score = float(strengths.get(role, 0) or 0.0)
-        general = float(strengths.get("general", 0) or 0.0)
-        primary = role_score if role_score > 0 else general
-        return (primary, int(entry.get("context") or 0))
-
-    candidates.sort(key=_score, reverse=True)
-    return candidates[0]
-
-
-def _build_from_entry(
-    model_name: str,
-    entry: dict,
-    max_tokens: int,
-    role: str,
-    *,
-    phase: str | None,
-    mode: str,
-    settings,
-) -> LLM:
-    """Instantiate the appropriate LLM client for a (name, entry) pick.
-
-    Routes by tier + provider; local Ollama for tier=="local", Anthropic
-    SDK for Anthropic entries, OpenRouter otherwise. When the preferred
-    route isn't available the function falls back to Claude so the system
-    stays functional rather than raising — a warning is emitted so the
-    operator notices.
-    """
-    tier = entry.get("tier", "")
-    provider = entry.get("provider", "")
-
-    if tier == "local" and settings.local_llm_enabled:
-        llm = _try_local(model_name, entry, max_tokens, role, phase=phase)
-        if llm:
-            return llm
-        logger.info(
-            "llm_factory: mode=%s chose local model %s but Ollama unavailable",
-            mode, model_name,
-        )
-
-    if provider == "anthropic":
-        return _create_anthropic(model_name, entry, max_tokens, role, phase=phase)
-
-    if settings.api_tier_enabled:
-        llm = _try_api(model_name, entry, max_tokens, role, phase=phase)
-        if llm:
-            return llm
-
-    logger.warning(
-        "llm_factory: mode=%s could not instantiate %s (tier=%s provider=%s), falling back to Claude",
-        mode, model_name, tier, provider,
-    )
-    return _claude_fallback(role, max_tokens, phase=phase)
-
-
-# _insane_mode_select was removed when INSANE mode moved to the uniform
-# pool-filter path. If any external module imported it, re-add a thin
-# shim here that delegates to _pool_constrained_select + _build_from_entry.
+# ── Mode-pool enforcement lives in the selector ─────────────────────
+# The previous ``_pool_constrained_select`` / ``_mode_pool`` /
+# ``_entry_in_pool`` helpers were a second, parallel selection path
+# the factory ran for non-balanced modes.  They were patchwork — two
+# ways to pick a model is exactly the shape the user flagged as
+# "not elegant".  Removed in favour of a single in-selector check at
+# ``app.llm_selector.select_model`` Step 5.7 that calls
+# ``app.llm_catalog.model_in_mode_pool`` and swaps out an out-of-pool
+# pick before returning.  See ``llm_selector.py:select_model``.
 
 
 def _try_local(model_name: str, entry: dict, max_tokens: int, role: str, phase: str | None = None) -> LLM | None:
@@ -1031,23 +1531,53 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str, phase: st
         circuit_breaker.record_success("openrouter")
         logger.info(f"llm_factory: role={role} → API {model_name} (${entry['cost_output_per_m']:.2f}/Mo)")
         extra, key = _sampling(phase, "openrouter")
-        # Ensure CrewAI's LLM dispatcher routes via OpenAI-compatible
-        # (litellm) — NOT its native Anthropic SDK provider — when we're
-        # talking to OpenRouter's base URL. CrewAI sees the model_id
-        # prefix and picks the provider; an `anthropic/...` model_id
-        # routes to AnthropicCompletion, which makes Anthropic-SDK
-        # `messages.create()` calls. Those calls against OpenRouter's
-        # endpoint return a payload the Anthropic SDK can't parse,
-        # surfacing as ``'str' object has no attribute 'content'``
-        # (2026-05-02 diagnosis from Ops anomaly dashboard). Prefixing
-        # `openrouter/` selects litellm's openrouter provider, which
-        # correctly hits OpenRouter's /chat/completions endpoint.
-        or_model_id = entry["model_id"]
-        if not or_model_id.startswith("openrouter/"):
-            or_model_id = f"openrouter/{or_model_id}"
-        return _cached_llm(or_model_id, max_tokens=max_tokens,
-                           sampling_key=key,
-                           base_url="https://openrouter.ai/api/v1", api_key=api_key, **extra)
+        # Route the call through OpenRouter's LiteLLM provider rather
+        # than CrewAI's native Anthropic provider.  ``derived_id`` with
+        # ``route="openrouter"`` is the single source of truth for the
+        # shape — Anthropic entries get translated (dash→dot version,
+        # ``openrouter/anthropic/...`` prefix), OpenRouter entries are
+        # identity.  Historical context: pre-2026-05-10 the code
+        # string-mangled the prefix inline here, which silently mis-
+        # routed Anthropic-provider entries to the native Anthropic
+        # SDK against an OpenRouter base URL, surfacing as ``'str'
+        # object has no attribute 'content'`` (T3.3 in the Ops anomaly
+        # dashboard).  Centralising the transformation in
+        # ``derived_id`` eliminates that class of bug.
+        or_model_id = derived_id(entry, "openrouter")
+
+        # Wrap the LiteLLM-routed LLM with the per-call budget gate.
+        # This brings OpenRouter to per-call cap parity with the
+        # Anthropic path (which gets per-call via
+        # ``CreditAwareAnthropicCompletion``).  The wrapper is
+        # provider-agnostic — see ``app/llms/budget_aware.py``.
+        cost_in = float(entry.get("cost_input_per_m", 0.0) or 0.0)
+        cost_out_per_m = float(
+            entry.get("cost_output_per_m", 0.0) or 0.0
+        )
+
+        def _budget_aware_builder(mid: str, mt: int, **kw):
+            from app.llms.budget_aware import BudgetAwareCompletion
+            from app import llm_openrouter_budget
+            llm = BudgetAwareCompletion(model=mid, max_tokens=mt, **kw)
+            # 2000-token input heuristic, same as CreditAware's
+            # estimator.  Per-call max output bounded by mt.
+            def _estimate() -> float:
+                if cost_out_per_m <= 0:
+                    return 0.0
+                return (
+                    2000 * cost_in + mt * cost_out_per_m
+                ) / 1_000_000.0
+            llm.set_budget_module(llm_openrouter_budget)
+            llm.set_estimated_cost_fn(_estimate)
+            return llm
+
+        return _cached_llm(
+            or_model_id, max_tokens=max_tokens,
+            sampling_key=key,
+            llm_builder=_budget_aware_builder,
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key, **extra,
+        )
     except Exception as exc:
         circuit_breaker.record_failure("openrouter")
         logger.warning(f"llm_factory: API {model_name} failed: {exc}")
@@ -1068,24 +1598,6 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str, phase: st
 # the existing circuit-breaker infrastructure.
 
 
-def _anthropic_to_openrouter_model_id(anthropic_model_id: str) -> str:
-    """Translate an Anthropic-SDK model id (dashes in version) into the
-    OpenRouter equivalent.
-
-    AA/Anthropic emits  : anthropic/claude-sonnet-4-6
-    OpenRouter expects  : openrouter/anthropic/claude-sonnet-4.6
-    """
-    import re as _re
-    slug = anthropic_model_id
-    if slug.startswith("anthropic/"):
-        slug = slug[len("anthropic/"):]
-    # Claude slug pattern: claude-<family>-<major>-<minor>.  Restore the
-    # single "-<major>-<minor>" tail to dots so it matches OpenRouter's
-    # naming.  e.g. claude-sonnet-4-6 → claude-sonnet-4.6
-    slug = _re.sub(r"-(\d+)-(\d+)$", r"-\1.\2", slug)
-    return f"openrouter/anthropic/{slug}"
-
-
 def _build_claude_via_openrouter(
     model_name: str,
     model_id: str,
@@ -1102,8 +1614,11 @@ def _build_claude_via_openrouter(
       * Direct substitute when the anthropic_credits breaker is OPEN
       * Lazy fallback target built by CreditAwareAnthropicCompletion
         on the first mid-call 400 we see
+
+    Model-id translation is delegated to :func:`derived_id` with
+    ``route="openrouter"`` — the catalog is the single source of truth
+    for shape transformations.  No regex lives in the factory.
     """
-    from app.config import get_openrouter_api_key
     or_key = get_openrouter_api_key()
     if not or_key:
         raise RuntimeError(
@@ -1111,7 +1626,10 @@ def _build_claude_via_openrouter(
             "cannot serve Claude requests. Top up Anthropic or set "
             "OPENROUTER_API_KEY to enable the failover route."
         )
-    or_model_id = _anthropic_to_openrouter_model_id(model_id)
+    entry_for_route = get_model(model_name) or {
+        "model_id": model_id, "provider": "anthropic",
+    }
+    or_model_id = derived_id(entry_for_route, "openrouter")
     _set_last(f"{model_name} (via OpenRouter)", tier)
     logger.info(
         "llm_factory: role=%s → OPENROUTER %s (~$%.2f/Mo; anthropic_credits breaker=%s)",
@@ -1119,8 +1637,28 @@ def _build_claude_via_openrouter(
         circuit_breaker.get_breaker("anthropic_credits").state,
     )
     extra, sample_key = _sampling(phase, "openrouter")
+
+    # Same per-call OR cap wrapping as ``_try_api`` — the Claude-via-
+    # OpenRouter failover path is a regular OR call, so the OR daily
+    # cap should govern it too.
+    cost_in_or = float(entry_for_route.get("cost_input_per_m", 0.0) or 0.0)
+    cost_out_or = float(entry_for_route.get("cost_output_per_m", cost_out) or cost_out)
+
+    def _budget_aware_or_builder(mid: str, mt: int, **kw):
+        from app.llms.budget_aware import BudgetAwareCompletion
+        from app import llm_openrouter_budget
+        llm = BudgetAwareCompletion(model=mid, max_tokens=mt, **kw)
+        def _estimate() -> float:
+            if cost_out_or <= 0:
+                return 0.0
+            return (2000 * cost_in_or + mt * cost_out_or) / 1_000_000.0
+        llm.set_budget_module(llm_openrouter_budget)
+        llm.set_estimated_cost_fn(_estimate)
+        return llm
+
     return _cached_llm(
         or_model_id, max_tokens=max_tokens, sampling_key=sample_key,
+        llm_builder=_budget_aware_or_builder,
         base_url="https://openrouter.ai/api/v1", api_key=or_key, **extra,
     )
 
@@ -1149,16 +1687,29 @@ def _build_claude_llm(
             use the OR path directly.
 
     This is the only entry point for Anthropic-direct LLM construction
-    in this module.  Every caller (``_create_anthropic``,
-    ``_claude_fallback``, ``create_commander_llm``, ``create_vetting_llm``,
-    ``create_cheap_vetting_llm``) funnels through here so the failover
-    policy is applied uniformly.
+    in this module.  Every Anthropic candidate visited by
+    :func:`_walk_chain` funnels through here via
+    :func:`_construct_from_entry` so the credit-aware failover policy is
+    applied uniformly.
     """
     # Lazy import: CreditAwareAnthropicCompletion depends on crewai.LLM
     # which we defer per the module's cold-boot discipline (see
     # `_get_LLM_class`).  Putting the import here keeps the llm_factory
     # import graph flat.
     from app.llms.credit_aware_anthropic import CreditAwareAnthropicCompletion
+
+    # Derive the model-id form the native Anthropic SDK actually accepts.
+    # The catalog stores ``model_id`` in the LiteLLM-canonical (provider-
+    # prefixed) shape — ``anthropic/claude-sonnet-4-6`` — because every
+    # other consumer of ``model_id`` (cost lookup, discovered_models PK,
+    # governance remaps, telemetry tags, OpenRouter remap) keys on that
+    # form.  But ``CreditAwareAnthropicCompletion`` extends CrewAI's
+    # *native* ``AnthropicCompletion`` which forwards ``model=`` straight
+    # to the Anthropic SDK; the SDK only knows the bare id and 404s on
+    # the prefixed form.  See ``app/llm_catalog.py:derived_id`` for the
+    # full per-route shape contract.
+    entry_for_route = get_model(model_name) or {"model_id": model_id, "provider": "anthropic"}
+    bare_id = derived_id(entry_for_route, "native_anthropic")
 
     def _or_fallback():
         return _build_claude_via_openrouter(
@@ -1188,8 +1739,30 @@ def _build_claude_llm(
     # Cache-safe because the subclass consults the credit breaker on
     # every call (no sticky per-instance failover state that would
     # break auto-recovery after a shared cached hand-off).
-    def _credit_aware_builder(mid: str, mt: int, **kw) -> CreditAwareAnthropicCompletion:
-        llm = CreditAwareAnthropicCompletion(model=mid, max_tokens=mt, **kw)
+    #
+    # The builder closure captures ``bare_id`` and ignores the LiteLLM-
+    # canonical id ``_cached_llm`` forwards (its first arg).  That
+    # forwarded value is still used by ``_cached_llm`` for the cache
+    # key — keeping the cache namespace aligned with every other code
+    # path that looks up ``(builder, model_id, max_tokens, …)``.  The
+    # construction parameter and the cache-key parameter are deliberately
+    # separated to keep one consistent identity per logical model across
+    # routes.
+    # Capture catalog cost fields for the per-call pre-check estimate.
+    # If the entry is missing (legacy callers passing model_id without
+    # a catalog lookup), defaults to 0.0 — pre_check then degrades to
+    # its previous "0.0 placeholder" behaviour, never blocking calls
+    # on missing data.
+    cost_in = float(entry_for_route.get("cost_input_per_m", 0.0) or 0.0)
+    cost_out_per_m = float(entry_for_route.get("cost_output_per_m", cost_out) or cost_out)
+
+    def _credit_aware_builder(
+        _litellm_canonical_id: str,
+        mt: int,
+        **kw,
+    ) -> CreditAwareAnthropicCompletion:
+        llm = CreditAwareAnthropicCompletion(model=bare_id, max_tokens=mt, **kw)
+        llm.set_cost_estimates(cost_in, cost_out_per_m)
         return llm.set_fallback_factory(_or_fallback)
 
     return _cached_llm(
@@ -1198,67 +1771,6 @@ def _build_claude_llm(
         llm_builder=_credit_aware_builder,
         api_key=get_anthropic_api_key(),
         **extra,
-    )
-
-
-def _create_anthropic(
-    model_name: str,
-    entry: dict,
-    max_tokens: int,
-    role: str,
-    phase: str | None = None,
-) -> "LLM":
-    """Build a specialist-tier Anthropic LLM with credit-aware failover."""
-    return _build_claude_llm(
-        model_name, entry["model_id"], max_tokens,
-        role=role, phase=phase,
-        tier=entry.get("tier", "premium"),
-        cost_out=entry.get("cost_output_per_m", 15.0),
-    )
-
-
-def _claude_fallback(
-    role: str,
-    max_tokens: int,
-    phase: str | None = None,
-) -> "LLM":
-    """Final fallback: Claude Sonnet if Anthropic is reachable (including via
-    OpenRouter), else DeepSeek via OpenRouter as the survival bootstrap.
-    """
-    from app.config import get_openrouter_api_key
-
-    anthropic_key = get_anthropic_api_key()
-    or_key = get_openrouter_api_key()
-
-    # Preferred: Claude (direct or via OR — the subclass picks the right
-    # path based on the breaker state).
-    if anthropic_key or (or_key and not circuit_breaker.is_available("anthropic_credits")):
-        return _build_claude_llm(
-            "claude-sonnet-4.6", "anthropic/claude-sonnet-4-6", max_tokens,
-            role=role, phase=phase, tier="premium", cost_out=15.0,
-        )
-    # If OR has Claude-capable routing but we have no Anthropic key, still
-    # go through the Claude factory so the breaker logic applies.
-    if or_key:
-        return _build_claude_llm(
-            "claude-sonnet-4.6", "anthropic/claude-sonnet-4-6", max_tokens,
-            role=role, phase=phase, tier="premium", cost_out=15.0,
-        )
-
-    # Survival bootstrap: no Anthropic key and no OpenRouter key?
-    # Something is misconfigured.  Emit a non-Claude model that might
-    # work if any OR shadow key is configured elsewhere.
-    _set_last("deepseek-v3.2", "budget")
-    logger.warning(
-        "llm_factory: role=%s → FALLBACK deepseek-v3.2 "
-        "(no Claude option available: both ANTHROPIC_API_KEY and "
-        "OPENROUTER_API_KEY are unset).", role,
-    )
-    extra, key = _sampling(phase, "openrouter")
-    return _cached_llm(
-        "openrouter/deepseek/deepseek-chat",
-        max_tokens=max_tokens, sampling_key=key,
-        base_url="https://openrouter.ai/api/v1", api_key=or_key, **extra,
     )
 
 

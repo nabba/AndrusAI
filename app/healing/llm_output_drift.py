@@ -125,17 +125,9 @@ def _load_probes() -> list[dict]:
 def _ask_llm(question: str) -> Optional[str]:
     """Cheap one-shot ask. Returns None on any failure."""
     try:
-        from anthropic import Anthropic
-        from app.config import get_anthropic_api_key
-    except Exception:
-        return None
-    key = get_anthropic_api_key()
-    if not key:
-        return None
-    try:
-        client = Anthropic(api_key=key)
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting")
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
             max_tokens=200,
             system="Answer concisely. No preamble. No follow-up.",
             messages=[{"role": "user", "content": question}],

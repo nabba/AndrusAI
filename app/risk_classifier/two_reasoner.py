@@ -173,25 +173,16 @@ def _call_anthropic(
     """Bounded Haiku 4.5 call. Returns the text content; empty
     string on any failure (caller-side fallback to UNCERTAIN).
 
-    Verified Plan Gap #5 (2026-05-22): gated by the operator-set
-    Anthropic daily cap. On cap-out returns "" — caller maps "" to
-    UNCERTAIN, which is the safe default for the two-reasoner
-    observational review.
+    Verified Plan Gap #5 (2026-05-22): the Anthropic daily cap is
+    enforced by the factory's ``.messages.create`` pre-check; on
+    cap-out the existing ``except Exception`` below returns "" —
+    caller maps "" to UNCERTAIN, the safe default for the two-
+    reasoner observational review.
     """
     try:
-        import anthropic
-    except Exception:
-        return ""
-    from app import llm_anthropic_budget
-    if not llm_anthropic_budget.call_or_skip(
-        estimated_cost_usd=0.001,
-        source="risk_classifier:two_reasoner",
-    ):
-        return ""
-    try:
-        client = anthropic.Anthropic()
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting", task_hint="risk reasoning")
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
             max_tokens=600,
             temperature=temperature,
             system=system,

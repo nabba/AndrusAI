@@ -425,13 +425,27 @@ _MODE_WEIGHT: dict[str, float] = {
 # Which catalog tiers a mode is allowed to pick from. This is the single
 # biggest lever — e.g. ``insane`` is premium-only, ``free`` only sees
 # no-cost tiers. Applied as a hard filter before scoring.
-_MODE_TIER_WHITELIST: dict[str, frozenset[str]] = {
-    "free":      frozenset({"local", "free"}),
-    "budget":    frozenset({"local", "free", "budget"}),
-    "balanced":  frozenset({"local", "free", "budget", "mid", "premium"}),
-    "quality":   frozenset({"local", "free", "budget", "mid", "premium"}),
-    "insane":    frozenset({"premium"}),
-    "anthropic": frozenset({"mid", "premium"}),  # includes Haiku-tier entries
+#
+# **Order matters.** Stored as ``tuple`` (not ``frozenset``) so iteration
+# is deterministic across processes — the Step 5.7 mode-pool fallback
+# walker in :mod:`app.llm_selector` iterates this list to find an
+# alternative tier when the chosen model falls outside the pool, and
+# frozenset iteration order is hash-randomised (PYTHONHASHSEED), which
+# made the same role+mode pick different fallbacks on different boots.
+#
+# Convention: cheapest-first.  Local before free before budget before
+# mid before premium.  This biases the fallback walker toward the
+# cheap-end candidates within each mode's allowed set — matches the
+# intent of "free" and "budget" modes and is neutral for "balanced".
+# ``insane`` and ``anthropic`` modes have only one or two tiers so the
+# order is immaterial.
+_MODE_TIER_WHITELIST: dict[str, tuple[str, ...]] = {
+    "free":      ("local", "free"),
+    "budget":    ("local", "free", "budget"),
+    "balanced":  ("local", "free", "budget", "mid", "premium"),
+    "quality":   ("local", "free", "budget", "mid", "premium"),
+    "insane":    ("premium",),
+    "anthropic": ("mid", "premium"),  # includes Haiku-tier entries
 }
 
 # Provider whitelist per mode. ``None`` = every provider allowed.
@@ -481,6 +495,36 @@ _TIER_RANK: dict[str, int] = {
 }
 
 
+def model_in_mode_pool(name: str, mode: str) -> bool:
+    """True iff catalog entry *name* satisfies the *mode*'s tier and
+    provider whitelist.
+
+    Public predicate the selector calls at the end of its pipeline to
+    enforce the mode-pool invariant — multimodal / recency / output-
+    ceiling / benchmark / Pareto / budget swap steps along the way
+    can leave ``default_model`` outside the pool, and this gate forces
+    a fall-through if so.
+
+    See :data:`_MODE_TIER_WHITELIST` and :data:`_MODE_PROVIDER_WHITELIST`
+    for the per-mode definitions.
+    """
+    mode = _normalize_mode(mode)
+    entry = CATALOG.get(name)
+    if entry is None:
+        return False
+    tier = entry.get("tier", "")
+    provider = entry.get("provider", "")
+    tier_whitelist = _MODE_TIER_WHITELIST.get(
+        mode, _MODE_TIER_WHITELIST["balanced"],
+    )
+    provider_whitelist = _MODE_PROVIDER_WHITELIST.get(mode)
+    if tier not in tier_whitelist:
+        return False
+    if provider_whitelist is not None and provider not in provider_whitelist:
+        return False
+    return True
+
+
 def _tier_meets_floor(tier: str, floor: str) -> bool:
     return _TIER_RANK.get(tier, 0) >= _TIER_RANK.get(floor, 0)
 
@@ -509,6 +553,7 @@ def _filter_candidates(
     needs_multimodal: bool,
     prefer_local: bool,
     needs_tools: bool,
+    skip_dead: bool = True,
 ) -> list[str]:
     """Return catalog keys that satisfy the hard constraints.
 
@@ -519,14 +564,34 @@ def _filter_candidates(
         whitelisted by the mode).
       * Multimodal capability when the task requires it.
       * Tool-calling support when the role needs tools.
+      * Health cache says the model is not currently marked dead
+        (when ``skip_dead=True``, the default).
 
     Cost is NOT a hard filter — it enters via the scoring function so the
     selector can surface a cheaper model that meets the tier floor.
+
+    Health filtering moves the dead-mark skip earlier in the pipeline:
+    previously the selector would rank a dead model, the chain walker
+    would skip it at construction, and one extra fallback hop would
+    fire per call.  Filtering here makes the skip free and keeps the
+    selector's scoring honest (a dead model can't outrank a live one).
     """
     tier_whitelist = _MODE_TIER_WHITELIST.get(
         mode, _MODE_TIER_WHITELIST["balanced"],
     )
     provider_whitelist = _MODE_PROVIDER_WHITELIST.get(mode)
+
+    # Lazy import to avoid cycles — factory_probe is downstream of
+    # catalog in the dependency DAG but only at module-import time;
+    # function-call-time is fine.  Failure-isolated: a broken probe
+    # module just disables the dead-skip filter.
+    health_of = None
+    if skip_dead:
+        try:
+            from app.llm_factory_probe import health_of as _health_of
+            health_of = _health_of
+        except Exception:
+            pass
 
     candidates: list[str] = []
     for name, entry in CATALOG.items():
@@ -538,6 +603,16 @@ def _filter_candidates(
             continue
         if provider_whitelist is not None and provider not in provider_whitelist:
             continue
+        if health_of is not None:
+            try:
+                bare = derived_id(entry, "native_anthropic")
+                health = health_of(provider, bare)
+                if health is not None and not health.is_alive:
+                    continue
+            except Exception:
+                # Shape error / missing provider — let downstream
+                # validation handle it rather than silently dropping.
+                pass
         if tier not in tier_whitelist:
             continue
         if not _tier_meets_floor(tier, tier_floor):
@@ -654,6 +729,249 @@ def resolve_role_default(
         return quality - cost_penalty
 
     return max(candidates, key=_score)
+
+
+# ── Route-aware model-id derivation ───────────────────────────────────────
+# The catalog stores ``model_id`` in the LiteLLM-canonical (provider-prefixed)
+# form because that is what every existing consumer keys on: the cost-lookup
+# table in ``app/rate_throttle.py``, the ``control_plane.discovered_models``
+# primary key, governance remaps, telemetry tags, and the variance map in
+# ``app/llm_external_ranks.py``.
+#
+# But not every LLM construction path can consume that form.  CrewAI's
+# *native* AnthropicCompletion provider (used by
+# ``app/llms/credit_aware_anthropic.py`` for credit-aware failover) forwards
+# the model string straight to the Anthropic SDK, which only accepts the
+# bare id (``claude-sonnet-4-6``); the ``anthropic/`` prefix is a LiteLLM
+# convention.  Sending the prefixed form to the native SDK returns a 404
+# from ``api.anthropic.com``.  Conversely, sending the bare form to LiteLLM
+# loses the provider hint and routes incorrectly.
+#
+# Therefore the route — *not* the catalog — owns the prefix.  Every
+# construction site asks for the form it needs via :func:`derived_id`.  This
+# is the single point where prefixes are added or stripped, so a regression
+# touches exactly one function and one test table.
+
+# Route literal — the value passed to :func:`derived_id` to indicate which
+# downstream SDK / library will consume the returned string.
+#
+# ``"native_anthropic"``
+#     Direct Anthropic SDK call via CrewAI's ``AnthropicCompletion`` (and
+#     its credit-aware subclass).  Requires the bare model id with no
+#     provider prefix.
+#
+# ``"litellm"``
+#     Generic ``crewai.LLM(model=...)`` constructor → LiteLLM → upstream
+#     provider.  Requires the provider-prefixed form the catalog stores
+#     natively (``anthropic/…`` / ``openrouter/…`` / ``ollama_chat/…``).
+#
+# ``"openrouter"``
+#     OpenRouter API.  For ``provider="anthropic"`` entries this means
+#     translating ``anthropic/claude-sonnet-4-6`` →
+#     ``openrouter/anthropic/claude-sonnet-4.6`` (note the dot — OpenRouter
+#     uses dots in version slugs where Anthropic uses dashes).  For
+#     ``provider="openrouter"`` entries it is identity.  Used by the
+#     credit-exhausted failover path in
+#     :mod:`app.llms.credit_aware_anthropic`.
+#
+# ``"ollama_native"``
+#     Direct Ollama HTTP API (``POST /api/chat``).  Strips the
+#     ``ollama_chat/`` LiteLLM prefix.  Currently unused — Ollama is
+#     accessed exclusively through LiteLLM today — but defined for
+#     symmetry so a future native-Ollama path doesn't need a parallel
+#     translator.
+#
+# Additional routes (``native_openai``, etc.) can be added when new
+# native-SDK paths are introduced; the contract is one entry per consuming
+# library, no overloading.
+Route = str  # Literal["native_anthropic", "litellm", "openrouter", "ollama_native"]
+
+# Known provider prefixes the catalog uses in ``model_id``.  Source of
+# truth: ``app/llm_discovery.py`` (writes ``openrouter/…``,
+# ``ollama_chat/…``) and the bootstrap catalog above (writes
+# ``anthropic/…``).  Keep this in sync if a new provider is added.
+_KNOWN_PROVIDER_PREFIXES: tuple[str, ...] = (
+    "anthropic/",
+    "openrouter/",
+    "ollama_chat/",
+)
+
+
+def _strip_known_prefix(model_id: str) -> str:
+    """Strip any single known provider prefix.  No-op if none match.
+
+    Used to derive the bare id for the native Anthropic SDK route.  We
+    only strip ONE prefix — ``openrouter/anthropic/claude-sonnet-4-6``
+    becomes ``anthropic/claude-sonnet-4-6`` (still a valid LiteLLM form),
+    not ``claude-sonnet-4-6`` (which would lose the OpenRouter-routing
+    information).  Callers that want the absolute bare id pass the
+    LiteLLM-shaped id (one prefix) and get the bare form (zero prefixes).
+    """
+    for prefix in _KNOWN_PROVIDER_PREFIXES:
+        if model_id.startswith(prefix):
+            return model_id[len(prefix):]
+    return model_id
+
+
+def derived_id(entry: dict, route: Route) -> str:
+    """Return the model id in the shape *route* requires.
+
+    The single point where catalog-canonical (LiteLLM-prefixed) ids are
+    transformed for consumption by a specific SDK or library.  Every LLM
+    construction site in :mod:`app.llm_factory` calls this before passing
+    the string to a builder.
+
+    Parameters
+    ----------
+    entry
+        A catalog entry dict (the value returned by :func:`get_model`).
+        Must contain a ``model_id`` key.
+    route
+        One of the :data:`Route` literals.
+
+    Raises
+    ------
+    KeyError
+        If *entry* lacks a ``model_id`` field.
+    ValueError
+        If *route* is not a known literal.
+    """
+    model_id = entry["model_id"]
+    if route == "litellm":
+        return model_id
+    if route == "native_anthropic":
+        # Native Anthropic SDK only knows the bare id.  We strip the
+        # outermost known prefix.  An entry whose provider is *not*
+        # Anthropic should never be sent down this route — that is a
+        # validation error caught at :func:`validate_entry` time.
+        return _strip_known_prefix(model_id)
+    if route == "openrouter":
+        # OpenRouter expects ``openrouter/<provider>/<slug>``.  For
+        # entries that already carry that shape (provider="openrouter")
+        # it is identity.  For Anthropic-provider entries we translate
+        # ``anthropic/claude-sonnet-4-6`` → ``openrouter/anthropic/
+        # claude-sonnet-4.6`` — note the dot-vs-dash version separator
+        # (OpenRouter normalises versions with dots, Anthropic with
+        # dashes).  Used by the credit-exhausted failover at
+        # :mod:`app.llms.credit_aware_anthropic`.
+        provider = entry.get("provider")
+        if provider == "openrouter":
+            return model_id
+        if provider == "anthropic":
+            slug = _strip_known_prefix(model_id)
+            # claude-<family>-<major>-<minor> → claude-<family>-<major>.<minor>
+            slug = re.sub(r"-(\d+)-(\d+)$", r"-\1.\2", slug)
+            return f"openrouter/anthropic/{slug}"
+        # Other providers don't have a clean OpenRouter mapping in the
+        # catalog today; raise so the caller knows the cascade is
+        # exhausted rather than silently producing a malformed id.
+        raise ValueError(
+            f"derived_id: no OpenRouter form known for provider={provider!r}"
+        )
+    if route == "ollama_native":
+        # Native Ollama HTTP API does not want the ``ollama_chat/``
+        # LiteLLM prefix.  Symmetric with native_anthropic: strip one
+        # known prefix.
+        return _strip_known_prefix(model_id)
+    raise ValueError(f"derived_id: unknown route {route!r}")
+
+
+def validate_entry(name: str, entry: dict) -> list[str]:
+    """Return a list of human-readable problems with *entry*, or empty.
+
+    Run at module-load time over every bootstrap entry and after every
+    :func:`app.llm_catalog_builder.refresh` pass.  Surfaces shape-mismatch
+    bugs — concretely, a ``provider="anthropic"`` entry whose ``model_id``
+    lacks the ``anthropic/`` prefix would be caught here before the
+    factory tries to build an LLM from the entry and the bare-form
+    derivation produces a malformed string for the SDK.
+
+    Non-fatal — the caller decides whether to warn, drop the entry, or
+    fall through.  The bootstrap survivors are validated strictly at
+    import time and any failure raises (the catalog cannot be wrong about
+    its own survival kit).
+    """
+    problems: list[str] = []
+    provider = entry.get("provider")
+    model_id = entry.get("model_id", "")
+
+    if not provider:
+        problems.append(f"{name}: missing 'provider' field")
+    if not model_id:
+        problems.append(f"{name}: missing 'model_id' field")
+        return problems  # rest of checks need model_id
+
+    # Shape contract — the litellm-canonical model_id must carry the
+    # prefix that matches its declared provider.  Anything else makes
+    # ``derived_id(entry, 'native_anthropic')`` return a string that the
+    # native SDK will 404 on.
+    expected_prefix = {
+        "anthropic": "anthropic/",
+        "openrouter": "openrouter/",
+        "ollama": "ollama_chat/",
+    }.get(provider)
+    if expected_prefix and not model_id.startswith(expected_prefix):
+        problems.append(
+            f"{name}: provider={provider!r} but model_id={model_id!r} "
+            f"is missing expected prefix {expected_prefix!r} — "
+            f"derived_id() will return a malformed string"
+        )
+
+    # Anthropic-only invariant: stripping the prefix must yield a bare
+    # id with no remaining slash.  ``anthropic/claude-sonnet-4-6`` → ok.
+    # ``anthropic/some/nested/id`` → not ok (the native SDK does not
+    # accept slashes in model ids).
+    if provider == "anthropic":
+        bare = _strip_known_prefix(model_id)
+        if "/" in bare:
+            problems.append(
+                f"{name}: anthropic model_id={model_id!r} contains a "
+                f"nested slash; native AnthropicCompletion will reject it"
+            )
+
+    return problems
+
+
+# Fallback chains: per-role catalog-key order used by the factory when the
+# resolver-picked model fails validation or probing.  Bootstrap survivors
+# always appear in the chain so a fully degraded system still produces a
+# constructable LLM.  Order is premium → budget → local.
+_DEFAULT_FALLBACK_CHAIN: tuple[str, ...] = (
+    "claude-sonnet-4.6",
+    "deepseek-v3.2",
+    "qwen3.5:35b-a3b-q4_K_M",
+)
+
+
+def fallback_chain(role: str) -> list[str]:  # noqa: ARG001
+    """Return the catalog-key fallback chain for *role*.
+
+    Currently role-independent — every role falls back to the same
+    premium → budget → local sequence of bootstrap survivors.  Kept
+    keyed by role so future per-role tuning (e.g. local-tier roles
+    preferring Ollama first) is a data change, not a code change.
+    """
+    return list(_DEFAULT_FALLBACK_CHAIN)
+
+
+def _validate_bootstrap_strict() -> None:
+    """Strict module-load validation of the bootstrap survivors.
+
+    Run at the end of module import.  Any problem here is a programming
+    error — the bootstrap entries are the system's survival kit and must
+    be self-consistent.  Failure raises, refusing to import a broken
+    catalog.
+    """
+    for name, entry in _BOOTSTRAP_CATALOG.items():
+        problems = validate_entry(name, entry)
+        if problems:
+            raise RuntimeError(
+                "llm_catalog: bootstrap survivor invariant violated:\n  - "
+                + "\n  - ".join(problems)
+            )
+
+
+_validate_bootstrap_strict()
 
 
 # ── Public API ────────────────────────────────────────────────────────────

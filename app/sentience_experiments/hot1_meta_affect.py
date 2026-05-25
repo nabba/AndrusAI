@@ -594,17 +594,9 @@ def _maybe_llm_enrich(
     decenter filter is the second guard regardless."""
     if not template_text:
         return None
-    # Anthropic SDK + API key both required.
     try:
-        from anthropic import Anthropic
-        from app.config import get_anthropic_api_key
-    except Exception:
-        return None
-    key = get_anthropic_api_key()
-    if not key:
-        return None
-    try:
-        client = Anthropic(api_key=key)
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting", task_hint="hot1 meta-affect")
     except Exception:
         return None
     user_msg = (
@@ -617,7 +609,6 @@ def _maybe_llm_enrich(
     )
     try:
         resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
             max_tokens=120,
             system=_LLM_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}],

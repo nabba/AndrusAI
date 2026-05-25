@@ -46,6 +46,23 @@ def _flush_writes() -> None:
         logger.debug("llm_benchmarks: batch flush failed", exc_info=True)
 
 
+def flush_pending_writes() -> None:
+    """Public flush — called by :mod:`app.llm_cost_ledger` before each
+    cost-read to ensure pending un-flushed cost rows are visible to
+    the per-provider / per-role cap checks.
+
+    Without this, the buffered writer (``_BATCH_SIZE``/``_BATCH_INTERVAL``
+    accumulate) would let cost-reads see only the committed-as-of-
+    last-flush total, allowing a sustained high-volume workload to
+    overshoot caps by ~$1 per flush window before the next read sees
+    the real total.
+
+    Cheap — one SQLite commit, idempotent when the buffer is empty.
+    Failure-isolated.
+    """
+    _flush_writes()
+
+
 def _buffered_write(sql: str, params: tuple) -> None:
     """Add a write to the buffer, flushing if threshold reached."""
     global _last_flush
@@ -90,15 +107,20 @@ def _get_conn() -> sqlite3.Connection:
                 total_tokens      INTEGER NOT NULL,
                 cost_usd          REAL NOT NULL DEFAULT 0.0,
                 ts                TEXT NOT NULL,
-                project_id        TEXT
+                project_id        TEXT,
+                agent_role        TEXT
             )
         """)
-        # Backfill column for older schemas — NULL is the expected value for
-        # pre-migration rows, so no DEFAULT is set.
+        # Backfill columns for older schemas — NULL is the expected
+        # value for pre-migration rows, so no DEFAULT is set.
         try:
             conn.execute("ALTER TABLE token_usage ADD COLUMN project_id TEXT")
         except sqlite3.OperationalError:
             pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE token_usage ADD COLUMN agent_role TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tu_model_ts "
             "ON token_usage(model, ts)"
@@ -106,6 +128,11 @@ def _get_conn() -> sqlite3.Connection:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tu_project_ts "
             "ON token_usage(project_id, ts)"
+        )
+        # Index for per-role spend reads (llm_cost_ledger.spent_in_window).
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tu_role_ts "
+            "ON token_usage(agent_role, ts)"
         )
         conn.execute("""
             CREATE TABLE IF NOT EXISTS request_costs (
@@ -356,22 +383,31 @@ def record_tokens(
                 project_id = resolve_current_project_id()
             except Exception:
                 project_id = None
+        # Resolve agent_role from the ContextVar so per-role cost
+        # aggregation in app/llm_cost_ledger.py has the data it needs.
+        # Same resolution path as the reconcile_actual_spend below,
+        # extracted to a local so the INSERT can use it without the
+        # subsequent conditional firing.
+        _agent_role_for_row: str | None = None
+        try:
+            from app.project_context import resolve_current_agent_role
+            _agent_role_for_row = resolve_current_agent_role()
+        except Exception:
+            _agent_role_for_row = None
         _buffered_write(
-            "INSERT INTO token_usage (model, prompt_tokens, completion_tokens, total_tokens, cost_usd, ts, project_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO token_usage (model, prompt_tokens, completion_tokens, total_tokens, cost_usd, ts, project_id, agent_role) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (model, prompt_tokens, completion_tokens, total,
-             cost_usd, datetime.now(timezone.utc).isoformat(), project_id),
+             cost_usd, datetime.now(timezone.utc).isoformat(),
+             project_id, _agent_role_for_row),
         )
         if cost_usd and cost_usd > 0 and project_id:
             try:
                 from app.control_plane.budgets import reconcile_actual_spend
-                from app.project_context import resolve_current_agent_role
-
-                agent_role = None
-                try:
-                    agent_role = resolve_current_agent_role()
-                except Exception:
-                    agent_role = None
+                # Re-use the locally-resolved role.  The fallback
+                # path keeps the original behaviour intact when the
+                # resolver above raised.
+                agent_role = _agent_role_for_row
                 reconcile_actual_spend(
                     project_id=project_id,
                     agent_role=agent_role,

@@ -56,6 +56,19 @@ _KNOWN_SOURCES: frozenset[str] = frozenset({
     "refactor_proposer",  # Phase 2 elegance loop — consumes Phase 1
                           # signals (elegance_drift + architectural_drift)
                           # and emits refactor candidates.
+    "llm_health_escalator",  # 2026-05-24 — closes the mark_dead loop in
+                             # app/llm_factory_probe.py.  When the same
+                             # (provider, bare_id) is observed dead ≥3
+                             # times in 24h, escalate to a CR proposing
+                             # catalog retirement.
+    "llm_cost_advisor",      # 2026-05-25 — weekly cap-adjustment
+                             # proposer in app/llm_cost_advisor/.
+                             # Watches 7-day spend trends and proposes
+                             # raising / lowering per-provider daily
+                             # caps when they're consistently hit or
+                             # never approached.  Observational; never
+                             # auto-applies — operator gates via the
+                             # standard CR workflow.
 })
 
 _SAFE_SIG_RE = re.compile(r"^[A-Za-z0-9_.-]+$")

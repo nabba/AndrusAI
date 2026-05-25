@@ -208,11 +208,8 @@ def _classify_with_llm(ws: _Workspace, snippets: list[dict]) -> list[dict]:
     if not snippets:
         return []
     try:
-        import anthropic
-    except Exception:
-        return []
-    try:
-        client = anthropic.Anthropic()
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting")
     except Exception:
         return []
     rendered = "\n".join(
@@ -225,7 +222,6 @@ def _classify_with_llm(ws: _Workspace, snippets: list[dict]) -> list[dict]:
     )
     try:
         msg = client.messages.create(
-            model=_MODEL,
             max_tokens=800,
             system=_SYSTEM_PROMPT.replace("{n}", str(_MAX_ITEMS_PER_WS)),
             messages=[{"role": "user", "content": user_msg}],

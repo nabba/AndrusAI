@@ -58,26 +58,10 @@ def run(path: Path) -> str:
             f"{_MAX_FILE_BYTES / 1024 / 1024:.0f} MB cap"
         )
 
-    try:
-        import anthropic
-    except ImportError as exc:
-        raise RuntimeError(f"anthropic SDK unavailable: {exc}") from exc
-
-    # Vendor-level cap pre-check (Phase D.3, 2026-05-22). PDF extract
-    # is per-document not per-page; estimate $0.02 (over-estimated to
-    # bias the gate toward early refusal). Cap-out raises RuntimeError
-    # so inbox watcher records the file as 'failed'.
-    from app import llm_anthropic_budget
-    if not llm_anthropic_budget.call_or_skip(
-        estimated_cost_usd=0.02,
-        source="inbox:pdf_extract",
-    ):
-        raise RuntimeError(
-            "Anthropic daily cap exceeded — pdf_extract call refused. "
-            "Raise the cap in /cp/settings → Anthropic per-day cap, "
-            "or wait for the rolling-24h window to roll over."
-        )
-
+    # Vendor-level cap is now enforced by the factory.
+    # ``AnthropicDailyCapExceeded`` from ``.create`` propagates to the
+    # existing ``except Exception`` below; inbox watcher records the
+    # file as 'failed'.
     try:
         with open(path, "rb") as f:
             blob = f.read()
@@ -85,10 +69,10 @@ def run(path: Path) -> str:
     except OSError as exc:
         raise RuntimeError(f"PDF read failed: {exc}") from exc
 
-    client = anthropic.Anthropic()
+    from app.llm_factory import anthropic_client_for_role
+    client = anthropic_client_for_role(role="research", task_hint="document extraction")
     try:
         msg = client.messages.create(
-            model=_MODEL,
             max_tokens=_MAX_OUTPUT_TOKENS,
             system=_SYSTEM,
             messages=[{

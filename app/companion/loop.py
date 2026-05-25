@@ -148,6 +148,19 @@ def get_idle_jobs() -> list[tuple[str, Callable[[], None], str]]:
     except Exception:
         logger.debug("companion.loop: social_graph job skipped", exc_info=True)
 
+    # LLM cost advisor — weekly cap-adjustment proposer.  Cadence is
+    # enforced by proposal_bridge's 7-day per-signature cooldown, so
+    # the job can run on every LIGHT pass without spam.  Master
+    # switch ``cost_advisor_enabled`` (default ON) checked inside
+    # :func:`app.llm_cost_advisor.run`.
+    try:
+        from app.llm_cost_advisor import run as _cost_advisor_run
+        jobs.append(("llm-cost-advisor", _cost_advisor_run, JobWeight.LIGHT))
+    except Exception:
+        logger.debug(
+            "companion.loop: llm_cost_advisor job skipped", exc_info=True,
+        )
+
     # Communities + bridges share a 24h cadence inside a single
     # entry-point function so we don't pile job entries.
     try:

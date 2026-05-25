@@ -182,11 +182,8 @@ def _llm_propose(existing: list[tuple[str, str]]) -> list[dict]:
     """One Haiku call. Returns the parsed ``ideas`` list or ``[]`` on
     any failure."""
     try:
-        import anthropic
-    except Exception:
-        return []
-    try:
-        client = anthropic.Anthropic()
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting")
     except Exception:
         return []
     existing_lines = "\n".join(f"  - {label} (id: {sid})" for sid, label in existing)
@@ -194,7 +191,6 @@ def _llm_propose(existing: list[tuple[str, str]]) -> list[dict]:
     user_msg = _OTHER_SYSTEMS_OFFER
     try:
         msg = client.messages.create(
-            model=_MODEL,
             max_tokens=900,
             system=system_msg,
             messages=[{"role": "user", "content": user_msg}],

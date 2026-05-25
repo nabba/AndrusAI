@@ -187,13 +187,12 @@ def generate_llm_summary(
     manifest: ToolManifest,
     source_code: str,
 ) -> str | None:
-    """Best-effort LLM summary. Returns None on any failure."""
-    try:
-        from anthropic import Anthropic  # type: ignore
-        from app.config import get_settings
-    except Exception:
-        return None
+    """Best-effort LLM summary. Returns None on any failure.
 
+    Model selection delegated to :func:`app.llm_factory.anthropic_client_for_role`
+    — the legacy ``audit_llm`` config field is kept for telemetry
+    compatibility but no longer drives selection.
+    """
     cfg = get_forge_config()
     model = cfg.audit_llm
     anthropic_model = {
@@ -220,10 +219,9 @@ def generate_llm_summary(
     )
 
     try:
-        settings = get_settings()
-        client = Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="writing", task_hint="forge summary")
         response = client.messages.create(
-            model=anthropic_model,
             max_tokens=1500,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],

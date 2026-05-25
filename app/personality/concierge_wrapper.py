@@ -161,18 +161,23 @@ def _rewrite_with_llm(text: str, *, model: str, tone_hint: str = "") -> str:
 
     ``tone_hint`` (Phase B #5) is appended to the user message as a
     one-line soft guidance string. Empty string disables the hint.
+
+    Model selection is delegated to ``app.llm_factory.anthropic_client_for_role``
+    so a sunset model id at the upstream side surfaces through the same
+    health-cache + chain-walker plumbing the router uses.  The ``model``
+    parameter is retained for backward-compat but ignored — see
+    `feedback_llm_factory_authoritative`.
     """
     try:
-        from anthropic import Anthropic
+        from app.llm_factory import anthropic_client_for_role, NoWorkingModelAvailable
     except Exception:
         return text
 
-    key = get_anthropic_api_key()
-    if not key:
-        return text
-
     try:
-        client = Anthropic(api_key=key)
+        client = anthropic_client_for_role(role="cheap-vetting")
+    except NoWorkingModelAvailable as exc:
+        logger.debug(f"concierge_wrapper: factory had no working Anthropic model: {exc!s}")
+        return text
     except Exception as exc:
         logger.debug(f"concierge_wrapper: client init failed: {exc}")
         return text
@@ -193,7 +198,6 @@ def _rewrite_with_llm(text: str, *, model: str, tone_hint: str = "") -> str:
         # can't blow up cost.
         budget = max(256, min(1024, int(len(text) / 2)))
         resp = client.messages.create(
-            model=model,
             max_tokens=budget,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],

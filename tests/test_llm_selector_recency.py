@@ -161,7 +161,7 @@ class TestFactoryRoleAutoDefault:
                  "tier": "budget", "provider": "openrouter",
                  "model_id": "openrouter/test/fresh", "supports_tools": True,
              }), \
-             patch.object(llm_factory, "_build_from_entry", return_value="LLM"), \
+             patch.object(llm_factory, "_walk_chain", return_value="LLM"), \
              patch("app.llm_mode.get_mode", return_value="balanced"):
             llm_factory.create_specialist_llm(role="research")
 
@@ -185,7 +185,7 @@ class TestFactoryRoleAutoDefault:
                  "tier": "budget", "provider": "openrouter",
                  "model_id": "openrouter/test/any", "supports_tools": True,
              }), \
-             patch.object(llm_factory, "_build_from_entry", return_value="LLM"), \
+             patch.object(llm_factory, "_walk_chain", return_value="LLM"), \
              patch("app.llm_mode.get_mode", return_value="balanced"):
             llm_factory.create_specialist_llm(role="coding")
 
@@ -205,7 +205,7 @@ class TestFactoryRoleAutoDefault:
                  "tier": "budget", "provider": "openrouter",
                  "model_id": "openrouter/test/stale", "supports_tools": True,
              }), \
-             patch.object(llm_factory, "_build_from_entry", return_value="LLM"), \
+             patch.object(llm_factory, "_walk_chain", return_value="LLM"), \
              patch("app.llm_mode.get_mode", return_value="balanced"):
             llm_factory.create_specialist_llm(role="research", min_recency=date.min)
 

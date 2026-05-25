@@ -335,15 +335,10 @@ def _call_llm_for_fix(
     at a time.
     """
     try:
-        from anthropic import Anthropic
-        from app.config import get_anthropic_api_key
-    except Exception:
-        return None
-    key = get_anthropic_api_key()
-    if not key:
-        return None
-    try:
-        client = Anthropic(api_key=key)
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(
+            role="self_improve", task_hint="structured diagnosis",
+        )
     except Exception:
         return None
 
@@ -363,7 +358,6 @@ def _call_llm_for_fix(
 
     try:
         resp = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
             max_tokens=8000,
             system=_LLM_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}],

@@ -60,12 +60,20 @@ class TestOpenRouterModelIdPrefix:
         from app.llm_factory import _try_api
         entry = {
             "model_id": "anthropic/claude-opus-4-7",
+            "provider": "anthropic",
             "tier": "premium",
             "cost_output_per_m": 25.0,
         }
         result = _try_api("claude-opus-4-7", entry, 4096, role="coding")
         assert result is not None
-        assert captured["model_id"] == "openrouter/anthropic/claude-opus-4-7"
+        # ``derived_id(entry, "openrouter")`` translates Anthropic's
+        # dash-version slug to OpenRouter's dot-version canonical form
+        # (the version dash becomes a dot in the SLUG only — the family
+        # dashes stay).  This unifies the failover path (which always
+        # used the dotted form) with the regular OR routing path
+        # (which used to use the dashed form — the patchwork the
+        # refactor eliminated).
+        assert captured["model_id"] == "openrouter/anthropic/claude-opus-4.7"
         assert "openrouter.ai" in captured["base_url"]
 
     def test_already_prefixed_model_id_is_idempotent(self, monkeypatch):
@@ -83,13 +91,16 @@ class TestOpenRouterModelIdPrefix:
         monkeypatch.setattr("app.llm_factory._cached_llm", _fake_cached)
 
         from app.llm_factory import _try_api
+        # Entry with provider=openrouter is already in the OR-canonical
+        # shape; ``derived_id(entry, "openrouter")`` returns identity.
         entry = {
-            "model_id": "openrouter/anthropic/claude-sonnet-4-6",
+            "model_id": "openrouter/anthropic/claude-sonnet-4.6",
+            "provider": "openrouter",
             "tier": "mid",
             "cost_output_per_m": 5.0,
         }
-        _try_api("claude-sonnet-4-6", entry, 4096, role="research")
-        assert captured["model_id"] == "openrouter/anthropic/claude-sonnet-4-6"
+        _try_api("claude-sonnet-4.6", entry, 4096, role="research")
+        assert captured["model_id"] == "openrouter/anthropic/claude-sonnet-4.6"
         assert not captured["model_id"].startswith("openrouter/openrouter/")
 
     def test_non_anthropic_models_also_get_prefixed(self, monkeypatch):
@@ -108,8 +119,15 @@ class TestOpenRouterModelIdPrefix:
         monkeypatch.setattr("app.llm_factory._cached_llm", _fake_cached)
 
         from app.llm_factory import _try_api
+        # OpenRouter-provider entries store the catalog ``model_id`` in
+        # its already-canonical form (``openrouter/<vendor>/<slug>``).
+        # The derived_id("openrouter") path returns identity.  Pre-
+        # refactor tests passed entries without the ``openrouter/``
+        # prefix and relied on inline string prepending; that path is
+        # gone — entries always carry the catalog-canonical form.
         entry = {
-            "model_id": "deepseek/deepseek-chat-v3-0324",
+            "model_id": "openrouter/deepseek/deepseek-chat-v3-0324",
+            "provider": "openrouter",
             "tier": "budget",
             "cost_output_per_m": 0.40,
         }

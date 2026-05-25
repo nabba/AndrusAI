@@ -49,6 +49,8 @@ isolation).
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -58,34 +60,19 @@ logger = logging.getLogger(__name__)
 # ── Exception ───────────────────────────────────────────────────────
 
 
-class AnthropicDailyCapExceeded(Exception):
+# ``CapExceededError`` is the provider-neutral base class — moved out
+# of this module to :mod:`app.llm_cost_exceptions` (2026-05-26) so
+# new providers don't have to cross-import from Anthropic to subclass
+# it.  Re-exported here for back-compat with the small set of callers
+# that already import ``app.llm_anthropic_budget.CapExceededError``.
+from app.llm_cost_exceptions import CapExceededError
+
+
+class AnthropicDailyCapExceeded(CapExceededError):
     """Raised by :func:`pre_check` when the next Anthropic call would
     push the rolling-24h spend over the configured cap.
-
-    Attributes
-    ----------
-    today_spent_usd
-        Anthropic spend in the rolling 24h window prior to this call.
-    daily_cap_usd
-        The configured ceiling.
-    estimated_cost_usd
-        The next call's estimate that triggered the refusal.
     """
-
-    def __init__(
-        self,
-        today_spent_usd: float,
-        daily_cap_usd: float,
-        estimated_cost_usd: float,
-    ) -> None:
-        self.today_spent_usd = today_spent_usd
-        self.daily_cap_usd = daily_cap_usd
-        self.estimated_cost_usd = estimated_cost_usd
-        super().__init__(
-            f"Anthropic daily cap ${daily_cap_usd:.2f} would be "
-            f"exceeded — already spent ${today_spent_usd:.4f} in "
-            f"rolling 24h; next call estimated ${estimated_cost_usd:.4f}"
-        )
+    provider = "Anthropic"
 
 
 # ── Cap reader ──────────────────────────────────────────────────────
@@ -120,101 +107,81 @@ def get_cap() -> Optional[float]:
 
 
 # ── Spend reader ────────────────────────────────────────────────────
+#
+# ``today_spent_usd`` is read on every Anthropic call through
+# :func:`pre_check`, which after the 2026-05-25 cost-wiring is called
+# from:
+#   * ``AnthropicClientHandle._InstrumentedMessages.create``
+#   * ``CreditAwareAnthropicCompletion.call`` (sync)
+#   * ``CreditAwareAnthropicCompletion.acall`` (async)
+#
+# The underlying spend computation does a full audit-log JSONL scan —
+# microseconds per row but linear in log size, and after months of
+# operation the log has tens of thousands of rows.  Caching is safe
+# because the cap is a coarse ceiling, not a precise per-call budget:
+# within a 5-second window, even at peak throughput, the unobserved
+# spend can't accumulate by more than ~$0.50 worst case (high-cost
+# Sonnet at maximum call rate).  That's well below any reasonable
+# cap-headroom check, so the cache is operationally lossless while
+# eliminating the file-scan cost on hot paths.
+
+_SPENT_CACHE_TTL_SECONDS = 5.0
+_spent_cache: dict[str, float] = {}  # {"value": cached_usd, "expires_at": ts}
+_spent_cache_lock = threading.Lock()
 
 
-def today_spent_usd() -> float:
-    """Return rolling-24h Anthropic spend from the audit log.
+def today_spent_usd(use_cache: bool = True) -> float:
+    """Return rolling-24h Anthropic spend from the canonical ledger.
 
-    Reads the same source the React Cost dashboard reads — keeps the
-    gate's "you spent X" number consistent with what operators see.
-    Failure-isolated: returns 0.0 on any error so the gate defaults
-    to "no spend recorded" rather than blocking legitimate calls.
+    Delegates to :func:`app.llm_cost_ledger.spend_for_provider` so the
+    "you spent X" number is consistent with the React Cost dashboard
+    and the per-role spend ledger.  Failure-isolated: returns 0.0 on
+    any error so the gate defaults to "no spend recorded" rather than
+    blocking legitimate calls.
+
+    Parameters
+    ----------
+    use_cache : bool
+        When True (default), reads from the canonical ledger's
+        5-second TTL cache.  When False, invalidates that cache and
+        reads fresh — for the operator-facing state snapshot
+        endpoint where the most recent number matters more than
+        latency.
     """
     try:
-        return _read_audit_log_anthropic_spend(window_hours=24)
+        if not use_cache:
+            from app.llm_cost_ledger import _invalidate_for_tests
+            _invalidate_for_tests()
+        from app.llm_cost_ledger import spend_for_provider
+        return spend_for_provider("anthropic", hours=24.0)
     except Exception:
         logger.debug(
-            "llm_anthropic_budget: audit-log read failed", exc_info=True,
+            "llm_anthropic_budget: ledger read failed", exc_info=True,
         )
         return 0.0
 
 
-def _read_audit_log_anthropic_spend(*, window_hours: int) -> float:
-    """Sum the ``cost_usd`` field across audit-log rows from the
-    rolling window where the model is Anthropic.
+def _invalidate_spent_cache() -> None:
+    """Test-only — wipes the canonical ledger's TTL cache.
 
-    The audit-log shape mirrors what ``app.audit_log.append_with_cost``
-    writes — a JSONL file with rows containing ``ts``, ``model``,
-    ``cost_usd``. Tolerates malformed rows (skipped) and a missing
-    log file (returns 0.0).
+    Kept as a thin shim around :func:`app.llm_cost_ledger._invalidate_for_tests`
+    so existing tests that import this symbol continue to work.  The
+    leading underscore marks this as test-only.
     """
     try:
-        from pathlib import Path
-        import importlib
-        import json
-        al = importlib.import_module("app.audit_log")
-        path = al._audit_log_path()
+        from app.llm_cost_ledger import _invalidate_for_tests
+        _invalidate_for_tests()
     except Exception:
-        # Fall back to a well-known relative path. If the audit-log
-        # module isn't importable in this environment, treat spend
-        # as unknown rather than blocking.
-        return 0.0
-
-    if not isinstance(path, Path) or not path.exists():
-        return 0.0
-
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
-    total = 0.0
-    try:
-        with path.open("r", encoding="utf-8") as fp:
-            for line in fp:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(row, dict):
-                    continue
-                if not _row_is_anthropic(row):
-                    continue
-                ts_str = row.get("ts") or row.get("timestamp")
-                if not isinstance(ts_str, str):
-                    continue
-                try:
-                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    continue
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                if ts < cutoff:
-                    continue
-                cost = row.get("cost_usd") or row.get("cost") or 0.0
-                try:
-                    total += float(cost)
-                except (TypeError, ValueError):
-                    continue
-    except OSError:
-        return 0.0
-    return total
+        pass
 
 
-def _row_is_anthropic(row: dict) -> bool:
-    """Return True if a row's ``model`` field looks like an Anthropic
-    Claude model. Matches the live taxonomy: claude-opus / claude-sonnet
-    / claude-haiku / anthropic/claude*."""
-    model = row.get("model") or row.get("model_id") or ""
-    if not isinstance(model, str):
-        return False
-    lower = model.lower()
-    return (
-        "claude-opus" in lower
-        or "claude-sonnet" in lower
-        or "claude-haiku" in lower
-        or lower.startswith("anthropic/")
-        or "/claude-" in lower
-    )
+# _read_audit_log_anthropic_spend + _row_is_anthropic removed
+# 2026-05-25.  They read from a non-existent ``app.audit_log`` module
+# (never existed in git history) and silently returned 0.0 — making
+# the per-day cap operationally dormant since this module's
+# creation.  The fix routes through :mod:`app.llm_cost_ledger` which
+# queries the canonical SQLite ``token_usage`` table.
+# Provider classification moved to :mod:`app.llm_provider_classify`.
 
 
 # ── Gate ────────────────────────────────────────────────────────────
@@ -313,9 +280,15 @@ def call_or_skip(
 
 def state_snapshot() -> dict:
     """Return ``{cap, spent, headroom, enabled}`` for the operator
-    surface (REST endpoint + React Settings card)."""
+    surface (REST endpoint + React Settings card).
+
+    Bypasses the 5-second TTL cache so the operator dashboard always
+    shows the most recent spend — staleness on the operator surface
+    would be confusing whereas the call-path gate is fine with 5s
+    inaccuracy.
+    """
     cap = get_cap()
-    spent = today_spent_usd()
+    spent = today_spent_usd(use_cache=False)
     if cap is None:
         return {
             "enabled": False,

@@ -832,6 +832,16 @@ def _defaults() -> dict[str, Any]:
         # exceed the cap. Check via app.llm_anthropic_budget.pre_check.
         "anthropic_daily_cap_usd": None,
 
+        # Sibling: OpenRouter rolling-24h USD spend cap. Closes the
+        # per-provider asymmetry — Anthropic had a daily cap, OpenRouter
+        # didn't. Check via app.llm_openrouter_budget.pre_check.
+        "openrouter_daily_cap_usd": None,
+
+        # Cost-advisor weekly idle job (app/llm_cost_advisor/) —
+        # analyses 7-day spend trends and proposes cap adjustments
+        # via proposal_bridge.  Observational; never auto-applies.
+        "cost_advisor_enabled": True,
+
         # ── Local-tier fast route (Verified Plan Gap #4, 2026-05-22)
         # When True, ``_try_local_route()`` matches first-person
         # locally-answerable queries (calendar / briefing / threads /
@@ -1535,6 +1545,155 @@ def set_anthropic_daily_cap_usd(value) -> None:
     _update({"anthropic_daily_cap_usd": normalized})
     logger.info(
         "runtime_settings: anthropic_daily_cap_usd set to %s", normalized,
+    )
+
+
+def get_cost_advisor_enabled() -> bool:
+    """Master switch for :mod:`app.llm_cost_advisor`."""
+    return bool(_ensure_initialized().get("cost_advisor_enabled", True))
+
+
+def set_cost_advisor_enabled(value: bool) -> None:
+    _update({"cost_advisor_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: cost_advisor_enabled set to %s", bool(value),
+    )
+
+
+def get_cost_advisor_set_min_daily_usd() -> float:
+    """Advisor SET trigger: propose setting a cap when mean daily
+    spend exceeds this AND no cap is configured.  Default $1.00.
+    """
+    raw = _ensure_initialized().get("cost_advisor_set_min_daily_usd", None)
+    try:
+        return float(raw) if raw is not None else 1.0
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def get_cost_advisor_set_factor() -> float:
+    """Advisor SET multiplier: proposed cap = max_day_spend × this.
+    Default 2.0 (twice the observed maximum day's spend).
+    """
+    raw = _ensure_initialized().get("cost_advisor_set_factor", None)
+    try:
+        return float(raw) if raw is not None else 2.0
+    except (TypeError, ValueError):
+        return 2.0
+
+
+def get_cost_advisor_raise_n_days() -> int:
+    """Advisor RAISE trigger: cap hit on this many of 7 days.
+    Default 3 (≥3 of 7 days).
+    """
+    raw = _ensure_initialized().get("cost_advisor_raise_n_days", None)
+    try:
+        return int(raw) if raw is not None else 3
+    except (TypeError, ValueError):
+        return 3
+
+
+def get_cost_advisor_raise_factor() -> float:
+    """Advisor RAISE multiplier: new_cap = old_cap × this.  Default 1.25
+    (25% raise — conservative because raises shift cost on-ledger).
+    """
+    raw = _ensure_initialized().get("cost_advisor_raise_factor", None)
+    try:
+        return float(raw) if raw is not None else 1.25
+    except (TypeError, ValueError):
+        return 1.25
+
+
+def get_cost_advisor_lower_n_days() -> int:
+    """Advisor LOWER trigger: cap below 25% utilisation on this many
+    of 7 days.  Default 6 (≥6 of 7 days — strong "under-used" signal).
+    """
+    raw = _ensure_initialized().get("cost_advisor_lower_n_days", None)
+    try:
+        return int(raw) if raw is not None else 6
+    except (TypeError, ValueError):
+        return 6
+
+
+def get_cost_advisor_lower_factor() -> float:
+    """Advisor LOWER multiplier: new_cap = old_cap × this.  Default 0.5
+    (halve the cap — safe because lowering is reversible).
+    """
+    raw = _ensure_initialized().get("cost_advisor_lower_factor", None)
+    try:
+        return float(raw) if raw is not None else 0.5
+    except (TypeError, ValueError):
+        return 0.5
+
+
+def get_cost_advisor_lower_min_7d_spend_usd() -> float:
+    """Advisor LOWER floor: skip LOWER proposal when 7d spend is below
+    this.  Default $0.50 over 7 days.  Prevents the advisor from
+    proposing lowering against migration-window or low-traffic
+    providers where there's not enough signal.
+    """
+    raw = _ensure_initialized().get(
+        "cost_advisor_lower_min_7d_spend_usd", None,
+    )
+    try:
+        return float(raw) if raw is not None else 0.50
+    except (TypeError, ValueError):
+        return 0.50
+
+
+def get_cost_advisor_role_lower_min_24h_spend_usd() -> float:
+    """Advisor per-role LOWER floor: skip role-LOWER proposal when 24h
+    spend is below this.  Default $0.10.  Sporadic roles (run once
+    a day) would otherwise always look under-pace because the
+    expected_hourly baseline assumes 24/7 usage.
+    """
+    raw = _ensure_initialized().get(
+        "cost_advisor_role_lower_min_24h_spend_usd", None,
+    )
+    try:
+        return float(raw) if raw is not None else 0.10
+    except (TypeError, ValueError):
+        return 0.10
+
+
+def get_openrouter_daily_cap_usd():
+    """Operator-set USD ceiling on rolling-24h OpenRouter spend.
+
+    Sibling to :func:`get_anthropic_daily_cap_usd` — closes the
+    per-provider asymmetry where Anthropic spend was capped per-day
+    but OpenRouter spend was only constrained by the monthly total-
+    cost-ceiling brake.  Default-OFF — operators opt in by setting
+    a value via the React Settings card or the
+    ``set_openrouter_daily_cap_usd`` API.
+    """
+    raw = _ensure_initialized().get("openrouter_daily_cap_usd", None)
+    if raw is None:
+        return None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return v
+
+
+def set_openrouter_daily_cap_usd(value) -> None:
+    """Set or clear the OpenRouter daily cap.  Same semantics as
+    :func:`set_anthropic_daily_cap_usd`.
+    """
+    if value is None:
+        normalized = None
+    else:
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            normalized = None
+        else:
+            normalized = v if v > 0 else None
+    _update({"openrouter_daily_cap_usd": normalized})
+    logger.info(
+        "runtime_settings: openrouter_daily_cap_usd set to %s", normalized,
     )
 
 

@@ -93,24 +93,16 @@ def _default_llm_call(system_prompt: str, user_prompt: str) -> str:
     """Cheap-tier Anthropic Haiku 4.5 call. Returns empty string on
     any failure (import error, network, etc.).
 
-    Verified Plan Gap #5 (2026-05-22): gated by the operator-set
-    Anthropic daily cap. On cap-out returns "" — the v2 LLM planner
-    naturally falls back to the deterministic v1 planner.
+    Verified Plan Gap #5 (2026-05-22): the Anthropic daily cap is
+    enforced by the factory's ``.messages.create`` pre-check; on
+    cap-out the existing ``except Exception`` below returns "" — the
+    v2 LLM planner naturally falls back to the deterministic v1
+    planner.
     """
     try:
-        import anthropic
-    except ImportError:
-        return ""
-    from app import llm_anthropic_budget
-    if not llm_anthropic_budget.call_or_skip(
-        estimated_cost_usd=0.003,
-        source="autonomous_executor:planner_llm",
-    ):
-        return ""
-    try:
-        client = anthropic.Anthropic()
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting", task_hint="planner")
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
             max_tokens=600,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],

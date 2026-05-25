@@ -161,21 +161,14 @@ def _llm_distill(thread: Thread, body_text: str) -> str:
     Uses Anthropic Haiku 4.5 with a small budget. Returns empty
     string on any failure (caller falls back to body_text).
     """
+    # Verified Plan Gap #5 (2026-05-22): the Anthropic daily cap is
+    # enforced by the factory's ``.messages.create`` pre-check; on
+    # cap-out the existing ``except Exception`` below returns "" —
+    # thread closure distillation falls back to the deterministic
+    # body builder.
     try:
-        import anthropic
-    except ImportError:
-        return ""
-    # Verified Plan Gap #5 (2026-05-22): Anthropic daily cap gate.
-    # On cap-out returns "" — thread closure distillation falls back
-    # to the deterministic body builder.
-    from app import llm_anthropic_budget
-    if not llm_anthropic_budget.call_or_skip(
-        estimated_cost_usd=0.0001,
-        source="threads:approaches_distill",
-    ):
-        return ""
-    try:
-        client = anthropic.Anthropic()
+        from app.llm_factory import anthropic_client_for_role
+        client = anthropic_client_for_role(role="cheap-vetting", task_hint="approaches summary")
         prompt = (
             "Below is a record of a long-horizon question that just closed. "
             "Distill a 2-3 sentence summary of the APPROACHES that were "
@@ -187,7 +180,6 @@ def _llm_distill(thread: Thread, body_text: str) -> str:
             "Approaches-tried summary:"
         )
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
             max_tokens=240,
             messages=[{"role": "user", "content": prompt}],
         )
