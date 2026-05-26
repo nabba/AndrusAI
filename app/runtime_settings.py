@@ -708,6 +708,24 @@ def _defaults() -> dict[str, Any]:
         # note in ``app/epistemic/__init__.py``).
         "epistemic_enabled_override": None,
         "epistemic_blocking_mode_override": None,
+        # Stage A producer (2026-05-26): emits one Claim per RAG retrieval
+        # so calibration has data to score before EPISTEMIC_ENABLED flips.
+        # Default OFF — flip ON ~7 days before Stage B (advisory). Zero
+        # LLM cost; per-claim Postgres UPSERT + realtime detector pass.
+        # See ``app/epistemic/retrieval_producer.py``.
+        "epistemic_retrieval_producer_enabled": False,
+        # Stage C health monitor (2026-05-26). Observational; surfaces
+        # silent_gate / drift_high / drift_low_zero / starved_gate alerts
+        # via Signal. Default ON — observation is cheap and is the whole
+        # point of the staged-activation discipline.
+        "epistemic_gate_health_monitor_enabled": True,
+        # Stage D per-reply zone classifier (2026-05-26). Maps each
+        # reply to {chat, autonomous, financial} so the verification
+        # extension's zone-aware thresholds receive real input instead
+        # of always defaulting to chat. Default ON — it can only
+        # *strengthen* the default; OFF means every reply stays in chat
+        # zone (today's behaviour).
+        "epistemic_per_reply_zone_enabled": True,
         # Master switch for the 4 new gate_output evaluators
         # (claim-source consistency / retrieval-on-low-confidence /
         # zone-aware threshold / aggregator). Default OFF — the
@@ -1138,6 +1156,53 @@ def set_epistemic_blocking_mode_override(value: bool | None) -> None:
     v = None if value is None else bool(value)
     _update({"epistemic_blocking_mode_override": v})
     logger.info("runtime_settings: epistemic_blocking_mode_override set to %r", v)
+
+
+def get_epistemic_retrieval_producer_enabled() -> bool:
+    """Stage A master switch — emit Claim per RAG retrieval. Default OFF."""
+    return bool(_ensure_initialized().get(
+        "epistemic_retrieval_producer_enabled", False,
+    ))
+
+
+def set_epistemic_retrieval_producer_enabled(value: bool) -> None:
+    v = bool(value)
+    _update({"epistemic_retrieval_producer_enabled": v})
+    logger.info(
+        "runtime_settings: epistemic_retrieval_producer_enabled set to %r", v,
+    )
+
+
+def get_epistemic_gate_health_monitor_enabled() -> bool:
+    """Stage C monitor — observational health alerts. Default ON."""
+    return bool(_ensure_initialized().get(
+        "epistemic_gate_health_monitor_enabled", True,
+    ))
+
+
+def set_epistemic_gate_health_monitor_enabled(value: bool) -> None:
+    v = bool(value)
+    _update({"epistemic_gate_health_monitor_enabled": v})
+    logger.info(
+        "runtime_settings: epistemic_gate_health_monitor_enabled set to %r", v,
+    )
+
+
+def get_epistemic_per_reply_zone_enabled() -> bool:
+    """Stage D per-reply classifier — maps replies to chat/autonomous/
+    financial zones. Default ON; OFF restores the previous chat-only
+    default in :func:`verification_extension._resolve_zone`."""
+    return bool(_ensure_initialized().get(
+        "epistemic_per_reply_zone_enabled", True,
+    ))
+
+
+def set_epistemic_per_reply_zone_enabled(value: bool) -> None:
+    v = bool(value)
+    _update({"epistemic_per_reply_zone_enabled": v})
+    logger.info(
+        "runtime_settings: epistemic_per_reply_zone_enabled set to %r", v,
+    )
 
 
 def get_verification_extension_enabled() -> bool:

@@ -1173,17 +1173,27 @@ class Commander:
         elif difficulty <= 2:
             context = _temporal_prefix
         else:
+            # Stage A producer (2026-05-26): task-scoped id for the
+            # epistemic claim ledger. Falls back to a per-run synthetic
+            # id when no parent_task_id was threaded through.
+            _claim_task_id = parent_task_id or f"{crew_name}_{int(t0)}"
             f_skills = _ctx_pool.submit(
                 _load_relevant_skills, crew_task, 3, conversation_history
             )
             f_memory = _ctx_pool.submit(_load_relevant_team_memory, crew_task)
-            f_kb = _ctx_pool.submit(_load_knowledge_base_context, crew_task)
+            f_kb = _ctx_pool.submit(
+                _load_knowledge_base_context, crew_task, 4, task_id=_claim_task_id,
+            )
             f_policies = _ctx_pool.submit(_load_policies_for_crew, crew_task, crew_name)
             f_world = _ctx_pool.submit(_load_world_model_context, crew_task)
             f_state = _ctx_pool.submit(_load_homeostatic_context)  # L6: ~0ms, reads JSON
             # New KB context loaders (Phase 2/3) — all gracefully degrade to "".
-            f_episteme = _ctx_pool.submit(_load_episteme_context, crew_task)
-            f_experiential = _ctx_pool.submit(_load_experiential_context, crew_task)
+            f_episteme = _ctx_pool.submit(
+                _load_episteme_context, crew_task, 3, task_id=_claim_task_id,
+            )
+            f_experiential = _ctx_pool.submit(
+                _load_experiential_context, crew_task, 3, task_id=_claim_task_id,
+            )
             f_aesthetic = _ctx_pool.submit(_load_aesthetic_context, crew_task)
             f_tensions = _ctx_pool.submit(_load_tensions_context, crew_task)
             f_narrative = _ctx_pool.submit(_load_narrative_self_context, crew_task)
@@ -3648,10 +3658,39 @@ class Commander:
             # crewai-team/docs/SELF_REFLECTION.md for the full design.
             try:
                 from app.epistemic.orchestrator_hook import gate_output
+                # Stage D (2026-05-26): classify the reply zone so the
+                # verification extension's zone-aware thresholds receive
+                # real input instead of the chat-default. The classifier
+                # registers the zone with verification_extension; gate_output
+                # picks it up via _resolve_zone(task_id). Failure-isolated.
+                _zone: str = "chat"
+                try:
+                    from app.risk_classifier.per_reply import classify_reply_zone
+                    _zone = classify_reply_zone(
+                        user_input=user_input,
+                        final_reply=final_result,
+                        sender=sender,
+                        task_id=str(task_id) if task_id else None,
+                    )
+                except Exception:
+                    logger.debug("epistemic zone classifier failed", exc_info=True)
                 _gate = gate_output(
                     proposal_text=final_result,
                     task_id=str(task_id) if task_id else "",
                 )
+                # Stage B (2026-05-26): record verdict telemetry so the
+                # advisory report can characterise gate behaviour before
+                # the operator promotes to enforcing. Failure-isolated;
+                # excludes the trivial-pattern skip path automatically.
+                try:
+                    from app.epistemic.verdict_telemetry import record_verdict
+                    record_verdict(
+                        _gate,
+                        task_id=str(task_id) if task_id else "",
+                        zone=_zone,
+                    )
+                except Exception:
+                    logger.debug("epistemic verdict telemetry failed", exc_info=True)
                 if _gate.action == "block":
                     final_result = _gate.final_text
                     logger.info(

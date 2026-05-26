@@ -1786,6 +1786,37 @@ async def receive_signal(request: Request):
                 )
                 # Fall through to feedback pipeline
 
+        # ── Stage F: Epistemic pushback via reaction (2026-05-26) ──────
+        # 👎 on a reply the gate processed routes to either:
+        #   * record_override(FORCE_PROCEED) — when the gate intervened
+        #     (revise / block) and the operator disagrees with the
+        #     intervention; or
+        #   * record_disagreement — when the gate shipped and the
+        #     operator thinks it shouldn't have.
+        # Resolution is based on verdict_telemetry (the persisted gate
+        # action). 👍 is intentionally a no-op — silence is the gate's
+        # baseline. Failure-isolated; runs alongside (not instead of)
+        # the existing feedback_pipeline catch-all so generic feedback
+        # still flows.
+        if target_ts and not is_remove and emoji in ("👎", "-1"):
+            try:
+                from app.epistemic.reaction_bridge import handle_reaction as _epi_handle
+                _ack = _epi_handle(target_ts, emoji, sender=sender)
+                if _ack:
+                    try:
+                        client = SignalClient()
+                        await client.send(sender, _ack)
+                    except Exception:
+                        logger.debug(
+                            "epistemic reaction ack send failed", exc_info=True,
+                        )
+                    # Fall through so the 👀 reaction-ack still fires —
+                    # this is meta feedback, not a competing path.
+            except Exception:
+                logger.debug(
+                    "epistemic reaction_bridge handling failed", exc_info=True,
+                )
+
         try:
             from app.feedback_pipeline import FeedbackPipeline
             from app.config import get_settings
@@ -2724,6 +2755,23 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         from app.agents.commander import _MAX_RESPONSE_LENGTH, truncate_for_signal
         from app.signal_client import send_durable
 
+        # Concierge persona wrap: apply_concierge self-gates on
+        # get_concierge_persona_enabled() and skip heuristics (slash-help,
+        # completion pings, JSON, short text), preserves [Inference]/
+        # [Speculation]/[Unverified] labels, falls back to the original
+        # on any error. Run in the default thread pool so the Haiku
+        # rewrite call doesn't block the event loop.
+        try:
+            from app.personality.concierge_wrapper import apply_concierge
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, apply_concierge, result,
+            )
+        except Exception:
+            logger.debug(
+                "apply_concierge raised — keeping original reply",
+                exc_info=True,
+            )
+
         if len(result) > _MAX_RESPONSE_LENGTH:
             signal_text = truncate_for_signal(result)
             # Write .md file synchronously now — the write is ~ms, and a
@@ -2732,7 +2780,7 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                 None, _write_response_md, result, text
             )
             # Reply #1 — truncated summary
-            await send_durable(sender, signal_text, reply_to_id=queue_id)
+            _reply_ts = await send_durable(sender, signal_text, reply_to_id=queue_id)
             # Reply #2 — full .md attachment (if write succeeded)
             if md_path:
                 try:
@@ -2745,7 +2793,26 @@ async def handle_task(sender: str, text: str, attachments: list = None,
                     # outbound_queue; startup replay will retry it.
                     logger.debug("Durable attachment send raised", exc_info=True)
         else:
-            await send_durable(sender, result, reply_to_id=queue_id)
+            _reply_ts = await send_durable(sender, result, reply_to_id=queue_id)
+
+        # Stage F (2026-05-26): register signal_ts → task context so a
+        # subsequent 👎 reaction can route to record_override (gate-
+        # intervened reply) or record_disagreement (gate-shipped reply).
+        # task_id == sender mirrors the rest of the orchestrator's
+        # per-task scoping convention; gate_action is resolved at
+        # reaction time from verdict_telemetry. Failure-isolated.
+        if _reply_ts:
+            try:
+                from app.epistemic.reaction_bridge import register as _epi_reg
+                _epi_reg(
+                    _reply_ts,
+                    task_id=str(sender) if sender else "",
+                    gate_action="ship",
+                    reply_preview=result[:300],
+                )
+            except Exception:
+                logger.debug("epistemic reaction_bridge register failed",
+                             exc_info=True)
 
         # Delivery succeeded — pair with the request_received emit minted
         # in /signal/inbound for the latency_slo monitor (post-`send_durable`

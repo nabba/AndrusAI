@@ -293,7 +293,7 @@ def _load_policies_for_crew(task: str, crew_name: str) -> str:
         return ""
 
 
-def _load_knowledge_base_context(task: str, n: int = 4) -> str:
+def _load_knowledge_base_context(task: str, n: int = 4, *, task_id: str = "") -> str:
     """Retrieve knowledge base passages relevant to the current task (RAG).
 
     Queries the global enterprise KB AND the active business KB (if any).
@@ -370,6 +370,16 @@ def _load_knowledge_base_context(task: str, n: int = 4) -> str:
         )
         results = all_results[:n]
 
+        # Stage A (2026-05-26): emit one Claim per retrieved passage.
+        try:
+            from app.epistemic.retrieval_producer import emit_retrieval_claims
+            emit_retrieval_claims(
+                task_id=task_id, kb_name="knowledge",
+                query=task, passages=results,
+            )
+        except Exception:
+            pass
+
         # Tension detection: if results from different KBs, check for contradictions.
         if active_business and len(results) >= 2:
             try:
@@ -432,7 +442,7 @@ def _load_knowledge_base_context(task: str, n: int = 4) -> str:
         return ""
 
 
-def _load_episteme_context(task: str, n: int = 3) -> str:
+def _load_episteme_context(task: str, n: int = 3, *, task_id: str = "") -> str:
     """Retrieve research/theory context relevant to the current task.
 
     Only useful for improvement, architecture, or design tasks.
@@ -448,6 +458,17 @@ def _load_episteme_context(task: str, n: int = 3) -> str:
             results = store.query(query_text=task, n_results=n)
         if not results:
             return ""
+        # Stage A (2026-05-26): emit one Claim per retrieved passage so
+        # gate_output has data to score. Failure-isolated; self-gates on
+        # the master switch. See app/epistemic/retrieval_producer.py.
+        try:
+            from app.epistemic.retrieval_producer import emit_retrieval_claims
+            emit_retrieval_claims(
+                task_id=task_id, kb_name="episteme",
+                query=task, passages=results,
+            )
+        except Exception:
+            pass
         blocks = []
         for r in results:
             meta = r.get("metadata", {})
@@ -467,7 +488,7 @@ def _load_episteme_context(task: str, n: int = 3) -> str:
         return ""
 
 
-def _load_experiential_context(task: str, n: int = 3) -> str:
+def _load_experiential_context(task: str, n: int = 3, *, task_id: str = "") -> str:
     """Retrieve past experiences relevant to the current task."""
     try:
         from app.experiential.vectorstore import get_store
@@ -480,6 +501,15 @@ def _load_experiential_context(task: str, n: int = 3) -> str:
             results = store.query(query_text=task, n_results=n)
         if not results:
             return ""
+        # Stage A (2026-05-26): emit one Claim per retrieved passage.
+        try:
+            from app.epistemic.retrieval_producer import emit_retrieval_claims
+            emit_retrieval_claims(
+                task_id=task_id, kb_name="experiential",
+                query=task, passages=results,
+            )
+        except Exception:
+            pass
         blocks = []
         for r in results:
             meta = r.get("metadata", {})

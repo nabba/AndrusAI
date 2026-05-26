@@ -238,6 +238,11 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("passthrough", nargs=argparse.REMAINDER)
     g.set_defaults(func=commands.cmd_advisory_goodhart)
 
+    e = asub2.add_parser("epistemic",
+                         help="Epistemic-gate advisory report (Stage B observability).")
+    e.add_argument("passthrough", nargs=argparse.REMAINDER)
+    e.set_defaults(func=commands.cmd_advisory_epistemic)
+
     return parser
 
 

@@ -131,6 +131,8 @@ _DEFAULT_CADENCE_S = {
     "total_cost_ceiling": 6 * 3600,           # 6h probe; internal daily cadence
     "knowledge_currency": 24 * 3600,          # daily probe; internal weekly cadence
     "hardware_health": 24 * 3600,             # daily probe; internal daily cadence
+    # Stage C — epistemic activation (2026-05-26).
+    "epistemic_gate_health": 24 * 3600,       # daily probe; internal 7-day cadence
 }
 
 # Boot-stagger 2026-05-23 (was 120) — this driver walks ~34 monitors and
@@ -230,6 +232,14 @@ def _driver() -> None:
         monitors.append(("log_archival", log_archival.run, _DEFAULT_CADENCE_S["log_archival"], 0.0))
     except Exception:
         logger.debug("monitors: log_archival import failed", exc_info=True)
+    try:
+        from app.healing.monitors import epistemic_gate_health
+        monitors.append((
+            "epistemic_gate_health", epistemic_gate_health.run,
+            _DEFAULT_CADENCE_S["epistemic_gate_health"], 0.0,
+        ))
+    except Exception:
+        logger.debug("monitors: epistemic_gate_health import failed", exc_info=True)
     try:
         from app.healing.monitors import db_backup
         monitors.append(("db_backup", db_backup.run, _DEFAULT_CADENCE_S["db_backup"], 0.0))

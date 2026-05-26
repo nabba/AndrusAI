@@ -564,3 +564,7 @@ def cmd_bootstrap(args: argparse.Namespace) -> int:
 
 def cmd_advisory_goodhart(args: argparse.Namespace) -> int:
     return _passthrough("app.observability.goodhart_advisory_report", args)
+
+
+def cmd_advisory_epistemic(args: argparse.Namespace) -> int:
+    return _passthrough("app.observability.epistemic_advisory_report", args)
