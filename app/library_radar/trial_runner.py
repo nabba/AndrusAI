@@ -108,33 +108,64 @@ def _pypi_status(name: str) -> str:
         return "unknown"
 
 
-def _select_candidate(state) -> tuple[str | None, bool, str]:
-    """Trial ONLY the lead candidate (the discovery's title/brand token),
-    and only if it resolves to a real PyPI distribution.
+def _candidate_names(state) -> list[str]:
+    """Package-name candidates in priority order, derived from the
+    discovery slug (the slugified title). Tries the most specific
+    hyphenated join first so "X Agents SDK" → "x-agents-sdk" / "x-agents"
+    before the bare brand token "x"::
 
-    Everything after candidates[0] is tokeniser spray, so we deliberately
-    do NOT fall through to it — walking the list picked coincidental
-    matches like mastra→'industry'. If the lead token isn't on PyPI the
-    discovery isn't directly pip-installable, so we fail it (the queue
-    advances) rather than guessing at a trailing noise word.
+        slug "openai_agents_sdk"
+          → ["openai-agents-sdk", "openai-agents", "openai"]
 
-    Returns ``(package, terminal_if_none, reason)``:
-      * ``package`` set            → trial this name.
-      * ``(None, True, reason)``   → lead token not on PyPI; mark FAILED.
-      * ``(None, False, reason)``  → PyPI unreachable; leave PENDING, retry.
-    """
+    The longest contiguous prefix that resolves on PyPI wins (checked by
+    the caller); we fall back to the bare brand token, and finally fail
+    if nothing resolves. This upgrades brand tokens like ``openai`` /
+    ``claude`` / ``google`` to the real distributions ``openai-agents`` /
+    ``claude-agent-sdk`` / ``google-adk`` without an LLM or a (defunct)
+    PyPI search API. Only slug prefixes + the stored lead token are
+    probed — never trailing tokeniser noise — so mastra→'industry' can't
+    recur."""
+    tokens = [t for t in re.split(r"[-_]+", (state.slug or "").lower()) if t]
+    tokens = tokens[:5]  # bound the PyPI probe count
+    names: list[str] = ["-".join(tokens[:k]) for k in range(len(tokens), 0, -1)]
     lead = (
         state.package_name
         or (state.candidates[0] if state.candidates else "")
     ).strip()
-    if not lead:
+    if lead:
+        names.append(lead)
+    seen: set[str] = set()
+    out: list[str] = []
+    for n in names:
+        key = n.lower()
+        if n and key not in seen:
+            seen.add(key)
+            out.append(n)
+    return out
+
+
+def _select_candidate(state) -> tuple[str | None, bool, str]:
+    """Resolve the discovery to a real PyPI distribution, preferring the
+    most specific name (see :func:`_candidate_names`).
+
+    Returns ``(package, terminal_if_none, reason)``:
+      * ``package`` set            → trial this name.
+      * ``(None, True, reason)``   → nothing resolves on PyPI; mark FAILED.
+      * ``(None, False, reason)``  → PyPI unreachable; leave PENDING, retry.
+    """
+    names = _candidate_names(state)
+    if not names:
         return None, True, "no candidate package names"
-    status = _pypi_status(lead)
-    if status == "exists":
-        return lead, False, f"resolved {lead!r} on PyPI"
-    if status == "unknown":
-        return None, False, f"PyPI unreachable for {lead!r}; will retry"
-    return None, True, f"lead candidate {lead!r} is not on PyPI"
+    saw_unknown = False
+    for name in names:
+        status = _pypi_status(name)
+        if status == "exists":
+            return name, False, f"resolved {name!r} on PyPI"
+        if status == "unknown":
+            saw_unknown = True
+    if saw_unknown:
+        return None, False, f"PyPI unreachable; will retry ({names[0]!r})"
+    return None, True, f"no PyPI distribution for {names!r}"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -143,28 +174,71 @@ def _select_candidate(state) -> tuple[str | None, bool, str]:
 
 
 def render_smoke_test(package: str, slug: str) -> str:
-    """Generate the smoke-test Python body. Conservative: import the
-    package and assert it has at least one public attribute.
+    """Generate the smoke-test Python body.
 
-    The test is generated rather than coming from the LLM because we
-    don't want an LLM-hallucinated API call in the test body — the
-    smoke test must reflect what the package ACTUALLY exposes, not
-    what the radar LLM imagined."""
-    safe_pkg = package.strip().replace("-", "_")
-    # Anchor the test name to the slug, not the package, so the file
-    # path matches the spec regardless of which candidate was picked.
+    Installs are by *distribution* name (e.g. ``openai-agents``) but the
+    import name frequently differs — ``openai-agents`` imports as
+    ``agents``, ``google-adk`` as ``google.adk``, ``pyyaml`` as ``yaml``.
+    Guessing ``dist.replace('-','_')`` therefore fails for exactly the
+    SDK packages the brand-token resolver now finds. So the test
+    discovers the importable top-level module(s) the installed
+    distribution actually provides (via ``importlib.metadata``) and
+    imports those. Only modules belonging to OUR distribution are tried,
+    so an unrelated top-level ``agents``/``sdk`` can't false-pass.
+
+    Still no LLM in the test body — import targets come from installed
+    metadata, not from anything the radar imagined."""
+    # Anchor the test name to the slug so the path matches the spec
+    # regardless of which candidate was picked.
     return (
         f'"""Smoke-import test for {package} (auto-generated by\n'
         f'library_radar.trial_runner). PROGRAM §46.13."""\n'
         f"import importlib\n"
+        f"import importlib.metadata as _md\n"
+        f"\n"
+        f"_DIST = {package!r}\n"
+        f"\n"
+        f"\n"
+        f"def _norm(s):\n"
+        f"    return s.replace('-', '_').replace('.', '_').lower()\n"
+        f"\n"
+        f"\n"
+        f"def _import_names():\n"
+        f"    names = []\n"
+        f"    try:\n"
+        f"        for imp, dists in _md.packages_distributions().items():\n"
+        f"            if any(_norm(d) == _norm(_DIST) for d in dists):\n"
+        f"                names.append(imp)\n"
+        f"    except Exception:\n"
+        f"        pass\n"
+        f"    if not names:\n"
+        f"        try:\n"
+        f"            for f in (_md.files(_DIST) or []):\n"
+        f"                top = str(f).split('/')[0]\n"
+        f"                if top and not top.endswith(('.dist-info', '.data')):\n"
+        f"                    names.append(top[:-3] if top.endswith('.py') else top)\n"
+        f"        except Exception:\n"
+        f"            pass\n"
+        f"    if not names:\n"
+        f"        names.append(_DIST.replace('-', '_'))\n"
+        f"    seen = set(); out = []\n"
+        f"    for n in names:\n"
+        f"        if n and n not in seen:\n"
+        f"            seen.add(n); out.append(n)\n"
+        f"    return out\n"
         f"\n"
         f"\n"
         f"def test_{slug[:30]}_import():\n"
-        f"    mod = importlib.import_module({safe_pkg!r})\n"
-        f"    # Anything importable AND surfacing at least one public\n"
-        f"    # attribute is sufficient signal of a non-dead package.\n"
-        f"    public = [n for n in dir(mod) if not n.startswith('_')]\n"
-        f"    assert public, f'{{{safe_pkg!r}}} has no public attributes'\n"
+        f"    errors = {{}}\n"
+        f"    for name in _import_names():\n"
+        f"        try:\n"
+        f"            mod = importlib.import_module(name)\n"
+        f"        except Exception as exc:\n"
+        f"            errors[name] = repr(exc); continue\n"
+        f"        if [a for a in dir(mod) if not a.startswith('_')]:\n"
+        f"            return\n"
+        f"        errors[name] = 'no public attributes'\n"
+        f"    raise AssertionError(f'{{_DIST}}: not importable; tried {{errors}}')\n"
     )
 
 
@@ -200,11 +274,13 @@ def _file_adoption_cr(
     except OSError:
         old_content = ""
 
-    # Conservative pin: add a blank-line + comment + plain pin.
-    # Operator can refine in the CR review.
+    # Conservative pin. NOTE: keep this addition free of per-signature
+    # data (title/signature live in `reason`, which the CR content-hash
+    # excludes) so multiple discoveries resolving to the SAME package
+    # dedup into one CR via change_requests' content-hash, instead of
+    # filing N near-identical pins (e.g. 5 OpenRouter discoveries → 1 CR).
     addition = (
-        f"\n# Q10.1 trial-canary-adopt: smoke test passed for {title[:60]}\n"
-        f"# Signature: {signature}\n"
+        f"\n# added via library_radar trial-canary-adopt (PROGRAM §46.13)\n"
         f"{package}\n"
     )
     new_content = old_content.rstrip("\n") + ("\n" if old_content else "") + addition
@@ -214,6 +290,7 @@ def _file_adoption_cr(
         f"library `{package}` passed smoke import test in a "
         f"coding-session sandbox. Filing the requirements.txt "
         f"pin for operator review.\n\n"
+        f"Discovery: {title}\n\n"
         f"## Trial log excerpt\n\n"
         f"```\n{trial_log_excerpt[:800]}\n```\n"
         f"\n"
@@ -259,11 +336,11 @@ def _run_one_trial(state, proposal) -> tuple[str, str]:
         trial_state.mark_failed(state.signature, error=msg)
         return "failed", msg
 
-    # Candidate gate (incident 2026-05-27): the tokeniser emits noisy
-    # candidates (e.g. ["openai", "responses", "official", ...]). Only
-    # trial the LEAD token (candidates[0]) and only if it resolves to a
-    # real PyPI distribution; do NOT fall through to trailing noise words
-    # (walking the list picked mastra→'industry'). No match → fail the
+    # Candidate gate (incident 2026-05-27): resolve the discovery to a
+    # real PyPI distribution via slug-derived prefixes — "X Agents SDK"
+    # → "x-agents" rather than the bare brand "x" — preferring the most
+    # specific match, never falling through to trailing tokeniser noise
+    # (which once picked mastra→'industry'). No PyPI match → fail the
     # discovery so the queue advances, never a misleading requirements CR.
     package, terminal_if_none, sel_reason = _select_candidate(state)
     if not package:

@@ -92,66 +92,90 @@ def test_run_one_pass_no_pending_is_noop() -> None:
 # ── candidate gate ───────────────────────────────────────────────────────
 
 
-def _state(package_name: str, candidates: list[str]):
+def _state(slug: str, candidates: list[str] | None = None):
     from app.library_radar.trial_state import TrialState
 
+    cands = candidates if candidates is not None else slug.split("_")
     return TrialState(
-        signature="s", slug="s", package_name=package_name, candidates=candidates
+        signature="s",
+        slug=slug,
+        package_name=(cands[0] if cands else ""),
+        candidates=cands,
     )
 
 
-def test_select_candidate_uses_lead_token_on_pypi(
+def test_select_candidate_resolves_compound_distribution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # The brand-token gap: "openai agents sdk" must resolve to the real
+    # distribution openai-agents, NOT the bare brand token openai.
     from app.library_radar import trial_runner
 
-    # Lead token resolves → it is the one trialed.
-    resolved = {"openai": "exists"}
-    monkeypatch.setattr(
-        trial_runner, "_pypi_status", lambda n: resolved.get(n, "absent")
-    )
-
-    pkg, terminal, _ = trial_runner._select_candidate(
-        _state("openai", ["openai", "responses", "official", "designed"])
-    )
-    assert pkg == "openai"
-    assert terminal is False
-
-
-def test_select_candidate_does_not_fall_through_to_noise(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Regression pin for the 2026-05-27 dry-run finding: mastra is a JS
-    # framework (not on PyPI). The gate must NOT fall through to a
-    # trailing tokeniser-noise word ("industry") that happens to be a
-    # real package — it must fail the discovery instead.
-    from app.library_radar import trial_runner
-
-    on_pypi = {"industry": "exists"}  # noise word IS a real package
+    on_pypi = {"openai-agents": "exists", "openai": "exists"}
     monkeypatch.setattr(
         trial_runner, "_pypi_status", lambda n: on_pypi.get(n, "absent")
     )
 
     pkg, terminal, _ = trial_runner._select_candidate(
-        _state("mastra", ["mastra", "emerging", "industry", "framework"])
+        _state("openai_agents_sdk", ["openai", "agents", "responses"])
     )
-    assert pkg is None  # did NOT pick "industry"
-    assert terminal is True  # discovery failed → clears pending
+    assert pkg == "openai-agents"  # specific dist, not bare "openai"
+    assert terminal is False
 
 
-def test_select_candidate_marks_terminal_when_none_resolve(
+def test_select_candidate_prefers_most_specific(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.library_radar import trial_runner
 
-    monkeypatch.setattr(trial_runner, "_pypi_status", lambda n: "absent")
+    on_pypi = {"claude-agent-sdk": "exists", "claude": "exists"}
+    monkeypatch.setattr(
+        trial_runner, "_pypi_status", lambda n: on_pypi.get(n, "absent")
+    )
+
+    pkg, _, _ = trial_runner._select_candidate(_state("claude_agent_sdk"))
+    assert pkg == "claude-agent-sdk"  # longest prefix that resolves wins
+
+
+def test_select_candidate_falls_back_to_brand_when_no_compound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.library_radar import trial_runner
+
+    on_pypi = {"openrouter": "exists"}  # no compound exists
+    monkeypatch.setattr(
+        trial_runner, "_pypi_status", lambda n: on_pypi.get(n, "absent")
+    )
+
+    pkg, _, _ = trial_runner._select_candidate(
+        _state("openrouter_unified_tool_calling", ["openrouter", "unified"])
+    )
+    assert pkg == "openrouter"
+
+
+def test_select_candidate_fails_without_probing_noise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression pin (2026-05-27): mastra is a JS framework (not on
+    # PyPI). Nothing resolves → FAIL, and the trailing tokeniser-noise
+    # word "industry" must never even be probed.
+    from app.library_radar import trial_runner
+
+    probed: list[str] = []
+
+    def _status(n: str) -> str:
+        probed.append(n)
+        return {"industry": "exists"}.get(n, "absent")
+
+    monkeypatch.setattr(trial_runner, "_pypi_status", _status)
 
     pkg, terminal, reason = trial_runner._select_candidate(
-        _state("openrouter", ["openrouter", "integrated", "fetch"])
+        _state("mastra", ["mastra", "emerging", "industry", "framework"])
     )
     assert pkg is None
-    assert terminal is True  # → caller marks the discovery FAILED
-    assert "not on PyPI" in reason
+    assert terminal is True
+    assert "no PyPI distribution" in reason
+    assert "industry" not in probed  # never checked the noise word
 
 
 def test_select_candidate_stays_pending_when_pypi_unreachable(
@@ -161,11 +185,22 @@ def test_select_candidate_stays_pending_when_pypi_unreachable(
 
     monkeypatch.setattr(trial_runner, "_pypi_status", lambda n: "unknown")
 
-    pkg, terminal, _ = trial_runner._select_candidate(
-        _state("openai", ["openai", "responses"])
-    )
+    pkg, terminal, _ = trial_runner._select_candidate(_state("openai_agents_sdk"))
     assert pkg is None
     assert terminal is False  # → caller leaves PENDING, retries next pass
+
+
+def test_render_smoke_test_discovers_import_name() -> None:
+    # The smoke test must be valid Python and discover the import name
+    # from installed metadata (openai-agents imports as 'agents', not
+    # 'openai_agents'), not guess dist.replace('-','_').
+    from app.library_radar import trial_runner
+
+    body = trial_runner.render_smoke_test("openai-agents", "openai_agents_sdk")
+    compile(body, "<smoke>", "exec")  # valid Python
+    assert "packages_distributions" in body
+    assert "openai-agents" in body
+    assert "def test_openai_agents_sdk_import" in body
 
 
 def test_pypi_status_maps_404_to_absent(monkeypatch: pytest.MonkeyPatch) -> None:
