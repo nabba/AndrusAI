@@ -270,6 +270,77 @@ def test_missing_column_files_cr_first_time(isolated_state, monkeypatch):
     assert "already proposed" in r2.detail
 
 
+def test_missing_column_extracts_relation_name(isolated_state, monkeypatch):
+    """Regression: Postgres emits ``column "X" of relation "Y" does not exist``
+    (newer variant) — handler used to lose the column name as ``<unknown>``
+    because the regex required ``does not exist`` immediately after the
+    quoted column. The 2026-05-26 pch_layer incident left a stale
+    ``<unknown>`` entry in workspace/self_heal/schema_drift.json.
+    """
+    from app.healing.handlers import schema_drift
+
+    cr_calls: list = []
+
+    def fake_cr(**kwargs):
+        cr_calls.append(kwargs)
+        return f"cr-{len(cr_calls)}"
+
+    monkeypatch.setattr(schema_drift, "file_change_request", fake_cr)
+    monkeypatch.setattr(schema_drift, "audit_event", lambda *a, **k: None)
+    monkeypatch.setattr(schema_drift, "send_signal_alert", lambda *a, **k: True)
+
+    anomaly = {
+        "pattern_signature": "x" * 16,
+        "pattern_sample": (
+            'control_plane SQL error: column "pch_layer" of relation '
+            '"epistemic_claims" does not exist\nLINE 6: pch_layer, ...'
+        ),
+        "severity": "warning",
+    }
+
+    result = schema_drift._handle_missing_column(anomaly)
+
+    assert result.success is True
+    assert len(cr_calls) == 1
+    # Column AND relation both captured — no <unknown> in any surface.
+    assert "<unknown>" not in result.detail
+    assert "<unknown>" not in cr_calls[0]["path"]
+    assert "<unknown>" not in cr_calls[0]["reason"]
+    assert "pch_layer" in cr_calls[0]["path"]
+    assert "epistemic_claims" in cr_calls[0]["path"]
+    assert "pch_layer" in cr_calls[0]["new_content"]
+    assert "epistemic_claims" in cr_calls[0]["new_content"]
+
+
+def test_missing_column_dedups_per_table(isolated_state, monkeypatch):
+    """Same column name on two different relations is two distinct gaps —
+    each should get its own CR. Dedup key must include the relation.
+    """
+    from app.healing.handlers import schema_drift
+
+    cr_calls: list = []
+
+    def fake_cr(**kwargs):
+        cr_calls.append(kwargs)
+        return f"cr-{len(cr_calls)}"
+
+    monkeypatch.setattr(schema_drift, "file_change_request", fake_cr)
+    monkeypatch.setattr(schema_drift, "audit_event", lambda *a, **k: None)
+    monkeypatch.setattr(schema_drift, "send_signal_alert", lambda *a, **k: True)
+
+    base = {"pattern_signature": "x" * 16, "severity": "warning"}
+    a1 = {**base, "pattern_sample": 'column "status" of relation "claims" does not exist'}
+    a2 = {**base, "pattern_sample": 'column "status" of relation "tasks" does not exist'}
+
+    schema_drift._handle_missing_column(a1)
+    schema_drift._handle_missing_column(a2)
+
+    assert len(cr_calls) == 2
+    paths = [c["path"] for c in cr_calls]
+    assert any("claims_status" in p for p in paths)
+    assert any("tasks_status" in p for p in paths)
+
+
 # ── G now files a CR ──────────────────────────────────────────────────────
 
 
