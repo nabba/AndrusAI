@@ -234,11 +234,18 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD-SHELL", 'wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1']
+      # The old 5s timeout was too tight to ride out transient neo4j HTTP
+      # slowness (GC pauses under the 2g heap), so probes got killed and the
+      # container flapped to "unhealthy" while functionally fine — which then
+      # blocks `docker compose up -d gateway` via the depends_on health gate.
+      # Wider Docker timeout + wget's own --timeout (so it fails cleanly rather
+      # than being killed) + more start grace tolerate the blips; 127.0.0.1
+      # also sidesteps any localhost->IPv6 resolution delay.
+      test: ["CMD-SHELL", 'wget --no-verbose --tries=1 --timeout=10 --spider http://127.0.0.1:7474 || exit 1']
       interval: 15s
-      timeout: 5s
+      timeout: 15s
       retries: 10
-      start_period: 30s
+      start_period: 60s
     deploy:
       resources:
         limits:
