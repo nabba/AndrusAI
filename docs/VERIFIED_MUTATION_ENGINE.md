@@ -140,6 +140,29 @@ decides) until the operator curates tasks. See `benchmarks/README.md`.
 
 Default OFF → zero production impact until both are done.
 
+## Turning it on / off (operator)
+
+**Master switch — `evolution_verified_engine_enabled`:**
+- **React dashboard (recommended):** `/cp/settings` → the **"Verified mutation
+  engine"** card (directly below "Inline ShinkaEvolve per coding session") → the
+  **"Verified mutation engine (master)"** checkbox. Effect is immediate, no
+  restart — the POST goes config_api dispatcher → setter → live in-process cache.
+- **API:** `POST /api/cp/settings {"evolution_verified_engine_enabled": false}`.
+- **In-container:** `python -c "from app.runtime_settings import \
+  set_evolution_verified_engine_enabled as s; s(False)"` (live in-process).
+
+When OFF, `run_evolution_session` no longer hard-cuts to the verified path and the
+engine does nothing. Even when ON it never auto-deploys — output is always
+operator-gated change-requests — so leaving it on is itself low-risk.
+
+**`autonomous_executor_enabled`** (the broader `/delegate` autonomy that can be
+enabled alongside the engine) has **no dashboard card or `/api/cp/settings`
+dispatcher branch yet.** The gateway caches settings load-once, so toggle it via
+the in-container setter (`set_autonomous_executor_enabled(...)`) followed by
+`docker compose restart gateway` — a plain `up -d` is a no-op when nothing else
+changed. Adding a one-line dispatcher branch (mirroring the engine keys) would
+make it dashboard-toggleable; tracked as a follow-up.
+
 ## Tests
 
 `tests/test_{change_spec,verified_implementer,worktree_eval,pipeline,evolver_job,evolver_spawn,orchestrator}.py`
