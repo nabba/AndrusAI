@@ -1558,7 +1558,13 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str, phase: st
         def _budget_aware_builder(mid: str, mt: int, **kw):
             from app.llms.budget_aware import BudgetAwareCompletion
             from app import llm_openrouter_budget
-            llm = BudgetAwareCompletion(model=mid, max_tokens=mt, **kw)
+            # is_litellm=True forces crewai.LLM.__new__ to skip native-provider
+            # dispatch (crewai/llm.py:361) and return our BudgetAwareCompletion
+            # subclass via LiteLLM — which is what this OpenRouter path intends.
+            # Without it __new__ returns a bare OpenAICompatibleCompletion and
+            # the set_budget_module() call below raised AttributeError
+            # (~2.6k failures/day → silent Ollama failover).
+            llm = BudgetAwareCompletion(model=mid, max_tokens=mt, is_litellm=True, **kw)
             # 2000-token input heuristic, same as CreditAware's
             # estimator.  Per-call max output bounded by mt.
             def _estimate() -> float:
@@ -1647,7 +1653,10 @@ def _build_claude_via_openrouter(
     def _budget_aware_or_builder(mid: str, mt: int, **kw):
         from app.llms.budget_aware import BudgetAwareCompletion
         from app import llm_openrouter_budget
-        llm = BudgetAwareCompletion(model=mid, max_tokens=mt, **kw)
+        # is_litellm=True: see _budget_aware_builder above — keeps the
+        # BudgetAwareCompletion subclass (and its per-call budget gate) intact
+        # instead of crewai returning a bare OpenAICompatibleCompletion.
+        llm = BudgetAwareCompletion(model=mid, max_tokens=mt, is_litellm=True, **kw)
         def _estimate() -> float:
             if cost_out_or <= 0:
                 return 0.0

@@ -141,8 +141,14 @@ def _default_llm_call(
     on any failure — every catalog pass keeps running.
     """
     started = time.monotonic()
+    # Benchmark tier names (cheap/default/smart, see catalog.VALID_TIERS) →
+    # the LLM factory's force_tier vocabulary (budget/mid/premium). The prior
+    # code imported a non-existent ``app.llm.factory.get_llm_for_tier``, so
+    # every run short-circuited to score=0.0 before the model was ever called
+    # (the suite has produced only zeros since it began on 2026-05-23).
+    _TIER_MAP = {"cheap": "budget", "default": "mid", "smart": "premium"}
     try:
-        from app.llm.factory import get_llm_for_tier
+        from app.llm_factory import create_specialist_llm
     except Exception as exc:
         elapsed_ms = int((time.monotonic() - started) * 1000)
         return LLMResult(
@@ -152,7 +158,11 @@ def _default_llm_call(
         )
 
     try:
-        llm = get_llm_for_tier(model_tier)
+        llm = create_specialist_llm(
+            role="default",
+            force_tier=_TIER_MAP.get(model_tier, "mid"),
+            max_tokens=max_tokens or 2048,
+        )
     except Exception as exc:
         elapsed_ms = int((time.monotonic() - started) * 1000)
         return LLMResult(

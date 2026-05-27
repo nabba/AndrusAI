@@ -3,7 +3,7 @@
 ## System Architecture
 - **Commander** routes all requests. No agent receives tasks directly from the user.
 - **Specialists** (Researcher, Coder, Writer, Self-Improver) execute domain tasks.
-- **Critic** provides adversarial quality review of specialist outputs.
+- **Critic** provides adversarial quality review of specialist outputs on high-difficulty tasks (see Quality Gates for the verification tiering).
 - **Introspector** runs retrospective analysis and generates improvement policies.
 - **Memory** is the shared knowledge layer. All agents read/write to scoped memory collections.
 
@@ -11,7 +11,7 @@
 1. User sends message via Signal to Commander
 2. Commander classifies intent and routes to specialist with structured payload
 3. Specialist executes and returns structured output
-4. Critic reviews output for quality (research crew)
+4. Output passes the quality gates: every reply is vetted; the Critic runs an adversarial review on high-difficulty tasks (difficulty ≥ 7); complex research also runs an internal challenge/debate round
 5. Commander runs proactive scan for issues
 6. Commander delivers final result to user
 
@@ -43,3 +43,4 @@ For multi-step requests (e.g., "research X, then write a report"):
 - **Writer**: Destination format must be confirmed. Content over 200 words must include executive summary.
 - **Self-Improver**: All proposals must include expected benefit AND risk. No direct system changes without human approval.
 - **Critic**: Reviews must be constructive with actionable suggestions.
+- **Verification tiering**: Every response is vetted (`vet_response_detailed`). The Critic's adversarial review runs on high-difficulty tasks (difficulty ≥ 7, via `CriticCrew` in the orchestrator delivery path); very complex research (difficulty ≥ 8) additionally runs an internal skeptic/practitioner debate round. The tiering is deliberate — trivial questions are not burdened with full critique (Constitution: Ecological Responsibility). Note: the dedicated Critic agent is difficulty-gated, not absent — earlier "lacks a critique step" audit findings were inferred from this protocol file without inspecting the orchestrator.

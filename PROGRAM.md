@@ -14524,3 +14524,75 @@ bare brand tokens remain.
 * PROGRAM §38.1 — proposal_bridge (the store whose API the bug mis-called).
 * PROGRAM §60.4 — change_requests content-hash dedup (now actually engaged for adoptions).
 
+# §72 — Alignment-audit grounding + three false-alarm fixes (2026-05-27)
+
+**Trigger.** The weekly `alignment_audit.py` returned `drift_score=0.40` (`drift_critical`)
+and paged the operator with three "top concerns": (1) output quality stuck 70–77.8%,
+(2) "architecture lacks a verification/critique step despite the Critic agent existing,"
+(3) "research crew experiencing 8× RuntimeError + 3× ConnectionError." An ultrathink
+verification pass found **all three were false or substantially overstated** and traced
+them to a single structural defect in the auditor itself.
+
+**Root cause.** `run_alignment_audit()` builds its prompt from only the constitution +
+agent souls + `_gather_recent_changes_summary()` (recent **variant hypothesis prose** from
+`variant_archive.json`). It never reads the code or any telemetry, so it re-asserted the
+self-improvement loop's *unverified working hypotheses* as measured facts and escalated
+them to "critical drift" — itself a violation of the constitution's #2 principle (Honesty:
+"never present speculated content as verified fact; label uncertainty"). Ground-truth
+checks: the full 6-week error log holds **9 RuntimeError total, none web/research**; the
+16,965 ConnectionErrors are benign Ollama-failover cascade; the "70–77.8%" is an
+LLM-as-judge self-grade lifted from hypothesis text; the Critic **is** wired (difficulty ≥ 7).
+
+## §72.1 — Audit telemetry-grounding (`app/alignment_audit.py`, TIER_IMMUTABLE, operator-approved)
+
+New `_gather_operational_telemetry()` feeds the auditor MEASURED ground truth —
+`error_monitor.snapshot()` top error signatures (count + share% + 24h trend) and
+`benchmarks.summarise(load_all())` objective pass-rate. The "Recent variants" section is
+relabeled `UNVERIFIED agent hypotheses — NOT measured facts`; the prompt gains an "Epistemic
+discipline" block requiring every quantitative concern to be grounded in the ground-truth
+section or omitted / prefixed `[Unverified]`, and forbidding per-crew error attribution
+(telemetry isn't per-crew). **Additive only — no change to drift thresholds, scoring scale,
+severity mapping, persistence, or alerting.** Strengthens drift detection; never weakens it.
+
+## §72.2 — `set_budget_module` AttributeError (`app/llm_factory.py`)
+
+crewai's `LLM.__new__` (crewai/llm.py:361) dispatches OpenAI-compatible models to a native
+`OpenAICompatibleCompletion` instead of our `BudgetAwareCompletion(crewai.LLM)` subclass, so
+`set_budget_module()` raised `AttributeError` (~2.6k/day) and the OpenRouter call failed over
+to a frequently-unreachable Ollama. Fix: pass `is_litellm=True` at both OpenRouter builders
+(`_budget_aware_builder`, `_budget_aware_or_builder`) — the `not is_litellm` clause skips
+native dispatch, returning our subclass via LiteLLM (the path's documented intent) with the
+per-call budget gate intact. `is_litellm` is a declared field on crewai `BaseLLM`, safe kwarg.
+
+## §72.3 — Benchmark dead import (`app/benchmarks/scheduler_job.py`)
+
+`_default_llm_call` imported the non-existent `app.llm.factory.get_llm_for_tier`, so every run
+short-circuited to `score=0.0` with empty output before the model was ever called — the
+objective suite has produced **only zeros since it began (2026-05-23)**, which is why the
+system leaned on the self-graded fitness number instead. Fix: repoint to
+`app.llm_factory.create_specialist_llm` with a tier map (`cheap→budget`, `default→mid`,
+`smart→premium`; benchmark `VALID_TIERS` ≠ factory `force_tier` vocabulary). Inert until
+`benchmarks_enabled` (default OFF) — no surprise spend.
+
+## §72.4 — Critic doc reconciliation (`app/souls/agents_protocol.md`)
+
+The protocol claimed "Critic reviews output for quality (research crew)"; the real wiring is
+`vet_response_detailed` on every reply + the **difficulty ≥ 7** `CriticCrew` adversarial review
+(`orchestrator.py:3571`) + a research-crew skeptic/practitioner debate round at difficulty ≥ 8.
+Doc now documents this verification tiering and notes the Critic is difficulty-gated (a
+deliberate Ecological-Responsibility tradeoff), **not absent** — closing the doc/impl gap behind
+concern (2). Because the auditor reads `souls/*.md`, this also feeds it an accurate Critic
+description going forward.
+
+**The real issue the audit missed.** Paid LLM providers are out of credits (OpenRouter/DeepSeek
+402s ~11.7k/7d), forcing the whole cascade onto Ollama. §72.2 re-enables those calls but only
+takes effect once the accounts are topped up — an operational action, not a code fix.
+
+**Safety / scope.** No TIER_IMMUTABLE file touched except `alignment_audit.py` with explicit
+operator approval; that change is additive and alters no thresholds. No new master switches, no
+new identity-event kinds, no governance amendment. Syntax-verified (`ast.parse`) on all four
+files; in-container test pass + live benchmark smoke (after enabling) remain as validation steps.
+
+**Files.** `app/alignment_audit.py`, `app/llm_factory.py`, `app/benchmarks/scheduler_job.py`,
+`app/souls/agents_protocol.md`.
+
