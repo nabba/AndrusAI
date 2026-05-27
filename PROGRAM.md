@@ -3353,7 +3353,9 @@ detector now bubble up as proposals.
 
 **Library radar.** ``app/library_radar/proposer.py`` filters
 ``tech_radar`` discoveries into framework-adoption proposals.
-Eager-start daemon.
+Eager-start daemon. The downstream trial→adoption loop (Q10.1,
+§46.13) was silently a no-op from 2026-05-16 until repaired in
+**§71** (2026-05-27).
 
 ### 32.3 Creative synthesis primitives
 
@@ -14438,4 +14440,87 @@ Logic verified on host via stubbed-module shim runs:
 * PROGRAM §52 (Q17) — multi-year resilience (Q17.4 operator_transition consumer of
   trust_delegation scoping; Q17.8 conversation_memory sibling of decade_recall).
 * PROGRAM §63 — upgrade-lifecycle (substrate_radar cross-links Python EOL).
+
+# §71 — library_radar trial→adoption pipeline repair (2026-05-27)
+
+An operator audit of two `proposal_bridge:library_radar` change-requests ("is this
+legit?") surfaced that the Q10.1 (§46.13) trial→adoption loop had been a silent no-op
+since it shipped 2026-05-16: 32+ discoveries stuck `pending`, 0 trials run, 0 adoption
+CRs ever filed. Three commits closed the root cause and the two quality gaps a live
+dry-run then exposed. Additive; no TIER_IMMUTABLE touches; no new master switches.
+
+## §71.1 — Root cause: swallowed AttributeError (commit 90ad331d)
+
+`trial_runner.run_one_pass` resolved proposals via `bridge_store.list_all()` — a method
+that does not exist on `app/proposal_bridge/store.py` (the API is
+`list_proposals(source=…)`). The `AttributeError` was caught by a broad
+`except Exception: logger.debug(...)`, so at the default INFO log level the failure was
+invisible: `proposals_by_sig` stayed empty, every pending row resolved to "no proposal"
+and deferred, and the daemon logged only the innocuous `deferred=N` summary. Eleven days
+of silent no-op.
+
+**Fix**: call `list_proposals(source="library_radar")`; bump the swallow `debug→warning`;
+warn when `pending>0` but 0 proposals resolve (so this silent-stall class can't recur).
+The trial runner had **zero test coverage** — added `tests/library_radar/test_trial_runner.py`
+with a source-grep regression pin (`list_proposals(source=` present, `.list_all(` absent)
+plus a behavioural pin (proposals resolve, not deferred).
+
+## §71.2 — PyPI candidate gate (commits 90ad331d + 028b5c93)
+
+The proposer tokeniser emits noisy candidates (`["openai", "responses", "official", …]`),
+so unsticking the pipeline alone would pip-install dictionary words that happen to be
+packages. Added `_pypi_status(name) → exists|absent|unknown` (PyPI JSON endpoint; 404 =
+absent, network error = unknown) + `_select_candidate`. The first iteration walked all
+candidates — a live dry-run showed it falling through to coincidental matches (`mastra` is
+a JS framework, not on PyPI → the gate picked the trailing noise word `industry`).
+Tightened to lead-token-only: if the lead token isn't on PyPI the discovery FAILS (queue
+advances) rather than guessing at a noise word.
+
+## §71.3 — Real distribution + import-name resolution + CR dedup (commit 3a8ffb1d)
+
+Lead-token-only still trialed the bare brand: `openai_agents_sdk → openai`,
+`claude_agent_sdk → claude`, `google_adk → google` — real packages, wrong targets.
+
+**Brand-token resolver** (`_candidate_names`): derive hyphenated candidates from the
+discovery slug, most-specific first (`openai-agents-sdk → openai-agents → openai`); the
+longest prefix that resolves on PyPI wins, falling back to the brand token, then FAIL.
+Only slug prefixes + the lead token are probed — never trailing noise — so `mastra→industry`
+is structurally impossible.
+
+**Import-name discovery** (`render_smoke_test`): pip installs by *distribution* name but
+the import name often differs (`openai-agents` imports as `agents`, `pyyaml` as `yaml`,
+`google-adk` as `google.adk`). The smoke test now discovers the importable module from the
+installed dist's metadata (`importlib.metadata.packages_distributions()` + `files()`
+fallback), trying only modules that belong to our dist (so an unrelated top-level
+`agents`/`sdk` can't false-pass). Without this, resolving `openai-agents` would just fail
+on `import openai_agents`.
+
+**CR dedup** (`_file_adoption_cr`): per-signature comments were embedded in the
+`requirements.txt` diff, defeating change_requests' content-hash dedup (§60.4) — five
+OpenRouter discoveries → five near-identical CRs. Moved provenance (title/signature) into
+the CR `reason` (excluded from the content-hash), so same-package adoptions collapse to
+one CR with a recurrence count.
+
+## §71.4 — Live verification
+
+* 25/25 `tests/library_radar/` pass (14 proposer + 11 trial_runner, incl. compound-
+  resolution, most-specific-preference, brand-fallback, and no-probe-noise regression pins).
+* Smoke-test import discovery validated live on the host: `pyyaml → yaml` imports;
+  not-installed dists fail cleanly with `AssertionError`.
+* Post-deploy dry-run over the live backlog (read-only): `openai_agents_sdk → openai-agents`,
+  `claude_agent_sdk → claude-agent-sdk`, `google_adk → google-adk`, `mastra`/`deerflow` →
+  FAIL (not on PyPI), `openrouter` ×5 → one deduped pin.
+
+## §71.5 — Known residual (operator territory)
+
+`openai_responses_api_agents_sdk → openai-responses` (a real Responses-API mock library,
+maybe not the intended target). The resolver picks the most-specific real distribution;
+whether it is the intended one is decided at the standard `/cp/changes` operator gate. No
+bare brand tokens remain.
+
+## §71.6 — Cross-references
+
+* PROGRAM §46.13 (Q10.1) — the trial→adoption loop this repairs (silently broken until now).
+* PROGRAM §38.1 — proposal_bridge (the store whose API the bug mis-called).
+* PROGRAM §60.4 — change_requests content-hash dedup (now actually engaged for adoptions).
 
