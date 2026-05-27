@@ -43,7 +43,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +70,75 @@ def _enabled() -> bool:
 def _now_ts() -> float:
     import time as _t
     return _t.time()
+
+
+# ─────────────────────────────────────────────────────────────────────
+#   Candidate gate — PyPI resolution
+# ─────────────────────────────────────────────────────────────────────
+
+
+_PYPI_TIMEOUT_S = 5.0
+_PYPI_BASE = "https://pypi.org/pypi"
+
+
+def _normalize_pypi_name(name: str) -> str:
+    """PEP 503 normalisation for the PyPI JSON endpoint."""
+    return re.sub(r"[-_.]+", "-", (name or "").strip()).lower()
+
+
+def _pypi_status(name: str) -> str:
+    """Return ``exists`` / ``absent`` / ``unknown`` for a candidate.
+
+    ``unknown`` means we genuinely could not tell (network or transport
+    error) — the caller retries later instead of failing the discovery.
+    A 404 is the only definitive ``absent``."""
+    norm = _normalize_pypi_name(name)
+    if not norm:
+        return "absent"
+    req = urllib.request.Request(
+        f"{_PYPI_BASE}/{norm}/json",
+        headers={"User-Agent": "AndrusAI-library-radar/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_PYPI_TIMEOUT_S) as resp:
+            return "exists" if resp.status == 200 else "absent"
+    except urllib.error.HTTPError as exc:
+        return "absent" if exc.code == 404 else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _select_candidate(state) -> tuple[str | None, bool, str]:
+    """Pick the first candidate that resolves to a real PyPI package,
+    preserving discovery order so the title/brand token wins.
+
+    Returns ``(package, terminal_if_none, reason)``:
+      * ``package`` set            → trial this name.
+      * ``(None, True, reason)``   → no candidate is on PyPI; mark FAILED.
+      * ``(None, False, reason)``  → PyPI unreachable for the survivors;
+                                     leave PENDING and retry next pass.
+    """
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for cand in [state.package_name, *list(state.candidates)]:
+        cand = (cand or "").strip()
+        key = cand.lower()
+        if cand and key not in seen:
+            seen.add(key)
+            ordered.append(cand)
+    if not ordered:
+        return None, True, "no candidate package names"
+
+    saw_unknown = False
+    for cand in ordered:
+        status = _pypi_status(cand)
+        if status == "exists":
+            return cand, False, f"resolved {cand!r} on PyPI"
+        if status == "unknown":
+            saw_unknown = True
+    if saw_unknown:
+        return None, False, "PyPI unreachable for all candidates; will retry"
+    return None, True, f"no candidate resolved on PyPI: {ordered}"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -191,11 +263,20 @@ def _run_one_trial(state, proposal) -> tuple[str, str]:
         trial_state.mark_failed(state.signature, error=msg)
         return "failed", msg
 
-    package = state.package_name or (state.candidates[0] if state.candidates else "")
+    # Candidate gate (incident 2026-05-27): the tokeniser emits noisy
+    # candidates (e.g. ["openai", "responses", "official", ...]). Only
+    # trial a candidate that actually resolves to a PyPI distribution,
+    # preserving discovery order so the title/brand token wins. Stops the
+    # runner from pip-installing dictionary words that happen to be
+    # packages and filing misleading requirements.txt adoption CRs.
+    package, terminal_if_none, sel_reason = _select_candidate(state)
     if not package:
-        msg = "no candidate package name to test"
-        trial_state.mark_failed(state.signature, error=msg)
-        return "failed", msg
+        if terminal_if_none:
+            trial_state.mark_failed(state.signature, error=sel_reason)
+            return "failed", sel_reason
+        # PyPI unreachable for the survivors — retry on a later pass
+        # rather than burning the discovery on a transient outage.
+        return "pending", sel_reason
 
     # Find the smoke-test file path from spec.files (the entry with
     # action=create).
@@ -231,7 +312,9 @@ def _run_one_trial(state, proposal) -> tuple[str, str]:
         )
         return "pending", f"session start failed: {exc}"
 
-    trial_state.mark_running(state.signature, session_id=session.id)
+    trial_state.mark_running(
+        state.signature, session_id=session.id, package_name=package,
+    )
 
     try:
         worktree = Path(session.worktree_path)
@@ -355,15 +438,26 @@ def run_one_pass() -> dict[str, Any]:
         summary["status"] = "no_pending"
         return summary
 
-    # Resolve proposals once
+    # Resolve proposals once. The store API is list_proposals(source=...) —
+    # calling a non-existent list_all() here silently disabled the whole
+    # trial→adoption pipeline for ~11 days (incident 2026-05-27): the
+    # AttributeError was swallowed, proposals_by_sig stayed empty, and
+    # every pending trial deferred as "no proposal".
     proposals_by_sig: dict[str, Any] = {}
     try:
-        for p in bridge_store.list_all():
-            if p.source == "library_radar":
-                proposals_by_sig[p.signature] = p
+        for p in bridge_store.list_proposals(source="library_radar"):
+            proposals_by_sig[p.signature] = p
     except Exception:
-        logger.debug(
-            "trial_runner: bridge store list_all failed", exc_info=True,
+        logger.warning(
+            "trial_runner: bridge store list_proposals failed",
+            exc_info=True,
+        )
+    if pending and not proposals_by_sig:
+        logger.warning(
+            "trial_runner: %d pending trial(s) but 0 library_radar "
+            "proposals resolved from the bridge store — all trials will "
+            "defer; check the proposal_bridge store API",
+            len(pending),
         )
 
     ran = 0

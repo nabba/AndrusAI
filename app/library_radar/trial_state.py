@@ -191,12 +191,16 @@ def mark_pending(
     return state
 
 
-def mark_running(signature: str, *, session_id: str) -> None:
+def mark_running(
+    signature: str, *, session_id: str, package_name: str | None = None,
+) -> None:
     existing = get(signature)
     if existing is None:
         return
     existing.status = "running"
     existing.session_id = session_id
+    if package_name:
+        existing.package_name = package_name
     existing.last_run_at = _now_iso()
     existing.ts = existing.last_run_at
     append(existing)
