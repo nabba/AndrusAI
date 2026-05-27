@@ -109,36 +109,32 @@ def _pypi_status(name: str) -> str:
 
 
 def _select_candidate(state) -> tuple[str | None, bool, str]:
-    """Pick the first candidate that resolves to a real PyPI package,
-    preserving discovery order so the title/brand token wins.
+    """Trial ONLY the lead candidate (the discovery's title/brand token),
+    and only if it resolves to a real PyPI distribution.
+
+    Everything after candidates[0] is tokeniser spray, so we deliberately
+    do NOT fall through to it — walking the list picked coincidental
+    matches like mastra→'industry'. If the lead token isn't on PyPI the
+    discovery isn't directly pip-installable, so we fail it (the queue
+    advances) rather than guessing at a trailing noise word.
 
     Returns ``(package, terminal_if_none, reason)``:
       * ``package`` set            → trial this name.
-      * ``(None, True, reason)``   → no candidate is on PyPI; mark FAILED.
-      * ``(None, False, reason)``  → PyPI unreachable for the survivors;
-                                     leave PENDING and retry next pass.
+      * ``(None, True, reason)``   → lead token not on PyPI; mark FAILED.
+      * ``(None, False, reason)``  → PyPI unreachable; leave PENDING, retry.
     """
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for cand in [state.package_name, *list(state.candidates)]:
-        cand = (cand or "").strip()
-        key = cand.lower()
-        if cand and key not in seen:
-            seen.add(key)
-            ordered.append(cand)
-    if not ordered:
+    lead = (
+        state.package_name
+        or (state.candidates[0] if state.candidates else "")
+    ).strip()
+    if not lead:
         return None, True, "no candidate package names"
-
-    saw_unknown = False
-    for cand in ordered:
-        status = _pypi_status(cand)
-        if status == "exists":
-            return cand, False, f"resolved {cand!r} on PyPI"
-        if status == "unknown":
-            saw_unknown = True
-    if saw_unknown:
-        return None, False, "PyPI unreachable for all candidates; will retry"
-    return None, True, f"no candidate resolved on PyPI: {ordered}"
+    status = _pypi_status(lead)
+    if status == "exists":
+        return lead, False, f"resolved {lead!r} on PyPI"
+    if status == "unknown":
+        return None, False, f"PyPI unreachable for {lead!r}; will retry"
+    return None, True, f"lead candidate {lead!r} is not on PyPI"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -265,10 +261,10 @@ def _run_one_trial(state, proposal) -> tuple[str, str]:
 
     # Candidate gate (incident 2026-05-27): the tokeniser emits noisy
     # candidates (e.g. ["openai", "responses", "official", ...]). Only
-    # trial a candidate that actually resolves to a PyPI distribution,
-    # preserving discovery order so the title/brand token wins. Stops the
-    # runner from pip-installing dictionary words that happen to be
-    # packages and filing misleading requirements.txt adoption CRs.
+    # trial the LEAD token (candidates[0]) and only if it resolves to a
+    # real PyPI distribution; do NOT fall through to trailing noise words
+    # (walking the list picked mastra→'industry'). No match → fail the
+    # discovery so the queue advances, never a misleading requirements CR.
     package, terminal_if_none, sel_reason = _select_candidate(state)
     if not package:
         if terminal_if_none:

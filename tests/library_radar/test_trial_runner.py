@@ -100,12 +100,12 @@ def _state(package_name: str, candidates: list[str]):
     )
 
 
-def test_select_candidate_picks_first_pypi_resolvable(
+def test_select_candidate_uses_lead_token_on_pypi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.library_radar import trial_runner
 
-    # Only the brand token resolves; the tokeniser noise does not.
+    # Lead token resolves → it is the one trialed.
     resolved = {"openai": "exists"}
     monkeypatch.setattr(
         trial_runner, "_pypi_status", lambda n: resolved.get(n, "absent")
@@ -116,6 +116,27 @@ def test_select_candidate_picks_first_pypi_resolvable(
     )
     assert pkg == "openai"
     assert terminal is False
+
+
+def test_select_candidate_does_not_fall_through_to_noise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Regression pin for the 2026-05-27 dry-run finding: mastra is a JS
+    # framework (not on PyPI). The gate must NOT fall through to a
+    # trailing tokeniser-noise word ("industry") that happens to be a
+    # real package — it must fail the discovery instead.
+    from app.library_radar import trial_runner
+
+    on_pypi = {"industry": "exists"}  # noise word IS a real package
+    monkeypatch.setattr(
+        trial_runner, "_pypi_status", lambda n: on_pypi.get(n, "absent")
+    )
+
+    pkg, terminal, _ = trial_runner._select_candidate(
+        _state("mastra", ["mastra", "emerging", "industry", "framework"])
+    )
+    assert pkg is None  # did NOT pick "industry"
+    assert terminal is True  # discovery failed → clears pending
 
 
 def test_select_candidate_marks_terminal_when_none_resolve(
@@ -130,7 +151,7 @@ def test_select_candidate_marks_terminal_when_none_resolve(
     )
     assert pkg is None
     assert terminal is True  # → caller marks the discovery FAILED
-    assert "no candidate resolved" in reason
+    assert "not on PyPI" in reason
 
 
 def test_select_candidate_stays_pending_when_pypi_unreachable(
