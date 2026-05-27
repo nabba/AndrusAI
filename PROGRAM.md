@@ -14596,3 +14596,68 @@ files; in-container test pass + live benchmark smoke (after enabling) remain as 
 **Files.** `app/alignment_audit.py`, `app/llm_factory.py`, `app/benchmarks/scheduler_job.py`,
 `app/souls/agents_protocol.md`.
 
+# §73 — Verified mutation engine (2026-05-27)
+
+Full design + activation: `docs/VERIFIED_MUTATION_ENGINE.md`. Memory:
+`project_mutation_engine_redesign` + `feedback_docker_only_execution`.
+
+**Why.** A "borderline mutation" alert (Δ +0.0133, `research_crew.py`) traced to a
+self-improvement pipeline that *structurally could not* produce working code
+mutations: (1) `avo_operator._phase_implementation` read the target truncated to
+8000 chars (`:257`) but demanded "return the COMPLETE file" at `max_tokens=8192`,
+so on a 24 KB file the LLM regenerated the canonical CrewAI scaffold from its
+prior and silently dropped the `.run()` API; (2) gates were `ast.parse` +
+first-500-char critique (fails open); (3) the keep-signal NEVER ran the changed
+code — `eval_set_score` (70 % weight) called the agent LLM directly, and the
+mutation was applied to a `workspace/` shadow path off the import path. So
+`+0.0133` was noise; `delta>0` → "borderline" → routed to the operator (the only
+real check).
+
+**What.** A verified engine on the existing coding substrate. **Principle**: a
+self-modification is a coding task on itself; it must clear the same bar as any
+code change — imports, tests pass, public contract holds, beats a held-out
+benchmark — *verified by execution*. Four stages: **ground** (`change_spec.py`,
+code_intel contract — full source + API + callers + covering tests +
+preservation assertions; OPEN) → **implement** (`verified_implementer.py`,
+real worktree + `iterate_until_green` over covering tests + a synthesized
+API-preservation smoke test; OPEN) → **evaluate** (`worktree_eval.py`,
+invariants-first verdict: deterministic correctness delta + paired noise-floored
+quality delta; **TIER_IMMUTABLE**) → **compose** (`pipeline.py`). Orchestration:
+`orchestrator.py` spawns + gates + files evidence-rich CRs.
+
+**Topology (operator constraint — everything in Docker, no host processes).**
+`runner.run()` is in-process subprocess (not bridge-aware), so worktree + runner
+must be co-located → execution runs in **ephemeral evolver containers**
+(`Dockerfile.evolver`: repo+`.git`+pytest, `/app` layout, `evolver` compose
+profile) spawned via the existing docker-proxy (already `CONTAINERS`/`IMAGES`/
+`POST`=1 — no proxy change; `VOLUMES:0` respected → job via `AAI_EVOLVE_JOB`
+env, verdict via sentinel stdout logs). Editor is anchored search/replace
+(`evolver_job.py`) — can't scaffold, can't truncate.
+
+**Safety = the invariant.** Generation OPEN/improvable; judgement immutable.
+`worktree_eval.py` added to `auto_deployer.TIER_IMMUTABLE`; `app/self_improvement/
+benchmarks/` added to `change_requests/validator._FORBIDDEN_PATH_PREFIXES` (the
+Self-Improver can't pad its own exam). Always operator-gated — no auto-deploy.
+
+**Activation.** Default OFF behind `evolution_verified_engine_enabled`.
+`evolution.run_evolution_session` hard-cuts to `orchestrator.run_verified_session`
+when on (returns on error — no legacy fallback). Operator-initiated runs route
+via `autonomous_executor` (`make_self_improvement_adapter` wired into
+`scheduler_job` with safe fallback) → deterministic `run_verified_cycle`. React
+`VerifiedEngineCard` in `/cp/settings` + 2 dispatcher branches in `config_api.py`
++ 2 `runtime_settings` keys.
+
+**Scope.** No TIER_IMMUTABLE behaviour changed except *adding* `worktree_eval` to
+the protected set (operator pre-approved; makes the system more locked-down).
+No Tier-3 amendment, no governance change, no new identity-event kind. 58 host
+tests green; pydantic-gated edits `py_compile`-verified. **Deploy**: rebuild the
+gateway image + `docker compose --profile evolver build evolver`.
+
+**Files.** New: `app/self_improvement/{change_spec,verified_implementer,
+worktree_eval,pipeline,evolver_job,evolver_spawn,orchestrator}.py` +
+`benchmarks/{README.md,*.template}` + `Dockerfile.evolver` +
+`dashboard-react/src/components/VerifiedEngineCard.tsx` + 7 test files. Edited:
+`evolution.py`, `auto_deployer.py`, `change_requests/validator.py`,
+`autonomous_executor/scheduler_job.py`, `runtime_settings.py`, `api/config_api.py`,
+`docker-compose.yml`, `dashboard-react/src/api/queries.ts`, `SettingsPage.tsx`.
+

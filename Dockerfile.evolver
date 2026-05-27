@@ -1,0 +1,56 @@
+# Dockerfile.evolver — ephemeral sandbox image for the verified mutation engine.
+#
+# The gateway spawns a throwaway container from this image (via docker-proxy)
+# for each self-improvement run. Unlike the gateway image, this one bakes the
+# repo's .git so it can cut git worktrees from HEAD, and installs pytest so it
+# can run the real test suite against a candidate edit — all inside its OWN
+# filesystem (CODING_SESSION_BACKEND=local), which is what lets the in-process
+# runner execute tests with no host process and no bridge.
+#
+# Layout mirrors the gateway (/app) so the hardcoded code_intel index path
+# (/app/workspace/code_intel) and coding_session defaults work unchanged.
+#
+# Build (and rebuild on each deploy, to keep HEAD in sync with the gateway):
+#   docker compose --profile evolver build evolver
+#
+# Same pinned base digest as the gateway Dockerfile (supply-chain pin).
+FROM python:3.13-slim@sha256:d168b8d9eb761f4d3fe305ebd04aeb7e7f2de0297cec5fb2f8f6403244621664
+
+WORKDIR /app
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    CODING_SESSION_BACKEND=local \
+    HOST_REPO_PATH=/app \
+    CODE_INTEL_ROOT=/app
+
+# git is required for `git worktree add`.
+RUN apt-get update && apt-get install -y git --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencies first (layer-cached). Mirror the gateway's chromadb force-upgrade
+# (crewai pins ~=1.1.0; KBs are 1.5.x). pytest is the dev-only test runner the
+# verified loop needs; pyright powers the optional type-check.
+COPY requirements.txt .
+RUN pip install --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --upgrade 'chromadb>=1.5.8,<2.0.0' \
+    && pip install --no-cache-dir 'pyright>=1.1.350' 'pytest>=8.0.0'
+
+# Bake the repo as a real git repo: copy .git, then materialize the working tree
+# from HEAD. gitignored paths (workspace/) are NOT materialized, so the image
+# stays lean and the working tree == HEAD == what worktrees check out.
+COPY .git .git
+RUN git config --global --add safe.directory /app \
+    && git reset --hard HEAD \
+    && mkdir -p /app/workspace/code_intel /tmp/agent-sessions
+
+# Non-root. Owns the repo, the code_intel index dir, and the worktree root.
+RUN useradd -m -u 1000 evolver \
+    && chown -R evolver:evolver /app /tmp/agent-sessions
+USER evolver
+
+# The job spec arrives in $AAI_EVOLVE_JOB; the result is printed to stdout
+# (sentinel-wrapped) and read back from the container logs by the gateway.
+ENTRYPOINT ["python3", "-m", "app.self_improvement.evolver_job"]

@@ -107,7 +107,19 @@ def run_executor_tick(
     if run is None:
         return None
 
-    adapter: CommanderFn = commander_fn or make_commander_adapter()
+    # Self-improvement runs (a JSON job in the step description) are dispatched
+    # deterministically through the verified mutation engine; every other run
+    # uses the normal Commander adapter. Falls back safely if the orchestrator
+    # import is unavailable, so the executor never breaks on this routing.
+    if commander_fn is not None:
+        adapter: CommanderFn = commander_fn
+    else:
+        try:
+            from app.self_improvement.orchestrator import make_self_improvement_adapter
+
+            adapter = make_self_improvement_adapter()
+        except Exception:
+            adapter = make_commander_adapter()
     chosen_planner: PlannerFn = planner_fn or get_default_planner()
 
     try:

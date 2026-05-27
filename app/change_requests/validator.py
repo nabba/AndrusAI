@@ -79,6 +79,12 @@ _BLOCKED_NAME_PATTERNS: tuple[str, ...] = (
 # Edits under these prefixes go through the Tier-3 amendment protocol.
 _FORBIDDEN_PATH_PREFIXES: tuple[str, ...] = (
     "app/subia/",
+    # Held-out self-improvement benchmark — the Self-Improver's "exam." Refusing
+    # edits here stops it from padding its own benchmark with trivial tasks to
+    # manufacture a passing grade (a Goodhart failure). The operator curates
+    # these via a normal, human-reviewed commit. See app/self_improvement/
+    # worktree_eval.py (the judge, itself TIER_IMMUTABLE).
+    "app/self_improvement/benchmarks/",
 )
 
 

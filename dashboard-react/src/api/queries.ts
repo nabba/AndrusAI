@@ -594,6 +594,9 @@ export interface RuntimeSettings {
   architecture_adoption_monitor_enabled?: boolean;
   // Q7.4 — per-coding-session ShinkaEvolve master switch (PROGRAM §45.4)
   shinka_inline_evolve_enabled?: boolean;
+  // Verified mutation engine (2026-05-27)
+  evolution_verified_engine_enabled?: boolean;
+  evolution_verified_per_cycle_budget_usd?: number;
   // PROGRAM §62/§63 — Upgrade lifecycle subsystem
   upgrade_lifecycle_enabled?: boolean;
   upgrade_lifecycle_absence_policy_enabled?: boolean;

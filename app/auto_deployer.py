@@ -79,6 +79,11 @@ TIER_IMMUTABLE = frozenset({
     # Evaluation infrastructure — MUST stay at infrastructure level
     "app/experiment_runner.py", "app/eval_sandbox.py", "app/safety_guardian.py",
     "app/sandbox_runner.py", "app/reference_tasks.py",
+    # Verified mutation engine's judgement (2026-05-27). The Self-Improver must
+    # never edit its own evaluator — an engine that can rewrite its judge can
+    # lower its own bar. The generation modules (change_spec / verified_implementer
+    # / pipeline / evolver_*) stay OPEN and improvable; only the judgement is here.
+    "app/self_improvement/worktree_eval.py",
     # Constitution and soul loader
     "app/souls/constitution.md", "app/souls/loader.py",
     # Config and main entry

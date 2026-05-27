@@ -855,6 +855,28 @@ def run_evolution_session(max_iterations: int = 5) -> str:
     Returns:
         Summary of all experiments run
     """
+    # ── Verified mutation engine (2026-05-27) — HARD CUT ────────────────────────
+    # When the operator enables the verified engine, the entire legacy
+    # AVO/experiment_runner code+skill mutation path below is bypassed. The
+    # verified engine grounds in code_intel, implements in a real worktree, and
+    # proves improvement by execution before filing an operator-gated CR — none
+    # of which the legacy path does. On error we RETURN (do not fall back to the
+    # broken legacy path) so the cut is real.
+    try:
+        from app.runtime_settings import get_evolution_verified_engine_enabled
+
+        _verified_on = get_evolution_verified_engine_enabled()
+    except Exception:
+        _verified_on = False
+    if _verified_on:
+        try:
+            from app.self_improvement.orchestrator import run_verified_session
+
+            return run_verified_session(max_iterations=max_iterations)
+        except Exception as exc:
+            logger.exception("verified mutation engine failed; not falling back to legacy")
+            return f"Verified mutation engine error: {exc}"
+
     # ── ROI throttle gate ──────────────────────────────────────────────────────
     # If recent ROI is poor (no real improvements for 14 days, high rollback
     # rate, or cost-per-improvement above threshold), reduce iterations

@@ -31,6 +31,7 @@ import { TaskRecoveryDrillCard } from './TaskRecoveryDrillCard';
 import { AnalogyIndexCard } from './AnalogyIndexCard';
 import { ArchitectureRequestsCard } from './ArchitectureRequestsCard';
 import { InlineEvolveCard } from './InlineEvolveCard';
+import { VerifiedEngineCard } from './VerifiedEngineCard';
 import { TravelCard } from './TravelCard';
 import { BrowseIngestionCard } from './BrowseIngestionCard';
 import { UpgradeLifecycleCard } from './UpgradeLifecycleCard';
@@ -123,6 +124,10 @@ export function SettingsPage() {
         onSettingsChange={() => settingsQ.refetch()}
       />
       <InlineEvolveCard
+        settings={settingsQ.data}
+        onSettingsChange={() => settingsQ.refetch()}
+      />
+      <VerifiedEngineCard
         settings={settingsQ.data}
         onSettingsChange={() => settingsQ.refetch()}
       />

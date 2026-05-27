@@ -91,6 +91,10 @@ services:
       # so attempting pg_dump/neo4j-admin from inside the gateway
       # returns 403. See app/healing/db_backup.py docstring.
       DB_BACKUP_HOST_MANAGED: ${DB_BACKUP_HOST_MANAGED:-1}
+      # Verified mutation engine — image the gateway spawns (via docker-proxy)
+      # for each self-improvement run. See Dockerfile.evolver +
+      # app/self_improvement/evolver_spawn.py. Built under the `evolver` profile.
+      EVOLVER_IMAGE: ${EVOLVER_IMAGE:-botarmy-evolver:latest}
     volumes:
       - ./workspace:/app/workspace
       - ./wiki:/app/wiki
@@ -146,6 +150,21 @@ services:
       - /home/appuser/.local:uid=1000,gid=1000
       - /home/appuser/.cache:uid=1000,gid=1000
       - /home/appuser/.mem0:uid=1000,gid=1000
+
+  # ── Verified mutation engine — ephemeral sandbox image (2026-05-27) ──
+  # Built but NOT run as a long-lived service. The gateway spawns throwaway
+  # containers from this image via docker-proxy for each self-improvement run
+  # (see app/self_improvement/evolver_spawn.py). The `evolver` profile keeps
+  # `docker compose up` from starting it. Build once + on each deploy so its
+  # baked HEAD matches the gateway:
+  #   docker compose --profile evolver build evolver
+  evolver:
+    build:
+      context: .
+      dockerfile: Dockerfile.evolver
+    image: ${EVOLVER_IMAGE:-botarmy-evolver:latest}
+    profiles: ["evolver"]
+    restart: "no"
 
   # ── chromadb service removed 2026-05-17 ─────────────────────────
   # The chromadb HTTP server container was an orphaned legacy artifact

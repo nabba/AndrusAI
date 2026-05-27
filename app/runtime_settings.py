@@ -299,6 +299,20 @@ def _defaults() -> dict[str, Any]:
         # (``app.shinka_engine``) is gated separately.
         "shinka_inline_evolve_enabled": True,
 
+        # Verified mutation engine (2026-05-27 rebuild). Replaces the old
+        # AVO/experiment_runner code+skill mutation path with
+        # ground(change_spec) → implement-in-worktree → run-real-eval
+        # (worktree_eval) → operator-gated change_request. Default OFF: the
+        # engine is new and ALWAYS operator-gated, so the operator opts in
+        # explicitly. When ON, the legacy evolution.py code+skill auto-mutation
+        # path is hard-cut off (per operator decision). The improvement BAR
+        # (effect size, sample floor) is NOT here — it lives in the
+        # TIER_IMMUTABLE worktree_eval so it cannot be lowered via settings.
+        "evolution_verified_engine_enabled": False,
+        # Hard USD cap per self-improvement cycle (LLM editor + judge + any
+        # benchmark crew runs in the ephemeral evolver container).
+        "evolution_verified_per_cycle_budget_usd": 5.0,
+
         # Q13 — year-2+ resilience (PROGRAM §48). Three new master
         # switches, all default ON:
         #   * migration_drill_monitor_enabled — alerts when the
@@ -3299,6 +3313,33 @@ def get_shinka_inline_evolve_enabled() -> bool:
 
 def set_shinka_inline_evolve_enabled(value: bool) -> None:
     _update({"shinka_inline_evolve_enabled": bool(value)})
+
+
+# ── Verified mutation engine (2026-05-27 rebuild) ─────────────────────
+
+
+def get_evolution_verified_engine_enabled() -> bool:
+    return bool(
+        _ensure_initialized().get("evolution_verified_engine_enabled", False)
+    )
+
+
+def set_evolution_verified_engine_enabled(value: bool) -> None:
+    _update({"evolution_verified_engine_enabled": bool(value)})
+
+
+def get_evolution_verified_per_cycle_budget_usd() -> float:
+    return float(
+        _ensure_initialized().get("evolution_verified_per_cycle_budget_usd", 5.0)
+    )
+
+
+def set_evolution_verified_per_cycle_budget_usd(value: float) -> None:
+    # Sanity-clamp: a self-improvement cycle should never silently burn more
+    # than $100 even if a caller fat-fingers the value.
+    _update(
+        {"evolution_verified_per_cycle_budget_usd": max(0.0, min(100.0, float(value)))}
+    )
 
 
 # ── Q9.3 — Travel monitor (PROGRAM §46.6) ─────────────────────────────

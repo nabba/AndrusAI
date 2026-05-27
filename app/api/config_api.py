@@ -326,6 +326,9 @@ async def set_runtime_settings_endpoint(request: Request):
         set_architecture_adoption_monitor_enabled,
         # Q7.4 — inline ShinkaEvolve per coding session
         set_shinka_inline_evolve_enabled,
+        # Verified mutation engine (2026-05-27)
+        set_evolution_verified_engine_enabled,
+        set_evolution_verified_per_cycle_budget_usd,
         # Q9.3 — travel monitor configuration
         set_tripit_ical_url,
         set_aviationstack_api_key,
@@ -570,6 +573,16 @@ async def set_runtime_settings_endpoint(request: Request):
         if "shinka_inline_evolve_enabled" in payload:
             set_shinka_inline_evolve_enabled(
                 bool(payload["shinka_inline_evolve_enabled"])
+            )
+
+        # ─── Verified mutation engine (2026-05-27) ────────────────────
+        if "evolution_verified_engine_enabled" in payload:
+            set_evolution_verified_engine_enabled(
+                bool(payload["evolution_verified_engine_enabled"])
+            )
+        if "evolution_verified_per_cycle_budget_usd" in payload:
+            set_evolution_verified_per_cycle_budget_usd(
+                float(payload["evolution_verified_per_cycle_budget_usd"])
             )
 
         # ─── Q9.3 — travel monitor configuration ──────────────────────

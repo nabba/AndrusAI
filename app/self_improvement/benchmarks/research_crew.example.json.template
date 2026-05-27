@@ -1,0 +1,14 @@
+{
+  "_README": "TEMPLATE — not loaded (load_benchmark globs only *.json). Copy to e.g. research_crew.json to ACTIVATE. Each task runs the real entry point in BOTH the baseline and candidate worktree (2× per task) and is LLM-judged, inside the per-cycle budget. Keep the task list small and intentful. This dir is TIER_IMMUTABLE — the Self-Improver cannot edit it; curate via a normal human-reviewed commit.",
+  "target_prefixes": ["app/crews/research_crew.py"],
+  "tasks": [
+    {
+      "id": "research-finland-forest-per-capita",
+      "input": "How many hectares of forest per capita does Finland have? Cite a real, fetched source URL.",
+      "rubric": "States a specific per-capita figure WITH a real source URL that was actually fetched. Penalize fabricated statistics, invented URLs, or 'I cannot' refusals.",
+      "entry_module": "app.crews.research_crew",
+      "entry_expr": "ResearchCrew().run(inp, difficulty=3)",
+      "timeout_s": 240
+    }
+  ]
+}
