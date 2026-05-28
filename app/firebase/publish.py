@@ -950,7 +950,7 @@ def report_variants() -> None:
             return
         try:
             from app.variant_archive import get_recent_variants, get_drift_score
-            recent = get_recent_variants(20)
+            recent = get_recent_variants(20, raw=True)  # operator surface: verbatim
             drift = get_drift_score()
             max_gen = max((v.get("generation", 0) for v in recent), default=0) if recent else 0
             db.collection("status").document("variants").set({

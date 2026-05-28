@@ -196,6 +196,12 @@ def _legacy_create_researcher(force_tier: str | None = None, light: bool = False
         llm=llm,
         tools=tools,
         max_execution_time=300,
+        # Principled stopping backstop: cap the ReAct tool-call loop so the
+        # researcher can't keep searching until the 300s wall-clock fires
+        # (the alignment audit's "no principled stopping criterion" gap).
+        # The soul's evidence-sufficiency / diminishing-returns rule is the
+        # primary stop; this is the hard ceiling that bounds the worst case.
+        max_iter=20,
         verbose=True,
     )
 
@@ -295,5 +301,7 @@ def _build_loadable_researcher(
         ],
         agent_tier=Tier.PRODUCTION,
         max_execution_time=300,
+        # Hard iteration ceiling — mirrors the legacy path (see note there).
+        max_iter=20,
         verbose=True,
     )

@@ -13,6 +13,7 @@ of agent variants with Darwinian selection.
 import json
 import logging
 import hashlib
+import re
 from pathlib import Path
 from app.utils import now_iso
 
@@ -28,6 +29,61 @@ def _load() -> list[dict]:
 def _save(variants: list[dict]) -> None:
     from app.utils import save_json_file
     save_json_file(ARCHIVE_PATH, variants, max_entries=_MAX_VARIANTS)
+
+
+# ── Grounding: a hypothesis is a proposal, not a data record ──────────────────
+#
+# A variant's ``hypothesis`` is free-form LLM text produced when the evolution
+# loop is asked "what should we improve?". It routinely embeds point-in-time
+# (and sometimes confabulated) metrics — "response time is 145.5s",
+# "BadRequestError appears 16x", "50% success rate". Those numbers are frozen
+# verbatim and never re-verified, yet downstream LLM consumers (the alignment
+# auditor; the evolution context itself) re-read them and recite them as current
+# measured facts — manufacturing alarms out of stale guesses.
+#
+# Invariant: surfaces that feed an LLM see the QUALITATIVE proposal with
+# quantitative claims neutralised. Real numbers come only from the live
+# telemetry instrument (benchmarks / error_monitor), never from frozen prose.
+# Operator/forensic surfaces opt out with ``raw=True``; the stored record is
+# always the untouched original.
+
+_METRIC_TOKEN_RE = re.compile(
+    # number + perf unit. ``%`` needs no trailing word-boundary (it is itself
+    # non-word); alphabetic units do, so "3 sources" / "py3" are left intact.
+    r"\b\d+(?:\.\d+)?\s*(?:%|(?:ms|secs?|seconds?|s|x)\b)",
+    re.IGNORECASE,
+)
+
+
+def _neutralize_metrics(text: str) -> str:
+    """Replace perf-metric-shaped tokens (``145.5s``, ``16x``, ``50%``) with a
+    neutral marker so a frozen guess can't be mistaken for a measurement.
+
+    Conservative by design — only unit-tagged numerics are touched, so dates,
+    arXiv ids, version numbers and error codes (``Error code: 402``) survive.
+    """
+    if not text:
+        return text
+    return _METRIC_TOKEN_RE.sub("[unverified metric]", text)
+
+
+def _ground(variant: dict) -> dict:
+    """Return a surfacing-safe copy: hypothesis neutralised + provenance age."""
+    grounded = dict(variant)
+    grounded["hypothesis"] = _neutralize_metrics(variant.get("hypothesis", ""))
+    ts = variant.get("timestamp")
+    grounded["as_of"] = ts
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(ts)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        grounded["age_days"] = round(
+            (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0, 1
+        )
+    except Exception:
+        pass
+    return grounded
 
 def add_variant(
     experiment_id: str,
@@ -117,10 +173,20 @@ def get_diverse_sample(n: int = 5) -> list[dict]:
     representatives.sort(key=lambda v: v.get("fitness_after", 0), reverse=True)
     return representatives[:n]
 
-def get_recent_variants(n: int = 10) -> list[dict]:
-    """Get the N most recent variants."""
+def get_recent_variants(n: int = 10, *, raw: bool = False) -> list[dict]:
+    """Get the N most recent variants.
+
+    By default the returned hypotheses are *grounded* — perf-metric tokens
+    neutralised and provenance age attached — so LLM consumers (notably the
+    alignment auditor) cannot launder a frozen, unverified number into a
+    "measured" fact. Pass ``raw=True`` for operator/forensic surfaces that
+    want the original text verbatim.
+    """
     archive = _load()
-    return archive[-n:]
+    recent = archive[-n:]
+    if raw:
+        return recent
+    return [_ground(v) for v in recent]
 
 def get_last_kept_id() -> str:
     """Get the ID of the most recently kept variant (used as parent for next)."""
@@ -162,7 +228,7 @@ def format_archive_context(n: int = 8) -> str:
         lines.append(
             f"  [{v['status']:7s}] gen={v.get('generation', 0)} "
             f"Δ={v['delta']:+.4f} test={v.get('test_pass_rate', 0):.0%} | "
-            f"{v['hypothesis'][:60]} (parent: {parent[:12]})"
+            f"{_neutralize_metrics(v['hypothesis'])[:60]} (parent: {parent[:12]})"
         )
 
     drift = get_drift_score()

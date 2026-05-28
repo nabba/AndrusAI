@@ -281,6 +281,7 @@ async def set_runtime_settings_endpoint(request: Request):
     from app.runtime_settings import (
         set_voice_mode, set_vision_cu_enabled,
         set_vision_cu_monthly_cap_usd, set_concierge_persona_enabled,
+        set_critic_review_difficulty_threshold,
         set_tier3_amendment_enabled,
         set_error_runbooks_enabled, set_tool_supervisor_enabled,
         set_recovery_loop_enabled,
@@ -383,6 +384,10 @@ async def set_runtime_settings_endpoint(request: Request):
             set_vision_cu_enabled(bool(payload["vision_cu_enabled"]))
         if "vision_cu_monthly_cap_usd" in payload:
             set_vision_cu_monthly_cap_usd(float(payload["vision_cu_monthly_cap_usd"]))
+        if "critic_review_difficulty_threshold" in payload:
+            set_critic_review_difficulty_threshold(
+                int(payload["critic_review_difficulty_threshold"])
+            )
         if "concierge_persona_enabled" in payload:
             set_concierge_persona_enabled(bool(payload["concierge_persona_enabled"]))
         if "tier3_amendment_enabled" in payload:

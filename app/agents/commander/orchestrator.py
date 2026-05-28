@@ -53,6 +53,19 @@ from app.agents.commander.commands import try_command
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
+
+def _critic_difficulty_threshold() -> int:
+    """Operator-tunable difficulty at/above which the adversarial Critic
+    review runs (was a hardcoded ``>= 7``). Failure-isolated: any error
+    reading runtime settings falls back to the prior default of 7, so the
+    delivery path can never break on a settings hiccup.
+    """
+    try:
+        from app.runtime_settings import get_critic_review_difficulty_threshold
+        return get_critic_review_difficulty_threshold()
+    except Exception:
+        return 7
+
 # Shared pool for lightweight context-fetching I/O (ChromaDB queries, Mem0 search,
 # skill name loading).  Replaces ephemeral ThreadPoolExecutors that were created
 # per-request in _route() and _run_crew(), eliminating thread churn.
@@ -3561,14 +3574,16 @@ class Commander:
                 finally:
                     self._vetting_retry_attempted = False
 
-            # Critic review for high-difficulty tasks (≥7) — adversarial quality gate.
-            # Bounded under a hard wall-clock budget so a hung critic LLM
-            # can't stall delivery (same root cause as the 2026-04-25 vetting
-            # outage).  On timeout/failure: keep the pre-critic result.
+            # Critic review for high-difficulty tasks — adversarial quality gate.
+            # Threshold is operator-tunable (default 7); see
+            # _critic_difficulty_threshold(). Bounded under a hard wall-clock
+            # budget so a hung critic LLM can't stall delivery (same root cause
+            # as the 2026-04-25 vetting outage). On timeout/failure: keep the
+            # pre-critic result.
             _critic_t0 = time.monotonic()
             _critic_ran = False
             _critic_ok = False
-            if difficulty >= 7:
+            if difficulty >= _critic_difficulty_threshold():
                 _critic_ran = True
                 _pre_critic_result = final_result
 
@@ -3825,7 +3840,7 @@ class Commander:
             )
 
             # Critic review for multi-crew high-difficulty results
-            if max_diff >= 7:
+            if max_diff >= _critic_difficulty_threshold():
                 try:
                     from app.crews.critic_crew import CriticCrew
                     final_result = CriticCrew().review(

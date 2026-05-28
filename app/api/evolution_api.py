@@ -157,7 +157,7 @@ def get_variants(n: int = Query(30, ge=1, le=200)):
     """Return recent variants from the genealogy archive."""
     try:
         from app.variant_archive import get_recent_variants, get_drift_score
-        variants = get_recent_variants(n)
+        variants = get_recent_variants(n, raw=True)  # operator surface: verbatim
         drift = get_drift_score()
         return {"variants": variants, "drift_score": drift}
     except Exception as e:

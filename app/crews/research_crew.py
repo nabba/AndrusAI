@@ -12,6 +12,7 @@ from app.firebase_reporter import (
     crew_started, crew_completed, crew_failed, update_sub_agent_progress,
 )
 from app.crews.parallel_runner import run_parallel
+from app.tools.web_search import search_budget
 from app.memory.belief_state import update_belief
 from app.benchmarks import record_metric
 from app.conversation_store import estimate_eta
@@ -119,6 +120,17 @@ RIGHT: ["economic outlook and business risks for 2027"]\
 
 class ResearchCrew:
     def run(self, topic: str, parent_task_id: str = None, difficulty: int = 5) -> str:
+        # Constitution.md:14-15 — "If you cannot complete a task, say so clearly"
+        # / "If a request is ambiguous, ask for clarification rather than
+        # assuming." Refuse to guess on empty/undefined input: return a
+        # clarifying question instead of dispatching the crew on garbage (the
+        # alignment audit's "agents receiving undefined inputs instead of
+        # clarifying" gap). Checks the CORE question (injected context stripped).
+        clarify = self._clarification_needed(self._extract_core_topic(topic or ""))
+        if clarify:
+            logger.info("research_crew: input needs clarification — asking instead of assuming")
+            return clarify
+
         # Delegation-mode switch handled by the shared dispatcher: when
         # the Org Chart toggle is ON, route to Coordinator + 3-specialist
         # variant; otherwise use the single-agent path (which has its
@@ -132,6 +144,25 @@ class ResearchCrew:
             parent_task_id=parent_task_id,
             difficulty=difficulty,
         )
+
+    @staticmethod
+    def _clarification_needed(core_topic: str) -> str | None:
+        """Return a clarifying question when the research input is empty or
+        undefined, else None. Deliberately STRICT — only clearly-unusable input
+        triggers this, so a terse-but-valid question ('GDP of Estonia?') still
+        runs and we don't nag on legitimate short queries."""
+        t = (core_topic or "").strip()
+        _SENTINELS = {
+            "none", "null", "undefined", "nil", "nan", "n/a", "na",
+            "?", "??", "...", "-", "—",
+        }
+        if not t or t.lower() in _SENTINELS:
+            return ("I don't have a research question to work on yet — the request "
+                    "came through empty. What would you like me to look into?")
+        if not any(ch.isalnum() for ch in t):
+            return ("Your request didn't include a clear question (no readable "
+                    "topic). Could you tell me what you'd like me to research?")
+        return None
 
     def _run_single_agent(self, topic: str, parent_task_id: str = None, difficulty: int = 5) -> str:
         """Run research, spawning sub-agents in parallel for complex topics.
@@ -168,20 +199,26 @@ class ResearchCrew:
             # Plan from core topic only — injected context goes to execution, not planning
             subtopics = self._plan_research(core_topic)
 
+            # Verification/reflection trigger (constitution §Critic + AGENTS.md):
+            # run the heterogeneous debate as a pre-delivery review when research
+            # is very complex (difficulty >= 8) or weak for a complex task (short
+            # output at difficulty >= 6). Applied to BOTH the single-subtopic and
+            # parallel paths — previously only the parallel branch got it, leaving
+            # single-subtopic research with no verification step before delivery
+            # (the alignment audit's "missing verification step between research
+            # completion and output delivery" gap). Same already-tuned thresholds,
+            # so no new cost on the common case.
+            def _needs_verification(text: str) -> bool:
+                return difficulty >= 8 or (difficulty >= 6 and len(text.strip()) < 200)
+
             if len(subtopics) <= 1:
                 result = self._run_single(topic, task_id, force_tier=force_tier)
+                if _needs_verification(result):
+                    result = self._debate_round(result, topic)
             else:
                 logger.info(f"Research crew spawning {len(subtopics)} sub-agents")
                 result = self._run_parallel(topic, subtopics, task_id)
-                # Heterogeneous debate — only for very complex research (difficulty >= 8)
-                # or when synthesis looks weak (short output for a complex task).
-                # Previously triggered at difficulty >= 6, which added 3 extra LLM
-                # calls to most multi-source research — too aggressive.
-                needs_debate = (
-                    difficulty >= 8
-                    or (difficulty >= 6 and len(result.strip()) < 200)
-                )
-                if needs_debate:
+                if _needs_verification(result):
                     result = self._debate_round(result, topic)
 
             update_belief("researcher", "completed", current_task=topic[:100])
@@ -277,7 +314,8 @@ class ResearchCrew:
             agent=researcher,
         )
         crew = Crew(agents=[researcher], tasks=[task], process=Process.sequential, verbose=settings.crew_verbose)
-        result_str = str(crew.kickoff())
+        with search_budget():
+            result_str = str(crew.kickoff())
         crew_completed("research", task_id, result_str[:2000])
         return result_str
 
@@ -291,7 +329,8 @@ class ResearchCrew:
             agent=researcher,
         )
         crew = Crew(agents=[researcher], tasks=[task], process=Process.sequential, verbose=settings.crew_verbose)
-        result_str = str(crew.kickoff())
+        with search_budget():
+            result_str = str(crew.kickoff())
         crew_completed("research", task_id, result_str[:2000])
         return result_str
 
@@ -392,7 +431,8 @@ class ResearchCrew:
                             agents=[researcher], tasks=[task],
                             process=Process.sequential, verbose=settings.crew_verbose,
                         )
-                        result = str(crew.kickoff())
+                        with search_budget():
+                            result = str(crew.kickoff())
                         if not result or result.strip().lower() in ("none", ""):
                             raise ValueError("Empty LLM response")
                         crew_completed("research", sub_id, result[:2000])

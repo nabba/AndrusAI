@@ -14661,3 +14661,79 @@ worktree_eval,pipeline,evolver_job,evolver_spawn,orchestrator}.py` +
 `autonomous_executor/scheduler_job.py`, `runtime_settings.py`, `api/config_api.py`,
 `docker-compose.yml`, `dashboard-react/src/api/queries.ts`, `SettingsPage.tsx`.
 
+# §74 — Auditor denoising + research stopping criterion (2026-05-28)
+
+Follow-up to §72. The weekly `alignment_audit` fired again at `drift_score=0.70`
+(`drift_critical`) — same false-alarm shape, reciting "50% success / 145.5s latency /
+16 BadRequestError / 8 RuntimeError" against a system whose only real fault was the §72.2
+cascade outage. §72 grounded the auditor in telemetry but left three holes this pass
+closes, and the audit's *research* concerns (#2/#5) were real soft gaps worth closing.
+**Verified live after deploy: drift `0.70 → 0.15` (`ok`); benchmark `pass_rate 0.0 →
+0.8947`, `error_rate 1.0 → 0.0` (38 runs).** The auditor now quotes `"error_rate=0.0"`
+verbatim and acknowledges the difficulty-gated Critic instead of calling it absent.
+
+## §74.1 — Variant metric neutralization (`app/variant_archive.py`)
+
+Root of the confabulated numbers: `get_recent_variants()` returned raw LLM hypothesis prose
+embedding frozen point-in-time guesses ("145.5s", "16x", "50%"), which the auditor recited
+as measured facts. New `_neutralize_metrics()` replaces perf-metric-shaped tokens with
+`[unverified metric]`; `get_recent_variants(n, *, raw=False)` grounds by default (+ provenance
+`as_of`/`age_days`), `raw=True` for operator/forensic surfaces (`evolution_api`,
+`firebase/publish`, `observability/publishers`). The stored record is never mutated.
+Conservative regex — dates, arXiv ids, versions, `Error code: 402` survive.
+
+## §74.2 — Verbatim telemetry quoting + recency window (`app/alignment_audit.py`, TIER_IMMUTABLE, operator-approved)
+
+The epistemic-discipline block now requires every quantitative claim to be **copied
+character-for-character** from the ground-truth section and double-quoted — no paraphrase /
+round / unit-convert / re-derive (bans the invented `~50%` / `145.5s`). Benchmark telemetry
+windowed to **last 14d** (`filter_runs(load_all(), window_days=14)`) so a historical outage
+no longer pins `pass_rate=0.0` forever (`load_all()` is unwindowed + append-only). New
+`AlignmentReport.ops_health` field keeps the deterministic ops snapshot distinct from the LLM
+values-drift score, so operational problems never masquerade as constitutional drift.
+Additive — no threshold/scoring/severity/alert change.
+
+## §74.3 — Daily audit cadence (`app/idle_scheduler.py`)
+
+The audit was a `JobWeight.MEDIUM` idle job with no per-job cadence gate (only LIGHT jobs have
+`_LIGHT_MIN_CADENCE`), so it re-ran every sweep — **6 `drift_critical` reports on 2026-05-27
+alone**. Added a 23h self-guard keyed off the last persisted report's timestamp.
+
+## §74.4 — Research stopping criterion + verification (`research_crew.py`, `tools/web_search.py`, `agents/researcher.py`, `souls/researcher.md`)
+
+Closes audit concerns #2/#5. `search_budget()` context manager caps per-task searches;
+`max_iter=20` ReAct backstop on both researcher build paths bounds the worst case under the
+300s wall-clock; the soul gains an explicit evidence-sufficiency / diminishing-returns
+"Stopping Criterion" rule (the primary stop). The skeptic/practitioner verification debate now
+runs on the **single-subtopic** path too (was parallel-only) at the same thresholds (difficulty
+≥8, or ≥6 + short output). `ResearchCrew.run` refuses empty/undefined input with a clarifying
+question instead of dispatching on garbage (constitution.md:14-15).
+
+## §74.5 — Operator-tunable Critic threshold (`orchestrator.py`, `runtime_settings.py`, `api/config_api.py`)
+
+The Critic difficulty gate (hardcoded `>= 7` at both delivery sites) is now
+`critic_review_difficulty_threshold` in runtime_settings (default 7, clamp [1,11]; 11 disables,
+1 runs on all), failure-isolated to 7, wired into the settings dispatcher.
+
+**Verification.** All changed files `py_compile`-clean; 33 new tests green
+(`test_alignment_audit_denoise_2026_05_28.py`, `test_research_clarification_and_search_budget.py`);
+live in-container audit `0.70→0.15 ok` + benchmark refresh `pass_rate=0.8947`. The 76 errored
+benchmark runs from the §72.3 dead-import era were archived
+(`workspace/benchmarks/runs.jsonl.broken-20260528_011632`) so the windowed aggregate reflects
+current health.
+
+**Outstanding operational action** (carried from §72): Anthropic credits exhausted (breaker
+OPEN) + OpenRouter low (~$9.7) — cascade runs on Ollama/OpenRouter failover until topped up.
+
+**Safety / scope.** Only TIER_IMMUTABLE file touched is `alignment_audit.py`, operator-approved
+and additive (no threshold/scoring/severity/alert change). No new identity-event kinds, no
+governance amendment; one new runtime setting (the Critic threshold).
+
+**Files.** Edited: `app/alignment_audit.py`, `app/idle_scheduler.py`, `app/variant_archive.py`,
+`app/crews/research_crew.py`, `app/tools/web_search.py`, `app/agents/researcher.py`,
+`app/agents/commander/orchestrator.py`, `app/runtime_settings.py`, `app/api/config_api.py`,
+`app/api/evolution_api.py`, `app/firebase/publish.py`, `app/observability/publishers.py`,
+`app/souls/researcher.md`. New: `tests/test_alignment_audit_denoise_2026_05_28.py`,
+`tests/test_research_clarification_and_search_budget.py`,
+`tests/test_variant_archive_grounding.py`.
+

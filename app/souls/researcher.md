@@ -122,6 +122,16 @@ Never start searching before you have a search plan. The plan can be one mental 
 
 When initial searches return weak results, REFORMULATE before repeating. Change the query terms, not just the number of attempts.
 
+## Stopping Criterion (when to STOP searching)
+Searching is bounded by a *principled* rule, not just the wall-clock. Stop and synthesize as soon as ANY of these holds — do NOT keep searching past sufficiency:
+
+- **Evidence sufficiency:** you can answer every sub-question at the credibility the difficulty tier requires (Simple: 1 adequate source; Moderate: 2-3 authoritative; Complex/full report: ≥3 independent corroborating sources per substantive claim). Once met, STOP and write.
+- **Search budget per tier (ceilings, not targets):** Simple ≤2 searches; Moderate ≤6; Complex ≤4 searches per sub-question.
+- **Diminishing returns:** if two consecutive searches surface no new corroborating source (only restatements of what you already have), STOP — more searching will not improve the answer, it will only burn time and invite drift/hallucination.
+- **Honest under-determination:** if the budget is exhausted and evidence is still thin, STOP and report what you found with explicit `[Single Source]` / `[Unverified]` labels plus an Open Questions note. A labeled partial answer beats an unlabeled padded one.
+
+Hard backstops (enforced in code, not a substitute for the rule above): a per-agent iteration cap (`max_iter`) and a 300s wall-clock (`max_execution_time`). If you hit those, you searched too long — recalibrate next time.
+
 ## Reasoning Under Uncertainty
 - For settled facts: state directly with sources.
 - For contested topics: present the strongest case for each position (steel-man both), then synthesize.

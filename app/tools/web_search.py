@@ -12,6 +12,7 @@ Public API (preserved for all existing callers):
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
 import time
@@ -42,6 +43,41 @@ _BRAVE_QUOTA_BACKOFF_S = 24 * 3600
 _brave_quota_blocked_until: float = 0.0  # epoch seconds; 0 = no block
 _last_backend_used: str | None = None
 _last_failure_chain: list[str] = []
+
+
+# ── Per-task search budget (principled stopping criterion) ───────────────────
+# Constitution §Ecological Responsibility + the alignment audit's "no principled
+# stopping criterion for web searches" gap. Composes with the researcher agent's
+# coarse ReAct ``max_iter`` cap: this is the search-SPECIFIC stop that returns an
+# instructive "synthesize now" message so the agent concludes gracefully instead
+# of erroring out at the iteration ceiling. Only the agent-facing @tool path is
+# bounded, and only inside an active ``search_budget`` context — direct
+# ``search_brave`` callers (atlas, fiction, research_orchestrator) are untouched.
+_DEFAULT_MAX_SEARCHES = int(os.environ.get("WEB_SEARCH_MAX_CALLS_PER_TASK", "6") or "6")
+_search_calls_remaining: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "web_search_calls_remaining", default=None
+)
+
+
+class search_budget:
+    """Context manager bounding ``web_search`` tool calls within one research
+    task/sub-agent. Re-entrant-safe per thread via ContextVar; resets on exit."""
+
+    def __init__(self, max_calls: int | None = None):
+        self._max = max_calls if (max_calls and max_calls > 0) else _DEFAULT_MAX_SEARCHES
+        self._token = None
+
+    def __enter__(self) -> "search_budget":
+        self._token = _search_calls_remaining.set(self._max)
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        if self._token is not None:
+            try:
+                _search_calls_remaining.reset(self._token)
+            except (ValueError, LookupError):
+                pass
+        return False
 
 
 def _brave_blocked_now() -> bool:
@@ -212,6 +248,16 @@ def web_search(query: str) -> str:
     Search the web (Brave → SearXNG → DuckDuckGo fallback chain).
     Returns top 5 results as title + URL + snippet.
     """
+    remaining = _search_calls_remaining.get()
+    if remaining is not None:
+        if remaining <= 0:
+            return (
+                "SEARCH BUDGET REACHED for this task. Stop searching now and "
+                "synthesize an answer from the results you already have. If key "
+                "facts are still missing, say so explicitly rather than searching "
+                "again."
+            )
+        _search_calls_remaining.set(remaining - 1)
     results = search_brave(query, 5)
     if not results:
         return "No results found."

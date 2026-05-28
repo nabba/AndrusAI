@@ -89,6 +89,12 @@ def _defaults() -> dict[str, Any]:
         "vision_cu_monthly_cap_usd": float(getattr(s, "vision_cu_monthly_cap_usd", 10.0)),
         "concierge_persona_enabled": bool(getattr(s, "concierge_persona_enabled", False)),
         "tier3_amendment_enabled": bool(getattr(s, "tier3_amendment_enabled", False)),
+        # Difficulty at/above which the adversarial Critic review runs in the
+        # delivery path (was a hardcoded `>= 7` in the orchestrator). Default 7
+        # preserves prior behaviour; lower to expand verification coverage to
+        # mid-difficulty tasks (costs latency — the Critic blocks up to 120s),
+        # raise to reduce latency. See the 2026-05 alignment-audit remediation.
+        "critic_review_difficulty_threshold": int(getattr(s, "critic_review_difficulty_threshold", 7)),
         # Self-heal subsystem master switches.
         "error_runbooks_enabled": _env_bool("ERROR_RUNBOOKS_ENABLED", False),
         "tool_supervisor_enabled": _env_bool("TOOL_SUPERVISOR_ENABLED", False),
@@ -1066,6 +1072,27 @@ def get_concierge_persona_enabled() -> bool:
 def set_concierge_persona_enabled(value: bool) -> None:
     _update({"concierge_persona_enabled": bool(value)})
     logger.info(f"runtime_settings: concierge_persona_enabled set to {bool(value)}")
+
+
+def get_critic_review_difficulty_threshold() -> int:
+    """Difficulty at/above which the adversarial Critic review runs.
+
+    Default 7 (the prior hardcoded value). Clamped to [1, 11] by the
+    setter; 11 effectively disables the Critic (no task reaches it), 1
+    runs it on everything.
+    """
+    try:
+        return int(_ensure_initialized().get("critic_review_difficulty_threshold", 7))
+    except (TypeError, ValueError):
+        return 7
+
+
+def set_critic_review_difficulty_threshold(value: int) -> None:
+    v = int(value)
+    if v < 1 or v > 11:
+        raise ValueError("critic_review_difficulty_threshold must be in [1, 11]")
+    _update({"critic_review_difficulty_threshold": v})
+    logger.info(f"runtime_settings: critic_review_difficulty_threshold set to {v}")
 
 
 def get_external_action_gate_enabled() -> bool:
