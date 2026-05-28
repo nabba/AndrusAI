@@ -14682,22 +14682,31 @@ as measured facts. New `_neutralize_metrics()` replaces perf-metric-shaped token
 `firebase/publish`, `observability/publishers`). The stored record is never mutated.
 Conservative regex — dates, arXiv ids, versions, `Error code: 402` survive.
 
-## §74.2 — Verbatim telemetry quoting + recency window (`app/alignment_audit.py`, TIER_IMMUTABLE, operator-approved)
+## §74.2 — Values-only scoring + verbatim quoting + ops/values split (`app/alignment_audit.py`, TIER_IMMUTABLE, operator-approved)
 
-The epistemic-discipline block now requires every quantitative claim to be **copied
-character-for-character** from the ground-truth section and double-quoted — no paraphrase /
-round / unit-convert / re-derive (bans the invented `~50%` / `145.5s`). Benchmark telemetry
-windowed to **last 14d** (`filter_runs(load_all(), window_days=14)`) so a historical outage
-no longer pins `pass_rate=0.0` forever (`load_all()` is unwindowed + append-only). New
-`AlignmentReport.ops_health` field keeps the deterministic ops snapshot distinct from the LLM
-values-drift score, so operational problems never masquerade as constitutional drift.
-Additive — no threshold/scoring/severity/alert change.
+The prompt now scores **VALUES alignment ONLY** — how far the agent-soul personas have drifted
+from the constitution's values — and is explicitly told operational health (latency, pass-rate,
+error volume) must NOT drive the drift score. That deterministic ops snapshot moves to a separate
+`AlignmentReport.ops_health` field, which is **dark/unreliable-aware**: an empty or
+majority-errored benchmark harness reports `state="dark"`/`"unreliable"` and reads as
+"infrastructure, not a quality signal" — never `pass_rate=0`. The epistemic-discipline block
+requires every quantitative claim to be **copied character-for-character** from the ground-truth
+section and double-quoted — no paraphrase / round / unit-convert / re-derive (bans the invented
+`~50%` / `145.5s`). Telemetry is windowed via `_OPS_HEALTH_WINDOW_DAYS` (shared by the prompt
+text and the ops_health dict) so a historical outage no longer pins the figure forever
+(`load_all()` is unwindowed + append-only). Additive — no change to drift thresholds, scoring
+scale, severity mapping, or alert routing.
 
-## §74.3 — Daily audit cadence (`app/idle_scheduler.py`)
+## §74.3 — Cadence debounce + corroboration gate (`app/alignment_audit.py`)
 
-The audit was a `JobWeight.MEDIUM` idle job with no per-job cadence gate (only LIGHT jobs have
-`_LIGHT_MIN_CADENCE`), so it re-ran every sweep — **6 `drift_critical` reports on 2026-05-27
-alone**. Added a 23h self-guard keyed off the last persisted report's timestamp.
+The audit is a single-sample LLM score on a `JobWeight.MEDIUM` idle job with no per-job gate, so
+it re-paged the operator repeatedly (**6 `drift_critical` reports on 2026-05-27**, swinging
+0.50→0.70 within an hour). `run_alignment_audit(force=False)` now **debounces in-function**:
+within `roi_thresholds.alignment_audit.interval_days` (default 7) of the last report it returns
+that report unchanged — no LLM call, no re-page; `force=True` (manual / dashboard / CLI) bypasses
+it. A **corroboration gate** then ensures a lone critical spike still persists + surfaces on the
+dashboard but does NOT Signal-page unless the prior audit was also ≥ the alert threshold. Set
+`interval_days: 1` in `roi_thresholds.json` for a daily cadence.
 
 ## §74.4 — Research stopping criterion + verification (`research_crew.py`, `tools/web_search.py`, `agents/researcher.py`, `souls/researcher.md`)
 
@@ -14715,9 +14724,10 @@ The Critic difficulty gate (hardcoded `>= 7` at both delivery sites) is now
 `critic_review_difficulty_threshold` in runtime_settings (default 7, clamp [1,11]; 11 disables,
 1 runs on all), failure-isolated to 7, wired into the settings dispatcher.
 
-**Verification.** All changed files `py_compile`-clean; 33 new tests green
-(`test_alignment_audit_denoise_2026_05_28.py`, `test_research_clarification_and_search_budget.py`);
-live in-container audit `0.70→0.15 ok` + benchmark refresh `pass_rate=0.8947`. The 76 errored
+**Verification.** All changed files `py_compile`-clean; 42 new tests green
+(`test_alignment_audit_denoise_2026_05_28.py`, `test_research_clarification_and_search_budget.py`,
+`test_variant_archive_grounding.py`); live in-container audit `0.70→0.15 ok` + benchmark refresh
+`pass_rate=0.8947`. The 76 errored
 benchmark runs from the §72.3 dead-import era were archived
 (`workspace/benchmarks/runs.jsonl.broken-20260528_011632`) so the windowed aggregate reflects
 current health.
@@ -14729,7 +14739,7 @@ OPEN) + OpenRouter low (~$9.7) — cascade runs on Ollama/OpenRouter failover un
 and additive (no threshold/scoring/severity/alert change). No new identity-event kinds, no
 governance amendment; one new runtime setting (the Critic threshold).
 
-**Files.** Edited: `app/alignment_audit.py`, `app/idle_scheduler.py`, `app/variant_archive.py`,
+**Files.** Edited: `app/alignment_audit.py`, `app/variant_archive.py`,
 `app/crews/research_crew.py`, `app/tools/web_search.py`, `app/agents/researcher.py`,
 `app/agents/commander/orchestrator.py`, `app/runtime_settings.py`, `app/api/config_api.py`,
 `app/api/evolution_api.py`, `app/firebase/publish.py`, `app/observability/publishers.py`,
