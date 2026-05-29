@@ -33,9 +33,11 @@ from typing import Literal
 
 from app.llm_catalog import RUNTIME_MODES, _normalize_mode
 
-# ``LLMMode`` is a Literal over the 6 canonical mode names. Legacy
-# aliases are accepted at set_mode but stored canonically.
-LLMMode = Literal["free", "budget", "balanced", "quality", "insane", "anthropic"]
+# ``LLMMode`` is a Literal over the 5 canonical mode names. Legacy
+# aliases are accepted at set_mode but stored canonically. (The former
+# ``anthropic`` single-provider mode was dropped in the OpenRouter+Ollama
+# consolidation; ``_normalize_mode`` maps any stale value to "balanced".)
+LLMMode = Literal["free", "budget", "balanced", "quality", "insane"]
 
 DEFAULT_MODE: LLMMode = "balanced"
 

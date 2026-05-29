@@ -337,20 +337,30 @@ def _build_anthropic_entry(
     catalog_key: str,
     aa_row: dict,
 ) -> dict:
-    """Entries for Anthropic models come entirely from AA because Anthropic
-    has no public listing endpoint. Pricing comes from AA's pricing block."""
+    """Entries for Anthropic (Claude) models come entirely from AA because
+    Anthropic has no public listing endpoint. Pricing comes from AA's
+    pricing block.
+
+    Post-consolidation Claude is reached via OpenRouter (provider=openrouter,
+    ``openrouter/anthropic/<slug>``); there is no native-Anthropic provider
+    in the cascade anymore. The sole native-Anthropic surface is the
+    computer-use island, which does not use the catalog.
+    """
+    import re
     pricing = aa_row.get("pricing") or {}
     cost_input = float(pricing.get("price_1m_input_tokens") or 0)
     cost_output = float(pricing.get("price_1m_output_tokens") or 0)
     tier = _tier_for_cost(cost_output)
-    # AA slug is like "claude-opus-4-7"; the Anthropic SDK needs the same
-    # dashed form as the model_id, so we pass it through unchanged.
+    # AA slug is like "claude-opus-4-7"; OpenRouter uses a dotted version
+    # ("claude-opus-4.7"). Mirror the transform in
+    # ``app.llm_catalog.derived_id(.., "openrouter")``.
     raw_slug = _strip_aa_variant(aa_row.get("slug") or "")
+    or_slug = re.sub(r"-(\d+)-(\d+)$", r"-\1.\2", raw_slug)
 
     entry = {
         "tier": tier,
-        "provider": "anthropic",
-        "model_id": f"anthropic/{raw_slug}",
+        "provider": "openrouter",
+        "model_id": f"openrouter/anthropic/{or_slug}",
         # AA doesn't expose context length. Fall back to Anthropic's current
         # 1M floor so selection isn't forced to prefer other providers.
         "context": 1_000_000,
@@ -360,7 +370,7 @@ def _build_anthropic_entry(
         "supports_tools": True,
         "description": (aa_row.get("name") or catalog_key)[:140],
         "_auto": True,
-        "_source": "aa_anthropic",
+        "_source": "aa_anthropic_via_openrouter",
     }
     entry["strengths"] = derive_strengths(aa_row, is_multimodal=True, tier=tier)
     entry["tool_use_reliability"] = derive_tool_use_reliability(entry)

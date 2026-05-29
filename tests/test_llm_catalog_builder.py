@@ -131,8 +131,9 @@ class TestBuildSnapshot:
             snap = b.build_snapshot()
         assert "claude-opus-4.7" in snap
         entry = snap["claude-opus-4.7"]
-        assert entry["provider"] == "anthropic"
-        assert entry["model_id"] == "anthropic/claude-opus-4-7"
+        # Post-consolidation: Claude is routed via OpenRouter (dotted slug).
+        assert entry["provider"] == "openrouter"
+        assert entry["model_id"] == "openrouter/anthropic/claude-opus-4.7"
         assert entry["tier"] == "premium"
         assert entry["cost_output_per_m"] == 25.0
         assert entry["strengths"]["general"] > 0.5  # from AA intel

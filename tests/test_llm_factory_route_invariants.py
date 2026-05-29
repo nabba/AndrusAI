@@ -55,17 +55,6 @@ class TestDerivedIdContract:
     """The golden table: for every bootstrap survivor, the two routes
     return the exact shape each consumer expects."""
 
-    def test_anthropic_native_strips_prefix(self):
-        entry = _BOOTSTRAP_CATALOG["claude-sonnet-4.6"]
-        # The native Anthropic SDK accepts only the bare id.  Any
-        # ``/`` in the result is a regression of today's bug class.
-        assert derived_id(entry, "native_anthropic") == "claude-sonnet-4-6"
-
-    def test_anthropic_litellm_preserves_prefix(self):
-        entry = _BOOTSTRAP_CATALOG["claude-sonnet-4.6"]
-        # The LiteLLM-routed form is what the catalog stores natively.
-        assert derived_id(entry, "litellm") == "anthropic/claude-sonnet-4-6"
-
     def test_openrouter_litellm_preserves_full_id(self):
         entry = _BOOTSTRAP_CATALOG["deepseek-v3.2"]
         # OpenRouter calls go through LiteLLM with the
@@ -414,150 +403,31 @@ class TestHealthCachePersistence:
 class TestAnthropicClientHandle:
     """The factory API the 22 bypass sites should be using."""
 
-    def test_returns_handle_with_factory_chosen_model(self, monkeypatch):
-        """Construction picks a model via the chain walker and exposes
-        ``.model_id`` as the bare id."""
-        monkeypatch.setattr(llm_factory, "get_anthropic_api_key", lambda: "test-key")
-
-        # Stub the SDK so the test doesn't require ``anthropic`` to be
-        # installed in a meaningful way for the test environment.
-        class FakeAnthropic:
-            def __init__(self, *, api_key):
-                self.api_key = api_key
-
-        import sys
-        fake_module = type(sys)("anthropic")
-        fake_module.Anthropic = FakeAnthropic
-        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
-
-        handle = llm_factory.anthropic_client_for_role(role="commander")
-        # Factory chose the bootstrap survivor (Claude Sonnet 4.6) and
-        # surfaced the bare id, not the LiteLLM-prefixed form.
-        assert handle.model_id == "claude-sonnet-4-6"
-        assert handle.catalog_key == "claude-sonnet-4.6"
-
-    def test_messages_create_injects_model_and_strips_kwarg(self, monkeypatch):
-        """``.messages.create()`` injects the factory's model — callers
-        don't pass it, and passing it would be silently overridden."""
-        monkeypatch.setattr(llm_factory, "get_anthropic_api_key", lambda: "test-key")
-
-        captured = {}
-
-        class FakeMessages:
-            def create(self, **kw):
-                captured.update(kw)
-                return "fake-response"
-
-        class FakeAnthropic:
-            def __init__(self, *, api_key):
-                self.messages = FakeMessages()
-                self.beta = type("FakeBeta", (), {})()
-
-        import sys
-        fake_module = type(sys)("anthropic")
-        fake_module.Anthropic = FakeAnthropic
-        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
-
-        handle = llm_factory.anthropic_client_for_role(role="commander")
-        handle.messages.create(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
-
-        # Factory injected the bare id.
-        assert captured["model"] == "claude-sonnet-4-6"
-        # Caller-supplied kwargs pass through.
-        assert captured["max_tokens"] == 10
-        assert captured["messages"] == [{"role": "user", "content": "hi"}]
-
-    def test_call_success_marks_alive(self, monkeypatch):
-        """A successful create() refreshes the health cache."""
-        monkeypatch.setattr(llm_factory, "get_anthropic_api_key", lambda: "test-key")
-
-        class FakeMessages:
-            def create(self, **kw):
-                return "ok"
-
-        class FakeAnthropic:
-            def __init__(self, *, api_key):
-                self.messages = FakeMessages()
-                self.beta = type("FakeBeta", (), {})()
-
-        import sys
-        fake_module = type(sys)("anthropic")
-        fake_module.Anthropic = FakeAnthropic
-        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
-
-        handle = llm_factory.anthropic_client_for_role(role="commander")
-        handle.messages.create(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
-
-        rec = llm_factory_probe.health_of("anthropic", "claude-sonnet-4-6")
-        assert rec is not None and rec.is_alive is True
-
-    def test_call_404_marks_dead_and_propagates(self, monkeypatch):
-        """A 404 ``not_found_error`` marks the model dead and re-raises."""
-        monkeypatch.setattr(llm_factory, "get_anthropic_api_key", lambda: "test-key")
-
-        class FakeMessages:
-            def create(self, **kw):
-                raise RuntimeError(
-                    "Anthropic API call failed: Error code: 404 - "
-                    "{'type': 'error', 'error': {'type': 'not_found_error', "
-                    "'message': 'model: claude-sonnet-4-6'}}"
-                )
-
-        class FakeAnthropic:
-            def __init__(self, *, api_key):
-                self.messages = FakeMessages()
-                self.beta = type("FakeBeta", (), {})()
-
-        import sys
-        fake_module = type(sys)("anthropic")
-        fake_module.Anthropic = FakeAnthropic
-        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
-
-        handle = llm_factory.anthropic_client_for_role(role="commander")
-        with pytest.raises(RuntimeError, match="not_found_error"):
-            handle.messages.create(
-                messages=[{"role": "user", "content": "hi"}],
-                max_tokens=10,
-            )
-
-        # Marked dead in the health cache.
-        rec = llm_factory_probe.health_of("anthropic", "claude-sonnet-4-6")
-        assert rec is not None and rec.is_alive is False
-
     def test_no_anthropic_sdk_imports_outside_factory(self):
-        """The universal-supplier invariant.
+        """The single-island invariant (OpenRouter+Ollama consolidation).
 
-        Direct ``anthropic.Anthropic()`` / ``from anthropic import Anthropic``
-        outside the sanctioned files bypasses model selection, the
-        health cache, budget tracking, and the chain walker — exactly
-        the failure mode the 2026-05-24 incident exposed in the router.
+        After the consolidation, **OpenRouter and Ollama are the only LLM
+        providers** and the factory (via ``chat_completion_for_role`` /
+        ``create_specialist_llm``) is the only way to obtain an LLM.  The
+        native Anthropic SDK survives in exactly ONE place — the
+        computer-use vision island — because it needs the
+        ``computer-use-2025-01-24`` beta that OpenRouter cannot proxy.
 
-        Sanctioned files (the factory's own implementation surface):
-          * ``app/llm_factory.py``       — defines :class:`AnthropicClientHandle`
-          * ``app/llms/``                — credit-aware subclass home
-          * ``app/llm_anthropic_budget.py`` — the budget tracker that
-            must NOT depend on the factory (cost-pre-check is the
-            factory's pre-flight; recursion would be a cycle).
-          * ``app/computer_use/``        — the vision computer-use
-            subsystem needs the raw SDK for the
-            ``computer_20250124`` tool which is API-version-specific
-            and falls outside the role/task abstraction.
+        Any OTHER file that imports / constructs the native Anthropic SDK
+        has re-opened the dual-dialect surface the consolidation closed,
+        and this test fails with the offending file:line.
 
-        Any other file that imports the SDK directly is a regression
-        of the universal-supplier directive and this test fails with
-        the offending file:line.
+        Sanctioned files (the island, and nothing else):
+          * ``app/computer_use/``            — the vision UI-automation
+            subsystem; calls the SDK with the ``computer_20250124`` tool.
+          * ``app/tools/computer_use_tool.py`` — availability-check stub
+            that does ``import anthropic`` purely to detect installation;
+            never constructs a client.
         """
         import pathlib, re as _re
 
         sanctioned_prefixes = (
-            "app/llm_factory.py",
-            "app/llms/",
-            "app/llm_anthropic_budget.py",
             "app/computer_use/",
-            # Availability-check stub for the computer_use tool — does
-            # ``import anthropic`` purely to detect installation, never
-            # constructs a client.  The actual computer-use call goes
-            # through ``app/computer_use/runner.py``.
             "app/tools/computer_use_tool.py",
         )
 
@@ -597,11 +467,12 @@ class TestAnthropicClientHandle:
             )
             extra = f"\n  …and {len(violations) - 20} more" if len(violations) > 20 else ""
             pytest.fail(
-                "UNIVERSAL-SUPPLIER VIOLATION — direct Anthropic SDK use "
-                "outside sanctioned files.  Migrate to "
-                "``app.llm_factory.anthropic_client_for_role(role, task_hint)``.\n\n"
+                "SINGLE-ISLAND VIOLATION — native Anthropic SDK use "
+                "outside the computer-use island.  Route LLM calls through "
+                "``app.llm_factory.chat_completion_for_role(role, task_hint)`` "
+                "(OpenRouter/Ollama) instead.\n\n"
                 f"{formatted}{extra}\n\n"
-                "If a NEW sanctioned bypass is intentional, add it to "
+                "If a NEW sanctioned bypass is truly unavoidable, add it to "
                 "``sanctioned_prefixes`` in this test with a comment "
                 "explaining the structural reason."
             )
@@ -683,117 +554,6 @@ class TestAnthropicClientHandle:
         # (local_llm_enabled=False → "disabled").
         assert exc_info.value.reason_code == "disabled"
 
-    def test_idle_pause_blocks_anthropic_handle(self, monkeypatch):
-        """The raw-SDK handle refuses to construct when the brake is on —
-        callers must degrade to a non-Anthropic path.
-
-        After the §27 unification with ``_walk_chain`` the brake check
-        happens per-candidate (via ``_check_candidate_basics``), so the
-        attempts list contains one ``budget_paused`` row per Anthropic
-        candidate plus ``unknown_provider`` rows for the non-Anthropic
-        chain entries.  What matters for the contract is that at least
-        one ``budget_paused`` attempt appears and the exception type
-        is ``NoWorkingModelAvailable``.
-        """
-        # Patch the hoisted import in llm_factory's namespace — the
-        # canonical pytest pattern is to patch where the function is
-        # LOOKED UP, not where it's DEFINED.  The runtime_settings
-        # module was imported at module top in llm_factory; patching
-        # runtime_settings.get_idle_pause_due_to_budget would NOT
-        # affect the captured reference.
-        monkeypatch.setattr(
-            llm_factory, "get_idle_pause_due_to_budget", lambda: True,
-        )
-
-        handle = llm_factory.anthropic_client_for_role(role="commander")
-        with pytest.raises(llm_factory.NoWorkingModelAvailable) as exc_info:
-            _ = handle.model_id
-        reasons = [f.reason_code for _, f in exc_info.value.attempts]
-        assert "budget_paused" in reasons, (
-            "At least one Anthropic candidate must be skipped via the "
-            "budget brake when the operator's spend ceiling engages"
-        )
-        # And ALL Anthropic candidates were budget_paused (not e.g.
-        # missing_key — the brake fires first in the per-candidate
-        # check order).
-        anthropic_reasons = [
-            f.reason_code for n, f in exc_info.value.attempts
-            if n in ("claude-sonnet-4.6",)
-        ]
-        assert all(r == "budget_paused" for r in anthropic_reasons)
-
-    def test_pre_check_raises_through_handle(self, monkeypatch):
-        """Anthropic daily-cap exceeded surfaces as the typed
-        :class:`AnthropicDailyCapExceeded` so callers can degrade."""
-        monkeypatch.setattr(llm_factory, "get_anthropic_api_key", lambda: "test-key")
-
-        # Stub the SDK so we get to the pre_check phase.
-        class FakeAnthropic:
-            def __init__(self, *, api_key):
-                self.messages = type("FM", (), {"create": lambda **kw: "ok"})()
-                self.beta = type("FB", (), {})()
-
-        import sys
-        fake_module = type(sys)("anthropic")
-        fake_module.Anthropic = FakeAnthropic
-        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
-
-        # Force the cap to be exhausted by stubbing pre_check.
-        from app.llm_anthropic_budget import AnthropicDailyCapExceeded
-        from app import llm_anthropic_budget
-        def fake_pre_check(estimated_cost_usd=0.0):  # noqa: ARG001
-            raise AnthropicDailyCapExceeded(
-                today_spent_usd=10.0, daily_cap_usd=5.0, estimated_cost_usd=0.0,
-            )
-        monkeypatch.setattr(llm_anthropic_budget, "pre_check", fake_pre_check)
-
-        handle = llm_factory.anthropic_client_for_role(role="commander")
-        with pytest.raises(AnthropicDailyCapExceeded):
-            handle.messages.create(messages=[{"role": "user", "content": "hi"}], max_tokens=10)
-
-    def test_streaming_path_instruments_completion(self, monkeypatch):
-        """``stream=True`` returns an iterator; mark_alive fires when
-        the iterator is exhausted, not when it's opened."""
-        monkeypatch.setattr(llm_factory, "get_anthropic_api_key", lambda: "test-key")
-
-        class FakeMessages:
-            def create(self, **kw):
-                # Mimic the SDK: stream=True returns an iterable.
-                assert kw.get("stream") is True
-                return iter([{"event": "delta1"}, {"event": "delta2"}])
-
-        class FakeAnthropic:
-            def __init__(self, *, api_key):
-                self.messages = FakeMessages()
-                self.beta = type("FB", (), {})()
-
-        import sys
-        fake_module = type(sys)("anthropic")
-        fake_module.Anthropic = FakeAnthropic
-        monkeypatch.setitem(sys.modules, "anthropic", fake_module)
-
-        handle = llm_factory.anthropic_client_for_role(role="commander")
-        # Wipe the cache so we can observe alive-marking.
-        llm_factory_probe._reset_for_tests()
-        # Re-enable persistence? No — tests use the disabled path.
-        # But we just want to observe in-memory health.
-
-        stream = handle.messages.create(
-            messages=[{"role": "user", "content": "hi"}],
-            max_tokens=10, stream=True,
-        )
-
-        # mark_alive must NOT have fired yet (stream not consumed).
-        assert llm_factory_probe.health_of("anthropic", "claude-sonnet-4-6") is None
-
-        # Drain the stream.
-        events = list(stream)
-        assert len(events) == 2
-
-        # NOW mark_alive should have fired.
-        rec = llm_factory_probe.health_of("anthropic", "claude-sonnet-4-6")
-        assert rec is not None and rec.is_alive is True
-
     def test_filter_candidates_skips_dead_models(self, monkeypatch):
         """The catalog's ``_filter_candidates`` consults the health
         cache and drops dead models BEFORE scoring — so a dead model
@@ -802,9 +562,11 @@ class TestAnthropicClientHandle:
         """
         from app.llm_catalog import _filter_candidates
 
-        # Mark the premium survivor dead.
+        # Mark the premium survivor dead.  Its health key is
+        # (entry.provider, derived_id(entry, "native_anthropic")) —
+        # claude-sonnet-4.6 routes via OpenRouter post-consolidation.
         llm_factory_probe.mark_dead(
-            "anthropic", "claude-sonnet-4-6", "test 404",
+            "openrouter", "anthropic/claude-sonnet-4.6", "test 404",
         )
 
         # Balanced mode admits every tier; without the health filter
@@ -1413,39 +1175,6 @@ class TestAnthropicClientHandle:
         # it uniformly.
         assert exc_info.value.reason_code == "budget_paused"
 
-    def test_set_cost_estimates_flows_through_to_pre_check(self, monkeypatch):
-        """The catalog's ``cost_input_per_m`` / ``cost_output_per_m``
-        flow from ``_build_claude_llm`` into ``CreditAware`` via
-        ``set_cost_estimates`` and then into the per-call ``pre_check``
-        as a real estimated_cost_usd.  A regression that zeros the
-        cost wouldn't be caught by any other test — this pins the path.
-        """
-        from app.llms.credit_aware_anthropic import (
-            CreditAwareAnthropicCompletion,
-        )
-
-        # Build a CreditAware directly with cost data captured.  We
-        # don't need a real Anthropic SDK — just exercise the estimate.
-        class _Fake(CreditAwareAnthropicCompletion):
-            pass
-
-        # Bypass the parent ``AnthropicCompletion.__init__`` (which
-        # tries to instantiate a real client) by constructing via
-        # ``model_construct`` which skips validation.
-        try:
-            llm = _Fake.model_construct(
-                model="claude-sonnet-4-6",
-                max_tokens=1024,
-            )
-        except Exception:
-            pytest.skip("CreditAware construction shape not testable in env")
-
-        llm.set_cost_estimates(1.0, 5.0)  # $1/M in, $5/M out
-        # 2000 input * $1/M + 1024 output * $5/M = $0.002 + $0.00512
-        # = $0.00712.
-        estimate = llm._estimate_call_cost_usd()
-        assert estimate == pytest.approx(0.00712, abs=0.0001)
-
     def test_budget_fallback_sentinel_for_role_named_default(self):
         """A role literally named ``default`` should return the
         fallback sentinel, not collide with a magic dict key.  The
@@ -1489,20 +1218,6 @@ class TestAnthropicClientHandle:
         )
         assert "budget is exhausted" in src
 
-    def test_no_anthropic_key_raises_no_working_model(self, monkeypatch):
-        """Without ANTHROPIC_API_KEY, no Anthropic candidate constructs —
-        NoWorkingModelAvailable surfaces with the full attempt list."""
-        monkeypatch.setattr(llm_factory, "get_anthropic_api_key", lambda: "")
-        with pytest.raises(llm_factory.NoWorkingModelAvailable) as exc_info:
-            handle = llm_factory.anthropic_client_for_role(role="commander")
-            # Trigger lazy selection.
-            _ = handle.model_id
-        # Every attempt failed with missing_key.
-        for _, failure in exc_info.value.attempts:
-            assert failure.reason_code in (
-                "missing_key", "unknown_provider", "shape_invalid",
-            )
-
 
 # ── _construct_from_entry contract ────────────────────────────────────
 
@@ -1520,9 +1235,10 @@ class TestConstructFromEntry:
 
     def test_marked_dead_raises_with_reason(self):
         entry = _BOOTSTRAP_CATALOG["claude-sonnet-4.6"]
-        # Mark the bare id dead.
+        # Mark its health key dead (entry.provider + native_anthropic
+        # route id) — claude-sonnet-4.6 routes via OpenRouter now.
         llm_factory_probe.mark_dead(
-            "anthropic", "claude-sonnet-4-6", "test setup",
+            "openrouter", "anthropic/claude-sonnet-4.6", "test setup",
         )
         with pytest.raises(ConstructionFailed) as exc_info:
             _construct_from_entry(
@@ -1590,9 +1306,6 @@ class TestWalkChain:
         monkeypatch.setattr(
             llm_factory, "get_openrouter_api_key", lambda: "test-key",
         )
-        monkeypatch.setattr(
-            llm_factory, "get_anthropic_api_key", lambda: "",
-        )
         monkeypatch.setattr(llm_factory, "_try_api", fake_try_api)
 
         result = _walk_chain(
@@ -1620,66 +1333,3 @@ class TestWalkChain:
         assert result is sentinel
 
 
-# ── 2026-05-24 regression pin ─────────────────────────────────────────
-
-class TestIncidentRegressionPin:
-    """The exact 2026-05-24 bug class: model id sent to the Anthropic
-    native SDK must be the bare form (``claude-sonnet-4-6``), not the
-    LiteLLM-prefixed form (``anthropic/claude-sonnet-4-6``).
-
-    A test failure here means today's outage class has re-emerged."""
-
-    def test_build_claude_llm_passes_bare_id_to_native_sdk(self, monkeypatch):
-        """``_build_claude_llm`` must derive the bare id and pass it to
-        ``CreditAwareAnthropicCompletion(model=...)``.  Anything with a
-        ``/`` is the 2026-05-24 incident class.
-        """
-        # Capture what gets passed to CreditAwareAnthropicCompletion.
-        captured = {}
-
-        class FakeCompletion:
-            def __init__(self, model, max_tokens, **kw):
-                captured["model"] = model
-                captured["max_tokens"] = max_tokens
-
-            def set_fallback_factory(self, _):
-                return self
-
-            def set_cost_estimates(self, _in, _out):
-                return self
-
-        # The factory imports CreditAwareAnthropicCompletion lazily
-        # inside _build_claude_llm — monkeypatch the source module.
-        import app.llms.credit_aware_anthropic as cawa_mod
-        monkeypatch.setattr(
-            cawa_mod, "CreditAwareAnthropicCompletion", FakeCompletion,
-        )
-        # Also stub the credit breaker so it doesn't take the
-        # OpenRouter fallback path on import.
-        from app import circuit_breaker
-        monkeypatch.setattr(
-            circuit_breaker, "is_available", lambda _name: True,
-        )
-        # Ensure the catalog has the survivor we expect.
-        assert "claude-sonnet-4.6" in CATALOG
-
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-
-        # Drive _build_claude_llm directly through its public surface
-        # (the path the chain walker would take for the Anthropic
-        # bootstrap survivor).
-        llm_factory._build_claude_llm(
-            "claude-sonnet-4.6",
-            CATALOG["claude-sonnet-4.6"]["model_id"],
-            max_tokens=1024,
-            role="commander",
-        )
-
-        # THE PIN.  Anything else is the 2026-05-24 incident class.
-        assert captured["model"] == "claude-sonnet-4-6", (
-            f"REGRESSION: native AnthropicCompletion received "
-            f"model={captured['model']!r}; expected bare id "
-            f"'claude-sonnet-4-6'.  The 2026-05-24 incident has "
-            f"re-emerged — see app/llm_catalog.py:derived_id and "
-            f"app/llm_factory.py:_build_claude_llm."
-        )

@@ -577,19 +577,18 @@ def _openrouter_equivalent_model_id(catalog_key: str, entry: dict | None) -> str
 def _build_primary_llm(catalog_key: str, entry: dict):
     """Build the direct-provider LLM for a judge key (no fallback)."""
     from app.llm_factory import _cached_llm
-    from app.config import get_settings, get_anthropic_api_key
+    from app.config import get_settings
+    from app.llm_catalog import derived_id
     provider = entry.get("provider")
-    if provider == "anthropic":
-        key = get_anthropic_api_key()
-        if not key:
-            return None
-        return _cached_llm(entry["model_id"], max_tokens=256, api_key=key)
-    if provider == "openrouter":
+    if provider in ("openrouter", "anthropic"):
+        # Claude is reached via OpenRouter post-consolidation; a stale
+        # snapshot entry still tagged provider="anthropic" is translated
+        # to its OpenRouter route by ``derived_id`` rather than skipped.
         or_key = get_settings().openrouter_api_key.get_secret_value()
         if not or_key:
             return None
         return _cached_llm(
-            entry["model_id"], max_tokens=256,
+            derived_id(entry, "openrouter"), max_tokens=256,
             base_url="https://openrouter.ai/api/v1", api_key=or_key,
         )
     if provider == "ollama":

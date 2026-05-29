@@ -108,7 +108,7 @@ class TestPublicAPI(unittest.TestCase):
         assert get_tier("nonexistent") == "unknown"
 
     def test_get_provider(self):
-        assert get_provider("claude-sonnet-4.6") == "anthropic"
+        assert get_provider("claude-sonnet-4.6") == "openrouter"
         assert get_provider("deepseek-v3.2") == "openrouter"
         assert get_provider("qwen3.5:35b-a3b-q4_K_M") == "ollama"
 
@@ -312,10 +312,10 @@ class TestUnifiedRuntimeMode(unittest.TestCase):
     and back-compat of the ``cost_mode=`` keyword at every API entry.
     """
 
-    def test_runtime_modes_has_expected_six_values(self):
+    def test_runtime_modes_has_expected_five_values(self):
         from app.llm_catalog import RUNTIME_MODES
         assert RUNTIME_MODES == (
-            "free", "budget", "balanced", "quality", "insane", "anthropic",
+            "free", "budget", "balanced", "quality", "insane",
         )
 
     def test_cost_modes_is_alias_for_runtime_modes(self):
@@ -349,18 +349,6 @@ class TestUnifiedRuntimeMode(unittest.TestCase):
         assert resolve_role_default("coding", cost_mode="hybrid") == resolve_role_default(
             "coding", "balanced"
         )
-
-    def test_anthropic_mode_returns_anthropic_provider(self):
-        """In anthropic mode, every role's pick should be an Anthropic model."""
-        from app.llm_catalog import resolve_role_default
-        for role in ("commander", "coding", "planner", "critic"):
-            pick = resolve_role_default(role, "anthropic")
-            entry = CATALOG.get(pick, {})
-            # Bootstrap-only CATALOG has exactly one Anthropic entry
-            # (claude-sonnet-4.6). In production catalog there are more.
-            assert entry.get("provider") == "anthropic", (
-                f"{role}/anthropic → {pick} provider={entry.get('provider')}"
-            )
 
     def test_insane_mode_never_picks_local(self):
         """Insane mode's tier whitelist is {premium} — local is excluded."""

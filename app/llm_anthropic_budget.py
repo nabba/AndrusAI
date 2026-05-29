@@ -38,13 +38,14 @@ Design constraints
 Caller contract
 ───────────────
 
-The high-volume direct callers (Mem0 extractor, structured-diagnosis,
-brainstorm seed/react rounds) opt into the gate by calling
-``pre_check`` BEFORE invoking ``anthropic.Anthropic().messages.create``.
-The factory-routed calls (CrewAI cascade) get it for free once the
-factory's chokepoint is wired (separate ship — keeping this module
-itself decoupled from llm_factory so the primitive is testable in
-isolation).
+After the OpenRouter+Ollama consolidation this module is the
+**computer-use island's** daily Anthropic cap: the island is the only
+surface that still calls the native Anthropic SDK directly (it needs
+the ``computer-use-2025-01-24`` beta), and its runner calls
+``pre_check`` before each native step. The module also backs the
+dashboard's "Anthropic per-day" pane and the cost-advisor / cost-ledger
+per-provider iteration. It stays decoupled from llm_factory so the
+primitive is testable in isolation.
 """
 from __future__ import annotations
 
@@ -195,10 +196,10 @@ def pre_check(estimated_cost_usd: float = 0.0) -> None:
     read (failure-isolated), or the estimate would still fit under
     the cap.
 
-    Call this RIGHT BEFORE invoking ``anthropic.Anthropic().messages.create``
-    in any high-volume code path. Single-shot calls don't strictly need
-    it (the cumulative ceiling already covers them), but it's cheap
-    enough that protecting them too costs nothing.
+    Call this RIGHT BEFORE invoking the native Anthropic SDK in the
+    computer-use island. Single-shot calls don't strictly need it (the
+    cumulative ceiling already covers them), but it's cheap enough that
+    protecting them too costs nothing.
     """
     cap = get_cap()
     if cap is None:
@@ -246,12 +247,11 @@ def call_or_skip(
     ::
 
         if not llm_anthropic_budget.call_or_skip(
-            estimated_cost_usd=0.005, source="brainstorm:idea_evolve",
+            estimated_cost_usd=0.005, source="computer_use:step",
         ):
             return ""  # caller picks the skip sentinel
 
-        # proceed with the Anthropic call
-        client = anthropic.Anthropic()
+        # proceed with the native Anthropic call (computer-use island)
         ...
 
     The ``source`` parameter is purely informational — surfaces in

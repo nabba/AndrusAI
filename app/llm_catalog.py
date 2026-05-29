@@ -105,9 +105,11 @@ PUBLIC_ROLES: tuple[str, ...] = CREW_ROLES + SPECIALIST_ROLES + ("default",)
 # implied budget, insane implied quality).
 #
 # Monotonic cost gradient: free < budget < balanced < quality < insane.
-# ``anthropic`` is the special single-provider lock outside the gradient.
+# (The former ``anthropic`` single-provider lock was dropped in the
+# OpenRouter+Ollama consolidation — there is no longer a native-Anthropic
+# provider to lock to; Claude is reached uniformly via OpenRouter.)
 RUNTIME_MODES: tuple[str, ...] = (
-    "free", "budget", "balanced", "quality", "insane", "anthropic",
+    "free", "budget", "balanced", "quality", "insane",
 )
 
 # Deprecated alias — kept so legacy imports continue to work for one
@@ -230,14 +232,14 @@ def canonical_task_type(
 
 _BOOTSTRAP_CATALOG: dict[str, dict] = {
     "claude-sonnet-4.6": {
-        "tier": "premium", "provider": "anthropic",
-        "model_id": "anthropic/claude-sonnet-4-6",
+        "tier": "premium", "provider": "openrouter",
+        "model_id": "openrouter/anthropic/claude-sonnet-4.6",
         "context": 1_000_000, "multimodal": True,
         "max_output_tokens": 64_000,
         "cost_input_per_m": 1.00, "cost_output_per_m": 5.00,
         "tool_use_reliability": 0.95,
         "supports_tools": True,
-        "description": "Claude Sonnet 4.6 — survival bootstrap (Anthropic fallback).",
+        "description": "Claude Sonnet 4.6 via OpenRouter — survival bootstrap (premium fallback).",
         "strengths": {
             "coding": 0.91, "debugging": 0.88, "architecture": 0.88,
             "research": 0.90, "writing": 0.93, "reasoning": 0.90,
@@ -419,7 +421,6 @@ _MODE_WEIGHT: dict[str, float] = {
     "balanced":  0.15,   # mild cost sensitivity
     "quality":   0.05,   # very mild — prefer the best
     "insane":    0.00,   # money no object
-    "anthropic": 0.15,   # mild — pick the best Anthropic within reason
 }
 
 # Which catalog tiers a mode is allowed to pick from. This is the single
@@ -437,31 +438,31 @@ _MODE_WEIGHT: dict[str, float] = {
 # mid before premium.  This biases the fallback walker toward the
 # cheap-end candidates within each mode's allowed set — matches the
 # intent of "free" and "budget" modes and is neutral for "balanced".
-# ``insane`` and ``anthropic`` modes have only one or two tiers so the
-# order is immaterial.
+# ``insane`` mode has only one tier so the order is immaterial.
 _MODE_TIER_WHITELIST: dict[str, tuple[str, ...]] = {
     "free":      ("local", "free"),
     "budget":    ("local", "free", "budget"),
     "balanced":  ("local", "free", "budget", "mid", "premium"),
     "quality":   ("local", "free", "budget", "mid", "premium"),
     "insane":    ("premium",),
-    "anthropic": ("mid", "premium"),  # includes Haiku-tier entries
 }
 
 # Provider whitelist per mode. ``None`` = every provider allowed.
-# Only ``anthropic`` mode restricts by provider today.
+# No mode restricts by provider after the OpenRouter+Ollama consolidation
+# (the former ``anthropic`` single-provider lock was dropped). The dict is
+# kept so ``model_in_mode_pool`` keeps a uniform lookup and a future
+# provider lock has an obvious home.
 _MODE_PROVIDER_WHITELIST: dict[str, frozenset[str] | None] = {
     "free":      None,
     "budget":    None,
     "balanced":  None,
     "quality":   None,
     "insane":    None,
-    "anthropic": frozenset({"anthropic"}),
 }
 
 # Modes in which a local-preferred role actually gets its local pick.
-# Quality/insane/anthropic explicitly opt out — user wants premium even
-# for background roles.
+# Quality/insane explicitly opt out — user wants premium even for
+# background roles.
 _MODE_PREFER_LOCAL: frozenset[str] = frozenset({"free", "budget", "balanced"})
 
 # Back-compat alias — old code reads ``_COST_MODE_WEIGHT``. Keep the

@@ -14,7 +14,7 @@ Architecture:
   Vetting:       Resolver pick for the vetting role at the current runtime mode.
 
 Runtime mode vocabulary (see app.llm_catalog.RUNTIME_MODES):
-  free, budget, balanced [default], quality, insane, anthropic
+  free, budget, balanced [default], quality, insane
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from crewai import LLM  # type hints only — no runtime import cost
-from app.config import get_settings, get_anthropic_api_key, get_openrouter_api_key
+from app.config import get_settings, get_openrouter_api_key
 from app.llm_catalog import (
     get_model, get_model_id, get_provider, get_tier,
     get_default_for_role, CATALOG,
@@ -282,10 +282,10 @@ def _cached_llm(
 
         NOTE: cached instances must behave correctly under every call —
         no sticky per-instance state that would break auto-recovery /
-        shared-state contracts.  Our CreditAware subclass satisfies
-        this because it consults ``circuit_breaker["anthropic_credits"]``
-        on every ``call()``, so a cached instance always routes
-        correctly even after credits are restored.
+        shared-state contracts.  Our ``BudgetAwareCompletion`` subclass
+        satisfies this because it consults the per-call budget module on
+        every ``call()``, so a cached instance always routes correctly
+        even after the cap state changes.
 
     Cache isolation
     ---------------
@@ -314,15 +314,6 @@ def _cached_llm(
         cached = _llm_cache.get(key)
         if cached is not None:
             return cached
-
-        # ── Anthropic prompt caching: enable via extra_headers ──
-        # Reduces cost by ~90% on cached prefix tokens (system prompt,
-        # constitution, soul files). Only activates for Claude models.
-        # litellm passes extra_headers through to the Anthropic SDK.
-        if _is_anthropic_model(model_id):
-            extra_headers = kwargs.pop("extra_headers", {}) or {}
-            extra_headers["anthropic-beta"] = "prompt-caching-2024-07-31"
-            kwargs["extra_headers"] = extra_headers
 
         # ── OpenRouter provider exclusion ──
         # OpenRouter's anonymous "Stealth" sub-provider class periodically
@@ -425,22 +416,22 @@ def _check_candidate_basics(
     if health is not None and not health.is_alive:
         return ConstructionFailed("marked_dead", health.last_reason)
 
-    # Total-spend brake (paid providers only)
-    if provider in ("anthropic", "openrouter"):
+    # Total-spend brake (paid providers only — OpenRouter is the only
+    # paid provider now; Ollama is free, the computer-use island is the
+    # only native-Anthropic surface and does not route through here).
+    if provider == "openrouter":
         try:
             if get_idle_pause_due_to_budget():
                 return ConstructionFailed(
                     "budget_paused",
-                    f"idle_pause_due_to_budget is engaged — skipping "
-                    f"{provider} candidate to honour the monthly cap; "
+                    "idle_pause_due_to_budget is engaged — skipping "
+                    "openrouter candidate to honour the monthly cap; "
                     "chain walker will fall through to local Ollama",
                 )
         except Exception:
             pass
 
     # Provider-specific API-key check
-    if provider == "anthropic" and not get_anthropic_api_key():
-        return ConstructionFailed("missing_key", "ANTHROPIC_API_KEY not set")
     if provider == "openrouter" and not get_openrouter_api_key():
         return ConstructionFailed("missing_key", "OPENROUTER_API_KEY not set")
 
@@ -491,18 +482,11 @@ def _construct_from_entry(
 
     # Provider dispatch — each branch must end in either a return
     # or a raise; no implicit fall-through.  Key + brake checks have
-    # already passed inside ``_check_candidate_basics``.
-    if provider == "anthropic":
-        try:
-            return _build_claude_llm(
-                name, entry["model_id"], max_tokens=max_tokens, role=role,
-                phase=phase,
-                tier=entry.get("tier", "premium"),
-                cost_out=entry.get("cost_output_per_m", 15.0),
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise ConstructionFailed("build_failed", f"{exc!s}") from exc
-
+    # already passed inside ``_check_candidate_basics``.  There are
+    # exactly two providers: OpenRouter (network) and Ollama (local).
+    # Claude is reached via OpenRouter like any other model; the sole
+    # native-Anthropic surface is the computer-use island, which never
+    # routes through the factory.
     if provider == "openrouter":
         # OpenRouter daily-cap pre-check.  Symmetric with the
         # Anthropic gate, applied at construction (not per-call —
@@ -626,420 +610,6 @@ def _chain_for_role(
     if primary:
         chain.insert(0, primary)
     return chain
-
-
-# ── Raw-SDK factory surface for non-CrewAI callers ──────────────────
-#
-# Many subsystems (vision, JSON-mode classification, structured
-# diagnosis, brainstorm, concierge, …) want the raw Anthropic SDK
-# rather than the CrewAI ``LLM`` wrapper.  Reasons include: native
-# image content blocks, structured ``tool_use`` outputs, custom
-# system prompts, streaming, or just historical inertia from before
-# the factory existed.
-#
-# Pre-factory those sites all did:
-#
-#     from anthropic import Anthropic
-#     client = Anthropic(api_key=key)
-#     resp = client.messages.create(model="claude-haiku-4-5-…", …)
-#
-# which hardcoded a model id (no catalog awareness, no failover, no
-# health cache, no budget) and instantiated an SDK client per call
-# (no connection pooling).  When Anthropic deprecated such an id
-# upstream, every one of those sites silently broke.  The 2026-05-24
-# incident root cause for the router was the *same* problem in a
-# different layer.
-#
-# :func:`anthropic_client_for_role` is the factory-supplied
-# alternative.  It returns a handle that:
-#
-#   * picks the model via the catalog + chain walker (filtered to
-#     ``provider="anthropic"`` entries — the SDK only speaks Anthropic),
-#   * consults the health cache before each call (skips dead models),
-#   * instruments call outcomes (mark_alive on 2xx, mark_dead on
-#     model-not-found 404) so the same feedback loop the router uses
-#     applies to every bypass site,
-#   * exposes ``.messages.create(**kwargs)`` matching the SDK shape so
-#     migrating call sites is a one-line edit.
-#
-# The returned object is NOT cached across calls — each call
-# re-selects to pick up health-cache updates and governance overlay
-# changes.  SDK client construction is cheap (it's a thin
-# ``httpx.Client`` wrapper).
-
-
-class AnthropicClientHandle:
-    """Factory-managed raw Anthropic SDK handle.
-
-    Exposes the same ``.messages.create(**kwargs)`` surface as
-    ``anthropic.Anthropic().messages``, with the ``model`` kwarg
-    auto-injected from catalog selection and call outcomes wired into
-    the health cache.
-
-    Construction selects the model once.  Subsequent calls re-validate
-    against the health cache and, if the original pick is now marked
-    dead, re-select via the chain walker before issuing the call.
-
-    Per-call selection means a busy site sees the most recent health
-    information without re-instantiating; per-construction selection
-    keeps the common-case latency unchanged.
-    """
-
-    def __init__(self, role: str, task_hint: str = ""):
-        self._role = role
-        self._task_hint = task_hint
-        # Build lazily so a fresh process without ANTHROPIC_API_KEY
-        # raises only when something actually tries to call.
-        self._catalog_key: str | None = None
-        self._bare_model: str | None = None
-        self._client = None
-        # Serialise re-selection so two concurrent ``.messages.create()``
-        # calls on the same handle don't both invoke ``_select`` and
-        # race on mutating ``_client`` / ``_bare_model`` /
-        # ``_catalog_key`` mid-flight.  Re-selection is rare (only on
-        # first call or after a model is marked dead in the health
-        # cache) so contention is negligible — the lock is here as a
-        # correctness guarantee, not a performance feature.
-        self._selection_lock = threading.Lock()
-
-    @property
-    def model_id(self) -> str:
-        """Return the currently-selected bare model id (re-selecting
-        if not yet chosen or marked dead since last call)."""
-        self._ensure_fresh_selection()
-        assert self._bare_model is not None  # _ensure_fresh_selection postcondition
-        return self._bare_model
-
-    @property
-    def catalog_key(self) -> str:
-        """Return the catalog key for the currently-selected model."""
-        self._ensure_fresh_selection()
-        assert self._catalog_key is not None
-        return self._catalog_key
-
-    def _ensure_fresh_selection(self) -> None:
-        # Fast path — lock-free read.  ``_bare_model`` is a single
-        # reference assignment, atomic in CPython.  A reader that
-        # observes a stale value would still pass through the health-
-        # cache check below; the worst case is one wasted call on a
-        # dead id, which the call-site instrumentation will then
-        # mark_dead.  We re-validate under the lock to avoid two
-        # concurrent re-selections.
-        if self._bare_model is not None:
-            health = llm_factory_probe.health_of("anthropic", self._bare_model)
-            if health is None or health.is_alive:
-                return  # cached selection still good
-        with self._selection_lock:
-            # Double-check after acquiring the lock — another thread
-            # may have re-selected while we waited.
-            if self._bare_model is not None:
-                health = llm_factory_probe.health_of("anthropic", self._bare_model)
-                if health is None or health.is_alive:
-                    return
-            self._select()
-
-    def _select(self) -> None:
-        """Walk the chain for the first Anthropic-provider candidate
-        that constructs.  Raises :class:`NoWorkingModelAvailable` if
-        every Anthropic entry in the chain fails — the caller decides
-        whether to surface the error or degrade.
-
-        Pre-build checks (provider, shape, health, brake, key) are
-        delegated to :func:`_check_candidate_basics` so the SDK-handle
-        path shares validation logic with the CrewAI-LLM path
-        (:func:`_construct_from_entry`).  Only the construction step
-        differs — this method builds an Anthropic SDK client; the
-        CrewAI path builds a ``CreditAwareAnthropicCompletion``.
-        """
-        # Compose the chain — resolver pick for the role first, then
-        # bootstrap survivors.  Per-candidate filtering to
-        # provider="anthropic" happens in ``_check_candidate_basics``.
-        from app.llm_mode import get_mode
-        primary = get_default_for_role(self._role, get_mode())
-        chain = _chain_for_role(self._role, primary=primary)
-
-        attempts: list[tuple[str, ConstructionFailed]] = []
-        for catalog_key in chain:
-            entry = get_model(catalog_key)
-            if entry is None:
-                attempts.append(
-                    (catalog_key, ConstructionFailed("not_in_catalog", ""))
-                )
-                continue
-            fail = _check_candidate_basics(
-                catalog_key, entry, require_provider="anthropic",
-            )
-            if fail is not None:
-                attempts.append((catalog_key, fail))
-                continue
-
-            # Construct the SDK client.  We import lazily so the
-            # factory module's import graph stays flat for processes
-            # that never need Anthropic.
-            try:
-                from anthropic import Anthropic
-            except ImportError as exc:
-                attempts.append(
-                    (catalog_key, ConstructionFailed(
-                        "build_failed", f"anthropic SDK not installed: {exc!s}",
-                    ))
-                )
-                continue
-            try:
-                self._client = Anthropic(api_key=get_anthropic_api_key())
-            except Exception as exc:  # noqa: BLE001
-                attempts.append(
-                    (catalog_key, ConstructionFailed("build_failed", f"{exc!s}"))
-                )
-                continue
-
-            self._catalog_key = catalog_key
-            self._bare_model = derived_id(entry, "native_anthropic")
-            logger.info(
-                "anthropic_client_for_role: role=%s task_hint=%r → %s (bare=%s)",
-                self._role, self._task_hint, catalog_key, self._bare_model,
-            )
-            return
-
-        raise NoWorkingModelAvailable(
-            f"anthropic-sdk[{self._role}]", attempts,
-        )
-
-    @property
-    def messages(self):
-        """SDK-compatible ``.messages`` namespace.
-
-        Returns an :class:`_InstrumentedMessages` proxy that auto-injects
-        ``model=`` and wires call outcomes into the health cache.
-        """
-        self._ensure_fresh_selection()
-        return _InstrumentedMessages(
-            client=self._client,
-            bare_model=self._bare_model,
-            source_tag=self._source_tag(),
-        )
-
-    # Expose a `.beta` passthrough for sites that use Anthropic's beta
-    # features (e.g. prompt caching, computer use, message batches).
-    # Same instrumentation pattern.
-    @property
-    def beta(self):
-        self._ensure_fresh_selection()
-        return _InstrumentedBeta(
-            client=self._client,
-            bare_model=self._bare_model,
-            source_tag=self._source_tag(),
-        )
-
-    def _source_tag(self) -> str:
-        """Compact role/task-hint string for source-attributed log lines."""
-        if self._task_hint:
-            return f"{self._role}:{self._task_hint}"
-        return self._role
-
-
-class _InstrumentedMessages:
-    """Wrapper around ``anthropic.Anthropic().messages`` that injects
-    ``model=`` and records call outcomes into the health cache.
-
-    Pre-flight cost gate
-    --------------------
-
-    Before issuing the call, consults
-    :func:`app.llm_anthropic_budget.pre_check` so the daily Anthropic
-    cap is enforced uniformly across every factory-managed Anthropic
-    call.  The factory-level gate is now the single contract — sites
-    that previously called ``llm_anthropic_budget.call_or_skip``
-    inline before constructing should just catch
-    :class:`app.llm_anthropic_budget.AnthropicDailyCapExceeded` if
-    they want to degrade gracefully.
-
-    Estimated cost defaults to ``0.0`` — callers can pass
-    ``_estimated_cost_usd=`` to bias the cap accurately for known-
-    expensive operations.  The kwarg is stripped before forwarding to
-    the SDK so the SDK never sees it.
-
-    Source attribution
-    ------------------
-
-    On :class:`AnthropicDailyCapExceeded` we emit a single ``INFO``
-    log line tagged with ``role``/``task_hint`` from the parent
-    handle so operators debugging "where did this spend pressure
-    come from?" can trace it back to the caller.  Replaces the
-    per-site ``source="…"`` logging that used to live in
-    :func:`llm_anthropic_budget.call_or_skip`.
-    """
-
-    def __init__(self, client, bare_model: str, *, source_tag: str = ""):
-        self._client = client
-        self._bare_model = bare_model
-        self._source_tag = source_tag
-
-    def create(self, **kwargs):
-        # Caller MUST NOT pass model — the factory owns that choice.
-        # If they do, log and override so the call doesn't silently
-        # bypass the catalog.
-        if "model" in kwargs and kwargs["model"] != self._bare_model:
-            logger.warning(
-                "AnthropicClientHandle: caller passed model=%r — "
-                "overriding with factory-selected %r.  Drop the model "
-                "kwarg from the call site to silence this.",
-                kwargs["model"], self._bare_model,
-            )
-        kwargs["model"] = self._bare_model
-
-        estimated_cost = float(kwargs.pop("_estimated_cost_usd", 0.0) or 0.0)
-
-        # Streaming path observes at iteration boundaries, not at
-        # call-open, so it manages its own envelope.
-        if kwargs.get("stream"):
-            return self._instrumented_stream(
-                estimated_cost_usd=estimated_cost, **kwargs
-            )
-
-        # Non-streaming path: single shot through the standard
-        # observation envelope (pre_check + outcome).  See
-        # :func:`app.llm_factory_probe.call_with_observation` for
-        # the contract — ``AnthropicDailyCapExceeded`` and model-id-
-        # level 404s propagate; other errors are unchanged.
-        try:
-            return llm_factory_probe.call_with_observation(
-                self._bare_model,
-                lambda: self._client.messages.create(**kwargs),
-                estimated_cost_usd=estimated_cost,
-            )
-        except Exception as exc:
-            # Source-attributed cap-exceed log.  Replaces the
-            # per-site ``source="…"`` logging that previously lived
-            # in ``llm_anthropic_budget.call_or_skip``.  Only fires
-            # for the cap-exceed exception class; other exceptions
-            # propagate without this log line.
-            from app.llm_anthropic_budget import AnthropicDailyCapExceeded
-            if isinstance(exc, AnthropicDailyCapExceeded):
-                logger.info(
-                    "Anthropic call refused for source=%r: %s",
-                    self._source_tag or self._bare_model, exc,
-                )
-            raise
-
-    def _instrumented_stream(self, estimated_cost_usd: float = 0.0, **kwargs):
-        """Streaming variant: open the upstream stream, then return a
-        generator that yields events through while observing the
-        terminal outcome (mark_alive on graceful exhaustion,
-        mark_dead on a model-id-level error).
-
-        Callers iterate the returned object exactly as they would the
-        raw Anthropic SDK stream — health-cache updates happen
-        transparently at iteration boundaries.
-
-        The pre-check happens BEFORE the stream is opened; per-token
-        cost is picked up post-hoc by the audit log the same way as
-        non-streaming calls.
-        """
-        # Pre-flight cap gate — runs once at stream open.
-        from app.llm_anthropic_budget import pre_check
-        pre_check(estimated_cost_usd=estimated_cost_usd)
-
-        try:
-            stream = self._client.messages.create(**kwargs)
-        except BaseException as exc:
-            llm_factory_probe.observe_outcome(self._bare_model, exc=exc)
-            raise
-
-        bare = self._bare_model
-
-        def _gen():
-            try:
-                for event in stream:
-                    yield event
-            except BaseException as exc:
-                llm_factory_probe.observe_outcome(bare, exc=exc)
-                raise
-            else:
-                llm_factory_probe.observe_outcome(bare, exc=None)
-
-        return _gen()
-
-
-class _InstrumentedBeta:
-    """Wrapper around ``anthropic.Anthropic().beta`` — exposes
-    ``.messages.create`` with the same instrumentation as the non-beta
-    path.
-
-    Beta-passthrough contract
-    -------------------------
-
-    ``.messages`` is fully instrumented (health cache + cost gate +
-    streaming wrapper).  Every OTHER attribute on ``.beta`` (e.g.
-    ``.beta.batches``, ``.beta.tools``, ``.beta.files``) is passed
-    through to the raw SDK via ``__getattr__`` and is therefore
-    **uninstrumented** — call outcomes do NOT update the health cache
-    and the cost pre-check does NOT fire.
-
-    This is deliberate: the load-bearing path is ``.beta.messages``
-    (e.g. prompt-caching extra-headers); no current call site uses
-    other beta endpoints.  When a new beta endpoint becomes load-
-    bearing, promote it to a dedicated wrapper class with the same
-    discipline as ``_InstrumentedMessages`` rather than relying on the
-    passthrough.
-
-    A test pin (``test_beta_messages_instrumented`` + a future
-    ``test_beta_passthrough_uninstrumented`` regression check if
-    needed) keeps this contract visible.
-    """
-
-    def __init__(self, client, bare_model: str, *, source_tag: str = ""):
-        self._client = client
-        self._bare_model = bare_model
-        self._source_tag = source_tag
-
-    @property
-    def messages(self):
-        return _InstrumentedMessages(
-            client=self._client.beta,
-            bare_model=self._bare_model,
-            source_tag=self._source_tag,
-        )
-
-    def __getattr__(self, name):
-        # Passthrough for uninstrumented beta endpoints — accept this
-        # asymmetry by deliberate choice; see class docstring.
-        return getattr(self._client.beta, name)
-
-
-def anthropic_client_for_role(
-    role: str,
-    task_hint: str = "",
-) -> AnthropicClientHandle:
-    """Return a factory-managed Anthropic SDK handle for *role*.
-
-    The single sanctioned way for raw-Anthropic-SDK callers (vision,
-    JSON-mode classification, structured diagnosis, etc.) to obtain a
-    client.  See :class:`AnthropicClientHandle` for the call surface.
-
-    Migration shape — before::
-
-        from anthropic import Anthropic
-        client = Anthropic(api_key=settings.anthropic_api_key.get_secret_value())
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            messages=[...],
-            max_tokens=1024,
-        )
-
-    after::
-
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting")
-        resp = client.messages.create(messages=[...], max_tokens=1024)
-        # No model kwarg — the factory picks it.
-
-    Raises :class:`NoWorkingModelAvailable` if every Anthropic
-    candidate in the role's chain fails (no key, all marked dead,
-    SDK not installed, …).  Catch this exception at the call site if
-    the operation has a non-Anthropic fallback path.
-    """
-    return AnthropicClientHandle(role=role, task_hint=task_hint)
 
 
 # ── Raw OpenAI-compatible completion surface (OpenRouter + Ollama) ───
@@ -1269,12 +839,6 @@ def chat_completion_for_role(
     :class:`ChatCompletionHandle` for the call surface.
     """
     return ChatCompletionHandle(role=role, task_hint=task_hint)
-
-
-def _is_anthropic_model(model_id: str) -> bool:
-    """Check if a model ID is an Anthropic Claude model."""
-    lower = model_id.lower()
-    return any(k in lower for k in ("claude-opus", "claude-sonnet", "claude-haiku", "anthropic/claude"))
 
 
 def _get_promoted_adapter(role: str) -> str | None:
@@ -1840,198 +1404,6 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str, phase: st
     return None
 
 
-# ── Anthropic-direct LLM factory with credit-exhausted failover ─────────
-#
-# When the Anthropic API returns
-#     400 invalid_request_error "Your credit balance is too low..."
-# we fail over to the same Claude model served via OpenRouter.  Authoritative
-# state lives in circuit_breaker["anthropic_credits"] (threshold 1, 3600s
-# cooldown) — tripping is idempotent and visible to every LLM factory in the
-# process; auto-recovery happens when the breaker transitions to HALF_OPEN
-# and the next Anthropic probe succeeds.  No monkey-patching, no global
-# mutable flags: just a typed subclass (CreditAwareAnthropicCompletion) and
-# the existing circuit-breaker infrastructure.
-
-
-def _build_claude_via_openrouter(
-    model_name: str,
-    model_id: str,
-    max_tokens: int,
-    *,
-    role: str,
-    phase: str | None,
-    tier: str = "premium",
-    cost_out: float = 15.0,
-) -> "LLM":
-    """Build a Claude LLM routed through OpenRouter.
-
-    Used in two places:
-      * Direct substitute when the anthropic_credits breaker is OPEN
-      * Lazy fallback target built by CreditAwareAnthropicCompletion
-        on the first mid-call 400 we see
-
-    Model-id translation is delegated to :func:`derived_id` with
-    ``route="openrouter"`` — the catalog is the single source of truth
-    for shape transformations.  No regex lives in the factory.
-    """
-    or_key = get_openrouter_api_key()
-    if not or_key:
-        raise RuntimeError(
-            "Anthropic credits exhausted AND OPENROUTER_API_KEY is unset — "
-            "cannot serve Claude requests. Top up Anthropic or set "
-            "OPENROUTER_API_KEY to enable the failover route."
-        )
-    entry_for_route = get_model(model_name) or {
-        "model_id": model_id, "provider": "anthropic",
-    }
-    or_model_id = derived_id(entry_for_route, "openrouter")
-    _set_last(f"{model_name} (via OpenRouter)", tier)
-    logger.info(
-        "llm_factory: role=%s → OPENROUTER %s (~$%.2f/Mo; anthropic_credits breaker=%s)",
-        role, or_model_id, cost_out,
-        circuit_breaker.get_breaker("anthropic_credits").state,
-    )
-    extra, sample_key = _sampling(phase, "openrouter")
-
-    # Same per-call OR cap wrapping as ``_try_api`` — the Claude-via-
-    # OpenRouter failover path is a regular OR call, so the OR daily
-    # cap should govern it too.
-    cost_in_or = float(entry_for_route.get("cost_input_per_m", 0.0) or 0.0)
-    cost_out_or = float(entry_for_route.get("cost_output_per_m", cost_out) or cost_out)
-
-    def _budget_aware_or_builder(mid: str, mt: int, **kw):
-        from app.llms.budget_aware import BudgetAwareCompletion
-        from app import llm_openrouter_budget
-        # is_litellm=True: see _budget_aware_builder above — keeps the
-        # BudgetAwareCompletion subclass (and its per-call budget gate) intact
-        # instead of crewai returning a bare OpenAICompatibleCompletion.
-        llm = BudgetAwareCompletion(model=mid, max_tokens=mt, is_litellm=True, **kw)
-        def _estimate() -> float:
-            if cost_out_or <= 0:
-                return 0.0
-            return (2000 * cost_in_or + mt * cost_out_or) / 1_000_000.0
-        llm.set_budget_module(llm_openrouter_budget)
-        llm.set_estimated_cost_fn(_estimate)
-        return llm
-
-    return _cached_llm(
-        or_model_id, max_tokens=max_tokens, sampling_key=sample_key,
-        llm_builder=_budget_aware_or_builder,
-        base_url="https://openrouter.ai/api/v1", api_key=or_key, **extra,
-    )
-
-
-def _build_claude_llm(
-    model_name: str,
-    model_id: str,
-    max_tokens: int,
-    *,
-    role: str,
-    phase: str | None = None,
-    tier: str = "premium",
-    cost_out: float = 15.0,
-) -> "LLM":
-    """The single, elegant Claude factory for this module.
-
-    Routing rule:
-      * ``circuit_breaker["anthropic_credits"]`` OPEN
-          → direct Anthropic is known-unavailable; build via OpenRouter now.
-      * else
-          → build a CreditAwareAnthropicCompletion (proper BaseLLM subclass,
-            passes Agent Pydantic validation) with an injected fallback
-            factory.  If the first call fails with credit-exhausted the
-            subclass trips the breaker, builds the OR equivalent, and
-            retries transparently.  All subsequent calls on that instance
-            use the OR path directly.
-
-    This is the only entry point for Anthropic-direct LLM construction
-    in this module.  Every Anthropic candidate visited by
-    :func:`_walk_chain` funnels through here via
-    :func:`_construct_from_entry` so the credit-aware failover policy is
-    applied uniformly.
-    """
-    # Lazy import: CreditAwareAnthropicCompletion depends on crewai.LLM
-    # which we defer per the module's cold-boot discipline (see
-    # `_get_LLM_class`).  Putting the import here keeps the llm_factory
-    # import graph flat.
-    from app.llms.credit_aware_anthropic import CreditAwareAnthropicCompletion
-
-    # Derive the model-id form the native Anthropic SDK actually accepts.
-    # The catalog stores ``model_id`` in the LiteLLM-canonical (provider-
-    # prefixed) shape — ``anthropic/claude-sonnet-4-6`` — because every
-    # other consumer of ``model_id`` (cost lookup, discovered_models PK,
-    # governance remaps, telemetry tags, OpenRouter remap) keys on that
-    # form.  But ``CreditAwareAnthropicCompletion`` extends CrewAI's
-    # *native* ``AnthropicCompletion`` which forwards ``model=`` straight
-    # to the Anthropic SDK; the SDK only knows the bare id and 404s on
-    # the prefixed form.  See ``app/llm_catalog.py:derived_id`` for the
-    # full per-route shape contract.
-    entry_for_route = get_model(model_name) or {"model_id": model_id, "provider": "anthropic"}
-    bare_id = derived_id(entry_for_route, "native_anthropic")
-
-    def _or_fallback():
-        return _build_claude_via_openrouter(
-            model_name, model_id, max_tokens,
-            role=role, phase=phase, tier=tier, cost_out=cost_out,
-        )
-
-    if not circuit_breaker.is_available("anthropic_credits"):
-        logger.info(
-            "llm_factory: role=%s → OpenRouter Claude (anthropic_credits "
-            "breaker OPEN, %0.0fs to reprobe)",
-            role,
-            circuit_breaker.get_breaker("anthropic_credits").seconds_until_half_open(),
-        )
-        return _or_fallback()
-
-    _set_last(model_name, tier)
-    logger.info(
-        "llm_factory: role=%s → ANTHROPIC %s ($%.2f/Mo) + credit-aware failover",
-        role, model_name, cost_out,
-    )
-    extra, sample_key = _sampling(phase, "anthropic")
-
-    # Go through _cached_llm with a CreditAware builder — entries get
-    # keyed as (builder=CreditAware, model_id, max_tokens, ...) so they
-    # don't collide with default crewai.LLM entries for the same model.
-    # Cache-safe because the subclass consults the credit breaker on
-    # every call (no sticky per-instance failover state that would
-    # break auto-recovery after a shared cached hand-off).
-    #
-    # The builder closure captures ``bare_id`` and ignores the LiteLLM-
-    # canonical id ``_cached_llm`` forwards (its first arg).  That
-    # forwarded value is still used by ``_cached_llm`` for the cache
-    # key — keeping the cache namespace aligned with every other code
-    # path that looks up ``(builder, model_id, max_tokens, …)``.  The
-    # construction parameter and the cache-key parameter are deliberately
-    # separated to keep one consistent identity per logical model across
-    # routes.
-    # Capture catalog cost fields for the per-call pre-check estimate.
-    # If the entry is missing (legacy callers passing model_id without
-    # a catalog lookup), defaults to 0.0 — pre_check then degrades to
-    # its previous "0.0 placeholder" behaviour, never blocking calls
-    # on missing data.
-    cost_in = float(entry_for_route.get("cost_input_per_m", 0.0) or 0.0)
-    cost_out_per_m = float(entry_for_route.get("cost_output_per_m", cost_out) or cost_out)
-
-    def _credit_aware_builder(
-        _litellm_canonical_id: str,
-        mt: int,
-        **kw,
-    ) -> CreditAwareAnthropicCompletion:
-        llm = CreditAwareAnthropicCompletion(model=bare_id, max_tokens=mt, **kw)
-        llm.set_cost_estimates(cost_in, cost_out_per_m)
-        return llm.set_fallback_factory(_or_fallback)
-
-    return _cached_llm(
-        model_id, max_tokens,
-        sampling_key=sample_key,
-        llm_builder=_credit_aware_builder,
-        api_key=get_anthropic_api_key(),
-        **extra,
-    )
-
-
 # ── Provider health check for graceful degradation ──────────────────────────
 
 _all_providers_exhausted = False
@@ -2049,18 +1421,17 @@ def check_all_providers_health() -> bool:
     global _all_providers_exhausted
     from app.circuit_breaker import is_available
 
-    anthropic_ok = is_available("anthropic")
     openrouter_ok = is_available("openrouter")
     ollama_ok = is_available("ollama")
 
-    any_available = anthropic_ok or openrouter_ok or ollama_ok
+    any_available = openrouter_ok or ollama_ok
 
     if not any_available and not _all_providers_exhausted:
         _all_providers_exhausted = True
         logger.warning(
             "All LLM circuit breakers OPEN — orchestrator will force-probe "
-            "(anthropic=%s, openrouter=%s, ollama=%s)",
-            "open", "open", "open",
+            "(openrouter=%s, ollama=%s)",
+            "open", "open",
         )
     elif any_available and _all_providers_exhausted:
         _all_providers_exhausted = False
