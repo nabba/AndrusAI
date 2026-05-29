@@ -22,6 +22,7 @@ import functools
 import logging
 import threading
 import time
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -223,6 +224,37 @@ def _clamp_max_tokens(model_id: str, requested: int) -> int:
     return requested
 
 
+def _apply_openrouter_provider_exclusion(kwargs: dict) -> None:
+    """Add OpenRouter's documented provider-routing ``ignore`` list to
+    ``kwargs["extra_body"]`` in place.
+
+    OpenRouter's anonymous "Stealth" sub-provider class periodically
+    returns 502 ``Invalid URL: ''``; excluding it via OpenRouter's
+    provider-routing API is a reliability gain with no functional loss
+    (active role-assigned models all have non-Stealth routes).  Override
+    via the ``OPENROUTER_IGNORE_PROVIDERS`` env var (CSV); set it empty
+    to disable filtering.
+
+    Shared by the CrewAI-LLM path (:func:`_cached_llm`) and the raw
+    completion path (:class:`ChatCompletionHandle`) so the exclusion
+    policy lives in exactly one place.
+    """
+    import os as _os
+    env_ignore = _os.environ.get("OPENROUTER_IGNORE_PROVIDERS", "Stealth")
+    ignore_list = [n.strip() for n in env_ignore.split(",") if n.strip()]
+    if not ignore_list:
+        return
+    extra_body = dict(kwargs.pop("extra_body", {}) or {})
+    provider_pref = dict(extra_body.get("provider", {}) or {})
+    existing = list(provider_pref.get("ignore", []) or [])
+    for name in ignore_list:
+        if name not in existing:
+            existing.append(name)
+    provider_pref["ignore"] = existing
+    extra_body["provider"] = provider_pref
+    kwargs["extra_body"] = extra_body
+
+
 def _cached_llm(
     model_id: str,
     max_tokens: int = 8192,
@@ -316,19 +348,7 @@ def _cached_llm(
             or (model_id or "").startswith("openrouter/")
         )
         if _is_openrouter_call:
-            import os as _os
-            env_ignore = _os.environ.get("OPENROUTER_IGNORE_PROVIDERS", "Stealth")
-            ignore_list = [n.strip() for n in env_ignore.split(",") if n.strip()]
-            if ignore_list:
-                extra_body = dict(kwargs.pop("extra_body", {}) or {})
-                provider_pref = dict(extra_body.get("provider", {}) or {})
-                existing = list(provider_pref.get("ignore", []) or [])
-                for name in ignore_list:
-                    if name not in existing:
-                        existing.append(name)
-                provider_pref["ignore"] = existing
-                extra_body["provider"] = provider_pref
-                kwargs["extra_body"] = extra_body
+            _apply_openrouter_provider_exclusion(kwargs)
 
         if llm_builder is not None:
             llm = llm_builder(model_id, max_tokens, **kwargs)
@@ -1020,6 +1040,235 @@ def anthropic_client_for_role(
     the operation has a non-Anthropic fallback path.
     """
     return AnthropicClientHandle(role=role, task_hint=task_hint)
+
+
+# ── Raw OpenAI-compatible completion surface (OpenRouter + Ollama) ───
+#
+# ``chat_completion_for_role`` is the factory-supplied, provider-uniform
+# replacement for ``anthropic_client_for_role``.  Where the Anthropic
+# handle spoke the native Messages dialect (``.messages.create`` →
+# ``msg.content[0].text``), this handle speaks the OpenAI
+# chat-completions dialect that BOTH our providers understand:
+# OpenRouter (cloud) and Ollama (local).  litellm is the single
+# transport — it normalises ``openrouter/…`` and ``ollama_chat/…``
+# model ids to one response shape.
+#
+# Selection reuses the exact same primitives as the CrewAI-LLM path
+# (``select_model`` → ``_chain_for_role`` → ``_check_candidate_basics``
+# → ``derived_id``) so the raw surface and the agent surface never
+# diverge on which model a role resolves to.  Per-call budget (the
+# OpenRouter daily cap) and the model-id health cache are applied with
+# the same primitives the rest of the factory uses.
+#
+# Migration shape — before::
+#
+#     client = anthropic_client_for_role(role="cheap-vetting")
+#     msg = client.messages.create(system=S, messages=[...], max_tokens=N)
+#     text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+#
+# after::
+#
+#     client = chat_completion_for_role(role="cheap-vetting")
+#     resp = client.create(system=S, messages=[...], max_tokens=N)
+#     text = resp.choices[0].message.content or ""
+
+
+@dataclass
+class _RawTarget:
+    """A resolved, ready-to-call completion target for the raw path.
+
+    ``provider`` is the *call* provider (``"openrouter"`` or
+    ``"ollama"``) — for a catalog entry whose ``provider`` is
+    ``"anthropic"`` we route via OpenRouter (``derived_id(.., "openrouter")``)
+    so Claude is reachable uniformly even before the catalog flip.
+    """
+    catalog_key: str
+    provider: str
+    model_id: str          # litellm-canonical id to send
+    api_key: str | None
+    api_base: str | None
+    cost_in: float
+    cost_out: float
+    # Health-cache identity.  Keyed by the *catalog* entry's provider +
+    # its ``native_anthropic``-route bare id — the exact key
+    # ``_check_candidate_basics`` reads — so a dead-mark recorded here
+    # makes the next ``_resolve_raw_target`` skip the dead candidate.
+    health_provider: str
+    bare: str
+
+
+def _resolve_raw_target(role: str, task_hint: str = "") -> "_RawTarget":
+    """Walk *role*'s fallback chain; return the first constructible
+    network/local target as a :class:`_RawTarget` descriptor.
+
+    Raises :class:`NoWorkingModelAvailable` if every candidate fails —
+    the same contract as :func:`_walk_chain`, so callers that already
+    catch it for the CrewAI path keep working unchanged.
+
+    Anthropic-provider entries (present only during the migration
+    window, before the catalog flip) are served via OpenRouter rather
+    than skipped, so a migrated caller gets the role's intended Claude
+    model immediately.  Post-flip the catalog has no anthropic-provider
+    entries and this branch is simply never taken.
+    """
+    from app.llm_selector import select_model
+
+    primary = select_model(
+        role, task_hint, budget_usd=_resolved_budget_usd(role),
+    )
+    chain = _chain_for_role(role, primary=primary)
+    attempts: list[tuple[str, ConstructionFailed]] = []
+    seen: set[str] = set()
+    for name in chain:
+        if name in seen:
+            continue
+        seen.add(name)
+        entry = get_model(name)
+        if entry is None:
+            attempts.append((name, ConstructionFailed("not_in_catalog", "")))
+            continue
+        fail = _check_candidate_basics(name, entry)
+        if fail is not None:
+            attempts.append((name, fail))
+            continue
+        provider = entry["provider"]
+        cost_in = float(entry.get("cost_input_per_m", 0.0) or 0.0)
+        cost_out = float(entry.get("cost_output_per_m", 0.0) or 0.0)
+        bare = derived_id(entry, "native_anthropic")
+        if provider in ("openrouter", "anthropic"):
+            or_key = get_openrouter_api_key()
+            if not or_key:
+                attempts.append(
+                    (name, ConstructionFailed(
+                        "missing_key", "OPENROUTER_API_KEY not set",
+                    ))
+                )
+                continue
+            return _RawTarget(
+                catalog_key=name, provider="openrouter",
+                model_id=derived_id(entry, "openrouter"),
+                api_key=or_key, api_base=None,
+                cost_in=cost_in, cost_out=cost_out,
+                health_provider=provider, bare=bare,
+            )
+        if provider == "ollama":
+            if not get_settings().local_llm_enabled:
+                attempts.append(
+                    (name, ConstructionFailed("disabled", "local_llm_enabled=False"))
+                )
+                continue
+            try:
+                from app.ollama_native import spawn_model
+                url = spawn_model(name)
+            except Exception as exc:  # noqa: BLE001
+                attempts.append(
+                    (name, ConstructionFailed("build_failed", f"ollama spawn: {exc!s}"))
+                )
+                continue
+            if not url:
+                attempts.append(
+                    (name, ConstructionFailed("build_failed", "ollama spawn returned None"))
+                )
+                continue
+            return _RawTarget(
+                catalog_key=name, provider="ollama",
+                model_id=entry["model_id"], api_key=None, api_base=url,
+                cost_in=cost_in, cost_out=cost_out,
+                health_provider=provider, bare=bare,
+            )
+        attempts.append(
+            (name, ConstructionFailed("unknown_provider", f"provider={provider!r}"))
+        )
+    raise NoWorkingModelAvailable(role, attempts)
+
+
+class ChatCompletionHandle:
+    """Factory-managed raw completion handle over OpenRouter / Ollama.
+
+    Exposes :meth:`create` with an OpenAI-chat shape.  Each call
+    re-resolves the role's target (cheap — selection is cached) so the
+    handle always reflects the latest health-cache and budget state,
+    matching the per-call freshness the Anthropic handle provided.
+    """
+
+    def __init__(self, role: str, task_hint: str = ""):
+        self._role = role
+        self._task_hint = task_hint
+
+    def create(
+        self,
+        *,
+        messages: list[dict],
+        system: str | None = None,
+        max_tokens: int = 4096,
+        **kwargs,
+    ):
+        """Issue one chat completion and return the litellm
+        ``ModelResponse`` (read ``resp.choices[0].message.content``).
+
+        ``system`` is prepended as a ``role="system"`` message — the
+        OpenAI-dialect equivalent of the Anthropic ``system=`` kwarg.
+        Extra kwargs (``temperature``, ``top_p``, ``stop``, …) pass
+        straight through to ``litellm.completion``.
+        """
+        target = _resolve_raw_target(self._role, self._task_hint)
+
+        msgs: list[dict] = []
+        if system is not None:
+            msgs.append({"role": "system", "content": system})
+        msgs.extend(messages)
+
+        # OpenRouter per-call daily-cap gate — parity with the agent
+        # path's ``BudgetAwareCompletion``.  Failure-OPEN on anything
+        # that isn't a typed cap-exceeded.
+        if target.provider == "openrouter":
+            try:
+                from app.llm_openrouter_budget import pre_check as _or_pre_check
+                est = (2000 * target.cost_in + max_tokens * target.cost_out) / 1_000_000.0
+                _or_pre_check(estimated_cost_usd=est)
+            except Exception as exc:  # noqa: BLE001
+                from app.llm_cost_exceptions import CapExceededError
+                if isinstance(exc, CapExceededError):
+                    raise
+            _apply_openrouter_provider_exclusion(kwargs)
+
+        call_kwargs: dict = {
+            "model": target.model_id,
+            "messages": msgs,
+            "max_tokens": max_tokens,
+        }
+        if target.api_key:
+            call_kwargs["api_key"] = target.api_key
+        if target.api_base:
+            call_kwargs["api_base"] = target.api_base
+        call_kwargs.update(kwargs)
+
+        import litellm
+        try:
+            resp = litellm.completion(**call_kwargs)
+        except BaseException as exc:
+            reason = llm_factory_probe.classify_failure(exc)
+            if reason:
+                llm_factory_probe.mark_dead(
+                    target.health_provider, target.bare, reason,
+                )
+            raise
+        llm_factory_probe.mark_alive(target.health_provider, target.bare)
+        return resp
+
+
+def chat_completion_for_role(
+    role: str,
+    task_hint: str = "",
+) -> ChatCompletionHandle:
+    """Return a factory-managed raw completion handle for *role*.
+
+    The single sanctioned way to make a raw, non-CrewAI LLM call —
+    routed through OpenRouter (cloud) or Ollama (local) via litellm.
+    Replaces :func:`anthropic_client_for_role`.  See
+    :class:`ChatCompletionHandle` for the call surface.
+    """
+    return ChatCompletionHandle(role=role, task_hint=task_hint)
 
 
 def _is_anthropic_model(model_id: str) -> bool:
