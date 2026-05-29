@@ -328,19 +328,33 @@ class TestIsShinkaAvailableDeepCheck:
 class TestMapLlmModels:
 
     def test_claude_routed_via_openrouter_not_bedrock(self, monkeypatch):
-        """Post-consolidation: Claude is reached via OpenRouter
-        (``anthropic/claude-sonnet-4.6``), gated on OPENROUTER_API_KEY —
-        NOT the native Anthropic key path or a Bedrock ARN."""
+        """Post-consolidation: Claude is reached via OpenRouter with the
+        ``openrouter/`` PREFIX that forces ShinkaEvolve's
+        resolve_model_backend onto its OpenRouter provider — NOT a bare
+        ``anthropic/…`` slug (which routes to the NATIVE Anthropic provider
+        or raises, since pricing.csv has ``claude-sonnet-4-6,anthropic``),
+        and NOT a Bedrock ARN."""
         monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-fake")
         monkeypatch.setenv("OLLAMA_HOST", "http://invalid-host-no-such-thing.local:11434")
 
         from app.shinka_engine import _map_llm_models
         models = _map_llm_models()
-        assert "anthropic/claude-sonnet-4.6" in models, (
-            f"expected OpenRouter Claude slug, got {models}"
+        assert "openrouter/anthropic/claude-sonnet-4.6" in models, (
+            f"expected openrouter-PREFIXED Claude slug, got {models}"
         )
-        # Bedrock ARNs are the regression we're guarding against
+        # Bedrock ARNs are the original regression we guard against.
         assert not any("us.anthropic" in m for m in models)
+        # Regression pin (2026-05-29 re-audit): every NON-local shinka model
+        # MUST be openrouter-prefixed, else resolve_model_backend routes it to
+        # a NATIVE provider (anthropic/openai SDK) and bypasses the
+        # OpenRouter+Ollama consolidation.
+        for m in models:
+            if m.startswith("local/"):
+                continue
+            assert m.startswith("openrouter/"), (
+                f"shinka model {m!r} is not openrouter-prefixed — it would "
+                f"route to a NATIVE provider in resolve_model_backend"
+            )
 
     def test_no_openrouter_key_means_no_claude(self, monkeypatch):
         """Without OPENROUTER_API_KEY there is no Claude path — the native

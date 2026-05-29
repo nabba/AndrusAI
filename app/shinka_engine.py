@@ -184,13 +184,16 @@ def _map_llm_models() -> list[str]:
     models: list[str] = []
 
     # OpenRouter is the only network provider after the OpenRouter+Ollama
-    # consolidation — Claude is reached via OpenRouter (slug
-    # ``anthropic/claude-sonnet-4.6``), NOT the native Anthropic key path.
-    # Plus a coding-strong model in shinka's OpenRouter allowlist.
+    # consolidation. The model strings MUST carry the ``openrouter/`` prefix
+    # so ShinkaEvolve's resolve_model_backend takes its OpenRouter provider
+    # branch — without it, a bare ``anthropic/…`` / ``claude-…`` slug routes
+    # to ShinkaEvolve's NATIVE Anthropic provider (or raises ValueError when
+    # the slug isn't in its pricing.csv). qwen/qwen3-coder is in shinka's
+    # pricing.csv as openrouter already, but prefix it too for uniformity.
     openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
     if openrouter_key:
-        models.append("anthropic/claude-sonnet-4.6")
-        models.append("qwen/qwen3-coder")
+        models.append("openrouter/anthropic/claude-sonnet-4.6")
+        models.append("openrouter/qwen/qwen3-coder")
 
     # Local Ollama (still optional — useful when API budget is tight).
     ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
@@ -211,7 +214,7 @@ def _map_llm_models() -> list[str]:
     # we map above. (Trying ShinkaEvolve without ANY model is pointless
     # but the safety net keeps the function total.)
     if not models:
-        models.append("qwen/qwen3-coder")
+        models.append("openrouter/qwen/qwen3-coder")
 
     return models
 

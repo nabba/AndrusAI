@@ -423,12 +423,20 @@ def _default_runner_factory(
             error=f"shinka not installed: {exc}",
         )
 
+    # Pin the model list to the OpenRouter-prefixed slugs from
+    # _map_llm_models — WITHOUT this, EvolutionConfig falls back to
+    # shinka's default_llm_models() (bare "gpt-5-mini"/"gemini-…" slugs)
+    # which resolve_model_backend routes to NATIVE OpenAI/Gemini SDKs,
+    # bypassing the OpenRouter+Ollama consolidation. meta/novelty/prompt
+    # model lists default to None → they fall back to llm_models.
+    from app.shinka_engine import _map_llm_models
     evo_config = EvolutionConfig(
         num_generations=num_generations,
         init_program_path=str(initial_path),
         results_dir=str(results_dir),
         language="python",
         max_api_costs=max_cost_usd,
+        llm_models=_map_llm_models(),
     )
     job_config = LocalJobConfig(eval_program_path=str(evaluate_path))
     db_config = DatabaseConfig(
