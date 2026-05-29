@@ -417,18 +417,24 @@ class TestAnthropicClientHandle:
         has re-opened the dual-dialect surface the consolidation closed,
         and this test fails with the offending file:line.
 
-        Sanctioned files (the island, and nothing else):
+        This covers BOTH ways to reach native Anthropic: importing the SDK,
+        AND constructing an LLM with the Anthropic API key
+        (``get_anthropic_api_key()``) — the latter is the class of gap the
+        2026-05-29 audit found in llm_discovery's probe/benchmark paths.
+
+        Sanctioned files (the island + the key's definition site):
           * ``app/computer_use/``            — the vision UI-automation
             subsystem; calls the SDK with the ``computer_20250124`` tool.
           * ``app/tools/computer_use_tool.py`` — availability-check stub
-            that does ``import anthropic`` purely to detect installation;
-            never constructs a client.
+            that does ``import anthropic`` purely to detect installation.
+          * ``app/config.py``                — DEFINES get_anthropic_api_key().
         """
         import pathlib, re as _re
 
         sanctioned_prefixes = (
             "app/computer_use/",
             "app/tools/computer_use_tool.py",
+            "app/config.py",
         )
 
         # Bare ``import anthropic`` / ``from anthropic import …`` —
@@ -444,6 +450,11 @@ class TestAnthropicClientHandle:
             r"^\s*from\s+anthropic\s+import\s+(?:[^\n]*\b)?Anthropic\b",
             _re.MULTILINE,
         )
+        # Native-key construction — building an LLM with the Anthropic key
+        # is the OTHER route to native Anthropic and bypasses the SDK-import
+        # patterns above. Only the island (+ config.py, which defines it)
+        # may call get_anthropic_api_key().
+        key_use_pat = _re.compile(r"\bget_anthropic_api_key\s*\(")
 
         violations: list[tuple[str, int, str]] = []
         app_root = pathlib.Path(__file__).resolve().parents[1] / "app"
@@ -455,7 +466,7 @@ class TestAnthropicClientHandle:
                 text = py_file.read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
-            for pat in (bare_import_pat, construct_pat):
+            for pat in (bare_import_pat, construct_pat, key_use_pat):
                 for m in pat.finditer(text):
                     line_no = text[:m.start()].count("\n") + 1
                     snippet = text[m.start():m.end()].strip()

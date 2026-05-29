@@ -824,17 +824,18 @@ def _probe_model_id(model_id: str) -> tuple[bool, str]:
     """
     try:
         from app.llm_factory import _cached_llm
-        from app.config import get_settings, get_anthropic_api_key
+        from app.config import get_settings
         s = get_settings()
+        or_key = s.openrouter_api_key.get_secret_value()
+        # Post-consolidation: bare "anthropic/…" ids are probed via
+        # OpenRouter ("openrouter/anthropic/…"), never the native SDK.
         if model_id.startswith("anthropic/"):
-            key = get_anthropic_api_key()
-            llm = _cached_llm(model_id, max_tokens=8, api_key=key) if key else None
-        elif model_id.startswith("openrouter/"):
-            key = s.openrouter_api_key.get_secret_value()
+            model_id = "openrouter/" + model_id
+        if model_id.startswith("openrouter/"):
             llm = _cached_llm(
                 model_id, max_tokens=8,
-                base_url="https://openrouter.ai/api/v1", api_key=key,
-            ) if key else None
+                base_url="https://openrouter.ai/api/v1", api_key=or_key,
+            ) if or_key else None
         elif model_id.startswith("ollama_chat/"):
             llm = _cached_llm(model_id, max_tokens=8)
         else:
@@ -875,6 +876,9 @@ def benchmark_model(
         or_key = s.openrouter_api_key.get_secret_value()
 
         # Candidate LLM
+        # Post-consolidation: bare "anthropic/…" ids run via OpenRouter.
+        if model_id.startswith("anthropic/"):
+            model_id = "openrouter/" + model_id
         if model_id.startswith("openrouter/"):
             if not or_key:
                 return BENCH_FAILED
@@ -884,12 +888,6 @@ def benchmark_model(
             )
         elif model_id.startswith("ollama_chat/"):
             candidate_llm = _cached_llm(model_id, max_tokens=1024)
-        elif model_id.startswith("anthropic/"):
-            from app.config import get_anthropic_api_key
-            key = get_anthropic_api_key()
-            if not key:
-                return BENCH_FAILED
-            candidate_llm = _cached_llm(model_id, max_tokens=1024, api_key=key)
         else:
             return BENCH_FAILED
 
