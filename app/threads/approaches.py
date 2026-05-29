@@ -162,7 +162,7 @@ def _llm_distill(thread: Thread, body_text: str) -> str:
     string on any failure (caller falls back to body_text).
     """
     # Verified Plan Gap #5 (2026-05-22): the Anthropic daily cap is
-    # enforced by the factory's ``.messages.create`` pre-check; on
+    # enforced by the factory's ``create()`` pre-check; on
     # cap-out the existing ``except Exception`` below returns "" —
     # thread closure distillation falls back to the deterministic
     # body builder.

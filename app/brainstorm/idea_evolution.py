@@ -453,7 +453,7 @@ def _default_mutator(
     Phase D.3 (2026-05-22): gated by the operator-set Anthropic daily
     cap. Brainstorm evolution can fire many mutator calls per
     session, so this is the highest-impact site to wire the cap to.
-    The factory's ``.messages.create`` pre-check enforces the cap;
+    The factory's ``create()`` pre-check enforces the cap;
     the existing ``except Exception`` below returns "" on cap-out so
     the population just stops growing — judge calls on already-mutated
     children continue.

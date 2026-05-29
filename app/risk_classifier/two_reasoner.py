@@ -174,7 +174,7 @@ def _call_anthropic(
     string on any failure (caller-side fallback to UNCERTAIN).
 
     Verified Plan Gap #5 (2026-05-22): the Anthropic daily cap is
-    enforced by the factory's ``.messages.create`` pre-check; on
+    enforced by the factory's ``create()`` pre-check; on
     cap-out the existing ``except Exception`` below returns "" —
     caller maps "" to UNCERTAIN, the safe default for the two-
     reasoner observational review.

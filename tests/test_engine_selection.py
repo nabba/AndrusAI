@@ -327,24 +327,32 @@ class TestIsShinkaAvailableDeepCheck:
 
 class TestMapLlmModels:
 
-    def test_anthropic_uses_direct_api_string_not_bedrock(self, monkeypatch):
-        """When ANTHROPIC_API_KEY is set, use the shinka-registry name
-        (``claude-sonnet-4-6``), NOT the Bedrock-style ARN."""
-        from unittest.mock import MagicMock
-        fake_settings = MagicMock()
-        fake_settings.anthropic_api_key.get_secret_value.return_value = "sk-ant-x" * 5
-        monkeypatch.setattr("app.config.get_settings", lambda: fake_settings)
-        # Disable openrouter + ollama so we isolate the anthropic path
+    def test_claude_routed_via_openrouter_not_bedrock(self, monkeypatch):
+        """Post-consolidation: Claude is reached via OpenRouter
+        (``anthropic/claude-sonnet-4.6``), gated on OPENROUTER_API_KEY —
+        NOT the native Anthropic key path or a Bedrock ARN."""
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-fake")
+        monkeypatch.setenv("OLLAMA_HOST", "http://invalid-host-no-such-thing.local:11434")
+
+        from app.shinka_engine import _map_llm_models
+        models = _map_llm_models()
+        assert "anthropic/claude-sonnet-4.6" in models, (
+            f"expected OpenRouter Claude slug, got {models}"
+        )
+        # Bedrock ARNs are the regression we're guarding against
+        assert not any("us.anthropic" in m for m in models)
+
+    def test_no_openrouter_key_means_no_claude(self, monkeypatch):
+        """Without OPENROUTER_API_KEY there is no Claude path — the native
+        Anthropic-key mapping was removed in the consolidation."""
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         monkeypatch.setenv("OLLAMA_HOST", "http://invalid-host-no-such-thing.local:11434")
 
         from app.shinka_engine import _map_llm_models
         models = _map_llm_models()
-        assert any("claude" in m and "anthropic" not in m for m in models), (
-            f"expected non-Bedrock claude string, got {models}"
+        assert not any("claude" in m for m in models), (
+            f"no Claude without OpenRouter key, got {models}"
         )
-        # Bedrock ARNs are the regression we're guarding against
-        assert not any("us.anthropic" in m for m in models)
 
     def test_openrouter_uses_registry_compatible_string(self, monkeypatch):
         """OpenRouter mapping must use a model string that's in

@@ -234,7 +234,7 @@ def _default_llm_call(system: str, user: str) -> str:
     """Anthropic Haiku 4.5. Empty string on any failure.
 
     Verified Plan Gap #5 (2026-05-22): the Anthropic daily cap is
-    enforced by the factory's ``.messages.create`` pre-check; on
+    enforced by the factory's ``create()`` pre-check; on
     cap-out the existing ``except Exception`` below returns "" —
     the daily browse-topic batch skips and runs again tomorrow.
     """

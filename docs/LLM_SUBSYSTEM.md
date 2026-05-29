@@ -4,6 +4,23 @@ The complete reference for how this system chooses, calls, vets, and
 learns from large-language-model usage. Written so a new contributor
 can read it once and understand every layer end-to-end.
 
+> **OpenRouter+Ollama consolidation (2026-05-29).** The system now has
+> exactly two providers — **OpenRouter** (network) and **Ollama** (local)
+> — and one API dialect (OpenAI chat-completions, via litellm). The
+> `app/llm_factory.py` factory is the SOLE way to obtain an LLM:
+> `create_*_llm()` for CrewAI agents and `chat_completion_for_role(role).create(...)`
+> for raw, non-CrewAI calls (the replacement for the removed
+> `anthropic_client_for_role`). Claude is reached *through* OpenRouter like
+> any other model (`provider=openrouter`, `openrouter/anthropic/claude-…`).
+> The native Anthropic SDK survives in exactly ONE place — the vision
+> computer-use island (`app/computer_use/`) — enforced by the
+> `test_no_anthropic_sdk_imports_outside_factory` guard. Removed in the
+> pass: `AnthropicClientHandle`, `app/llms/credit_aware_anthropic.py`,
+> `_build_claude_llm`/`_build_claude_via_openrouter`, the `anthropic`
+> runtime mode, and `prompt_cache_hook.py` (cache_control now injected via
+> `app/llm_cache_control.py`). Sections below that reference the native
+> Anthropic path / CreditAware describe pre-consolidation behaviour.
+
 ---
 
 ## 1. Why this design exists

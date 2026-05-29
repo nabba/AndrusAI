@@ -384,7 +384,7 @@ def _default_llm_call(system_prompt: str, user_prompt: str) -> str:
 
     Verified Plan Gap #5 (2026-05-22): gated by the operator-set
     Anthropic daily cap.  The cap is enforced by the factory's
-    pre-flight inside ``.messages.create``; the existing
+    pre-flight inside ``create()``; the existing
     ``except Exception`` below absorbs ``AnthropicDailyCapExceeded``
     and returns "" — quarterly goal review just skips for this
     cycle; runs again next quarter.

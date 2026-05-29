@@ -94,7 +94,7 @@ def _default_llm_call(system_prompt: str, user_prompt: str) -> str:
     any failure (import error, network, etc.).
 
     Verified Plan Gap #5 (2026-05-22): the Anthropic daily cap is
-    enforced by the factory's ``.messages.create`` pre-check; on
+    enforced by the factory's ``create()`` pre-check; on
     cap-out the existing ``except Exception`` below returns "" — the
     v2 LLM planner naturally falls back to the deterministic v1
     planner.

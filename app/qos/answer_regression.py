@@ -375,7 +375,7 @@ def _default_judge_fn(qa: QAPair, answer: str) -> tuple[int, str, str]:
         '"reasoning": "<one short sentence>"}'
     )
     # Daily-cap is enforced by the factory's pre-check inside
-    # ``.messages.create``; on cap-out the regression suite degrades
+    # ``create()``; on cap-out the regression suite degrades
     # to "judge skipped" rather than propagating the exception.
     try:
         response = client.create(

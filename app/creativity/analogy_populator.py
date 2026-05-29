@@ -185,7 +185,7 @@ def _default_llm_call(system: str, user: str) -> str:
     """Anthropic Haiku 4.5 call. Empty string on any failure.
 
     Phase D.3 (2026-05-22): gated by the operator-set Anthropic daily
-    cap.  The cap is enforced by the factory's ``.messages.create``
+    cap.  The cap is enforced by the factory's ``create()``
     pre-check; on cap-out the existing ``except Exception`` below
     returns "" — populator silently skips this iteration.  Same ""
     sentinel any other LLM failure produces, so the rest of the

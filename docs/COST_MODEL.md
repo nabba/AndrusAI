@@ -5,6 +5,18 @@ mechanisms, each operating at a different layer of the call stack.
 This document explains what each does, how they interact, and which
 lever to pull for which operational goal.
 
+> **OpenRouter+Ollama consolidation (2026-05-29).** OpenRouter is now the
+> only paid/network provider and Ollama the only local one. Layer 6
+> (`openrouter_daily_cap_usd`) is the single network per-day cap; layer 5
+> (`anthropic_daily_cap_usd`) survives but now scopes ONLY the computer-use
+> vision island (the sole remaining native-Anthropic surface) — its
+> `pre_check` is wired into `app/computer_use/runner.py`. The
+> `CreditAwareAnthropicCompletion` Anthropic→OpenRouter failover described
+> below was deleted; Claude reaches OpenRouter directly as a regular
+> catalog entry, and the chain walker falls through to local Ollama on cap
+> events. `BudgetAwareCompletion` is the per-call wrapper for all network
+> calls.
+
 ## TL;DR
 
 | Layer | Mechanism | Granularity | What it does |

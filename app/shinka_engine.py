@@ -183,24 +183,13 @@ def _map_llm_models() -> list[str]:
     """
     models: list[str] = []
 
-    # Anthropic — direct API (NOT Bedrock).
-    try:
-        from app.config import get_settings
-        settings = get_settings()
-        if hasattr(settings, "anthropic_api_key"):
-            key = settings.anthropic_api_key
-            if hasattr(key, "get_secret_value"):
-                key = key.get_secret_value()
-            if key and len(key) > 10:
-                # ShinkaEvolve registry exposes Sonnet 4.6 as
-                # ``claude-sonnet-4-6`` (the current production sonnet).
-                models.append("claude-sonnet-4-6")
-    except Exception:
-        pass
-
-    # OpenRouter — pick a coding-strong model that's in shinka's allowlist.
+    # OpenRouter is the only network provider after the OpenRouter+Ollama
+    # consolidation — Claude is reached via OpenRouter (slug
+    # ``anthropic/claude-sonnet-4.6``), NOT the native Anthropic key path.
+    # Plus a coding-strong model in shinka's OpenRouter allowlist.
     openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
     if openrouter_key:
+        models.append("anthropic/claude-sonnet-4.6")
         models.append("qwen/qwen3-coder")
 
     # Local Ollama (still optional — useful when API budget is tight).
@@ -230,11 +219,11 @@ def _map_llm_models() -> list[str]:
 def _get_embedding_model() -> str | None:
     """Get embedding model for novelty scoring.
 
-    Returns None to disable embedding-based novelty (uses LLM-based instead).
-    Embeddings require an OpenAI key which we may not have.
+    Always returns None — embedding-based novelty is disabled so
+    ShinkaEvolve falls back to LLM-based novelty (via its OpenRouter /
+    local models). The OpenRouter+Ollama consolidation dropped the
+    OpenAI embedding dependency this used to require.
     """
-    if os.environ.get("OPENAI_API_KEY"):
-        return "text-embedding-3-small"
     return None
 
 
