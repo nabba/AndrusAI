@@ -14747,3 +14747,37 @@ governance amendment; one new runtime setting (the Critic threshold).
 `tests/test_research_clarification_and_search_budget.py`,
 `tests/test_variant_archive_grounding.py`.
 
+## §75 — LLM provider consolidation: OpenRouter + Ollama only, one dialect (2026-05-29)
+
+Collapsed the dual API-dialect stack (native Anthropic Messages vs OpenAI/litellm)
+into ONE OpenAI-compatible surface served by **OpenRouter** (cloud) + **Ollama**
+(local). The factory (`app/llm_factory.py`) is now the sole way to obtain an LLM;
+the native Anthropic SDK survives in exactly one documented island —
+`app/computer_use/` (it needs the `computer-use-2025-01-24` beta OpenRouter can't
+proxy). Net ~−1900 LOC; the dual dialect was the root cause of ~5 distinct hacks.
+
+What shipped (branch `llm-consolidation-openrouter-ollama`):
+- New `chat_completion_for_role()` raw primitive over litellm; replaced
+  `anthropic_client_for_role` + `AnthropicClientHandle`/`_Instrumented*` across 19
+  callers. Catalog flipped to `provider=openrouter` (Claude via
+  `openrouter/anthropic/claude-…`); dropped the `anthropic` runtime mode.
+- Deleted `app/llms/credit_aware_anthropic.py`, the `_build_claude_llm` /
+  `_build_claude_via_openrouter` branches, the `_is_anthropic_model` header
+  special-case, `prompt_cache_hook.py` (cache_control now in `app/llm_cache_control.py`
+  via `BudgetAwareCompletion.call` + `chat_completion_for_role`), and
+  `rate_throttle._install_openai_credit_failover` — made redundant by forcing
+  `is_litellm=True` for every OpenRouter construction in `_cached_llm`, so all
+  network traffic flows through the one `_throttled_completion` wrapper.
+- `llm_anthropic_budget` retained as the island's daily cap (wired into
+  `computer_use/runner.py`). `llm_discovery` probe/benchmark, `llm_catalog_builder`,
+  and ShinkaEvolve (`shinka_engine._map_llm_models` + `coding_session/evolution_bridge`)
+  all routed via OpenRouter (the `openrouter/` prefix is required for ShinkaEvolve's
+  `resolve_model_backend`).
+- Self-enforcing invariant: `test_no_anthropic_sdk_imports_outside_factory` flags both
+  native-SDK imports AND `get_anthropic_api_key()` use outside the island.
+
+Live-smoke (2026-05-29): raw + agent OpenRouter paths return real completions
+(deepseek via OpenRouter). Docs: `docs/LLM_SUBSYSTEM.md`, `docs/COST_MODEL.md`,
+`app/llm_cache_control.py`. Tradeoff accepted: cloud redundancy collapses to the
+OpenRouter gateway (Ollama is the local floor).
+
