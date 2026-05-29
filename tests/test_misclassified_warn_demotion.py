@@ -130,28 +130,6 @@ class TestBaseCrewToolCap:
         assert m2.group(1) == "info"
 
 
-class TestCreditAwareAnthropicFailover:
-
-    def test_sync_failover_logs_at_info(self) -> None:
-        src = _read(_APP / "llms" / "credit_aware_anthropic.py")
-        # Sync path — message format: "%s from Anthropic — failing over"
-        m = re.search(
-            r"logger\.(info|warning)\(\s*\n?\s*\"CreditAwareAnthropicCompletion: %s from Anthropic — \"",
-            src,
-        )
-        assert m is not None, "sync-path failover log site moved"
-        assert m.group(1) == "info"
-
-    def test_async_failover_logs_at_info(self) -> None:
-        src = _read(_APP / "llms" / "credit_aware_anthropic.py")
-        m = re.search(
-            r"logger\.(info|warning)\(\s*\n?\s*\"CreditAwareAnthropicCompletion: %s from Anthropic \(async\) — \"",
-            src,
-        )
-        assert m is not None, "async-path failover log site moved"
-        assert m.group(1) == "info"
-
-
 # ── Noise filter for third-party WARNs we already handle ────────────
 
 

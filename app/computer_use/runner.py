@@ -154,6 +154,23 @@ def run_task(
                               {"scope": exc.scope, "spent": exc.spent, "cap": exc.cap})
                 break
 
+            # Operator-set daily Anthropic cap. This island is the only
+            # surface still spending on the native Anthropic SDK after the
+            # OpenRouter+Ollama consolidation, so it honours the same
+            # ``llm_anthropic_budget`` ceiling the dashboard surfaces.
+            # Failure-soft: a broken cap module never blocks a step.
+            try:
+                from app import llm_anthropic_budget
+                llm_anthropic_budget.pre_check(estimated_cost_usd=total_cost)
+            except Exception as exc:  # noqa: BLE001
+                from app.llm_anthropic_budget import AnthropicDailyCapExceeded
+                if isinstance(exc, AnthropicDailyCapExceeded):
+                    refused = str(exc)
+                    log_lifecycle(
+                        "anthropic_daily_cap_exceeded", {"detail": str(exc)},
+                    )
+                    break
+
             response = client.messages.create(
                 model=model,
                 max_tokens=1024,
