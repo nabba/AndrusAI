@@ -989,6 +989,24 @@ def _defaults() -> dict[str, Any]:
         # LOW risk; runs DRY-RUN injection patterns through the
         # commander handler in test mode.
         "drill_prompt_injection_resistance_enabled": True,
+
+        # ── Close-the-silent-drops pass (2026-05-28) ────────────────
+        # These four keys had getters + setters but were missing from
+        # `_defaults()`, so snapshot() never surfaced them and the
+        # round-trip pinning test couldn't reach them. They're each
+        # POSTed by a React settings card (BenchmarksPage,
+        # RecentSubsystemsCard, CapabilityRegressionCard,
+        # ConnectorBudgetCard) — adding them here closes the second
+        # half of the "silent drop" bug class (the first half is the
+        # dispatcher registry in config_api.py).
+        #
+        # Default values mirror each getter's fallback so behavior
+        # before/after this addition is identical when on-disk state
+        # is absent.
+        "iterate_loop_enabled": False,
+        "capability_regression_enabled": True,
+        "connector_budgets_enabled": False,
+        "connector_budget_overrides": {},
     }
 
 
@@ -2125,6 +2143,43 @@ def remove_connector_budget_override(connector) -> bool:
         connector,
     )
     return True
+
+
+def set_connector_budget_overrides(value: dict) -> None:
+    """Bulk-replace the connector overrides dict.
+
+    Sibling to the per-entry ``set_connector_budget_override`` /
+    ``remove_connector_budget_override`` pair — needed by the HTTP
+    settings dispatcher which receives the whole map in one POST.
+
+    Shape-filtered at write time using the same rules the reader
+    applies, so snapshot() and get_connector_budget_overrides() stay
+    in sync. Entries with non-str keys or non-dict values are dropped;
+    each value is kept only with ``daily_cap_usd`` / ``estimated_cost_usd``
+    coerced to float (silently drops fields that won't coerce).
+    """
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"connector_budget_overrides must be a dict, "
+            f"got {type(value).__name__}"
+        )
+    cleaned: dict = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or not isinstance(v, dict):
+            continue
+        entry: dict = {}
+        for field in ("daily_cap_usd", "estimated_cost_usd"):
+            if field in v:
+                try:
+                    entry[field] = float(v[field])
+                except (TypeError, ValueError):
+                    continue
+        if entry:
+            cleaned[k] = entry
+    _update({"connector_budget_overrides": cleaned})
+    logger.info(
+        "runtime_settings: connector_budget_overrides set to %s", cleaned,
+    )
 
 
 def get_capability_regression_enabled() -> bool:
