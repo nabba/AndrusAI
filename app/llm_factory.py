@@ -276,7 +276,7 @@ def _cached_llm(
         Forwarded to the LLM constructor.
     llm_builder : Callable[[str, int, **kwargs], LLM], optional
         Factory for non-default LLM subclasses (e.g.
-        ``CreditAwareAnthropicCompletion``).  Called as
+        ``BudgetAwareCompletion``).  Called as
         ``llm_builder(model_id, max_tokens, **kwargs)``.  If omitted,
         the default ``crewai.LLM`` constructor is used.
 
@@ -402,8 +402,9 @@ def _check_candidate_basics(
     or the first failing :class:`ConstructionFailed` otherwise.
 
     Used by both :func:`_construct_from_entry` (CrewAI LLM path) and
-    :meth:`AnthropicClientHandle._select` (raw-SDK path) so the two
-    factory surfaces share validation logic rather than diverging.
+    :func:`_resolve_raw_target` (the raw ``chat_completion_for_role``
+    path) so the two factory surfaces share validation logic rather
+    than diverging.
 
     *require_provider* restricts the check to a single provider — the
     raw-SDK handle uses this to reject non-Anthropic candidates with
@@ -1378,11 +1379,9 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str, phase: st
         # ``derived_id`` eliminates that class of bug.
         or_model_id = derived_id(entry, "openrouter")
 
-        # Wrap the LiteLLM-routed LLM with the per-call budget gate.
-        # This brings OpenRouter to per-call cap parity with the
-        # Anthropic path (which gets per-call via
-        # ``CreditAwareAnthropicCompletion``).  The wrapper is
-        # provider-agnostic — see ``app/llms/budget_aware.py``.
+        # Wrap the LiteLLM-routed LLM with the per-call budget gate
+        # (``BudgetAwareCompletion``) — the single per-call cap layer
+        # for all network traffic.  See ``app/llms/budget_aware.py``.
         cost_in = float(entry.get("cost_input_per_m", 0.0) or 0.0)
         cost_out_per_m = float(
             entry.get("cost_output_per_m", 0.0) or 0.0

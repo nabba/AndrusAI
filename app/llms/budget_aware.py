@@ -10,9 +10,8 @@ Why a subclass and not a decorator?
 CrewAI Agent validation accepts ``Agent(llm=...)`` only when ``llm``
 is a string or a :class:`crewai.llms.base_llm.BaseLLM` subclass.  A
 plain function-decorator or composition wrapper fails Pydantic
-validation with "Input should be a valid string".  This is the same
-constraint that drove :class:`app.llms.credit_aware_anthropic.CreditAwareAnthropicCompletion`
-to subclass rather than wrap; we follow the same pattern.
+validation with "Input should be a valid string" — so the per-call
+budget gate must be a ``BaseLLM`` subclass, not a wrapper.
 
 Why parameterised by ``budget_module`` and not per-provider classes?
 --------------------------------------------------------------------
@@ -23,13 +22,12 @@ cap and exception differs.  Parameterising by module gives one
 subclass with two configurations rather than two near-identical
 subclasses — fewer code paths, fewer regression surfaces.
 
-The Anthropic path still uses :class:`CreditAwareAnthropicCompletion`
-rather than this wrapper because Anthropic has *additional* layers
-(credit-exhausted failover, wall-clock timeout, OR-failover handling)
-that don't apply to OpenRouter.  When those layers are extracted into
-mixins, ``BudgetAwareCompletion`` and ``CreditAwareAnthropicCompletion``
-can compose them — but that's a future refactor, not a current
-hack.
+After the OpenRouter+Ollama consolidation this is the SOLE per-call
+wrapper: every network LLM (all OpenRouter-routed) is a
+``BudgetAwareCompletion``.  The former Anthropic-specific
+``CreditAwareAnthropicCompletion`` (credit-exhausted failover, etc.)
+was removed — credit-failover now lives in the litellm wrapper in
+``app/rate_throttle.py``, which covers every LiteLLM-routed call.
 
 Estimated cost
 --------------

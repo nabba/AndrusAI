@@ -22,12 +22,10 @@ What's NOT here that the Anthropic equivalent has:
   * No ``call_or_skip`` wrapper — the migrated site pattern was
     Anthropic-specific historical inertia.  New OpenRouter callers
     should catch :class:`OpenRouterDailyCapExceeded` directly.
-  * No per-call wrapping layer like ``CreditAwareAnthropicCompletion``.
-    OpenRouter is reached via LiteLLM through ``crewai.LLM(...)``;
-    wrapping every LiteLLM-routed LLM would be invasive.  The cap is
-    therefore enforced at *construction* time (in ``_try_api``), not
-    on every call to a cached LLM.  This is a coarser granularity
-    than the Anthropic gate but symmetric with how the
+  * The cap is enforced BOTH per-call — every OpenRouter LLM is wrapped
+    in ``BudgetAwareCompletion``, which runs ``pre_check`` before each
+    request — AND at *construction* time (in ``_try_api`` /
+    ``_check_candidate_basics``), symmetric with how the
     ``idle_pause_due_to_budget`` brake already gates OR at construction.
 
 Posture

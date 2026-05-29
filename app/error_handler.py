@@ -95,8 +95,8 @@ def setup_structured_logging(
     handler.setFormatter(JsonFormatter())
 
     # Noise filter — drops a fixed allowlist of known third-party
-    # WARNs that we already handle (e.g. discord.py PyNaCl, Anthropic
-    # credit-balance 400 caught by CreditAwareAnthropicCompletion,
+    # WARNs that we already handle (e.g. discord.py PyNaCl, provider
+    # credit-balance 402 caught by the rate_throttle litellm wrapper,
     # OpenRouter Stealth 502 already excluded by provider blocker).
     # Attached to the JSONL handler ONLY — stdout/docker logs still
     # show every WARN for live debugging.

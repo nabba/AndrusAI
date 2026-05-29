@@ -109,12 +109,10 @@ def get_cap() -> Optional[float]:
 
 # ── Spend reader ────────────────────────────────────────────────────
 #
-# ``today_spent_usd`` is read on every Anthropic call through
-# :func:`pre_check`, which after the 2026-05-25 cost-wiring is called
-# from:
-#   * ``AnthropicClientHandle._InstrumentedMessages.create``
-#   * ``CreditAwareAnthropicCompletion.call`` (sync)
-#   * ``CreditAwareAnthropicCompletion.acall`` (async)
+# ``today_spent_usd`` is read on every island Anthropic step through
+# :func:`pre_check`, called from ``app/computer_use/runner.py`` (the sole
+# remaining native-Anthropic surface after the OpenRouter+Ollama
+# consolidation).
 #
 # The underlying spend computation does a full audit-log JSONL scan —
 # microseconds per row but linear in log size, and after months of

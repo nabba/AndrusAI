@@ -47,10 +47,10 @@ What this subscriber does NOT do (by design)
 * **Training-data capture** stays in ``rate_throttle`` because it
   consumes the raw LiteLLM response shape (prompt+completion text,
   tool-use blocks) which the event doesn't fully reconstruct.
-* **Credit-exhausted detection** is handled at the LLM layer by
-  ``CreditAwareAnthropicCompletion`` — not here — because the decision
-  to fail over must happen synchronously inside ``.call()``, not
-  asynchronously from a subscriber.
+* **Credit-exhausted detection** is handled at the LLM layer by the
+  rate_throttle litellm wrapper (``_throttled_completion``) — not here —
+  because the decision to fail over must happen synchronously inside the
+  call, not asynchronously from a subscriber.
 
 Non-CrewAI bypass paths
 -----------------------
