@@ -355,6 +355,7 @@ def _build_setter_registry():
         set_shinka_inline_evolve_enabled,
         set_evolution_verified_engine_enabled,
         set_evolution_verified_per_cycle_budget_usd,
+        set_autonomous_executor_enabled,
         set_tripit_ical_url,
         set_aviationstack_api_key,
         set_analogy_index_populator_enabled,
@@ -510,6 +511,7 @@ def _build_setter_registry():
         "evolution_verified_per_cycle_budget_usd": (
             set_evolution_verified_per_cycle_budget_usd, float,
         ),
+        "autonomous_executor_enabled": (set_autonomous_executor_enabled, bool),
         # Q9.3 travel
         "tripit_ical_url": (set_tripit_ical_url, str),
         "aviationstack_api_key": (set_aviationstack_api_key, str),

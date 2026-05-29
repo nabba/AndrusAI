@@ -1472,10 +1472,14 @@ EXECUTOR_BUDGET_CAPS: dict[str, float] = {
 
 
 def get_autonomous_executor_enabled() -> bool:
-    """Master switch for ``app.autonomous_executor``. v1 default OFF —
-    the module is a pure library with no driver/scheduler integration
-    yet (Phase 2 piece 2). When ON in Phase 2, this gates the driver
-    daemon and the /delegate slash command."""
+    """Master switch for ``app.autonomous_executor``. Default OFF — ships
+    dormant until the operator opts in. The driver IS wired: the
+    ``autonomous-executor`` HEAVY tuple in ``idle_scheduler`` calls
+    ``run_executor_tick`` every tick, but that tick is a microsecond no-op
+    while this switch is OFF (``scheduler_job.run_executor_tick`` returns
+    immediately). When ON, this gates the scheduler driver, the
+    ``/delegate`` slash command, and the verified-mutation-engine adapter
+    that self-improvement runs dispatch through."""
     return bool(
         _ensure_initialized().get("autonomous_executor_enabled", False),
     )

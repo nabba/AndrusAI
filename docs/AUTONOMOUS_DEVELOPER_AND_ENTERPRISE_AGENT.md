@@ -77,6 +77,13 @@ app/autonomous_executor/
   `POST /{run_id}/resume`.
 - `dashboard-react/src/components/DelegatePage.tsx` — operator UI
   at `/delegate`.
+- `dashboard-react/src/components/AutonomousExecutorCard.tsx` —
+  master-switch toggle in `/cp/settings` (2026-05-29). Flips
+  `autonomous_executor_enabled` via `POST /api/cp/settings`; the
+  DelegatePage `MasterSwitchBanner` points here. Backed by the
+  dispatcher entry `"autonomous_executor_enabled": (set_…, bool)` in
+  `app/api/config_api.py:_build_setter_registry()` — without that
+  registry entry the POST would silently no-op (see PROGRAM §67).
 - `app/identity/continuity_ledger.py` — new `executor_milestone`
   event kind (20th).
 - 4th hash-chained audit ledger at

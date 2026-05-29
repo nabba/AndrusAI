@@ -66,6 +66,9 @@ export default defineConfig({
   base: '/cp/',
   build: {
     outDir: '../dashboard/build',
+    // outDir is outside the project root, so vite skips auto-emptying it
+    // for safety — without this, stale hashed chunks accumulate every build.
+    emptyOutDir: true,
     target: ['es2020', 'safari14'],
   },
 })
