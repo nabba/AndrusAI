@@ -97,12 +97,17 @@ def _detect_provider(model: str = "", base_url: str = "", **kwargs) -> str:
 
     if "ollama" in model_lower or "ollama" in base_lower or "11434" in base_lower:
         return "ollama"
-    if "openrouter" in base_lower:
+    # OpenRouter-prefixed model ids (e.g. "openrouter/anthropic/claude-…")
+    # are OpenRouter traffic even when the slug contains "anthropic"/"claude"
+    # — post-consolidation that's how Claude is reached. Match the prefix
+    # before the anthropic/claude substring check so OR-Claude counts
+    # against the openrouter RPM bucket, not the (now near-empty) anthropic one.
+    if "openrouter" in base_lower or model_lower.startswith("openrouter/"):
         return "openrouter"
     if "anthropic" in model_lower or "claude" in model_lower:
         return "anthropic"
-    # OpenRouter model IDs contain slashes like "deepseek/deepseek-chat"
-    if "/" in model_lower and "anthropic" not in model_lower:
+    # Any other slash-namespaced slug is an OpenRouter-style id.
+    if "/" in model_lower:
         return "openrouter"
     return "anthropic"  # default to most restrictive
 
@@ -258,6 +263,13 @@ def install_throttle() -> None:
         # (crewai/llms/providers/openai/completion.py) calls
         # openai.OpenAI directly — bypassing litellm.completion entirely
         # and therefore bypassing the credit-failover patch above.
+        #
+        # STILL LOAD-BEARING after the OpenRouter+Ollama consolidation:
+        # crewai.LLM("openrouter/…") routes to that native openai branch
+        # UNLESS the caller passes is_litellm=True (only _try_api does).
+        # Paths like llm_discovery._build_primary_llm build OpenRouter
+        # LLMs without it, so their 402s are caught only here. This is
+        # NOT redundant with the litellm wrapper.
         # Result: when OpenRouter returns 402 "insufficient credits",
         # the openai SDK raises APIStatusError, the orchestrator
         # propagates it up, and the user sees "Crew pim failed: Error
