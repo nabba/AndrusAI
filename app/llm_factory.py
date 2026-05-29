@@ -788,6 +788,14 @@ class ChatCompletionHandle:
             msgs.append({"role": "system", "content": system})
         msgs.extend(messages)
 
+        # Mark the long system prompt for OpenRouter prompt caching
+        # (replaces the retired prompt_cache_hook litellm monkeypatch).
+        try:
+            from app.llm_cache_control import inject_cache_control
+            msgs = inject_cache_control(msgs, target.model_id)
+        except Exception:
+            pass
+
         # OpenRouter per-call daily-cap gate — parity with the agent
         # path's ``BudgetAwareCompletion``.  Failure-OPEN on anything
         # that isn't a typed cap-exceeded.

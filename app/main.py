@@ -30,9 +30,10 @@ except Exception:
 from app.rate_throttle import install_throttle
 install_throttle()
 
-# Install Anthropic prompt-caching hook — must be before any litellm.completion call
-from app.prompt_cache_hook import install_cache_hook
-install_cache_hook()
+# (Prompt-cache cache_control is now injected inside the factory's own LLM
+# paths — BudgetAwareCompletion.call + ChatCompletionHandle.create — see
+# app/llm_cache_control.py. The former litellm monkeypatch was removed in
+# the OpenRouter+Ollama consolidation.)
 
 # Install process-wide wall-clock timeout on every CrewAI BaseTool.run.
 # Must be before agents/tools are constructed so the patched method

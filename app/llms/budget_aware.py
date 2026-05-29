@@ -132,12 +132,34 @@ def _make_class():
                     exc_info=True,
                 )
 
+        def _inject_cache_control(self, args, kwargs):
+            """Mark the long system prompt for OpenRouter prompt caching.
+
+            Replaces the retired ``prompt_cache_hook`` litellm monkeypatch
+            — injection now lives in our own subclass.  ``messages`` may be
+            positional (``call(messages, …)``) or a kwarg.  Failure-soft.
+            """
+            try:
+                from app.llm_cache_control import inject_cache_control
+                model = getattr(self, "model", "")
+                if args:
+                    return (inject_cache_control(args[0], model), *args[1:]), kwargs
+                if "messages" in kwargs:
+                    kwargs["messages"] = inject_cache_control(
+                        kwargs["messages"], model,
+                    )
+            except Exception:
+                pass
+            return args, kwargs
+
         def call(self, *args, **kwargs):  # type: ignore[override]
             self._run_pre_check()
+            args, kwargs = self._inject_cache_control(args, kwargs)
             return super().call(*args, **kwargs)
 
         async def acall(self, *args, **kwargs):  # type: ignore[override]
             self._run_pre_check()
+            args, kwargs = self._inject_cache_control(args, kwargs)
             return await super().acall(*args, **kwargs)
 
     return BudgetAwareCompletion

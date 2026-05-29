@@ -247,46 +247,30 @@ class TestE2E_NlCronFlow:
 # E2E: prompt caching — hook applies to real message shape
 # ═════════════════════════════════════════════════════════════════════════════
 
-class TestE2E_PromptCacheHook:
+class TestE2E_PromptCacheInjection:
 
-    def test_litellm_monkey_patch_installs_and_injects(self, monkeypatch):
-        from app import prompt_cache_hook
+    def test_inject_cache_control_marks_long_system_block(self):
+        """The cache_control injection (now in app/llm_cache_control.py,
+        called from BudgetAwareCompletion.call + ChatCompletionHandle.create)
+        rewrites a long system prompt into block form with an ephemeral
+        cache_control marker, leaving other messages untouched."""
+        from app.llm_cache_control import inject_cache_control
 
-        fake_litellm = MagicMock()
-        calls = []
-
-        def original(**kwargs):
-            calls.append(kwargs)
-            return "ok"
-
-        fake_litellm.completion = original
-        if hasattr(fake_litellm, "acompletion"):
-            delattr(fake_litellm, "acompletion")
-        monkeypatch.setitem(__import__("sys").modules, "litellm", fake_litellm)
-
-        # Simulate startup
-        prompt_cache_hook._installed = False
-        prompt_cache_hook.install_cache_hook()
-
-        # Simulate an agent call with a realistic-ish Claude request
         long_system = ("You are Claude, an AI assistant. " * 300).strip()
-        fake_litellm.completion(
-            model="anthropic/claude-sonnet-4-6",
-            messages=[
-                {"role": "system", "content": long_system},
-                {"role": "user", "content": "Hi there"},
-            ],
-            max_tokens=1024,
-            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+        msgs = [
+            {"role": "system", "content": long_system},
+            {"role": "user", "content": "Hi there"},
+        ]
+        out = inject_cache_control(
+            msgs, "openrouter/anthropic/claude-sonnet-4.6",
         )
 
-        assert len(calls) == 1
-        sys_msg = calls[0]["messages"][0]
+        sys_msg = out[0]
         assert isinstance(sys_msg["content"], list), \
             "system message should have been converted to block form"
         assert sys_msg["content"][0]["cache_control"] == {"type": "ephemeral"}
-        # beta header preserved
-        assert calls[0]["extra_headers"]["anthropic-beta"] == "prompt-caching-2024-07-31"
+        # Non-system message passes through unchanged.
+        assert out[1] == {"role": "user", "content": "Hi there"}
 
 
 # ═════════════════════════════════════════════════════════════════════════════
