@@ -14781,3 +14781,32 @@ Live-smoke (2026-05-29): raw + agent OpenRouter paths return real completions
 `app/llm_cache_control.py`. Tradeoff accepted: cloud redundancy collapses to the
 OpenRouter gateway (Ollama is the local floor).
 
+
+## §76 — Verified mutation engine: first real run + two spawn-layer fixes (2026-05-29)
+
+The §73 engine had shipped with 58 tests but had **never completed a real run** —
+a live audit (driving one verified self-improvement cycle end-to-end) surfaced two
+bugs in the gateway-side spawn layer (`app/self_improvement/evolver_spawn.py`,
+OPEN-tier — NOT TIER_IMMUTABLE), both outside the code-writing/judgement core:
+
+1. **Env forwarding.** `build_create_payload` forwarded only LLM API keys into the
+   ephemeral evolver container. The app's pydantic `Settings()` also marks
+   `brave_api_key`, `signal_bot_number`, `signal_owner_number`, `gateway_secret`
+   as required, so the container raised `ValidationError` at import — before any
+   work. Fix: a new `_REQUIRED_SETTINGS_KEYS` tuple forwarded (only when present).
+2. **OOM blast radius.** The 4 GB evolver, spawned alongside the running gateway,
+   OOM-killed the **gateway** under host memory pressure (19.5 GB VM, many
+   containers). The evolver itself exited 0 with a valid verdict, but the gateway
+   died before it could read the result + file the CR. Fix: `HostConfig.OomScoreAdj=900`
+   so the throwaway evolver is the kernel's OOM victim, never the production gateway.
+   Memory cap kept at 4 GB (the evolver provably fits).
+
+After the fix the loop produced its **first real operator-gated change-request**
+end-to-end: spawn → git worktree from HEAD → anchored LLM edit (DeepSeek via
+OpenRouter, coding role) → real `pytest` green → TIER_IMMUTABLE `worktree_eval`
+verdict `INVARIANTS_ONLY`/`proposable` → PENDING CR (`5be96ac7467e`, target
+`app/dashboard_links.py`, `path = path or "/"` hardening). Gateway survived; evolver
+auto-cleaned. 2 pinning tests added to `tests/test_evolver_spawn.py`
+(`…forwards_required_settings_keys`, `…makes_evolver_the_oom_victim`). No
+TIER_IMMUTABLE touches, no new master switches. Docs: `docs/VERIFIED_MUTATION_ENGINE.md`.
+

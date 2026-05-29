@@ -163,6 +163,32 @@ the in-container setter (`set_autonomous_executor_enabled(...)`) followed by
 changed. Adding a one-line dispatcher branch (mirroring the engine keys) would
 make it dashboard-toggleable; tracked as a follow-up.
 
+## First real run + spawn-layer fixes (2026-05-29, PROGRAM §76)
+
+The engine shipped with 58 tests but had **never completed a real run**. A live
+audit — driving one verified self-improvement cycle end-to-end — found two bugs in
+the gateway-side spawn layer (`evolver_spawn.py`, OPEN-tier), both *outside* the
+code-writing/judgement core:
+
+1. **Required-env forwarding.** `build_create_payload` forwarded only LLM API keys,
+   but the app's `Settings()` also requires `brave_api_key`, `signal_bot_number`,
+   `signal_owner_number`, `gateway_secret`. The container `ValidationError`-ed at
+   import before doing any work — which is why the engine had zero completed runs.
+   Fixed with a `_REQUIRED_SETTINGS_KEYS` tuple (forwarded only when present).
+2. **OOM blast radius.** The 4 GB evolver, spawned beside the running gateway,
+   OOM-killed the **gateway** under host memory pressure — the evolver finished
+   (exit 0, valid verdict in its logs) but the gateway died before reading the
+   result + filing the CR. Fixed with `HostConfig.OomScoreAdj=900`: under pressure
+   the throwaway evolver is the kernel's OOM victim, never the production gateway.
+   Memory cap stays 4 GB (the evolver provably fits).
+
+After the fix the loop produced its **first real operator-gated CR** end-to-end
+(`5be96ac7467e`, target `app/dashboard_links.py` — a `path = path or "/"`
+hardening; verdict `INVARIANTS_ONLY`). Gateway survived, evolver auto-cleaned.
+2 pinning tests added (`test_evolver_spawn.py`). The two failure modes were
+orchestration/resourcing, not the verified-implementer or the immutable judge —
+those were sound from the start.
+
 ## Tests
 
 `tests/test_{change_spec,verified_implementer,worktree_eval,pipeline,evolver_job,evolver_spawn,orchestrator}.py`
