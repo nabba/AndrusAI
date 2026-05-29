@@ -45,6 +45,17 @@ _LLM_ENV_KEYS = (
     "MISTRAL_API_KEY",
 )
 
+# Non-LLM env that the app's pydantic ``Settings()`` marks as REQUIRED. Without
+# these, the app raises ``ValidationError`` at import INSIDE the sandbox — before
+# the job can do any work. That was the bug that left the verified engine with
+# zero completed runs (discovered 2026-05-29). Forwarded only when present.
+_REQUIRED_SETTINGS_KEYS = (
+    "BRAVE_API_KEY",
+    "SIGNAL_BOT_NUMBER",
+    "SIGNAL_OWNER_NUMBER",
+    "GATEWAY_SECRET",
+)
+
 # transport(method, path, body=None, timeout=None) -> (status_code, body_bytes)
 Transport = Callable[..., tuple[int, bytes]]
 
@@ -83,7 +94,7 @@ def build_create_payload(
 ) -> dict[str, Any]:
     """Docker ``POST /containers/create`` body. Pure — unit-tested."""
     env = [f"AAI_EVOLVE_JOB={json.dumps(job)}"]
-    for key in _LLM_ENV_KEYS:
+    for key in (*_LLM_ENV_KEYS, *_REQUIRED_SETTINGS_KEYS):
         val = os.environ.get(key)
         if val:
             env.append(f"{key}={val}")
@@ -100,6 +111,12 @@ def build_create_payload(
             "Memory": memory_bytes,
             "PidsLimit": pids_limit,
             "SecurityOpt": ["no-new-privileges:true"],
+            # Under host memory pressure, the throwaway evolver is the OOM
+            # victim — never the production gateway. A killed evolver just
+            # fails the (retryable) job; a killed gateway takes the whole
+            # system down, which is exactly what happened on the first real
+            # run (2026-05-29) when the spawn collided with the gateway.
+            "OomScoreAdj": 900,
         },
     }
 

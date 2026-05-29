@@ -45,6 +45,29 @@ def test_build_create_payload_includes_job_and_keys(monkeypatch):
     assert not any(e.startswith("OPENAI_API_KEY=") for e in env)
 
 
+def test_build_create_payload_forwards_required_settings_keys(monkeypatch):
+    # Regression for the 2026-05-29 bug: the app's Settings() requires these
+    # non-LLM keys, so without forwarding them the container ValidationErrors
+    # at import before the job runs.
+    monkeypatch.setenv("BRAVE_API_KEY", "brave-x")
+    monkeypatch.setenv("SIGNAL_BOT_NUMBER", "+100")
+    monkeypatch.setenv("SIGNAL_OWNER_NUMBER", "+200")
+    monkeypatch.setenv("GATEWAY_SECRET", "gw-secret")
+    payload = es.build_create_payload("img:1", {"target_file": "app/x.py"})
+    env = payload["Env"]
+    assert "BRAVE_API_KEY=brave-x" in env
+    assert "SIGNAL_BOT_NUMBER=+100" in env
+    assert "SIGNAL_OWNER_NUMBER=+200" in env
+    assert "GATEWAY_SECRET=gw-secret" in env
+
+
+def test_build_create_payload_makes_evolver_the_oom_victim():
+    # The throwaway evolver must be the OOM kill preference so host memory
+    # pressure never takes down the production gateway (2026-05-29 incident).
+    payload = es.build_create_payload("img:1", {"target_file": "app/x.py"})
+    assert payload["HostConfig"]["OomScoreAdj"] == 900
+
+
 def _result_logs(payload: dict) -> bytes:
     return (
         "INFO noise\n"
