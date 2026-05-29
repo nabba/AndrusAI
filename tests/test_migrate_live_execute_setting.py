@@ -221,5 +221,7 @@ class TestSettingsAPIDispatcher:
         the React POST won't route correctly."""
         src = (Path(__file__).parent.parent / "app/api/config_api.py").read_text()
         assert "set_migrate_live_execute" in src
-        # The dispatch arm must reference the payload key
-        assert '"migrate_live_execute" in payload' in src
+        # 2026-05-28 — dispatcher uses a declarative {key: (setter, coerce)}
+        # registry instead of per-key ``if "<key>" in payload`` branches.
+        # Confirm the key has a registry entry pointing at the right setter.
+        assert '"migrate_live_execute": (set_migrate_live_execute,' in src

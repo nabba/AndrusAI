@@ -209,8 +209,11 @@ def test_config_api_handles_travel_keys() -> None:
     src = Path("app/api/config_api.py").read_text(encoding="utf-8")
     assert "set_tripit_ical_url" in src
     assert "set_aviationstack_api_key" in src
-    assert '"tripit_ical_url" in payload' in src
-    assert '"aviationstack_api_key" in payload' in src
+    # 2026-05-28 — dispatcher uses a declarative {key: (setter, coerce)}
+    # registry instead of per-key ``if "<key>" in payload`` branches.
+    # Confirm both keys have registry entries pointing at the right setters.
+    assert '"tripit_ical_url": (set_tripit_ical_url,' in src
+    assert '"aviationstack_api_key": (set_aviationstack_api_key,' in src
 
 
 def test_verify_gateway_secret_is_mode_aware() -> None:

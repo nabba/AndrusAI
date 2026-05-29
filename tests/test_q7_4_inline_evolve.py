@@ -391,7 +391,13 @@ def test_config_api_handles_master_switch() -> None:
     set_shinka_inline_evolve_enabled."""
     src = Path("app/api/config_api.py").read_text(encoding="utf-8")
     assert "set_shinka_inline_evolve_enabled" in src
-    assert '"shinka_inline_evolve_enabled" in payload' in src
+    # 2026-05-28 — dispatcher uses a declarative {key: (setter, coerce)}
+    # registry instead of per-key ``if "<key>" in payload`` branches.
+    # Confirm the key has a registry entry pointing at the right setter.
+    assert (
+        '"shinka_inline_evolve_enabled": (set_shinka_inline_evolve_enabled,'
+        in src
+    )
 
 
 def test_coding_sessions_api_serves_evolution_runs() -> None:

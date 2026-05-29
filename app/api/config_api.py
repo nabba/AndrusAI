@@ -259,25 +259,60 @@ async def get_runtime_settings_endpoint():
     return snapshot()
 
 
-@router.post("/runtime_settings")
-async def set_runtime_settings_endpoint(request: Request):
-    """Update one or more runtime settings.
+# ── Runtime-settings dispatch registry (2026-05-28) ────────────────────────
+#
+# Replaces the historical hand-maintained chain of
+# ``if "<key>" in payload: set_<key>(coerce(payload["<key>"]))`` branches
+# with a declarative {key: (setter, coercer)} map. The bug class this
+# closes is the "silent drop" pattern (PROGRAM §67) — every dispatcher
+# branch was hand-typed, so any forgotten key returned 200 OK while
+# the value silently no-op'd. The pinning test catalogued 16 known
+# instances of the bug.
+#
+# Design rules:
+#   * Keys with simple type coercion (bool / int / float / str /
+#     list[str] / dict / Optional[bool] / Optional[float]) live in
+#     the registry. ADDING A NEW SIMPLE TOGGLE = one entry in the
+#     registry, no other change. That's the systemic fix.
+#   * Keys with cross-payload semantics (typed-phrase confirmation,
+#     one-setter-many-keys zone loops) stay as explicit branches in
+#     ``set_runtime_settings_endpoint`` — the registry is a pure
+#     ``payload[key] → setter(coerce(value))`` mapping by design.
+#   * After dispatch, any payload key neither dispatched by the
+#     registry nor by an explicit branch is logged at WARNING and
+#     returned in ``response["ignored_keys"]``. This is the
+#     systemic safety net — silent drops become loud drops.
 
-    Accepts any subset of:
-      voice_mode (off|local|cloud), vision_cu_enabled (bool),
-      vision_cu_monthly_cap_usd (float), concierge_persona_enabled (bool).
+
+def _coerce_optional(inner):
+    """Wrap ``inner`` so ``None`` passes through unchanged."""
+    def _coerce(v):
+        return None if v is None else inner(v)
+    return _coerce
+
+
+def _coerce_list_str(v):
+    if not isinstance(v, list):
+        raise ValueError("expected a JSON list of strings")
+    return [str(x) for x in v]
+
+
+def _coerce_dict(v):
+    if not isinstance(v, dict):
+        raise ValueError("expected a JSON object")
+    return v
+
+
+def _build_setter_registry():
+    """Construct the {key: (setter, coercer)} dispatch map.
+
+    Lazy-imports every setter to preserve the historical discipline
+    of not importing ``app.runtime_settings`` at module load (a
+    boot-time decision documented inline in the legacy dispatcher).
+    Rebuilt per request to avoid stale references after monkeypatch
+    in tests — at most one rebuild per operator POST, well below
+    the 5-per-minute config rate limit.
     """
-    if not verify_gateway_secret(request):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    if not _config_rate_check():
-        raise HTTPException(status_code=429, detail="Too many config changes. Try again later.")
-    payload = await request.json()
-    # Settings genealogy (Gap #4) — capture pre-flip snapshot so the
-    # diff after the write produces one ledger row per changed key.
-    # Reason field is optional in the POST body; defaults to empty.
-    from app.runtime_settings import snapshot as _genealogy_snapshot
-    _genealogy_before = _genealogy_snapshot()
-    _genealogy_reason = str(payload.pop("__reason__", "") or "").strip()
     from app.runtime_settings import (
         set_voice_mode, set_vision_cu_enabled,
         set_vision_cu_monthly_cap_usd, set_concierge_persona_enabled,
@@ -293,7 +328,6 @@ async def set_runtime_settings_endpoint(request: Request):
         set_embedding_migration_dual_write_enabled,
         set_embedding_migration_shadow_read_enabled,
         set_embedding_migration_cutover_enabled,
-        # Q4.2 — person correlation
         set_person_correlation_enabled,
         set_person_correlation_decay_months,
         set_person_centrality_enabled,
@@ -301,56 +335,38 @@ async def set_runtime_settings_endpoint(request: Request):
         set_person_suggestions_enabled,
         set_person_suggestions_dormancy_enabled,
         set_person_suggestions_responsiveness_enabled,
-        set_person_correlation_social_graph_enabled,
-        get_person_correlation_social_graph_enabled,
         set_graph_shortest_path_enabled,
         set_graph_communities_enabled,
         set_graph_bridges_enabled,
-        set_graph_suggestions_enabled,
-        get_graph_suggestions_enabled,
         set_graph_suggestions_cluster_dormancy_enabled,
         set_graph_suggestions_bridge_maintenance_enabled,
         set_graph_suggestions_weak_tie_enabled,
-        # Q6 — resilience drills
         set_resilience_drills_enabled,
         set_drill_backup_restore_enabled,
         set_drill_embedding_migration_enabled,
         set_drill_secret_rotation_enabled,
         set_drill_kill_the_gateway_enabled,
         set_drill_staleness_monitor_enabled,
-        # task_recovery drill (arXiv:2604.27096 §4.3.4 survey response)
         set_drill_task_recovery_enabled,
         set_drill_task_recovery_live_enabled,
         set_drill_task_recovery_llm_variants_enabled,
-        # Q7.1 — architecture-requests
         set_architecture_requests_enabled,
         set_architecture_adoption_monitor_enabled,
-        # Q7.4 — inline ShinkaEvolve per coding session
         set_shinka_inline_evolve_enabled,
-        # Verified mutation engine (2026-05-27)
         set_evolution_verified_engine_enabled,
         set_evolution_verified_per_cycle_budget_usd,
-        # Q9.3 — travel monitor configuration
         set_tripit_ical_url,
         set_aviationstack_api_key,
-        # Q11.1 — analogy-index populator master switch
         set_analogy_index_populator_enabled,
-        # Productization plan WP D — cloud-migrate execute-gate
         set_migrate_live_execute,
-        # Verification-extension + risk-classifier + fast-route (2026-05-20)
         set_epistemic_enabled_override,
         set_epistemic_blocking_mode_override,
         set_verification_extension_enabled,
-        set_verification_threshold,
         set_verification_retrieval_budget_per_task,
         set_auto_apply_allowed_requestors,
         set_auto_apply_allowed_paths,
         set_risk_classifier_enabled,
         set_fast_route_extended_patterns_enabled,
-        # PROGRAM §62 — upgrade-lifecycle subsystem switches.
-        # Previously unwired: the React UpgradeLifecycleCard /
-        # AbsencePolicyCard POSTed these keys but the dispatcher
-        # silently dropped them, leaving the toggles cosmetic.
         set_upgrade_lifecycle_enabled,
         set_upgrade_lifecycle_capability_extraction_enabled,
         set_upgrade_lifecycle_trial_enabled,
@@ -363,7 +379,6 @@ async def set_runtime_settings_endpoint(request: Request):
         set_upgrade_lifecycle_dockerfile_writer_enabled,
         set_upgrade_lifecycle_pyproject_writer_enabled,
         set_upgrade_lifecycle_absence_policy_enabled,
-        # Multi-year resilience gaps (Gap #1-#11, 2026-05-24).
         set_config_coherence_monitor_enabled,
         set_total_cost_ceiling_enabled,
         set_total_cost_monthly_cap_usd,
@@ -374,91 +389,339 @@ async def set_runtime_settings_endpoint(request: Request):
         set_privacy_audit_enabled,
         set_deadman_last_resort_enabled,
         set_drill_prompt_injection_resistance_enabled,
-        snapshot,
+        # 2026-05-28 — closes the silent-drop bug class. These 16
+        # keys had setters but no dispatcher branch.
+        set_benchmarks_enabled,
+        set_iterate_loop_enabled,
+        set_capability_regression_enabled,
+        set_connector_budgets_enabled,
+        set_connector_budget_overrides,
+        set_chromadb_source_ledger_enabled,
+        set_chromadb_ledger_bootstrap_enabled,
+        set_chromadb_ledger_drift_replay_enabled,
+        set_chromadb_ledger_compaction_enabled,
+        set_chromadb_ledger_s3_upload_enabled,
+        set_chromadb_ledger_gdrive_upload_enabled,
+        set_drill_source_ledger_replay_enabled,
+        set_drill_embedding_rotation_enabled,
+        set_gcp_bootstrap_enabled,
+        set_hardening_profile,
+        set_binauthz_mode,
     )
 
+    optional_float = _coerce_optional(float)
+    optional_bool = _coerce_optional(bool)
+
+    return {
+        # voice + vision
+        "voice_mode": (set_voice_mode, str),
+        "vision_cu_enabled": (set_vision_cu_enabled, bool),
+        "vision_cu_monthly_cap_usd": (set_vision_cu_monthly_cap_usd, float),
+        "critic_review_difficulty_threshold": (
+            set_critic_review_difficulty_threshold, int,
+        ),
+        "concierge_persona_enabled": (set_concierge_persona_enabled, bool),
+        "tier3_amendment_enabled": (set_tier3_amendment_enabled, bool),
+        "error_runbooks_enabled": (set_error_runbooks_enabled, bool),
+        "tool_supervisor_enabled": (set_tool_supervisor_enabled, bool),
+        "recovery_loop_enabled": (set_recovery_loop_enabled, bool),
+        "goodhart_hard_gate_disabled": (set_goodhart_hard_gate_disabled, bool),
+        "goodhart_hard_gate_enforcing": (set_goodhart_hard_gate_enforcing, bool),
+        # structured diagnosis (Q2 §39) — float band + Optional float
+        "structured_diagnosis_threshold_floor": (
+            set_structured_diagnosis_threshold_floor, float,
+        ),
+        "structured_diagnosis_threshold_ceiling": (
+            set_structured_diagnosis_threshold_ceiling, float,
+        ),
+        "structured_diagnosis_threshold_override": (
+            set_structured_diagnosis_threshold_override, optional_float,
+        ),
+        "structured_diagnosis_auto_tune_enabled": (
+            set_structured_diagnosis_auto_tune_enabled, bool,
+        ),
+        # embedding migration (PROGRAM §40 Item 12)
+        "embedding_migration_dual_write_enabled": (
+            set_embedding_migration_dual_write_enabled, bool,
+        ),
+        "embedding_migration_shadow_read_enabled": (
+            set_embedding_migration_shadow_read_enabled, bool,
+        ),
+        "embedding_migration_cutover_enabled": (
+            set_embedding_migration_cutover_enabled, bool,
+        ),
+        # person correlation (Q4.2 / PROGRAM §42). The L4 master itself
+        # (person_correlation_social_graph_enabled) stays in the
+        # explicit-branch block — typed-phrase gate.
+        "person_correlation_enabled": (set_person_correlation_enabled, bool),
+        "person_correlation_decay_months": (
+            set_person_correlation_decay_months, int,
+        ),
+        "person_centrality_enabled": (set_person_centrality_enabled, bool),
+        "person_centrality_formula": (set_person_centrality_formula, str),
+        "person_suggestions_enabled": (set_person_suggestions_enabled, bool),
+        "person_suggestions_dormancy_enabled": (
+            set_person_suggestions_dormancy_enabled, bool,
+        ),
+        "person_suggestions_responsiveness_enabled": (
+            set_person_suggestions_responsiveness_enabled, bool,
+        ),
+        # social-graph members (L4.4 master itself is typed-phrase, explicit)
+        "graph_shortest_path_enabled": (set_graph_shortest_path_enabled, bool),
+        "graph_communities_enabled": (set_graph_communities_enabled, bool),
+        "graph_bridges_enabled": (set_graph_bridges_enabled, bool),
+        "graph_suggestions_cluster_dormancy_enabled": (
+            set_graph_suggestions_cluster_dormancy_enabled, bool,
+        ),
+        "graph_suggestions_bridge_maintenance_enabled": (
+            set_graph_suggestions_bridge_maintenance_enabled, bool,
+        ),
+        "graph_suggestions_weak_tie_enabled": (
+            set_graph_suggestions_weak_tie_enabled, bool,
+        ),
+        # resilience drills (Q6 / PROGRAM §44.3)
+        "resilience_drills_enabled": (set_resilience_drills_enabled, bool),
+        "drill_backup_restore_enabled": (set_drill_backup_restore_enabled, bool),
+        "drill_embedding_migration_enabled": (
+            set_drill_embedding_migration_enabled, bool,
+        ),
+        "drill_secret_rotation_enabled": (set_drill_secret_rotation_enabled, bool),
+        "drill_kill_the_gateway_enabled": (set_drill_kill_the_gateway_enabled, bool),
+        "drill_staleness_monitor_enabled": (
+            set_drill_staleness_monitor_enabled, bool,
+        ),
+        "drill_task_recovery_enabled": (set_drill_task_recovery_enabled, bool),
+        "drill_task_recovery_live_enabled": (
+            set_drill_task_recovery_live_enabled, bool,
+        ),
+        "drill_task_recovery_llm_variants_enabled": (
+            set_drill_task_recovery_llm_variants_enabled, bool,
+        ),
+        # architecture requests (Q7.1 / PROGRAM §45.1)
+        "architecture_requests_enabled": (set_architecture_requests_enabled, bool),
+        "architecture_adoption_monitor_enabled": (
+            set_architecture_adoption_monitor_enabled, bool,
+        ),
+        # shinka inline evolve + verified mutation engine
+        "shinka_inline_evolve_enabled": (set_shinka_inline_evolve_enabled, bool),
+        "evolution_verified_engine_enabled": (
+            set_evolution_verified_engine_enabled, bool,
+        ),
+        "evolution_verified_per_cycle_budget_usd": (
+            set_evolution_verified_per_cycle_budget_usd, float,
+        ),
+        # Q9.3 travel
+        "tripit_ical_url": (set_tripit_ical_url, str),
+        "aviationstack_api_key": (set_aviationstack_api_key, str),
+        # Q11.1 analogy
+        "analogy_index_populator_enabled": (
+            set_analogy_index_populator_enabled, bool,
+        ),
+        # cloud-migrate execute gate
+        "migrate_live_execute": (set_migrate_live_execute, bool),
+        # epistemic + verification extension (None means "fall through
+        # to env var" for the override overlays)
+        "epistemic_enabled_override": (
+            set_epistemic_enabled_override, optional_bool,
+        ),
+        "epistemic_blocking_mode_override": (
+            set_epistemic_blocking_mode_override, optional_bool,
+        ),
+        "verification_extension_enabled": (
+            set_verification_extension_enabled, bool,
+        ),
+        "verification_extension_retrieval_budget_per_task": (
+            set_verification_retrieval_budget_per_task, int,
+        ),
+        # trust-zone allowlists (list[str]; setter handles path-traversal
+        # validation + sanity caps)
+        "auto_apply_allowed_requestors": (
+            set_auto_apply_allowed_requestors, _coerce_list_str,
+        ),
+        "auto_apply_allowed_paths": (
+            set_auto_apply_allowed_paths, _coerce_list_str,
+        ),
+        "risk_classifier_enabled": (set_risk_classifier_enabled, bool),
+        "fast_route_extended_patterns_enabled": (
+            set_fast_route_extended_patterns_enabled, bool,
+        ),
+        # upgrade-lifecycle (PROGRAM §62)
+        "upgrade_lifecycle_enabled": (set_upgrade_lifecycle_enabled, bool),
+        "upgrade_lifecycle_capability_extraction_enabled": (
+            set_upgrade_lifecycle_capability_extraction_enabled, bool,
+        ),
+        "upgrade_lifecycle_trial_enabled": (
+            set_upgrade_lifecycle_trial_enabled, bool,
+        ),
+        "upgrade_lifecycle_major_auto_cr_enabled": (
+            set_upgrade_lifecycle_major_auto_cr_enabled, bool,
+        ),
+        "upgrade_lifecycle_capability_adoption_enabled": (
+            set_upgrade_lifecycle_capability_adoption_enabled, bool,
+        ),
+        "upgrade_lifecycle_capability_budget_usd_quarterly": (
+            set_upgrade_lifecycle_capability_budget_usd_quarterly, float,
+        ),
+        "ecosystem_snapshot_enabled": (set_ecosystem_snapshot_enabled, bool),
+        "upgrade_lifecycle_apply_hook_enabled": (
+            set_upgrade_lifecycle_apply_hook_enabled, bool,
+        ),
+        "upgrade_lifecycle_requirements_writer_enabled": (
+            set_upgrade_lifecycle_requirements_writer_enabled, bool,
+        ),
+        "upgrade_lifecycle_dockerfile_writer_enabled": (
+            set_upgrade_lifecycle_dockerfile_writer_enabled, bool,
+        ),
+        "upgrade_lifecycle_pyproject_writer_enabled": (
+            set_upgrade_lifecycle_pyproject_writer_enabled, bool,
+        ),
+        "upgrade_lifecycle_absence_policy_enabled": (
+            set_upgrade_lifecycle_absence_policy_enabled, bool,
+        ),
+        # multi-year resilience gaps
+        "config_coherence_monitor_enabled": (
+            set_config_coherence_monitor_enabled, bool,
+        ),
+        "total_cost_ceiling_enabled": (set_total_cost_ceiling_enabled, bool),
+        "total_cost_monthly_cap_usd": (set_total_cost_monthly_cap_usd, float),
+        "capability_inventory_enabled": (set_capability_inventory_enabled, bool),
+        "discovery_funnel_enabled": (set_discovery_funnel_enabled, bool),
+        "knowledge_currency_monitor_enabled": (
+            set_knowledge_currency_monitor_enabled, bool,
+        ),
+        "hardware_health_monitor_enabled": (
+            set_hardware_health_monitor_enabled, bool,
+        ),
+        "privacy_audit_enabled": (set_privacy_audit_enabled, bool),
+        "deadman_last_resort_enabled": (set_deadman_last_resort_enabled, bool),
+        "drill_prompt_injection_resistance_enabled": (
+            set_drill_prompt_injection_resistance_enabled, bool,
+        ),
+        # ── 2026-05-28 — close the silent-drop bug class ──────────────
+        # Together with the matching defaults added in
+        # ``runtime_settings._defaults()``, these 16 keys now
+        # round-trip through the dispatcher uniformly. The React
+        # toggles (BenchmarksPage, RecentSubsystemsCard,
+        # CapabilityRegressionCard, ConnectorBudgetCard,
+        # SourceLedgerCard, SettingsPage cloud-hardening) now
+        # persist instead of silently no-op'ing.
+        "benchmarks_enabled": (set_benchmarks_enabled, bool),
+        "iterate_loop_enabled": (set_iterate_loop_enabled, bool),
+        "capability_regression_enabled": (set_capability_regression_enabled, bool),
+        "connector_budgets_enabled": (set_connector_budgets_enabled, bool),
+        "connector_budget_overrides": (
+            set_connector_budget_overrides, _coerce_dict,
+        ),
+        "chromadb_source_ledger_enabled": (
+            set_chromadb_source_ledger_enabled, bool,
+        ),
+        "chromadb_ledger_bootstrap_enabled": (
+            set_chromadb_ledger_bootstrap_enabled, bool,
+        ),
+        "chromadb_ledger_drift_replay_enabled": (
+            set_chromadb_ledger_drift_replay_enabled, bool,
+        ),
+        "chromadb_ledger_compaction_enabled": (
+            set_chromadb_ledger_compaction_enabled, bool,
+        ),
+        "chromadb_ledger_s3_upload_enabled": (
+            set_chromadb_ledger_s3_upload_enabled, bool,
+        ),
+        "chromadb_ledger_gdrive_upload_enabled": (
+            set_chromadb_ledger_gdrive_upload_enabled, bool,
+        ),
+        "drill_source_ledger_replay_enabled": (
+            set_drill_source_ledger_replay_enabled, bool,
+        ),
+        "drill_embedding_rotation_enabled": (
+            set_drill_embedding_rotation_enabled, bool,
+        ),
+        "gcp_bootstrap_enabled": (set_gcp_bootstrap_enabled, bool),
+        "hardening_profile": (set_hardening_profile, str),
+        "binauthz_mode": (set_binauthz_mode, str),
+    }
+
+
+# Payload keys that aren't settings themselves — companions to a
+# typed-phrase gate. Treated as "handled" so they don't surface in
+# ``ignored_keys`` when the operator includes them alongside the
+# gated boolean.
+_CONFIRM_PHRASE_KEYS = frozenset({
+    "social_graph_confirm_phrase",
+    "graph_suggestions_confirm_phrase",
+})
+
+
+@router.post("/runtime_settings")
+async def set_runtime_settings_endpoint(request: Request):
+    """Update one or more runtime settings.
+
+    Dispatch is driven by ``_build_setter_registry()`` for the bulk
+    of simple-typed keys (bool / int / float / str / list[str] /
+    dict / Optional[bool] / Optional[float]). Two categories remain
+    as explicit branches because they need cross-payload semantics
+    that don't fit a flat ``payload[key] → setter()`` map:
+
+      * Typed-phrase confirmation for the L4 master switches
+        (``person_correlation_social_graph_enabled``,
+        ``graph_suggestions_enabled``) — must accompany an
+        ``ENABLE …`` phrase on False → True.
+      * Per-zone verification thresholds (three payload keys,
+        one ``set_verification_threshold(zone, value)`` setter).
+
+    Any payload key that's neither in the registry nor in an
+    explicit branch is collected into ``ignored_keys``, logged at
+    WARNING, and returned in the response — closes the silent-drop
+    bug class structurally (was: a forgotten ``if "<key>" in
+    payload:`` branch returned 200 OK with no state change).
+    """
+    if not verify_gateway_secret(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not _config_rate_check():
+        raise HTTPException(
+            status_code=429,
+            detail="Too many config changes. Try again later.",
+        )
+    payload = await request.json()
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=400, detail="payload must be a JSON object",
+        )
+
+    # Settings genealogy (Gap #4) — capture pre-flip snapshot so the
+    # diff after the write produces one ledger row per changed key.
+    # Reason field is optional in the POST body; defaults to empty.
+    from app.runtime_settings import (
+        snapshot,
+        set_person_correlation_social_graph_enabled,
+        get_person_correlation_social_graph_enabled,
+        set_graph_suggestions_enabled,
+        get_graph_suggestions_enabled,
+        set_verification_threshold,
+    )
+    _genealogy_before = snapshot()
+    _genealogy_reason = str(payload.pop("__reason__", "") or "").strip()
+
+    handled: set = set()
+    registry = _build_setter_registry()
+
     try:
-        if "voice_mode" in payload:
-            set_voice_mode(str(payload["voice_mode"]))
-        if "vision_cu_enabled" in payload:
-            set_vision_cu_enabled(bool(payload["vision_cu_enabled"]))
-        if "vision_cu_monthly_cap_usd" in payload:
-            set_vision_cu_monthly_cap_usd(float(payload["vision_cu_monthly_cap_usd"]))
-        if "critic_review_difficulty_threshold" in payload:
-            set_critic_review_difficulty_threshold(
-                int(payload["critic_review_difficulty_threshold"])
-            )
-        if "concierge_persona_enabled" in payload:
-            set_concierge_persona_enabled(bool(payload["concierge_persona_enabled"]))
-        if "tier3_amendment_enabled" in payload:
-            set_tier3_amendment_enabled(bool(payload["tier3_amendment_enabled"]))
-        if "error_runbooks_enabled" in payload:
-            set_error_runbooks_enabled(bool(payload["error_runbooks_enabled"]))
-        if "tool_supervisor_enabled" in payload:
-            set_tool_supervisor_enabled(bool(payload["tool_supervisor_enabled"]))
-        if "recovery_loop_enabled" in payload:
-            set_recovery_loop_enabled(bool(payload["recovery_loop_enabled"]))
-        if "goodhart_hard_gate_disabled" in payload:
-            set_goodhart_hard_gate_disabled(bool(payload["goodhart_hard_gate_disabled"]))
-        if "goodhart_hard_gate_enforcing" in payload:
-            set_goodhart_hard_gate_enforcing(bool(payload["goodhart_hard_gate_enforcing"]))
-        # Structured-diagnosis threshold band (Q2 §39).
-        if "structured_diagnosis_threshold_floor" in payload:
-            set_structured_diagnosis_threshold_floor(
-                float(payload["structured_diagnosis_threshold_floor"])
-            )
-        if "structured_diagnosis_threshold_ceiling" in payload:
-            set_structured_diagnosis_threshold_ceiling(
-                float(payload["structured_diagnosis_threshold_ceiling"])
-            )
-        if "structured_diagnosis_threshold_override" in payload:
-            raw = payload["structured_diagnosis_threshold_override"]
-            set_structured_diagnosis_threshold_override(
-                None if raw is None else float(raw)
-            )
-        if "structured_diagnosis_auto_tune_enabled" in payload:
-            set_structured_diagnosis_auto_tune_enabled(
-                bool(payload["structured_diagnosis_auto_tune_enabled"])
-            )
-        # Embedding-migration master switches (PROGRAM §40 Item 12).
-        if "embedding_migration_dual_write_enabled" in payload:
-            set_embedding_migration_dual_write_enabled(
-                bool(payload["embedding_migration_dual_write_enabled"])
-            )
-        if "embedding_migration_shadow_read_enabled" in payload:
-            set_embedding_migration_shadow_read_enabled(
-                bool(payload["embedding_migration_shadow_read_enabled"])
-            )
-        if "embedding_migration_cutover_enabled" in payload:
-            set_embedding_migration_cutover_enabled(
-                bool(payload["embedding_migration_cutover_enabled"])
-            )
+        # ── Registry-driven dispatch (the common case) ─────────────
+        # Each entry is (setter, coercer). Adding a new simple
+        # toggle = one entry in _build_setter_registry, no other
+        # change needed. That's the systemic fix.
+        for key, (setter, coerce) in registry.items():
+            if key in payload:
+                setter(coerce(payload[key]))
+                handled.add(key)
 
-        # ── Q4.2 — person correlation (PROGRAM §42) ──────────────────
-        if "person_correlation_enabled" in payload:
-            set_person_correlation_enabled(bool(payload["person_correlation_enabled"]))
-        if "person_correlation_decay_months" in payload:
-            set_person_correlation_decay_months(
-                int(payload["person_correlation_decay_months"])
-            )
-        if "person_centrality_enabled" in payload:
-            set_person_centrality_enabled(bool(payload["person_centrality_enabled"]))
-        if "person_centrality_formula" in payload:
-            set_person_centrality_formula(str(payload["person_centrality_formula"]))
-        if "person_suggestions_enabled" in payload:
-            set_person_suggestions_enabled(bool(payload["person_suggestions_enabled"]))
-        if "person_suggestions_dormancy_enabled" in payload:
-            set_person_suggestions_dormancy_enabled(bool(payload["person_suggestions_dormancy_enabled"]))
-        if "person_suggestions_responsiveness_enabled" in payload:
-            set_person_suggestions_responsiveness_enabled(bool(payload["person_suggestions_responsiveness_enabled"]))
-
+        # ── Typed-phrase gates (explicit; cross-payload) ───────────
         # L4 master — typed-phrase gate on False→True transition.
-        # The phrase MUST be present and match exactly OR the new value
-        # must be False (disable doesn't require a phrase).
+        # The phrase MUST be present and match exactly OR the new
+        # value must be False (disable doesn't require a phrase).
         if "person_correlation_social_graph_enabled" in payload:
             new_val = bool(payload["person_correlation_social_graph_enabled"])
             if new_val and not get_person_correlation_social_graph_enabled():
-                # Enabling: require phrase.
                 phrase = str(payload.get("social_graph_confirm_phrase") or "")
                 if phrase != "ENABLE SOCIAL GRAPH":
                     raise HTTPException(
@@ -471,13 +734,7 @@ async def set_runtime_settings_endpoint(request: Request):
                         ),
                     )
             set_person_correlation_social_graph_enabled(new_val)
-
-        if "graph_shortest_path_enabled" in payload:
-            set_graph_shortest_path_enabled(bool(payload["graph_shortest_path_enabled"]))
-        if "graph_communities_enabled" in payload:
-            set_graph_communities_enabled(bool(payload["graph_communities_enabled"]))
-        if "graph_bridges_enabled" in payload:
-            set_graph_bridges_enabled(bool(payload["graph_bridges_enabled"]))
+            handled.add("person_correlation_social_graph_enabled")
 
         # L4.4 master — SECOND typed-phrase gate on False→True.
         if "graph_suggestions_enabled" in payload:
@@ -496,295 +753,35 @@ async def set_runtime_settings_endpoint(request: Request):
                         ),
                     )
             set_graph_suggestions_enabled(new_val)
+            handled.add("graph_suggestions_enabled")
 
-        if "graph_suggestions_cluster_dormancy_enabled" in payload:
-            set_graph_suggestions_cluster_dormancy_enabled(
-                bool(payload["graph_suggestions_cluster_dormancy_enabled"])
-            )
-        if "graph_suggestions_bridge_maintenance_enabled" in payload:
-            set_graph_suggestions_bridge_maintenance_enabled(
-                bool(payload["graph_suggestions_bridge_maintenance_enabled"])
-            )
-        if "graph_suggestions_weak_tie_enabled" in payload:
-            set_graph_suggestions_weak_tie_enabled(
-                bool(payload["graph_suggestions_weak_tie_enabled"])
-            )
-
-        # Q6 (PROGRAM §44.3) — resilience drill master + per-drill toggles.
-        # kill_the_gateway is the only DISRUPTIVE drill and defaults OFF;
-        # the operator opts in via this toggle. No typed-phrase gate on
-        # the runtime setting itself — the typed phrase is required by
-        # the external script at execution time, not at toggle time.
-        # Toggle alone just makes the scheduler emit "due" notifications.
-        if "resilience_drills_enabled" in payload:
-            set_resilience_drills_enabled(bool(payload["resilience_drills_enabled"]))
-        if "drill_backup_restore_enabled" in payload:
-            set_drill_backup_restore_enabled(
-                bool(payload["drill_backup_restore_enabled"])
-            )
-        if "drill_embedding_migration_enabled" in payload:
-            set_drill_embedding_migration_enabled(
-                bool(payload["drill_embedding_migration_enabled"])
-            )
-        if "drill_secret_rotation_enabled" in payload:
-            set_drill_secret_rotation_enabled(
-                bool(payload["drill_secret_rotation_enabled"])
-            )
-        if "drill_kill_the_gateway_enabled" in payload:
-            set_drill_kill_the_gateway_enabled(
-                bool(payload["drill_kill_the_gateway_enabled"])
-            )
-        if "drill_staleness_monitor_enabled" in payload:
-            set_drill_staleness_monitor_enabled(
-                bool(payload["drill_staleness_monitor_enabled"])
-            )
-
-        # task_recovery drill (arXiv:2604.27096 §4.3.4 survey response).
-        # Master + live + LLM-variants switches. ``_live`` is the cost
-        # gate (default OFF) — without it the drill returns SKIPPED.
-        # ``_llm_variants`` is the anti-Goodhart layer (default ON).
-        if "drill_task_recovery_enabled" in payload:
-            set_drill_task_recovery_enabled(
-                bool(payload["drill_task_recovery_enabled"])
-            )
-        if "drill_task_recovery_live_enabled" in payload:
-            set_drill_task_recovery_live_enabled(
-                bool(payload["drill_task_recovery_live_enabled"])
-            )
-        if "drill_task_recovery_llm_variants_enabled" in payload:
-            set_drill_task_recovery_llm_variants_enabled(
-                bool(payload["drill_task_recovery_llm_variants_enabled"])
-            )
-
-        # Q7.1 (PROGRAM §45.1) — Architecture-request primitive
-        # toggles. Top-level master + adoption-monitor switch. The
-        # top-level switch gates the lifecycle's protocol_enabled
-        # check; the monitor switch gates the daily auto-rollback
-        # probe. Both default ON.
-        if "architecture_requests_enabled" in payload:
-            set_architecture_requests_enabled(
-                bool(payload["architecture_requests_enabled"])
-            )
-        if "architecture_adoption_monitor_enabled" in payload:
-            set_architecture_adoption_monitor_enabled(
-                bool(payload["architecture_adoption_monitor_enabled"])
-            )
-
-        # ─── Q7.4 — per-coding-session inline ShinkaEvolve ────────────
-        # Gates `evolution_bridge.evolve_in_session`. When OFF, the
-        # bridge returns ``status="disabled"`` instead of invoking
-        # ShinkaEvolveRunner. The bulk subsystem (app.shinka_engine) is
-        # gated separately by its own engine-stats master switch.
-        if "shinka_inline_evolve_enabled" in payload:
-            set_shinka_inline_evolve_enabled(
-                bool(payload["shinka_inline_evolve_enabled"])
-            )
-
-        # ─── Verified mutation engine (2026-05-27) ────────────────────
-        if "evolution_verified_engine_enabled" in payload:
-            set_evolution_verified_engine_enabled(
-                bool(payload["evolution_verified_engine_enabled"])
-            )
-        if "evolution_verified_per_cycle_budget_usd" in payload:
-            set_evolution_verified_per_cycle_budget_usd(
-                float(payload["evolution_verified_per_cycle_budget_usd"])
-            )
-
-        # ─── Q9.3 — travel monitor configuration ──────────────────────
-        # tripit_ical_url: operator copies the personal TripIt iCal feed
-        # URL from their TripIt account; aviationstack_api_key is the
-        # optional Aviationstack key for live flight status. Both
-        # validated at the setter (https + hostname for TripIt; min-len
-        # for the API key).
-        if "tripit_ical_url" in payload:
-            set_tripit_ical_url(str(payload["tripit_ical_url"] or ""))
-        if "aviationstack_api_key" in payload:
-            set_aviationstack_api_key(
-                str(payload["aviationstack_api_key"] or "")
-            )
-
-        # ─── Q11.1 — analogy-index populator (PROGRAM §46.18) ─────────
-        if "analogy_index_populator_enabled" in payload:
-            set_analogy_index_populator_enabled(
-                bool(payload["analogy_index_populator_enabled"])
-            )
-
-        # ─── Productization plan WP D — cloud-migrate execute-gate ────
-        # Layer-3 safety gate for `botarmy migrate --live`. False (default)
-        # → orchestrator runs but every cloud-mutating subprocess returns
-        # a `<dry: ...>` placeholder. True → real terraform apply +
-        # gcloud + kubectl. The flip emits a `cloud_migration` event of
-        # phase `execute_policy_changed` to the identity ledger.
-        if "migrate_live_execute" in payload:
-            set_migrate_live_execute(bool(payload["migrate_live_execute"]))
-
-        # ─── Verification-extension + risk-classifier + fast-route ────
-        # (2026-05-20 — Phase 1 pieces 1 / 2 / 3).
-        #
-        # The override overlays (epistemic_enabled_override,
-        # epistemic_blocking_mode_override) accept None to mean
-        # "fall through to env var"; True/False to override. The
-        # explicit None handling differs from the bool() coercion the
-        # other switches use.
-        if "epistemic_enabled_override" in payload:
-            raw = payload["epistemic_enabled_override"]
-            set_epistemic_enabled_override(
-                None if raw is None else bool(raw),
-            )
-        if "epistemic_blocking_mode_override" in payload:
-            raw = payload["epistemic_blocking_mode_override"]
-            set_epistemic_blocking_mode_override(
-                None if raw is None else bool(raw),
-            )
-        if "verification_extension_enabled" in payload:
-            set_verification_extension_enabled(
-                bool(payload["verification_extension_enabled"]),
-            )
-        # Per-zone thresholds — three keys map to the same setter
-        # with a zone argument. Bounds + zone validity enforced in
-        # the setter.
+        # ── Per-zone verification thresholds ───────────────────────
+        # Three payload keys map to one setter with a zone arg.
+        # Bounds + zone validity enforced in the setter.
         for _zone in ("chat", "autonomous", "financial"):
             _key = f"verification_threshold_{_zone}"
             if _key in payload:
-                set_verification_threshold(
-                    _zone, float(payload[_key]),
-                )
-        if "verification_extension_retrieval_budget_per_task" in payload:
-            set_verification_retrieval_budget_per_task(
-                int(payload[
-                    "verification_extension_retrieval_budget_per_task"
-                ]),
-            )
-        # Trust-zone allowlists — list[str] payloads with sanity
-        # caps + path-traversal validation in the setter.
-        if "auto_apply_allowed_requestors" in payload:
-            raw = payload["auto_apply_allowed_requestors"]
-            if not isinstance(raw, list):
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "auto_apply_allowed_requestors must be a JSON "
-                        "list of strings"
-                    ),
-                )
-            set_auto_apply_allowed_requestors(raw)
-        if "auto_apply_allowed_paths" in payload:
-            raw = payload["auto_apply_allowed_paths"]
-            if not isinstance(raw, list):
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "auto_apply_allowed_paths must be a JSON list "
-                        "of strings"
-                    ),
-                )
-            set_auto_apply_allowed_paths(raw)
-        if "risk_classifier_enabled" in payload:
-            set_risk_classifier_enabled(
-                bool(payload["risk_classifier_enabled"]),
-            )
-        if "fast_route_extended_patterns_enabled" in payload:
-            set_fast_route_extended_patterns_enabled(
-                bool(payload["fast_route_extended_patterns_enabled"]),
-            )
+                set_verification_threshold(_zone, float(payload[_key]))
+                handled.add(_key)
 
-        # ── PROGRAM §62 — upgrade-lifecycle subsystem ─────────────────
-        # Card lives at /cp/settings → UpgradeLifecycleCard +
-        # AbsencePolicyCard. The setters were defined in
-        # runtime_settings but never reached from any HTTP route,
-        # so every toggle silently no-op'd.
-        if "upgrade_lifecycle_enabled" in payload:
-            set_upgrade_lifecycle_enabled(
-                bool(payload["upgrade_lifecycle_enabled"]),
-            )
-        if "upgrade_lifecycle_capability_extraction_enabled" in payload:
-            set_upgrade_lifecycle_capability_extraction_enabled(
-                bool(payload["upgrade_lifecycle_capability_extraction_enabled"]),
-            )
-        if "upgrade_lifecycle_trial_enabled" in payload:
-            set_upgrade_lifecycle_trial_enabled(
-                bool(payload["upgrade_lifecycle_trial_enabled"]),
-            )
-        if "upgrade_lifecycle_major_auto_cr_enabled" in payload:
-            set_upgrade_lifecycle_major_auto_cr_enabled(
-                bool(payload["upgrade_lifecycle_major_auto_cr_enabled"]),
-            )
-        if "upgrade_lifecycle_capability_adoption_enabled" in payload:
-            set_upgrade_lifecycle_capability_adoption_enabled(
-                bool(payload["upgrade_lifecycle_capability_adoption_enabled"]),
-            )
-        if "upgrade_lifecycle_capability_budget_usd_quarterly" in payload:
-            set_upgrade_lifecycle_capability_budget_usd_quarterly(
-                float(payload["upgrade_lifecycle_capability_budget_usd_quarterly"]),
-            )
-        if "ecosystem_snapshot_enabled" in payload:
-            set_ecosystem_snapshot_enabled(
-                bool(payload["ecosystem_snapshot_enabled"]),
-            )
-        if "upgrade_lifecycle_apply_hook_enabled" in payload:
-            set_upgrade_lifecycle_apply_hook_enabled(
-                bool(payload["upgrade_lifecycle_apply_hook_enabled"]),
-            )
-        if "upgrade_lifecycle_requirements_writer_enabled" in payload:
-            set_upgrade_lifecycle_requirements_writer_enabled(
-                bool(payload["upgrade_lifecycle_requirements_writer_enabled"]),
-            )
-        if "upgrade_lifecycle_dockerfile_writer_enabled" in payload:
-            set_upgrade_lifecycle_dockerfile_writer_enabled(
-                bool(payload["upgrade_lifecycle_dockerfile_writer_enabled"]),
-            )
-        if "upgrade_lifecycle_pyproject_writer_enabled" in payload:
-            set_upgrade_lifecycle_pyproject_writer_enabled(
-                bool(payload["upgrade_lifecycle_pyproject_writer_enabled"]),
-            )
-        if "upgrade_lifecycle_absence_policy_enabled" in payload:
-            set_upgrade_lifecycle_absence_policy_enabled(
-                bool(payload["upgrade_lifecycle_absence_policy_enabled"]),
-            )
-        # Multi-year resilience gaps (Gap #1-#11, 2026-05-24).
-        if "config_coherence_monitor_enabled" in payload:
-            set_config_coherence_monitor_enabled(
-                bool(payload["config_coherence_monitor_enabled"]),
-            )
-        if "total_cost_ceiling_enabled" in payload:
-            set_total_cost_ceiling_enabled(
-                bool(payload["total_cost_ceiling_enabled"]),
-            )
-        if "total_cost_monthly_cap_usd" in payload:
-            set_total_cost_monthly_cap_usd(
-                float(payload["total_cost_monthly_cap_usd"]),
-            )
-        if "capability_inventory_enabled" in payload:
-            set_capability_inventory_enabled(
-                bool(payload["capability_inventory_enabled"]),
-            )
-        if "discovery_funnel_enabled" in payload:
-            set_discovery_funnel_enabled(
-                bool(payload["discovery_funnel_enabled"]),
-            )
-        if "knowledge_currency_monitor_enabled" in payload:
-            set_knowledge_currency_monitor_enabled(
-                bool(payload["knowledge_currency_monitor_enabled"]),
-            )
-        if "hardware_health_monitor_enabled" in payload:
-            set_hardware_health_monitor_enabled(
-                bool(payload["hardware_health_monitor_enabled"]),
-            )
-        if "privacy_audit_enabled" in payload:
-            set_privacy_audit_enabled(bool(payload["privacy_audit_enabled"]))
-        if "deadman_last_resort_enabled" in payload:
-            set_deadman_last_resort_enabled(
-                bool(payload["deadman_last_resort_enabled"]),
-            )
-        if "drill_prompt_injection_resistance_enabled" in payload:
-            set_drill_prompt_injection_resistance_enabled(
-                bool(payload["drill_prompt_injection_resistance_enabled"]),
-            )
     except HTTPException:
         # Preserve 400-with-detail from inline validation above.
         raise
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    # Confirm-phrase payload keys are companions to typed-phrase
+    # gates, not standalone settings — mark them handled so they
+    # don't surface in ``ignored_keys`` when bundled with their
+    # gated boolean.
+    handled.update(_CONFIRM_PHRASE_KEYS & payload.keys())
+
+    ignored_keys = sorted(set(payload.keys()) - handled)
+    if ignored_keys:
+        logger.warning(
+            "runtime_settings: ignored unrecognized payload keys: %s",
+            ignored_keys,
+        )
 
     # Audit the change so the operator can see who flipped what.
     try:
@@ -792,7 +789,11 @@ async def set_runtime_settings_endpoint(request: Request):
         from app.audit import log_security_event
         log_security_event(
             "runtime_settings_change",
-            _json.dumps({"changed": list(payload.keys()), "after": snapshot()}),
+            _json.dumps({
+                "changed": sorted(handled - _CONFIRM_PHRASE_KEYS),
+                "ignored": ignored_keys,
+                "after": snapshot(),
+            }),
         )
     except Exception:
         logger.debug("runtime_settings audit log failed", exc_info=True)
@@ -812,7 +813,7 @@ async def set_runtime_settings_endpoint(request: Request):
     except Exception:
         logger.debug("settings_genealogy: record failed", exc_info=True)
 
-    return {"status": "ok", **snapshot()}
+    return {"status": "ok", "ignored_keys": ignored_keys, **snapshot()}
 
 
 # ── Governance ratchet (Wave 3 #6 — May 2026) ──────────────────────────────

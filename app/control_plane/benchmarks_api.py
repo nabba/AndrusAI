@@ -13,6 +13,8 @@ for a manual catalog pass. Five endpoints:
 from __future__ import annotations
 
 import logging
+import threading
+import time as _time
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -27,6 +29,20 @@ router = APIRouter(
     tags=["control-plane", "benchmarks"],
     dependencies=[Depends(require_gateway_auth)],
 )
+
+
+# Operator-initiated refresh runs in a background daemon thread so
+# the HTTP request returns immediately. A non-blocking lock enforces
+# one concurrent operator-initiated pass — a second POST while one
+# is in flight returns ``started=False, skipped_reason="already_running"``
+# without spawning a duplicate. The scheduler's daily idle pass uses
+# the same ``scheduler_job.run_refresh`` entry point but goes through
+# its internal cadence guard, so it composes safely.
+_refresh_in_flight = threading.Lock()
+_refresh_state: dict[str, Any] = {
+    "started_at": None,
+    "last_result": None,
+}
 
 
 def _safe_master_switch() -> bool:
@@ -160,19 +176,85 @@ def stats_endpoint() -> dict[str, Any]:
 
 @router.post("/refresh")
 def refresh_endpoint(force: bool = Query(False)) -> dict[str, Any]:
-    """Operator-initiated catalog pass.
+    """Operator-initiated catalog pass — fire-and-return.
 
-    ``force=true`` bypasses both the master-switch and cadence
-    guards — useful when the operator wants an immediate refresh
-    even though the suite is normally cold.
+    The full pass over the catalog × tier matrix can take minutes
+    end-to-end (15 tasks × 3 model tiers × p95 latency). The
+    reverse proxy / Tailscale Funnel times the HTTP request out
+    long before that finishes (~60s → 504 Gateway timeout to the
+    React client), even though the pass keeps running server-side.
+    To avoid the false-failure UX, this endpoint spawns the pass
+    on a background daemon thread and returns immediately. The
+    leaderboard + stats endpoints reflect rows as they land in
+    the JSONL store (no separate progress channel needed — the
+    leaderboard's existing 30s react-query poll IS the progress
+    indicator).
+
+    Response shape (back-compatible with the legacy synchronous
+    form):
+
+      ``started``     — True when a new thread was spawned by
+                        this call. NEW field (2026-05-28).
+      ``ran``         — Always False from this path (kept for
+                        type compatibility with the synchronous
+                        result the React side renders).
+      ``skipped_reason`` — Set when ``started`` is False:
+                        ``already_running`` (a prior refresh is
+                        still in flight) or ``thread_spawn_failed``
+                        (extremely rare; runtime out of threads).
+
+    Concurrency: a process-wide ``_refresh_in_flight`` lock
+    serialises operator-initiated runs. The scheduler's daily
+    idle pass uses the same ``run_refresh`` entry point but
+    consults its own cadence guard, so the two compose safely.
+
+    ``force=true`` bypasses the master-switch and cadence guards
+    inside ``run_refresh`` — useful when the operator wants an
+    immediate refresh even though the suite is normally cold.
     """
-    from app.benchmarks.scheduler_job import run_refresh
-    try:
-        return run_refresh(force=force)
-    except Exception as exc:
-        logger.warning("benchmarks_api.refresh failed: %s", exc)
+    if not _refresh_in_flight.acquire(blocking=False):
         return {
-            "ran": False, "skipped_reason": "exception",
+            "started": False, "ran": False,
+            "skipped_reason": "already_running",
+            "n_runs": 0, "elapsed_s": 0.0, "cost_usd": 0.0,
+            "error": "",
+        }
+
+    from app.benchmarks.scheduler_job import run_refresh
+
+    def _worker() -> None:
+        try:
+            _refresh_state["last_result"] = run_refresh(force=force)
+        except Exception as exc:
+            logger.exception("benchmarks_api: background refresh failed")
+            _refresh_state["last_result"] = {
+                "ran": False, "skipped_reason": "exception",
+                "n_runs": 0, "elapsed_s": 0.0, "cost_usd": 0.0,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        finally:
+            _refresh_in_flight.release()
+
+    try:
+        _refresh_state["started_at"] = _time.time()
+        threading.Thread(
+            target=_worker, daemon=True, name="benchmarks-refresh",
+        ).start()
+    except Exception as exc:
+        # Releasing the lock here is essential — without it any
+        # later POST would also be denied.
+        _refresh_in_flight.release()
+        logger.warning(
+            "benchmarks_api: failed to spawn refresh thread: %s", exc,
+        )
+        return {
+            "started": False, "ran": False,
+            "skipped_reason": "thread_spawn_failed",
             "n_runs": 0, "elapsed_s": 0.0, "cost_usd": 0.0,
             "error": f"{type(exc).__name__}: {exc}",
         }
+
+    return {
+        "started": True, "ran": False, "skipped_reason": "",
+        "n_runs": 0, "elapsed_s": 0.0, "cost_usd": 0.0, "error": "",
+    }

@@ -170,10 +170,20 @@ export function BenchmarksPage() {
   };
 
   const handleRefresh = async () => {
-    setRefreshMsg('Running…');
+    setRefreshMsg('Starting…');
     try {
       const r = await refresh.mutateAsync(true);
-      if (r.ran) {
+      // 2026-05-28 — refresh is now fire-and-return so the proxy
+      // can't 504 on a long pass. The leaderboard + stats queries
+      // already poll on 30s/60s; rows appear as they land in the
+      // JSONL store.
+      if (r.started) {
+        setRefreshMsg(
+          'Started in background — results land in the leaderboard as runs finish.',
+        );
+      } else if (r.ran) {
+        // Legacy synchronous shape — kept for back-compat if any
+        // caller forces the old behavior.
         setRefreshMsg(
           `Ran ${r.n_runs} benchmark(s) in ${r.elapsed_s.toFixed(1)}s ($${r.cost_usd.toFixed(4)})`,
         );

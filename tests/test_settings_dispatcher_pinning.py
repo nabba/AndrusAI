@@ -46,12 +46,19 @@ that POST to ``/api/cp/settings`` or the canonical
 How "known-failing" keys are handled
 ────────────────────────────────────
 
-Six React settings cards (Connector Budget, Capability
-Regression, Source Ledger, Task Recovery is OK but the source
-ledger drills aren't, plus the RecentSubsystemsCard iterate/
-benchmarks toggles) POST keys the dispatcher has never handled
-— they're silently dropping today. Each is documented in
-``KNOWN_SILENTLY_DROPPED_KEYS`` below.
+Historically six React settings cards POSTed keys the
+dispatcher had never handled — the operator's toggles silently
+no-op'd (POST 200, no state change). The 2026-05-28 registry
+refactor in ``app/api/config_api.py`` closed the whole bug
+class, so ``KNOWN_SILENTLY_DROPPED_KEYS`` is now empty.
+Future silent drops are caught two ways:
+
+  (a) Any payload key neither dispatched by the registry nor
+      by an explicit branch is logged at WARNING and returned
+      in ``response["ignored_keys"]`` — operator visibility on
+      every POST.
+  (b) The round-trip test below exercises every React-
+      extracted key and fails CI on any new silent drop.
 
 The test pins TWO invariants:
 
@@ -79,53 +86,30 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPONENTS_DIR = REPO_ROOT / "dashboard-react" / "src" / "components"
 
 
-# ─── Known silent-drops (pre-existing on 2026-05-23) ──────────────────
+# ─── Known silent-drops (now empty — bug class closed 2026-05-28) ────
 #
-# Each entry is a runtime-settings key that the React UI POSTs to
-# ``/api/cp/settings`` but for which the dispatcher in
-# ``app/api/config_api.py:set_runtime_settings_endpoint`` has NO
-# ``if "<key>" in payload: set_<key>(…)`` branch. POSTing the key
-# returns 200 OK with no state change; the operator's toggle no-ops.
+# Each entry would be a runtime-settings key that the React UI
+# POSTs but the dispatcher silently ignores (returning 200 OK with
+# no state change). The 2026-05-28 registry refactor in
+# ``app/api/config_api.py`` made this impossible: every payload key
+# is either dispatched by the declarative registry, by an explicit
+# branch (typed-phrase / zone-loop), or surfaced in the
+# ``ignored_keys`` field of the response. Adding a NEW silent drop
+# now requires a PR that bypasses the registry — defended against
+# by the round-trip test below.
 #
-# The pin: removing an entry from this set REQUIRES adding the
-# dispatcher branch in the same PR (the round-trip test for the key
-# will then fail until it actually persists).
+# Adding an entry to this set is ONLY appropriate if a NEW React
+# card is shipping in a known-incomplete state with operator-
+# visible acknowledgement; default disposition is to add the
+# registry entry before merge.
 #
-# Adding an entry to this set is ONLY appropriate if a NEW React card
-# is shipping in a known-incomplete state with operator-visible
-# acknowledgement; default disposition is to add the dispatcher
-# branch before merge.
-KNOWN_SILENTLY_DROPPED_KEYS: set[str] = {
-    # ConnectorBudgetCard.tsx — POSTs both keys; no dispatcher branch.
-    # Both default to absent from snapshot so the bug is doubly
-    # invisible (no value to read back at all).
-    "connector_budgets_enabled",
-    "connector_budget_overrides",
-    # CapabilityRegressionCard.tsx — POSTs this key; no branch.
-    # Absent from snapshot defaults.
-    "capability_regression_enabled",
-    # BenchmarksPage.tsx + RecentSubsystemsCard.tsx (via the
-    # useUpdateRuntimeSettings hook) — POST both keys; no branch.
-    "iterate_loop_enabled",
-    "benchmarks_enabled",
-    # SourceLedgerCard.tsx — 8 toggles, none of them dispatchable.
-    "chromadb_source_ledger_enabled",
-    "chromadb_ledger_bootstrap_enabled",
-    "chromadb_ledger_drift_replay_enabled",
-    "chromadb_ledger_compaction_enabled",
-    "chromadb_ledger_s3_upload_enabled",
-    "chromadb_ledger_gdrive_upload_enabled",
-    "drill_source_ledger_replay_enabled",
-    "drill_embedding_rotation_enabled",
-    # SettingsPage.tsx cloud-hardening section — POSTs 3 keys;
-    # setters exist (`set_hardening_profile`, `set_binauthz_mode`,
-    # `set_gcp_bootstrap_enabled` in runtime_settings.py) but no
-    # dispatcher branch. (Note: PROGRAM §57 ships a typed VITE_
-    # bearer-secret path for these; the dispatcher gap is real.)
-    "gcp_bootstrap_enabled",
-    "hardening_profile",
-    "binauthz_mode",
-}
+# Previously listed (all closed 2026-05-28): connector_budgets_enabled,
+# connector_budget_overrides, capability_regression_enabled,
+# iterate_loop_enabled, benchmarks_enabled, chromadb_source_ledger_enabled,
+# chromadb_ledger_{bootstrap,drift_replay,compaction,s3_upload,gdrive_upload}_enabled,
+# drill_source_ledger_replay_enabled, drill_embedding_rotation_enabled,
+# gcp_bootstrap_enabled, hardening_profile, binauthz_mode.
+KNOWN_SILENTLY_DROPPED_KEYS: set[str] = set()
 
 
 # ─── React-key extraction ─────────────────────────────────────────────

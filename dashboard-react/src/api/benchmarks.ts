@@ -90,6 +90,11 @@ export interface BenchmarkStatsResponse {
 }
 
 export interface RefreshResponse {
+  // 2026-05-28 — async refresh: true when a new background pass
+  // was spawned by this POST. The leaderboard + stats queries
+  // (already polling on 30s/60s) reflect rows as they land; this
+  // field is what `handleRefresh` keys off for its toast.
+  started?: boolean;
   ran: boolean;
   skipped_reason: string;
   n_runs: number;
