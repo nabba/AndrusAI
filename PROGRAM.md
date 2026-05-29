@@ -14810,3 +14810,43 @@ auto-cleaned. 2 pinning tests added to `tests/test_evolver_spawn.py`
 (`…forwards_required_settings_keys`, `…makes_evolver_the_oom_victim`). No
 TIER_IMMUTABLE touches, no new master switches. Docs: `docs/VERIFIED_MUTATION_ENGINE.md`.
 
+## §77 — Gateway boot HTTP-starvation root-cause fix (2026-05-29)
+
+The chronic "gateway HTTP-unresponsive for stretches right after boot" loop — `/health`
+returning HTTP 000 for 15–60+ s while the container is `running` with RestartCount=0,
+self-recovering once CPU goes idle. The host watchdog (`scripts/gateway_watchdog.py`,
+~2 min threshold) and the Signal durable outbox were band-aids built *around* this; §77
+is the actual root cause. Two GIL-contention mechanisms in `app/idle_scheduler.py`
+(GATED) — the idle scheduler runs in a daemon thread *in the gateway process*, so any
+CPU-bound Python work holds the GIL the asyncio event loop needs to answer `/health`:
+
+1. **Lifespan block (the "right after boot" symptom).** `idle_scheduler.start()` was
+   called synchronously in the asyncio lifespan (`main.py`) and itself ran
+   `_refresh_catalog()` + `rehydrate_catalog(force=True)` — network/parse-heavy — *on
+   the event-loop thread*, before uvicorn began serving. Fix: extracted into
+   `_run_boot_prep()`, invoked at the top of the daemon-thread `_run_idle_loop`. `start()`
+   is now cheap (build closures + spawn thread). Verified by boot-log ordering:
+   `Application startup complete` / `Uvicorn running` now precede `boot rehydrate added N`.
+2. **Warm-up burst.** After the 180 s idle delay, a MEDIUM/HEAVY job (heavy cap 600 s)
+   could grind the GIL during the fragile post-boot window and starve `/health` past the
+   ~2-min watchdog → restart mid-job → fresh boot burst → loop. Fix: defer MEDIUM/HEAVY
+   jobs while `_in_warmup_phase()` (publishes a `boot_warmup` deferral), plus a
+   configurable GIL-yield sleep after each warm-up LIGHT job so the loop can answer
+   `/health` between CPU-heavy jobs.
+
+**Why not offload to a process pool / worker container** (the seemingly-obvious systemic
+fix): many idle jobs write the embedded single-writer `chromadb.PersistentClient` KBs, so
+a second process opening the same KB files reintroduces the exact §55 dual-writer SQLite
+corruption (a CI pin bans it). The fix is therefore deliberately in-process.
+
+4 new fields in `app/config.py` (**TIER_IMMUTABLE, operator-approved 2026-05-29** —
+consistent with the existing `idle_lightweight_workers` / `idle_heavy_time_cap_s` idle
+knobs already living there): `idle_boot_starvation_fix_enabled` (master, default ON;
+env `IDLE_BOOT_STARVATION_FIX_ENABLED=0` reverts to prior behaviour exactly),
+`idle_warmup_defer_heavy`, `idle_warmup_defer_medium`, `idle_warmup_inter_job_pause_s`
+(0.5 s). Additive + reversible; no new master switches beyond these; no chromadb
+single-writer change. Live-verified post-rebuild: RestartCount=0, `/health` 200 on every
+probe (0× HTTP 000) including during active background LLM work; `boot_warmup` deferral
+fired live. 14 host-runnable idle tests pass (`test_idle_scheduler_warmup.py`,
+`test_idle_scheduler_iterator_timeout.py`); full suite runs in the CI Docker test image.
+

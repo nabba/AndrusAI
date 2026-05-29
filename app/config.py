@@ -317,6 +317,24 @@ class Settings(BaseSettings):
     idle_heavy_time_cap_s: int = 600
     idle_training_interval_s: int = 3600
 
+    # Boot-starvation fix (2026-05-29). During the post-boot warm-up window
+    # (_in_warmup_phase()) the gateway shares one process — and one GIL —
+    # with the asyncio event loop, so a single CPU-bound idle job can starve
+    # /health long enough for the host watchdog (~2 min) to restart the
+    # gateway mid-job, producing the chronic boot-hang loop. These knobs
+    # smooth that window without moving work out of process (which would
+    # reintroduce the §55 chromadb dual-writer corruption risk):
+    #   - defer MEDIUM/HEAVY jobs entirely until warm-up ends, so no long
+    #     GIL-monopolizing job runs while the gateway is still fragile;
+    #   - sleep a short interval after each warm-up LIGHT job, releasing the
+    #     GIL so the event loop can answer /health between jobs.
+    # All reversible: set idle_boot_starvation_fix_enabled=False (env
+    # IDLE_BOOT_STARVATION_FIX_ENABLED=0) to restore prior behaviour exactly.
+    idle_boot_starvation_fix_enabled: bool = True
+    idle_warmup_defer_heavy: bool = True
+    idle_warmup_defer_medium: bool = True
+    idle_warmup_inter_job_pause_s: float = 0.5
+
     # Consciousness indicators (Butlin et al. 2025)
     consciousness_enabled: bool = True
     workspace_capacity: int = 5

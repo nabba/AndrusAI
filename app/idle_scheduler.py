@@ -345,6 +345,71 @@ def _in_warmup_phase() -> bool:
     return (time.monotonic() - completed_at) < IDLE_WARMUP_SECONDS
 
 
+def _boot_starvation_fix_enabled() -> bool:
+    """Master gate for the 2026-05-29 boot-starvation fix.
+
+    Fail-safe to True (fix ON) — the fix is the safe default; only an
+    explicit operator opt-out should restore the prior, starvation-prone
+    behaviour. See ``Settings.idle_boot_starvation_fix_enabled``.
+    """
+    try:
+        from app.config import get_settings
+        return bool(get_settings().idle_boot_starvation_fix_enabled)
+    except Exception:
+        return True
+
+
+def _warmup_defer(weight: str) -> bool:
+    """True iff jobs of ``weight`` should be skipped during the warm-up
+    window so a single long, GIL-monopolizing job can't run while the
+    gateway is still fragile post-boot and trip the host watchdog.
+
+    Only MEDIUM/HEAVY are eligible; LIGHT is never deferred (it's the
+    observability/reconciler tier that must keep running). Fail-safe:
+    on any error, defer MEDIUM/HEAVY (the protective choice).
+    """
+    if not _boot_starvation_fix_enabled():
+        return False
+    try:
+        from app.config import get_settings
+        s = get_settings()
+        if weight == JobWeight.HEAVY:
+            return bool(s.idle_warmup_defer_heavy)
+        if weight == JobWeight.MEDIUM:
+            return bool(s.idle_warmup_defer_medium)
+    except Exception:
+        return weight in (JobWeight.HEAVY, JobWeight.MEDIUM)
+    return False
+
+
+def _warmup_inter_job_pause_s() -> float:
+    """Seconds to sleep after each warm-up LIGHT job.
+
+    A plain ``time.sleep`` releases the GIL, giving the asyncio event
+    loop a window to service /health between back-to-back CPU-heavy jobs.
+    Returns 0.0 when the fix is disabled (prior behaviour).
+    """
+    if not _boot_starvation_fix_enabled():
+        return 0.0
+    try:
+        from app.config import get_settings
+        return max(0.0, float(get_settings().idle_warmup_inter_job_pause_s))
+    except Exception:
+        return 0.5
+
+
+def _interruptible_sleep(seconds: float) -> None:
+    """Sleep ``seconds`` but wake early if stop is signalled or a user
+    task arrives — so a warm-up GIL-yield gap never delays interruption."""
+    if seconds <= 0:
+        return
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if _stop_event.is_set() or not is_idle():
+            return
+        time.sleep(min(0.1, deadline - time.monotonic()))
+
+
 _job_timeout = threading.Event()  # Set when a job exceeds its time cap
 
 
@@ -699,6 +764,13 @@ def _run_idle_loop(jobs) -> None:
     from app.rate_throttle import set_background_caller
     set_background_caller(True)
 
+    # Boot prep (LLM catalog refresh + promoted-model rehydrate) runs HERE,
+    # on the daemon thread, not in start()'s caller (the asyncio lifespan).
+    # This is what keeps the GIL-heavy boot work off the event loop so
+    # /health stays responsive immediately after boot. Failure-isolated
+    # inside the helper; never blocks the loop from starting.
+    _run_boot_prep()
+
     # Classify jobs by weight
     light_jobs = [(n, fn) for n, fn, *w in jobs if (w[0] if w else JobWeight.MEDIUM) == JobWeight.LIGHT]
     medium_jobs = [(n, fn) for n, fn, *w in jobs if (w[0] if w else JobWeight.MEDIUM) == JobWeight.MEDIUM]
@@ -720,8 +792,9 @@ def _run_idle_loop(jobs) -> None:
     _last_training_run = 0.0
 
     try:
-        _training_interval = __import__("app.config", fromlist=["get_settings"]).get_settings().idle_training_interval_s
-        _heavy_cap = __import__("app.config", fromlist=["get_settings"]).get_settings().idle_heavy_time_cap_s
+        _settings = __import__("app.config", fromlist=["get_settings"]).get_settings()
+        _training_interval = _settings.idle_training_interval_s
+        _heavy_cap = _settings.idle_heavy_time_cap_s
     except Exception:
         _training_interval = TRAINING_LOOP_INTERVAL_S
         _heavy_cap = 600
@@ -747,12 +820,16 @@ def _run_idle_loop(jobs) -> None:
         # incident context (2026-05-17 22:37 EEST forwarder timeouts).
         if light_jobs:
             if _in_warmup_phase():
+                _warmup_pause = _warmup_inter_job_pause_s()
                 for name, fn in light_jobs:
                     if _stop_event.is_set() or not is_idle():
                         break
                     if not _light_job_allowed(name):  # Fix C cadence gate
                         continue
                     _run_single_job(name, fn, TIME_CAPS[JobWeight.LIGHT])
+                    # Release the GIL between jobs so the asyncio event
+                    # loop can answer /health during the boot burst.
+                    _interruptible_sleep(_warmup_pause)
             else:
                 futures = {}
                 for name, fn in light_jobs:
@@ -773,11 +850,16 @@ def _run_idle_loop(jobs) -> None:
         if medium_jobs:
             name, fn = medium_jobs[medium_idx % len(medium_jobs)]
             medium_idx += 1
+            # Boot-starvation fix (2026-05-29) — defer MEDIUM jobs while in
+            # the post-boot warm-up window so a long GIL-monopolizing job
+            # can't starve /health and trip the host watchdog mid-job.
+            if _in_warmup_phase() and _warmup_defer(JobWeight.MEDIUM):
+                _publish_deferral(name, JobWeight.MEDIUM, "boot_warmup")
             # Gap #2 (2026-05-24) — total monthly cost ceiling brake.
             # When tripped (>95% of cap), MEDIUM/HEAVY jobs skip; brake
             # auto-releases under 70% of cap (hysteresis). LIGHT jobs
             # continue regardless — they are cheap observability work.
-            if _budget_brake_engaged():
+            elif _budget_brake_engaged():
                 _publish_deferral(name, JobWeight.MEDIUM, "budget_brake")
             else:
                 # Productization plan T2.5 — consult substrate resource policy.
@@ -803,8 +885,15 @@ def _run_idle_loop(jobs) -> None:
                     continue  # Skip: ran less than 1 hour ago
                 _last_training_run = time.monotonic()
 
+            # Boot-starvation fix (2026-05-29) — defer HEAVY jobs while in
+            # the post-boot warm-up window. A heavy job can grind for up to
+            # _heavy_cap (default 600s) holding the GIL; running it before
+            # the gateway has settled is the surest way to starve /health
+            # past the ~2-min host watchdog and trigger a restart mid-job.
+            if _in_warmup_phase() and _warmup_defer(JobWeight.HEAVY):
+                _publish_deferral(name, JobWeight.HEAVY, "boot_warmup")
             # Gap #2 budget brake — same gate as the MEDIUM phase.
-            if _budget_brake_engaged():
+            elif _budget_brake_engaged():
                 _publish_deferral(name, JobWeight.HEAVY, "budget_brake")
             else:
                 # Substrate resource policy — productization plan T2.5.
@@ -842,17 +931,23 @@ def _report_background_activity(job_name: str, status: str) -> None:
         pass
 
 
-def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
-    """Start the idle scheduler in a daemon thread.
+def _run_boot_prep() -> None:
+    """LLM-catalog boot work that used to run inline in ``start()``.
 
-    Args:
-        jobs: List of (name, callable) tuples. If None, uses default jobs.
+    Moved off the caller's thread (the asyncio event-loop thread during
+    lifespan startup) and into the idle-scheduler daemon thread. The
+    catalog refresh hits live sources + parses JSON and the rehydrate
+    touches Postgres; running them in the lifespan blocked the event loop
+    before uvicorn began serving, so ``/health`` timed out (HTTP 000) for
+    the duration — the chronic "right after boot" stall. Running them in
+    the daemon thread keeps that GIL-heavy work off the loop's critical
+    path (the loop's own work is short bursts to answer /health, and
+    these calls spend most of their time in IO that releases the GIL).
+
+    Idempotent: refresh respects a 24h on-disk TTL; rehydrate is a
+    force=True replay of promoted models. Safe to run once per process.
     """
-    global _idle_thread
-
-    # Auto-populate the LLM catalog from live sources before any job
-    # runs. Idempotent — refresh respects a 24h on-disk TTL so cold
-    # boot pulls fresh data while warm restarts load the cached snapshot.
+    # Auto-populate the LLM catalog from live sources before any job runs.
     try:
         from app.llm_catalog_builder import refresh as _refresh_catalog
         summary = _refresh_catalog()
@@ -865,10 +960,7 @@ def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
 
     # Rehydrate previously promoted models from the discovered_models
     # table. Runs after the catalog builder so promoted overrides layer
-    # on top of the auto-populated snapshot. force=True so a gateway
-    # restart after the boot-time call also picks up whatever landed
-    # between start() invocations (shouldn't happen in practice but
-    # guards against subtle module-state bugs).
+    # on top of the auto-populated snapshot.
     try:
         from app.llm_rehydrate import rehydrate_catalog
         added = rehydrate_catalog(force=True)
@@ -881,6 +973,22 @@ def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
             "idle_scheduler: boot rehydrate failed — %s: %s",
             type(exc).__name__, str(exc)[:200],
         )
+
+
+def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
+    """Start the idle scheduler in a daemon thread.
+
+    This call is intentionally cheap and non-blocking: it builds the job
+    registry (defining closures, no IO) and spawns the daemon thread. The
+    GIL-heavy LLM-catalog boot work runs *inside* the daemon thread (see
+    ``_run_boot_prep`` invoked at the top of ``_run_idle_loop``), not
+    here — so calling ``start()`` from the asyncio lifespan never stalls
+    the event loop / ``/health``.
+
+    Args:
+        jobs: List of (name, callable) tuples. If None, uses default jobs.
+    """
+    global _idle_thread
 
     if jobs is None:
         jobs = _default_jobs()
