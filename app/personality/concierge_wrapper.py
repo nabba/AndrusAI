@@ -27,8 +27,6 @@ import logging
 import re
 from typing import Optional
 
-from app.config import get_anthropic_api_key
-
 logger = logging.getLogger(__name__)
 
 # Default model for the rewrite. Concierge's job is paraphrasing — Haiku is
@@ -162,21 +160,21 @@ def _rewrite_with_llm(text: str, *, model: str, tone_hint: str = "") -> str:
     ``tone_hint`` (Phase B #5) is appended to the user message as a
     one-line soft guidance string. Empty string disables the hint.
 
-    Model selection is delegated to ``app.llm_factory.anthropic_client_for_role``
+    Model selection is delegated to ``app.llm_factory.chat_completion_for_role``
     so a sunset model id at the upstream side surfaces through the same
     health-cache + chain-walker plumbing the router uses.  The ``model``
     parameter is retained for backward-compat but ignored — see
     `feedback_llm_factory_authoritative`.
     """
     try:
-        from app.llm_factory import anthropic_client_for_role, NoWorkingModelAvailable
+        from app.llm_factory import chat_completion_for_role, NoWorkingModelAvailable
     except Exception:
         return text
 
     try:
-        client = anthropic_client_for_role(role="cheap-vetting")
+        client = chat_completion_for_role(role="cheap-vetting")
     except NoWorkingModelAvailable as exc:
-        logger.debug(f"concierge_wrapper: factory had no working Anthropic model: {exc!s}")
+        logger.debug(f"concierge_wrapper: factory had no working model: {exc!s}")
         return text
     except Exception as exc:
         logger.debug(f"concierge_wrapper: client init failed: {exc}")
@@ -197,7 +195,7 @@ def _rewrite_with_llm(text: str, *, model: str, tone_hint: str = "") -> str:
         # the original within ~20%. Cap at 1024 so a runaway expansion
         # can't blow up cost.
         budget = max(256, min(1024, int(len(text) / 2)))
-        resp = client.messages.create(
+        resp = client.create(
             max_tokens=budget,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
@@ -207,16 +205,7 @@ def _rewrite_with_llm(text: str, *, model: str, tone_hint: str = "") -> str:
         return text
 
     try:
-        # SDK returns ContentBlock list; concatenate text blocks.
-        blocks = getattr(resp, "content", None) or []
-        parts = []
-        for b in blocks:
-            kind = getattr(b, "type", None) or (b.get("type") if isinstance(b, dict) else None)
-            if kind == "text":
-                t = getattr(b, "text", None) or (b.get("text") if isinstance(b, dict) else "")
-                if t:
-                    parts.append(t)
-        rewritten = "".join(parts).strip()
+        rewritten = (resp.choices[0].message.content or "").strip()
     except Exception:
         return text
 

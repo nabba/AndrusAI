@@ -58,10 +58,10 @@ def run(path: Path) -> str:
             f"{_MAX_FILE_BYTES / 1024 / 1024:.0f} MB cap"
         )
 
-    # Vendor-level cap is now enforced by the factory.
-    # ``AnthropicDailyCapExceeded`` from ``.create`` propagates to the
-    # existing ``except Exception`` below; inbox watcher records the
-    # file as 'failed'.
+    # Vendor-level cap is enforced inside the factory's per-call
+    # OpenRouter budget gate; a typed CapExceededError from ``.create``
+    # propagates to the ``except Exception`` below and the inbox watcher
+    # records the file as 'failed'.
     try:
         with open(path, "rb") as f:
             blob = f.read()
@@ -69,21 +69,20 @@ def run(path: Path) -> str:
     except OSError as exc:
         raise RuntimeError(f"PDF read failed: {exc}") from exc
 
-    from app.llm_factory import anthropic_client_for_role
-    client = anthropic_client_for_role(role="research", task_hint="document extraction")
+    from app.llm_factory import chat_completion_for_role
+    client = chat_completion_for_role(role="research", task_hint="document extraction")
     try:
-        msg = client.messages.create(
+        resp = client.create(
             max_tokens=_MAX_OUTPUT_TOKENS,
             system=_SYSTEM,
             messages=[{
                 "role": "user",
                 "content": [
                     {
-                        "type": "document",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "application/pdf",
-                            "data": encoded,
+                        "type": "file",
+                        "file": {
+                            "filename": path.name,
+                            "file_data": f"data:application/pdf;base64,{encoded}",
                         },
                     },
                     {
@@ -96,12 +95,7 @@ def run(path: Path) -> str:
     except Exception as exc:
         raise RuntimeError(f"PDF extract call failed: {exc}") from exc
 
-    text_parts = [
-        getattr(b, "text", "")
-        for b in (msg.content or [])
-        if getattr(b, "type", "") == "text"
-    ]
-    raw = "".join(text_parts).strip()
+    raw = (resp.choices[0].message.content or "").strip()
     if not raw:
         raise RuntimeError("PDF extract returned empty output")
 

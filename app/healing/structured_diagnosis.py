@@ -335,8 +335,8 @@ def _call_llm_for_fix(
     at a time.
     """
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(
             role="self_improve", task_hint="structured diagnosis",
         )
     except Exception:
@@ -357,7 +357,7 @@ def _call_llm_for_fix(
     )
 
     try:
-        resp = client.messages.create(
+        resp = client.create(
             max_tokens=8000,
             system=_LLM_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}],
@@ -413,12 +413,10 @@ def _call_llm_for_fix(
 
 
 def _extract_text(resp) -> str:
-    blocks = getattr(resp, "content", None) or []
-    parts: list[str] = []
-    for b in blocks:
-        if getattr(b, "type", None) == "text":
-            parts.append(getattr(b, "text", "") or "")
-    return "".join(parts).strip()
+    try:
+        return (resp.choices[0].message.content or "").strip()
+    except (AttributeError, IndexError):
+        return ""
 
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)

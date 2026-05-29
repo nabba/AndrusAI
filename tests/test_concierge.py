@@ -5,9 +5,9 @@ The Anthropic SDK is monkey-patched so no real API call happens.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
+
+from tests._llm_fakes import patch_chat_completion
 
 
 @pytest.fixture(autouse=True)
@@ -105,54 +105,24 @@ def test_skip_known_structured_prefixes(_enable_concierge, monkeypatch, prefix):
 
 # ── LLM rewrite path ──────────────────────────────────────────────────────
 
-def _stub_anthropic(monkeypatch, response_text: str):
-    """Patch the Anthropic SDK so no real request goes out."""
-    captured = {"system": None, "user": None, "model": None, "max_tokens": None}
-
-    class _FakeContentBlock:
-        type = "text"
-
-        def __init__(self, text):
-            self.text = text
-
-    class _FakeResponse:
-        def __init__(self, text):
-            self.content = [_FakeContentBlock(text)]
-
-    class _FakeClient:
-        def __init__(self, **kwargs):
-            self.messages = MagicMock()
-            self.messages.create = self._create
-
-        def _create(self, **kw):
-            captured.update(kw)
-            return _FakeResponse(response_text)
-
-    monkeypatch.setattr("anthropic.Anthropic", _FakeClient)
-    monkeypatch.setattr(
-        "app.personality.concierge_wrapper.get_anthropic_api_key",
-        lambda: "sk-test",
-    )
-    return captured
-
-
 def test_rewrite_replaces_terse_with_warm(_enable_concierge, monkeypatch):
     from app.personality.concierge_wrapper import apply_concierge
-    captured = _stub_anthropic(monkeypatch, "Done — research crew is on it, about 18 seconds.")
+    handle = patch_chat_completion(
+        monkeypatch, "Done — research crew is on it, about 18 seconds.",
+    )
     original = "Routed to research crew. ETA 18s. 3 sources will be checked."
     rewritten = apply_concierge(original)
     assert "research crew" in rewritten
     assert rewritten != original
-    # Ensure the fake Anthropic call was actually made.
-    assert captured["model"]
-    assert captured["system"] is not None
-    assert "concierge" in (captured["system"] or "").lower()
+    # Ensure the fake factory call was actually made with the concierge system prompt.
+    assert handle.captured.get("system") is not None
+    assert "concierge" in (handle.captured.get("system") or "").lower()
 
 
 def test_rewrite_falls_back_when_too_long(_enable_concierge, monkeypatch):
     from app.personality.concierge_wrapper import apply_concierge
     very_long = "warm " * 200  # ~1000 chars
-    _stub_anthropic(monkeypatch, very_long)
+    patch_chat_completion(monkeypatch, very_long)
     original = "Routed to research crew. ETA 18s."
     # Length guard kicks in; concierge falls back to the original.
     assert apply_concierge(original) == original
@@ -160,37 +130,27 @@ def test_rewrite_falls_back_when_too_long(_enable_concierge, monkeypatch):
 
 def test_rewrite_falls_back_on_empty_response(_enable_concierge, monkeypatch):
     from app.personality.concierge_wrapper import apply_concierge
-    _stub_anthropic(monkeypatch, "")
+    patch_chat_completion(monkeypatch, "")
     original = "Routed to research crew. ETA 18s. 3 sources will be checked."
     assert apply_concierge(original) == original
 
 
-def test_rewrite_falls_back_when_no_api_key(_enable_concierge, monkeypatch):
+def test_rewrite_falls_back_when_no_model_available(_enable_concierge, monkeypatch):
     from app.personality.concierge_wrapper import apply_concierge
-    monkeypatch.setattr(
-        "app.personality.concierge_wrapper.get_anthropic_api_key",
-        lambda: "",
+    from app.llm_factory import NoWorkingModelAvailable
+    # No working model (e.g. OPENROUTER_API_KEY unset / all candidates dead)
+    # surfaces as NoWorkingModelAvailable from the factory; concierge degrades
+    # to the original text.
+    patch_chat_completion(
+        monkeypatch, raises=NoWorkingModelAvailable("cheap-vetting", []),
     )
     original = "Routed to research crew. ETA 18s. 3 sources will be checked."
     assert apply_concierge(original) == original
 
 
-def test_rewrite_falls_back_when_anthropic_raises(_enable_concierge, monkeypatch):
+def test_rewrite_falls_back_when_llm_raises(_enable_concierge, monkeypatch):
     from app.personality.concierge_wrapper import apply_concierge
-
-    class _ExplodingClient:
-        def __init__(self, **kw):
-            self.messages = MagicMock()
-            self.messages.create = self._boom
-
-        def _boom(self, **kw):
-            raise RuntimeError("API down")
-
-    monkeypatch.setattr("anthropic.Anthropic", _ExplodingClient)
-    monkeypatch.setattr(
-        "app.personality.concierge_wrapper.get_anthropic_api_key",
-        lambda: "sk-test",
-    )
+    patch_chat_completion(monkeypatch, raises=RuntimeError("API down"))
     original = "Routed to research crew. ETA 18s. 3 sources will be checked."
     assert apply_concierge(original) == original  # fallback, no raise
 

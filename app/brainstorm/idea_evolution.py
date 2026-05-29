@@ -481,19 +481,14 @@ def _default_mutator(
         f"Child idea:"
     )
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting", task_hint="brainstorm mutator")
-        msg = client.messages.create(
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting", task_hint="brainstorm mutator")
+        resp = client.create(
             max_tokens=240,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        text_parts = [
-            getattr(b, "text", "")
-            for b in (msg.content or [])
-            if getattr(b, "type", "") == "text"
-        ]
-        return "".join(text_parts).strip()[:1000]
+        return (resp.choices[0].message.content or "").strip()[:1000]
     except Exception:
         logger.debug("idea_evolution: mutator call failed", exc_info=True)
         return ""
@@ -532,22 +527,17 @@ def _default_judge(
         f"JSON judgement:"
     )
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting", task_hint="brainstorm judge")
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting", task_hint="brainstorm judge")
     except Exception:
         return 0.0, "factory unavailable"
     try:
-        msg = client.messages.create(
+        resp = client.create(
             max_tokens=200,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        text_parts = [
-            getattr(b, "text", "")
-            for b in (msg.content or [])
-            if getattr(b, "type", "") == "text"
-        ]
-        raw = "".join(text_parts).strip()
+        raw = (resp.choices[0].message.content or "").strip()
     except Exception as exc:
         return 0.0, f"judge raised: {exc}"
     # Tolerant parse

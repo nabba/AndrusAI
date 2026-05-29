@@ -14,41 +14,10 @@ The fix is two-layer:
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
-
-def _stub_anthropic(monkeypatch, response_text: str):
-    """Patch the Anthropic SDK so no real request goes out.
-
-    Matches the pattern in ``tests/test_concierge.py`` so the wrapper's
-    length + label guards (which run inside ``_rewrite_with_llm`` after
-    the SDK call returns) actually execute end-to-end.
-    """
-    class _FakeContentBlock:
-        type = "text"
-
-        def __init__(self, text):
-            self.text = text
-
-    class _FakeResponse:
-        def __init__(self, text):
-            self.content = [_FakeContentBlock(text)]
-
-    class _FakeClient:
-        def __init__(self, **kwargs):
-            self.messages = MagicMock()
-            self.messages.create = self._create
-
-        def _create(self, **kw):
-            return _FakeResponse(response_text)
-
-    monkeypatch.setattr("anthropic.Anthropic", _FakeClient)
-    monkeypatch.setattr(
-        "app.personality.concierge_wrapper.get_anthropic_api_key",
-        lambda: "sk-test",
-    )
+from tests._llm_fakes import patch_chat_completion
 
 
 @pytest.fixture(autouse=True)
@@ -157,7 +126,7 @@ def test_apply_concierge_falls_back_when_label_dropped(_enable_concierge, monkey
         "provider rotation at 14:02 UTC. The new endpoint expects a "
         "different auth scheme."
     )
-    _stub_anthropic(monkeypatch, bad_rewrite)
+    patch_chat_completion(monkeypatch, bad_rewrite)
     from app.personality.concierge_wrapper import apply_concierge
     out = apply_concierge(original)
     assert out == original, (
@@ -179,7 +148,7 @@ def test_apply_concierge_passes_through_when_label_preserved(_enable_concierge, 
         "[Inference] The 4xx burst lines up with the Anthropic provider "
         "rotation that kicked off at 14:02 UTC."
     )
-    _stub_anthropic(monkeypatch, good_rewrite)
+    patch_chat_completion(monkeypatch, good_rewrite)
     from app.personality.concierge_wrapper import apply_concierge
     out = apply_concierge(original)
     assert out == good_rewrite
@@ -194,6 +163,6 @@ def test_label_guard_runs_after_length_guard(_enable_concierge, monkeypatch):
     # Massively longer AND no label. Length guard would catch first,
     # but if it didn't, the label guard MUST.
     too_long_no_label = "Some elaborate retelling without any label. " * 50
-    _stub_anthropic(monkeypatch, too_long_no_label)
+    patch_chat_completion(monkeypatch, too_long_no_label)
     from app.personality.concierge_wrapper import apply_concierge
     assert apply_concierge(original) == original

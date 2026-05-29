@@ -167,8 +167,8 @@ def _llm_distill(thread: Thread, body_text: str) -> str:
     # thread closure distillation falls back to the deterministic
     # body builder.
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting", task_hint="approaches summary")
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting", task_hint="approaches summary")
         prompt = (
             "Below is a record of a long-horizon question that just closed. "
             "Distill a 2-3 sentence summary of the APPROACHES that were "
@@ -179,17 +179,11 @@ def _llm_distill(thread: Thread, body_text: str) -> str:
             f"{body_text}\n\n"
             "Approaches-tried summary:"
         )
-        msg = client.messages.create(
+        resp = client.create(
             max_tokens=240,
             messages=[{"role": "user", "content": prompt}],
         )
-        # Extract text blocks
-        text_parts = [
-            getattr(b, "text", "")
-            for b in (msg.content or [])
-            if getattr(b, "type", "") == "text"
-        ]
-        out = "".join(text_parts).strip()
+        out = (resp.choices[0].message.content or "").strip()
         # Guard against the model returning JSON or other garbage.
         if not out or len(out) > 1500:
             return ""

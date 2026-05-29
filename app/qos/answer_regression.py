@@ -355,11 +355,11 @@ def _default_judge_fn(qa: QAPair, answer: str) -> tuple[int, str, str]:
     question as inconclusive rather than as a real fail.
     """
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting", task_hint="qos judge")
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting", task_hint="qos judge")
     except Exception as exc:
         raise RuntimeError(
-            f"factory could not supply Anthropic judge client: {exc}"
+            f"factory could not supply judge client: {exc}"
         )
     judge_prompt = (
         "You are evaluating an answer for an internal regression suite. "
@@ -378,21 +378,17 @@ def _default_judge_fn(qa: QAPair, answer: str) -> tuple[int, str, str]:
     # ``.messages.create``; on cap-out the regression suite degrades
     # to "judge skipped" rather than propagating the exception.
     try:
-        response = client.messages.create(
+        response = client.create(
             max_tokens=200,
             messages=[{"role": "user", "content": judge_prompt}],
         )
     except Exception as exc:
-        from app.llm_anthropic_budget import AnthropicDailyCapExceeded
-        if isinstance(exc, AnthropicDailyCapExceeded):
-            return (0, "error", "Anthropic daily cap exceeded — judge skipped")
+        from app.llm_cost_exceptions import CapExceededError
+        if isinstance(exc, CapExceededError):
+            return (0, "error", "LLM daily cap exceeded — judge skipped")
         raise
-    # Pull text from the response content blocks.
-    text = ""
-    for block in response.content:
-        if getattr(block, "type", "") == "text":
-            text += getattr(block, "text", "")
-    text = text.strip()
+    # Pull text from the response.
+    text = (response.choices[0].message.content or "").strip()
     # Tolerate code fences.
     if text.startswith("```"):
         text = text.split("```", 2)[1]

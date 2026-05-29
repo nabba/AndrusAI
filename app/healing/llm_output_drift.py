@@ -125,9 +125,9 @@ def _load_probes() -> list[dict]:
 def _ask_llm(question: str) -> Optional[str]:
     """Cheap one-shot ask. Returns None on any failure."""
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting")
-        resp = client.messages.create(
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting")
+        resp = client.create(
             max_tokens=200,
             system="Answer concisely. No preamble. No follow-up.",
             messages=[{"role": "user", "content": question}],
@@ -135,13 +135,7 @@ def _ask_llm(question: str) -> Optional[str]:
     except Exception:
         return None
     try:
-        blocks = getattr(resp, "content", None) or []
-        text = ""
-        for b in blocks:
-            kind = getattr(b, "type", None)
-            if kind == "text":
-                text += getattr(b, "text", "") or ""
-        return text.strip() or None
+        return (resp.choices[0].message.content or "").strip() or None
     except Exception:
         return None
 

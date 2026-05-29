@@ -182,15 +182,15 @@ def _llm_propose(existing: list[tuple[str, str]]) -> list[dict]:
     """One Haiku call. Returns the parsed ``ideas`` list or ``[]`` on
     any failure."""
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting")
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting")
     except Exception:
         return []
     existing_lines = "\n".join(f"  - {label} (id: {sid})" for sid, label in existing)
     system_msg = _SYSTEM_PROMPT.format(existing_list=existing_lines or "(none yet)")
     user_msg = _OTHER_SYSTEMS_OFFER
     try:
-        msg = client.messages.create(
+        resp = client.create(
             max_tokens=900,
             system=system_msg,
             messages=[{"role": "user", "content": user_msg}],
@@ -198,10 +198,7 @@ def _llm_propose(existing: list[tuple[str, str]]) -> list[dict]:
     except Exception:
         logger.debug("proposer: LLM call failed", exc_info=True)
         return []
-    text = ""
-    for block in msg.content or []:
-        if getattr(block, "type", "") == "text":
-            text += block.text
+    text = resp.choices[0].message.content or ""
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE)
     try:
         parsed = json.loads(text)

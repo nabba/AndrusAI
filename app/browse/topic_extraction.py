@@ -239,19 +239,14 @@ def _default_llm_call(system: str, user: str) -> str:
     the daily browse-topic batch skips and runs again tomorrow.
     """
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting")
-        msg = client.messages.create(
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting")
+        resp = client.create(
             max_tokens=1500,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        text_parts = [
-            getattr(b, "text", "")
-            for b in (msg.content or [])
-            if getattr(b, "type", "") == "text"
-        ]
-        return "".join(text_parts).strip()
+        return (resp.choices[0].message.content or "").strip()
     except Exception:
         logger.debug("browse.topic_extraction: LLM call failed", exc_info=True)
         return ""

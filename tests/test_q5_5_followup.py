@@ -19,6 +19,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests._llm_fakes import openai_response, patch_chat_completion
+
 
 def _load_isolated(name: str, path: str):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -28,20 +30,8 @@ def _load_isolated(name: str, path: str):
     return mod
 
 
-def _stub_app_config(monkeypatch, api_key=None):
-    """Inject a stub ``app.config`` so the LLM enrichment path can run
-    on dev environments without pydantic_settings.
-
-    The real module fails to import on minimal dev envs; the test
-    only needs ``get_anthropic_api_key``. Production environments
-    use the real module."""
-    stub = MagicMock()
-    stub.get_anthropic_api_key = MagicMock(return_value=api_key)
-    monkeypatch.setitem(sys.modules, "app.config", stub)
-
-
 # ─────────────────────────────────────────────────────────────────────────
-#   Q5.5#1 — HOT-1 LLM enrichment uses canonical Anthropic API
+#   Q5.5#1 — HOT-1 LLM enrichment routes through the factory
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -52,18 +42,18 @@ def hot1():
     )
 
 
-def test_hot1_llm_enrich_uses_canonical_anthropic_pattern():
-    """Source-level: _maybe_llm_enrich imports anthropic.Anthropic +
-    get_anthropic_api_key, NOT the non-existent app.llm.factory."""
+def test_hot1_llm_enrich_uses_factory_pattern():
+    """Source-level: _maybe_llm_enrich routes through the factory
+    (``chat_completion_for_role``), NOT the native Anthropic SDK."""
     src = Path("app/sentience_experiments/hot1_meta_affect.py").read_text()
-    assert "from anthropic import Anthropic" in src
-    assert "from app.config import get_anthropic_api_key" in src
-    # The dead path must be gone.
+    assert "from app.llm_factory import chat_completion_for_role" in src
+    # The native-SDK path (and the older dead path) must be gone.
+    assert "from anthropic import Anthropic" not in src
     assert "from app.llm.factory import get_llm" not in src
 
 
-def test_hot1_llm_enrich_returns_none_without_api_key(hot1, monkeypatch):
-    """No API key → fallback path returns None, template wins."""
+def test_hot1_llm_enrich_returns_none_on_factory_failure(hot1, monkeypatch):
+    """No working model → fallback path returns None, template wins."""
     p = hot1.MetaAffectPattern(
         pattern_kind="baseline_drift",
         breach_kinds=["valence"],
@@ -72,19 +62,17 @@ def test_hot1_llm_enrich_returns_none_without_api_key(hot1, monkeypatch):
         confidence=0.6,
         detected_at="2026-05-13T00:00:00+00:00",
     )
-    _stub_app_config(monkeypatch, api_key=None)
-    # Stub anthropic too so the import doesn't fail on dev envs.
-    monkeypatch.setitem(sys.modules, "anthropic", MagicMock())
+    from app.llm_factory import NoWorkingModelAvailable
+    patch_chat_completion(
+        monkeypatch, raises=NoWorkingModelAvailable("cheap-vetting", []),
+    )
     assert hot1._maybe_llm_enrich(p, "template") is None
 
 
 def test_hot1_llm_enrich_exercises_real_call_path(hot1, monkeypatch):
-    """LOAD-BEARING — exercise the actual Anthropic call path with a
-    stubbed client. The Q5.4 test only mocked _maybe_llm_enrich
-    directly, missing that the import was broken.
-
-    This test stubs ``anthropic.Anthropic`` itself, so the production
-    code path (import → client.messages.create → _extract_text_from_resp)
+    """LOAD-BEARING — exercise the actual factory call path with a
+    stubbed handle, so the production code
+    (chat_completion_for_role → .create → _extract_text_from_resp)
     runs end-to-end."""
     p = hot1.MetaAffectPattern(
         pattern_kind="baseline_drift",
@@ -94,41 +82,22 @@ def test_hot1_llm_enrich_exercises_real_call_path(hot1, monkeypatch):
         confidence=0.6,
         detected_at="2026-05-13T00:00:00+00:00",
     )
-    # Provide an API key so the function gets past the guard.
-    _stub_app_config(monkeypatch, api_key="test-key")
-    # Build a fake Anthropic client whose messages.create returns a
-    # response with .content[0].text shape.
-    fake_block = MagicMock()
-    fake_block.type = "text"
-    fake_block.text = "The trace indicates a notable valence shift."
-    fake_resp = MagicMock()
-    fake_resp.content = [fake_block]
-    fake_client = MagicMock()
-    fake_client.messages.create.return_value = fake_resp
-    fake_anthropic_class = MagicMock(return_value=fake_client)
-    # Inject into the anthropic module so the production code's
-    # ``from anthropic import Anthropic`` picks up the stub.
-    monkeypatch.setitem(sys.modules, "anthropic", MagicMock(Anthropic=fake_anthropic_class))
+    handle = patch_chat_completion(
+        monkeypatch, "The trace indicates a notable valence shift.",
+    )
     out = hot1._maybe_llm_enrich(p, "Template baseline.")
     assert out == "The trace indicates a notable valence shift."
-    # The client was called with the right model.
-    args, kwargs = fake_client.messages.create.call_args
-    assert kwargs["model"] == "claude-haiku-4-5-20251001"
-    assert kwargs["max_tokens"] == 120
+    # The factory was called with the expected output budget.
+    assert handle.captured["max_tokens"] == 120
 
 
-def test_hot1_llm_enrich_extracts_multi_block_text(hot1, monkeypatch):
-    """_extract_text_from_resp tolerates blocks without .type and
-    concatenates multi-block responses."""
-    block1 = MagicMock()
-    block1.type = "text"
-    block1.text = "First half. "
-    block2 = MagicMock()
-    block2.type = "text"
-    block2.text = "Second half."
-    resp = MagicMock()
-    resp.content = [block1, block2]
+def test_hot1_extract_text_from_openai_resp(hot1):
+    """_extract_text_from_resp reads the OpenAI-shaped response and
+    tolerates a malformed one (no choices) by returning ''."""
+    import types
+    resp = openai_response("First half. Second half.")
     assert hot1._extract_text_from_resp(resp) == "First half. Second half."
+    assert hot1._extract_text_from_resp(types.SimpleNamespace(choices=[])) == ""
 
 
 def test_hot1_llm_enrich_rejects_first_person_via_decenter_filter(hot1, monkeypatch):
@@ -142,21 +111,9 @@ def test_hot1_llm_enrich_rejects_first_person_via_decenter_filter(hot1, monkeypa
         confidence=0.6,
         detected_at="2026-05-13T00:00:00+00:00",
     )
-    _stub_app_config(monkeypatch, api_key="test-key")
-    fake_block = MagicMock()
-    fake_block.type = "text"
-    fake_block.text = "I feel that the system is drifting."
-    fake_resp = MagicMock()
-    fake_resp.content = [fake_block]
-    fake_client = MagicMock()
-    fake_client.messages.create.return_value = fake_resp
-    monkeypatch.setitem(
-        sys.modules, "anthropic",
-        MagicMock(Anthropic=MagicMock(return_value=fake_client)),
-    )
-    # _maybe_llm_enrich returns the text — caller's _draft_hypothesis
-    # is responsible for filtering. Verify _draft_hypothesis falls
-    # back to template when LLM produces forbidden prose.
+    # The factory returns first-person phenomenal prose; the decenter
+    # filter downstream must reject it so it never reaches the output.
+    patch_chat_completion(monkeypatch, "I feel that the system is drifting.")
     monkeypatch.setattr(hot1, "_llm_hypothesis_enabled", lambda: True)
     monkeypatch.setattr(hot1, "_enabled", lambda: True)
     hyp = hot1._draft_hypothesis(p)

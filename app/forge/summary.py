@@ -189,7 +189,7 @@ def generate_llm_summary(
 ) -> str | None:
     """Best-effort LLM summary. Returns None on any failure.
 
-    Model selection delegated to :func:`app.llm_factory.anthropic_client_for_role`
+    Model selection delegated to :func:`app.llm_factory.chat_completion_for_role`
     — the legacy ``audit_llm`` config field is kept for telemetry
     compatibility but no longer drives selection.
     """
@@ -219,15 +219,14 @@ def generate_llm_summary(
     )
 
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="writing", task_hint="forge summary")
-        response = client.messages.create(
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="writing", task_hint="forge summary")
+        response = client.create(
             max_tokens=1500,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
-        text_blocks = [b.text for b in (response.content or []) if hasattr(b, "text")]
-        text = "".join(text_blocks).strip()
+        text = (response.choices[0].message.content or "").strip()
         return text or None
     except Exception as exc:
         logger.info("forge.summary: LLM summary unavailable (%s); using deterministic", exc)

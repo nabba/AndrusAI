@@ -208,8 +208,8 @@ def _classify_with_llm(ws: _Workspace, snippets: list[dict]) -> list[dict]:
     if not snippets:
         return []
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting")
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting")
     except Exception:
         return []
     rendered = "\n".join(
@@ -221,17 +221,14 @@ def _classify_with_llm(ws: _Workspace, snippets: list[dict]) -> list[dict]:
         f"Search snippets:\n{rendered}"
     )
     try:
-        msg = client.messages.create(
+        resp = client.create(
             max_tokens=800,
             system=_SYSTEM_PROMPT.replace("{n}", str(_MAX_ITEMS_PER_WS)),
             messages=[{"role": "user", "content": user_msg}],
         )
     except Exception:
         return []
-    text = ""
-    for block in msg.content or []:
-        if getattr(block, "type", "") == "text":
-            text += block.text
+    text = resp.choices[0].message.content or ""
     # Tolerate code-fenced JSON.
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE)
     try:

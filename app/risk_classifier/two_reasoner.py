@@ -180,20 +180,15 @@ def _call_anthropic(
     reasoner observational review.
     """
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting", task_hint="risk reasoning")
-        msg = client.messages.create(
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting", task_hint="risk reasoning")
+        resp = client.create(
             max_tokens=600,
             temperature=temperature,
             system=system,
             messages=[{"role": "user", "content": user_prompt}],
         )
-        text_parts = [
-            getattr(b, "text", "")
-            for b in (msg.content or [])
-            if getattr(b, "type", "") == "text"
-        ]
-        return "".join(text_parts).strip()
+        return (resp.choices[0].message.content or "").strip()
     except Exception:
         logger.debug(
             "two_reasoner: Anthropic call failed", exc_info=True,

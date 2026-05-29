@@ -192,19 +192,14 @@ def _default_llm_call(system: str, user: str) -> str:
     pass continues unaffected.  Estimated cost ~$0.001 per Haiku call.
     """
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting", task_hint="creative analogy")
-        msg = client.messages.create(
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting", task_hint="creative analogy")
+        resp = client.create(
             max_tokens=900,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        text_parts = [
-            getattr(b, "text", "")
-            for b in (msg.content or [])
-            if getattr(b, "type", "") == "text"
-        ]
-        return "".join(text_parts).strip()
+        return (resp.choices[0].message.content or "").strip()
     except Exception:
         logger.debug("analogy_populator: LLM call failed", exc_info=True)
         return ""

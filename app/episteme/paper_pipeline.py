@@ -264,14 +264,14 @@ Output ONLY the JSON object, no preface, no markdown fence."""
 def _summarize(title: str, abstract: str) -> dict | None:
     """Call the cheap LLM. Returns parsed JSON dict or None on failure."""
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting")
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting")
     except Exception:
         return None
 
     user_msg = f"Title: {title}\n\nAbstract: {abstract}"
     try:
-        resp = client.messages.create(
+        resp = client.create(
             max_tokens=600,
             system=_LLM_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}],
@@ -280,13 +280,7 @@ def _summarize(title: str, abstract: str) -> dict | None:
         return None
 
     try:
-        blocks = getattr(resp, "content", None) or []
-        text = ""
-        for b in blocks:
-            kind = getattr(b, "type", None)
-            if kind == "text":
-                text += getattr(b, "text", "") or ""
-        text = text.strip()
+        text = (resp.choices[0].message.content or "").strip()
         # Tolerate the model wrapping the output in ```json … ```.
         if text.startswith("```"):
             text = text.strip("`")

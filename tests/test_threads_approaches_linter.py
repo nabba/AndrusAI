@@ -10,50 +10,17 @@ builder.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 
-
-class _FakeContentBlock:
-    def __init__(self, text):
-        self.text = text
-        self.type = "text"
-
-
-class _FakeMessage:
-    def __init__(self, text):
-        self.content = [_FakeContentBlock(text)]
-
-
-def _fake_anthropic_client(reply_text: str):
-    """Return an Anthropic client stand-in that always returns
-    ``reply_text`` from ``messages.create``."""
-    client = MagicMock()
-    client.messages = MagicMock()
-    client.messages.create = MagicMock(
-        return_value=_FakeMessage(reply_text),
-    )
-    return client
+from tests._llm_fakes import patch_chat_completion
 
 
 @pytest.fixture
 def llm_distill_setup(monkeypatch):
-    """Provide a clean LLM seam — patch the anthropic import inside
-    ``threads.approaches`` so the test can drive the LLM reply."""
-    import sys
-
-    # Make sure the anthropic module appears importable inside the
-    # function (it imports lazily) but the constructor is fake.
-    fake_anthropic = MagicMock()
-    monkeypatch.setitem(sys.modules, "anthropic", fake_anthropic)
-    # Bypass the daily-cap gate.
-    from app import llm_anthropic_budget
-    monkeypatch.setattr(
-        llm_anthropic_budget, "call_or_skip",
-        lambda **kwargs: True,
-    )
-    return fake_anthropic
+    """Provide a clean LLM seam — patch the factory entry point
+    (``chat_completion_for_role``) that ``threads.approaches._llm_distill``
+    calls.  Tests drive the reply via ``llm_distill_setup.text``."""
+    return patch_chat_completion(monkeypatch)
 
 
 def _build_probe_thread():
@@ -89,7 +56,7 @@ def test_llm_distill_rejects_phenomenal_first_person(llm_distill_setup):
         "I am curious about why approach X resolved the thread. "
         "The dependency-resolution step was the missing piece."
     )
-    llm_distill_setup.Anthropic.return_value = _fake_anthropic_client(bad_reply)
+    llm_distill_setup.text = bad_reply
 
     out = _llm_distill(
         _build_probe_thread(),
@@ -112,7 +79,7 @@ def test_llm_distill_accepts_third_person_summary(llm_distill_setup):
         "dependency-resolution step. Earlier attempts with approach Y "
         "were blocked by dependency Y."
     )
-    llm_distill_setup.Anthropic.return_value = _fake_anthropic_client(good_reply)
+    llm_distill_setup.text = good_reply
 
     out = _llm_distill(
         _build_probe_thread(),
@@ -132,7 +99,7 @@ def test_distill_on_closure_falls_back_to_deterministic_on_linter_fail(
 
     monkeypatch.setattr(approaches, "_llm_enabled", lambda: True)
     bad_reply = "I experience this thread as having been straightforward."
-    llm_distill_setup.Anthropic.return_value = _fake_anthropic_client(bad_reply)
+    llm_distill_setup.text = bad_reply
 
     thread = _build_probe_thread()
     out = approaches.distill_on_closure(thread)

@@ -51,13 +51,13 @@ def run(path: Path) -> str:
             f"{_MAX_FILE_BYTES / 1024 / 1024:.0f} MB cap"
         )
 
-    # Vendor-level cap is now enforced by the factory's
-    # ``_InstrumentedMessages.create`` pre-check; this site no longer
-    # gates explicitly.  If the cap fires, ``AnthropicDailyCapExceeded``
-    # propagates out of ``client.messages.create`` and the existing
-    # ``except Exception`` below converts it to a RuntimeError that
+    # Vendor-level cap is enforced inside the factory's
+    # ``chat_completion_for_role(...).create`` (per-call OpenRouter
+    # budget gate); this site no longer gates explicitly.  If the cap
+    # fires, the typed CapExceededError propagates out of ``create`` and
+    # the ``except Exception`` below converts it to a RuntimeError that
     # the inbox watcher records as 'failed' — same operator-visible
-    # behaviour as the prior explicit pre-check.
+    # behaviour as before.
     try:
         with open(path, "rb") as f:
             blob = f.read()
@@ -71,21 +71,19 @@ def run(path: Path) -> str:
     # appropriate Anthropic candidate (today the bootstrap survivor
     # claude-sonnet-4.6 satisfies both Anthropic-provider AND
     # multimodal=True).
-    from app.llm_factory import anthropic_client_for_role
-    client = anthropic_client_for_role(role="media", task_hint="multimodal")
+    from app.llm_factory import chat_completion_for_role
+    client = chat_completion_for_role(role="media", task_hint="multimodal")
     try:
-        msg = client.messages.create(
+        resp = client.create(
             max_tokens=_MAX_OUTPUT_TOKENS,
             system=_SYSTEM,
             messages=[{
                 "role": "user",
                 "content": [
                     {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": encoded,
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{media_type};base64,{encoded}",
                         },
                     },
                     {
@@ -98,12 +96,7 @@ def run(path: Path) -> str:
     except Exception as exc:
         raise RuntimeError(f"vision call failed: {exc}") from exc
 
-    text_parts = [
-        getattr(b, "text", "")
-        for b in (msg.content or [])
-        if getattr(b, "type", "") == "text"
-    ]
-    body = "".join(text_parts).strip()
+    body = (resp.choices[0].message.content or "").strip()
     if not body:
         raise RuntimeError("vision returned empty output")
     if body == "ILLEGIBLE":

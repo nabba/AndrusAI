@@ -45,6 +45,7 @@ from app.action_requests import (
     list_all,
     reset_for_tests,
 )
+from tests._llm_fakes import patch_chat_completion
 
 
 # ── Shared isolation ───────────────────────────────────────────────────
@@ -332,32 +333,12 @@ def test_finding_3_end_to_end_drop_triggers_fallback(monkeypatch):
     import app.runtime_settings as rs
     rs.set_concierge_persona_enabled(True)
 
-    class _FakeContentBlock:
-        type = "text"
-        def __init__(self, text):
-            self.text = text
-
-    class _FakeResponse:
-        def __init__(self, text):
-            self.content = [_FakeContentBlock(text)]
-
-    class _FakeClient:
-        def __init__(self, **kwargs):
-            self.messages = MagicMock()
-            self.messages.create = self._create
-
-        def _create(self, **kw):
-            # Strip the label deliberately — simulates exactly the
-            # failure mode the audit warned about.
-            return _FakeResponse(
-                "Latency on /api/cp/budgets is up about 35% in the last hour. "
-                "The 4xx burst correlates with the Anthropic provider rotation."
-            )
-
-    monkeypatch.setattr("anthropic.Anthropic", _FakeClient)
-    monkeypatch.setattr(
-        "app.personality.concierge_wrapper.get_anthropic_api_key",
-        lambda: "sk-test",
+    # Strip the label deliberately — simulates exactly the failure mode
+    # the audit warned about.
+    patch_chat_completion(
+        monkeypatch,
+        "Latency on /api/cp/budgets is up about 35% in the last hour. "
+        "The 4xx burst correlates with the Anthropic provider rotation.",
     )
 
     original = (

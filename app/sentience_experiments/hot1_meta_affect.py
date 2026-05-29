@@ -595,8 +595,8 @@ def _maybe_llm_enrich(
     if not template_text:
         return None
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting", task_hint="hot1 meta-affect")
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting", task_hint="hot1 meta-affect")
     except Exception:
         return None
     user_msg = (
@@ -608,13 +608,13 @@ def _maybe_llm_enrich(
         f"Template baseline: {template_text}"
     )
     try:
-        resp = client.messages.create(
+        resp = client.create(
             max_tokens=120,
             system=_LLM_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}],
         )
     except Exception:
-        logger.debug("hot1: LLM messages.create raised", exc_info=True)
+        logger.debug("hot1: LLM create raised", exc_info=True)
         return None
     text = _extract_text_from_resp(resp).strip()
     # Length guard — operator surface readability + cost discipline.
@@ -624,18 +624,12 @@ def _maybe_llm_enrich(
 
 
 def _extract_text_from_resp(resp) -> str:
-    """Extract concatenated text blocks from an Anthropic response.
-    Tolerant of variations: missing ``content``, blocks without
-    ``.text``, mocks in tests with simple ``.content[0].text``."""
-    blocks = getattr(resp, "content", None) or []
-    parts: list[str] = []
-    for b in blocks:
-        block_type = getattr(b, "type", None)
-        if block_type is None or block_type == "text":
-            text_val = getattr(b, "text", None)
-            if text_val:
-                parts.append(text_val)
-    return "".join(parts)
+    """Extract the assistant text from an OpenAI-shaped completion
+    response. Tolerant of missing choices (returns "")."""
+    try:
+        return resp.choices[0].message.content or ""
+    except (AttributeError, IndexError):
+        return ""
 
 
 # ── Public detect + persist ───────────────────────────────────────────────

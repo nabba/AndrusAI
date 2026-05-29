@@ -100,19 +100,14 @@ def _default_llm_call(system_prompt: str, user_prompt: str) -> str:
     planner.
     """
     try:
-        from app.llm_factory import anthropic_client_for_role
-        client = anthropic_client_for_role(role="cheap-vetting", task_hint="planner")
-        msg = client.messages.create(
+        from app.llm_factory import chat_completion_for_role
+        client = chat_completion_for_role(role="cheap-vetting", task_hint="planner")
+        resp = client.create(
             max_tokens=600,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
-        text_parts = [
-            getattr(b, "text", "")
-            for b in (msg.content or [])
-            if getattr(b, "type", "") == "text"
-        ]
-        return "".join(text_parts).strip()
+        return (resp.choices[0].message.content or "").strip()
     except Exception:
         logger.debug(
             "autonomous_executor: LLM planner call failed",

@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
 
 import pytest
+
+from tests._llm_fakes import patch_chat_completion
 
 
 # ── linter_telemetry module pins ────────────────────────────────────
@@ -126,36 +127,11 @@ def test_summary_reads_state(tmp_path, monkeypatch):
 # ── _llm_distill wire-in pins ───────────────────────────────────────
 
 
-def _fake_anthropic_with_reply(reply_text: str):
-    class _Block:
-        def __init__(self, text):
-            self.text = text
-            self.type = "text"
-
-    class _Msg:
-        def __init__(self, text):
-            self.content = [_Block(text)]
-
-    client = MagicMock()
-    client.messages = MagicMock()
-    client.messages.create = MagicMock(return_value=_Msg(reply_text))
-    return client
-
-
 @pytest.fixture
 def isolated_llm_distill(tmp_path, monkeypatch):
     monkeypatch.setenv("WORKSPACE_ROOT", str(tmp_path))
-
-    import sys
-    fake_anthropic = MagicMock()
-    monkeypatch.setitem(sys.modules, "anthropic", fake_anthropic)
-
-    from app import llm_anthropic_budget
-    monkeypatch.setattr(
-        llm_anthropic_budget, "call_or_skip",
-        lambda **kwargs: True,
-    )
-    return tmp_path, fake_anthropic
+    handle = patch_chat_completion(monkeypatch)
+    return tmp_path, handle
 
 
 def _build_probe_thread(thread_id: str = "telemetry-probe-id"):
@@ -175,12 +151,10 @@ def _build_probe_thread(thread_id: str = "telemetry-probe-id"):
 
 def test_llm_distill_rejection_writes_telemetry(isolated_llm_distill):
     """End-to-end: a HARD_FAIL'd LLM output produces a telemetry row."""
-    tmp_path, fake_anthropic = isolated_llm_distill
+    tmp_path, handle = isolated_llm_distill
     from app.threads.approaches import _llm_distill
 
-    fake_anthropic.Anthropic.return_value = _fake_anthropic_with_reply(
-        "I am curious about why approach X resolved this thread."
-    )
+    handle.text = "I am curious about why approach X resolved this thread."
 
     out = _llm_distill(
         _build_probe_thread("telemetry-probe-id"),
@@ -198,12 +172,10 @@ def test_llm_distill_rejection_writes_telemetry(isolated_llm_distill):
 
 def test_llm_distill_success_does_not_write_telemetry(isolated_llm_distill):
     """The success path must NOT emit a rejection row."""
-    tmp_path, fake_anthropic = isolated_llm_distill
+    tmp_path, handle = isolated_llm_distill
     from app.threads.approaches import _llm_distill
 
-    fake_anthropic.Anthropic.return_value = _fake_anthropic_with_reply(
-        "Approach X resolved this thread by adding the missing dependency."
-    )
+    handle.text = "Approach X resolved this thread by adding the missing dependency."
 
     out = _llm_distill(
         _build_probe_thread("telemetry-probe-id-2"),
@@ -222,7 +194,7 @@ def test_telemetry_failure_does_not_block_fallback(isolated_llm_distill, monkeyp
     """If the telemetry module itself raises (e.g. disk full), the
     distill must still return '' so the caller falls back to the
     deterministic body."""
-    tmp_path, fake_anthropic = isolated_llm_distill
+    tmp_path, handle = isolated_llm_distill
 
     def broken_record(**kwargs):
         raise RuntimeError("telemetry hard-failed in probe")
@@ -231,9 +203,7 @@ def test_telemetry_failure_does_not_block_fallback(isolated_llm_distill, monkeyp
         "app.threads.linter_telemetry.record_rejection", broken_record,
     )
 
-    fake_anthropic.Anthropic.return_value = _fake_anthropic_with_reply(
-        "I am happy this approach worked."
-    )
+    handle.text = "I am happy this approach worked."
 
     from app.threads.approaches import _llm_distill
     # Must not raise even though telemetry blew up.
