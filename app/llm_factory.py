@@ -344,6 +344,18 @@ def _cached_llm(
         if llm_builder is not None:
             llm = llm_builder(model_id, max_tokens, **kwargs)
         else:
+            # Force litellm dispatch for OpenRouter models. Without
+            # ``is_litellm=True`` CrewAI's ``LLM.__new__`` routes
+            # ``openrouter/…`` ids to its NATIVE ``OpenAICompatibleCompletion``
+            # (a direct ``openai`` SDK call that bypasses ``litellm.completion``
+            # and therefore the rate_throttle throttle + credit-failover +
+            # token-recording wrapper). Routing through litellm makes that
+            # wrapper the single, uniform network layer — and is what lets us
+            # drop the separate openai-SDK monkeypatch. The BudgetAware builder
+            # path above already sets this; here we cover the default path
+            # (discovery probes, orchestrator fallback, model vetting, …).
+            if (model_id or "").startswith("openrouter/"):
+                kwargs.setdefault("is_litellm", True)
             LLM = _get_LLM_class()
             llm = LLM(model=model_id, max_tokens=max_tokens, **kwargs)
 
