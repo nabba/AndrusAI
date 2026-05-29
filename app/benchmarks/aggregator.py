@@ -23,6 +23,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from app.benchmarks.models import BenchmarkRun
+from app.benchmarks.outcomes import (
+    OUTCOME_INFRA_ERROR,
+    OUTCOME_PASS,
+    OUTCOME_QUALITY_FAIL,
+    classify,
+)
 
 
 def _parse_ts(ts: str) -> Optional[datetime]:
@@ -96,16 +102,27 @@ def _percentile(values: list[float], p: float) -> float:
 def summarise(runs: list[BenchmarkRun]) -> dict:
     """Roll up a flat list of runs into a single summary dict.
 
-    Used by every higher-level grouping — per-model, per-task,
-    per-(task, model).
+    Outcome-aware (2026-05-28): each run is classified PASS / QUALITY_FAIL /
+    INFRA_ERROR (see :mod:`app.benchmarks.outcomes`). ``pass_rate`` and
+    ``mean_score`` are computed over *scored* runs (PASS + QUALITY_FAIL) so an
+    infrastructure outage never reads as the model failing every task;
+    ``error_rate`` reflects the INFRA_ERROR share only. Classification is
+    applied on read, so historical rows need no migration. All pre-existing
+    keys are retained (``n_errored`` is now the infra count) so consumers and
+    the dashboard keep working; new keys (``n_quality_fail`` / ``n_infra_error``
+    / ``n_scored`` / ``quality_fail_rate``) add the finer breakdown.
     """
     if not runs:
         return {
             "n": 0,
             "n_passed": 0,
+            "n_quality_fail": 0,
+            "n_infra_error": 0,
             "n_errored": 0,
+            "n_scored": 0,
             "mean_score": 0.0,
             "pass_rate": 0.0,
+            "quality_fail_rate": 0.0,
             "error_rate": 0.0,
             "p50_latency_ms": 0,
             "p95_latency_ms": 0,
@@ -114,19 +131,30 @@ def summarise(runs: list[BenchmarkRun]) -> dict:
             "total_tokens_out": 0,
         }
     n = len(runs)
-    n_passed = sum(1 for r in runs if r.passed)
-    n_errored = sum(1 for r in runs if r.error)
-    # Mean score over all runs (errors count as 0 — they did, in fact,
-    # fail to pass the task, whatever the cause).
-    mean_score = sum(r.score for r in runs) / n
+    outcomes = [classify(r.error, r.passed) for r in runs]
+    n_passed = sum(1 for o in outcomes if o == OUTCOME_PASS)
+    n_quality_fail = sum(1 for o in outcomes if o == OUTCOME_QUALITY_FAIL)
+    n_infra = sum(1 for o in outcomes if o == OUTCOME_INFRA_ERROR)
+    # "Scored" = runs that fairly executed (pass or quality_fail). Infra
+    # errors are excluded from pass_rate/mean_score: a dead cascade is not
+    # the model failing the task.
+    scored = [r for r, o in zip(runs, outcomes) if o != OUTCOME_INFRA_ERROR]
+    n_scored = len(scored)
+    mean_score = (sum(r.score for r in scored) / n_scored) if n_scored else 0.0
+    pass_rate = (n_passed / n_scored) if n_scored else 0.0
+    quality_fail_rate = (n_quality_fail / n_scored) if n_scored else 0.0
     latencies = [float(r.latency_ms) for r in runs]
     return {
         "n": n,
         "n_passed": n_passed,
-        "n_errored": n_errored,
+        "n_quality_fail": n_quality_fail,
+        "n_infra_error": n_infra,
+        "n_errored": n_infra,  # back-compat alias — now INFRA only
+        "n_scored": n_scored,
         "mean_score": round(mean_score, 4),
-        "pass_rate": round(n_passed / n, 4),
-        "error_rate": round(n_errored / n, 4),
+        "pass_rate": round(pass_rate, 4),
+        "quality_fail_rate": round(quality_fail_rate, 4),
+        "error_rate": round(n_infra / n, 4),
         "p50_latency_ms": int(_percentile(latencies, 50.0)),
         "p95_latency_ms": int(_percentile(latencies, 95.0)),
         "total_cost_usd": round(sum(r.cost_usd for r in runs), 6),

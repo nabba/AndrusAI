@@ -39,6 +39,21 @@ _DEFAULT_CADENCE_S = 24 * 60 * 60
 
 _STATE_FILENAME = "scheduler_state.json"
 
+# Per-task ``max_tokens`` floor when the cascade routes to a verbose /
+# reasoning model. The catalog authors picked tiny budgets (5–30) assuming
+# terse non-reasoning models; when Anthropic credits are exhausted and the
+# fallback path serves gpt-5.5 / kimi-k2.6 etc., two failure modes appear:
+#   (a) gpt-5.5 via OpenRouter/Azure rejects ``max_output_tokens < 16``
+#       with a hard 400 ``BadRequestError``.
+#   (b) Reasoning models burn the whole budget on internal reasoning
+#       tokens, leaving 0 visible chars, and the system-wide
+#       ``check_completion_truncation`` guard raises
+#       ``CompletionTruncated`` (``finish_reason="length"``).
+# The task's terseness invariant lives in the prompt + scorer, not in
+# ``max_tokens`` — so floor the per-call budget at a value that fits
+# reasoning overhead while still bounding cost.
+_BENCHMARK_MIN_COMPLETION_TOKENS = 512
+
 _state_lock = threading.RLock()
 
 
@@ -158,10 +173,27 @@ def _default_llm_call(
         )
 
     try:
+        # Honor the BenchmarkTask contract ("max_tokens=None → let the model
+        # decide", see models.py): defer to create_specialist_llm's role/tier
+        # default (8192) instead of clamping to 2048. The clamp starved the
+        # verbose default/smart tiers below the budget production actually uses,
+        # manufacturing CompletionTruncated "errors" on ~30% of runs
+        # (2026-05-28). When a task DOES pin an explicit budget, floor it so
+        # reasoning-model fallback paths (gpt-5.5 hard min 16; kimi-k2.6
+        # truncation) don't turn authored 5–30 caps into infra-class errors —
+        # see ``_BENCHMARK_MIN_COMPLETION_TOKENS`` above.
+        if max_tokens is None:
+            _budget: dict = {}
+        else:
+            _budget = {
+                "max_tokens": max(
+                    max_tokens, _BENCHMARK_MIN_COMPLETION_TOKENS,
+                ),
+            }
         llm = create_specialist_llm(
             role="default",
             force_tier=_TIER_MAP.get(model_tier, "mid"),
-            max_tokens=max_tokens or 2048,
+            **_budget,
         )
     except Exception as exc:
         elapsed_ms = int((time.monotonic() - started) * 1000)
