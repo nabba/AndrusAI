@@ -113,8 +113,8 @@ def _section_memory() -> str:
 def _count_philosophy_chunks() -> int:
     """Count chunks in the philosophy knowledge base (if available)."""
     try:
-        from app.philosophy.vectorstore import PhilosophyStore
-        store = PhilosophyStore()
+        from app.philosophy.vectorstore import get_store
+        store = get_store()
         return store._collection.count()
     except Exception:
         return 0

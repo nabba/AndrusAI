@@ -992,6 +992,72 @@ def _report_background_activity(job_name: str, status: str) -> None:
         pass
 
 
+def _prewarm_rag_stores() -> None:
+    """Cold-init the per-domain ChromaDB RAG-store singletons at boot.
+
+    Each store (philosophy / episteme / experiential / aesthetics /
+    tensions / knowledge_base) builds its OWN ``chromadb.PersistentClient``
+    plus ``get_or_create_collection`` + ``count()`` + ``peek(1)`` on first
+    ``get_store()``. The Commander context loaders touch five of them on
+    the first substantive message, so that cold-init burst lands on the
+    hot path as a multi-second GIL hog that starves the asyncio ``/health``
+    handler — the post-boot watchdog-restart loop's second cause (part 1
+    was the idle-job boot burst).
+
+    Paying it here, on the daemon thread during boot-prep, moves the cost
+    off the first user message. A short sleep between each store yields the
+    GIL so ``/health`` gets windows even while we warm. Note: the lifespan
+    ``_preopen_chroma`` warms ``chromadb_manager``'s default-path client,
+    which is a DIFFERENT object than these per-domain singletons — it never
+    actually warmed this path.
+
+    Gated by ``PRELOAD_CHROMA`` (same off-switch as the lifespan preopen).
+    Failure-isolated per store: a missing/empty KB just logs and continues.
+    """
+    if os.environ.get("PRELOAD_CHROMA", "1") != "1":
+        return
+
+    def _phil():
+        from app.philosophy.vectorstore import get_store
+        return get_store()
+
+    def _epi():
+        from app.episteme.vectorstore import get_store
+        return get_store()
+
+    def _exp():
+        from app.experiential.vectorstore import get_store
+        return get_store()
+
+    def _aes():
+        from app.aesthetics.vectorstore import get_store
+        return get_store()
+
+    def _ten():
+        from app.tensions.vectorstore import get_store
+        return get_store()
+
+    def _kb():
+        from app.knowledge_base.tools import get_store
+        return get_store()
+
+    for label, opener in (
+        ("philosophy", _phil), ("episteme", _epi),
+        ("experiential", _exp), ("aesthetics", _aes),
+        ("tensions", _ten), ("knowledge_base", _kb),
+    ):
+        try:
+            opener()
+            logger.info("idle_scheduler: RAG store pre-warmed — %s", label)
+        except Exception as exc:
+            logger.debug(
+                "idle_scheduler: RAG store pre-warm skipped for %s — %s: %s",
+                label, type(exc).__name__, str(exc)[:200],
+            )
+        # Yield the GIL so the event loop can answer /health between stores.
+        time.sleep(0.1)
+
+
 def _run_boot_prep() -> None:
     """LLM-catalog boot work that used to run inline in ``start()``.
 
@@ -1008,6 +1074,11 @@ def _run_boot_prep() -> None:
     Idempotent: refresh respects a 24h on-disk TTL; rehydrate is a
     force=True replay of promoted models. Safe to run once per process.
     """
+    # Pre-warm the RAG-store singletons FIRST so the cold-init burst lands
+    # here (quiet boot-prep, GIL-yielded) instead of on the first message's
+    # context loaders. See _prewarm_rag_stores for the full rationale.
+    _prewarm_rag_stores()
+
     # Auto-populate the LLM catalog from live sources before any job runs.
     try:
         from app.llm_catalog_builder import refresh as _refresh_catalog
