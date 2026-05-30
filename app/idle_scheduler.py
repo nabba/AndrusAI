@@ -48,6 +48,22 @@ IDLE_WARMUP_SECONDS = 300
 # Pause between background job iterations (brief cooldown, then next job)
 INTER_JOB_PAUSE_SECONDS = 2  # Reduced from 5 — lightweight jobs don't need long pauses
 
+# Boot-starvation fix part 2 (2026-05-30) — post-warm-up settling ramp.
+# Part 1 (2026-05-29) DEFERS MEDIUM/HEAVY jobs during the warm-up window.
+# But warm-up exit was a CLIFF: at IDLE_WARMUP_SECONDS the whole deferred
+# backlog (tens of MEDIUM + HEAVY jobs) becomes eligible at once and drains
+# one-per-cycle with no GIL-yield between the MEDIUM→HEAVY runs — right when
+# caches are coldest (Ollama preload, cold chromadb/Postgres) so each job is
+# slowest. That back-to-back grind monopolizes the GIL long enough to starve
+# /health and trip the host watchdog ~4.5 min post-boot. We pace MEDIUM/HEAVY
+# with an interruptible GIL-yield gap after each run: larger during a settling
+# window right after warm-up (coldest), small but PERMANENT thereafter so the
+# loop can never hold the GIL across the heaviest work units back-to-back.
+# This turns the defer-then-stampede cliff into a paced drain (ramp).
+IDLE_SETTLING_SECONDS = 300       # ramp window AFTER warm-up exit
+IDLE_HEAVY_PACE_SETTLE_S = 3.0    # GIL-yield after MEDIUM/HEAVY during settling
+IDLE_HEAVY_PACE_STEADY_S = 1.0    # GIL-yield after MEDIUM/HEAVY in steady state
+
 # Local fallback if the lifespan never calls boot_state.mark_boot_complete().
 # Set deliberately long: the realistic recovery scenario is a refactor that
 # accidentally drops the mark_boot_complete() call, which we want to surface
@@ -396,6 +412,39 @@ def _warmup_inter_job_pause_s() -> float:
         return max(0.0, float(get_settings().idle_warmup_inter_job_pause_s))
     except Exception:
         return 0.5
+
+
+def _in_settling_phase() -> bool:
+    """True during the ramp window just after warm-up exit.
+
+    Boot-starvation fix part 2 (2026-05-30). Spans
+    ``[IDLE_WARMUP_SECONDS, IDLE_WARMUP_SECONDS + IDLE_SETTLING_SECONDS)``
+    after boot_complete — the window where the deferred MEDIUM/HEAVY backlog
+    drains against the coldest caches. MEDIUM/HEAVY RUN here (unlike warm-up,
+    which defers them) but get a larger GIL-yield gap after each run.
+    """
+    completed_at = boot_state.boot_completed_at()
+    if completed_at is None:
+        return False
+    age = time.monotonic() - completed_at
+    return IDLE_WARMUP_SECONDS <= age < (IDLE_WARMUP_SECONDS + IDLE_SETTLING_SECONDS)
+
+
+def _heavy_job_pace_s() -> float:
+    """GIL-yield pause to sleep after a MEDIUM/HEAVY job runs.
+
+    Boot-starvation fix part 2 (2026-05-30). A plain ``time.sleep`` releases
+    the GIL, giving the asyncio event loop a guaranteed window to service
+    /health before the next (possibly cold + slow) MEDIUM/HEAVY job runs —
+    so draining the deferred backlog at warm-up exit can't starve /health
+    back-to-back. Larger during the settling window (cold caches), small but
+    permanent in steady state. Returns 0.0 when the master fix switch is off,
+    so ``_interruptible_sleep(0.0)`` is a no-op and behaviour reverts exactly
+    to pre-fix.
+    """
+    if not _boot_starvation_fix_enabled():
+        return 0.0
+    return IDLE_HEAVY_PACE_SETTLE_S if _in_settling_phase() else IDLE_HEAVY_PACE_STEADY_S
 
 
 def _interruptible_sleep(seconds: float) -> None:
@@ -870,6 +919,12 @@ def _run_idle_loop(jobs) -> None:
                     _publish_deferral(name, JobWeight.MEDIUM, defer_reason)
                 else:
                     _run_single_job(name, fn, TIME_CAPS[JobWeight.MEDIUM])
+                    # Boot-starvation fix part 2 (2026-05-30) — release the
+                    # GIL after the job so /health is answered before the next
+                    # (possibly cold + slow) MEDIUM/HEAVY job runs. Paces the
+                    # drain of the deferred backlog at warm-up exit so it can't
+                    # monopolize the GIL back-to-back and trip the watchdog.
+                    _interruptible_sleep(_heavy_job_pace_s())
 
         if _stop_event.is_set() or not is_idle():
             continue
@@ -902,6 +957,11 @@ def _run_idle_loop(jobs) -> None:
                     _publish_deferral(name, JobWeight.HEAVY, defer_reason)
                 else:
                     _run_single_job(name, fn, _heavy_cap)
+                    # Boot-starvation fix part 2 (2026-05-30) — same GIL-yield
+                    # pace as the MEDIUM phase. A HEAVY job is the longest GIL
+                    # holder; pacing after it is what keeps /health answerable
+                    # while the deferred HEAVY backlog drains post-warm-up.
+                    _interruptible_sleep(_heavy_job_pace_s())
 
         # Brief pause between cycles
         for _ in range(INTER_JOB_PAUSE_SECONDS):

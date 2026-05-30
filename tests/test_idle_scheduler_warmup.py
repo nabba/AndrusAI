@@ -192,3 +192,154 @@ class TestLightJobSerialization:
             return_value=completed_at + idle_scheduler.IDLE_WARMUP_SECONDS + 1,
         ):
             assert idle_scheduler._in_warmup_phase() is False
+
+
+# ── Boot-starvation fix part 2 (2026-05-30): post-warm-up settling ramp ──
+#
+# Part 1 defers MEDIUM/HEAVY during warm-up; the cliff at warm-up EXIT then
+# drained the whole deferred backlog back-to-back with no GIL-yield, starving
+# /health ~4.5 min post-boot and tripping the host watchdog (2026-05-30
+# 18:09 + 18:16 breaches on the part-1 image). Part 2 paces MEDIUM/HEAVY with
+# a GIL-yield gap after each run — larger during a settling window right after
+# warm-up (cold caches), small but permanent thereafter. These tests pin the
+# phase predicate + the pace ramp so a refactor can't silently revert it.
+
+
+class TestSettlingPhase:
+    """``_in_settling_phase()`` — the ramp window just after warm-up exit."""
+
+    def setup_method(self) -> None:
+        from app import boot_state
+        boot_state._reset_for_tests()
+
+    def teardown_method(self) -> None:
+        from app import boot_state
+        boot_state._reset_for_tests()
+
+    def _at_age(self, monkeypatch, age_s: float) -> None:
+        """Pretend ``age_s`` seconds have elapsed since boot_complete."""
+        from app import boot_state, idle_scheduler
+        boot_state.mark_boot_complete()
+        completed_at = boot_state.boot_completed_at()
+        assert completed_at is not None
+        monkeypatch.setattr(
+            idle_scheduler.time, "monotonic", lambda: completed_at + age_s,
+        )
+
+    def test_false_when_boot_never_completed(self) -> None:
+        from app import idle_scheduler
+        assert idle_scheduler._in_settling_phase() is False
+
+    def test_false_during_warmup(self, monkeypatch) -> None:
+        from app import idle_scheduler
+        self._at_age(monkeypatch, idle_scheduler.IDLE_WARMUP_SECONDS / 2)
+        assert idle_scheduler._in_settling_phase() is False
+
+    def test_true_at_warmup_exit_boundary(self, monkeypatch) -> None:
+        """At exactly IDLE_WARMUP_SECONDS the settling window opens."""
+        from app import idle_scheduler
+        self._at_age(monkeypatch, idle_scheduler.IDLE_WARMUP_SECONDS)
+        assert idle_scheduler._in_settling_phase() is True
+
+    def test_true_at_settling_midpoint(self, monkeypatch) -> None:
+        from app import idle_scheduler
+        mid = idle_scheduler.IDLE_WARMUP_SECONDS + (
+            idle_scheduler.IDLE_SETTLING_SECONDS / 2
+        )
+        self._at_age(monkeypatch, mid)
+        assert idle_scheduler._in_settling_phase() is True
+
+    def test_false_past_settling_window(self, monkeypatch) -> None:
+        from app import idle_scheduler
+        past = (
+            idle_scheduler.IDLE_WARMUP_SECONDS
+            + idle_scheduler.IDLE_SETTLING_SECONDS
+            + 1
+        )
+        self._at_age(monkeypatch, past)
+        assert idle_scheduler._in_settling_phase() is False
+
+    def test_warmup_and_settling_are_contiguous_non_overlapping(
+        self, monkeypatch,
+    ) -> None:
+        """Load-bearing invariant: at the warm-up→settling boundary the
+        job is never in BOTH phases (would double-gate) nor NEITHER (the
+        cliff that part 2 closes). At exactly IDLE_WARMUP_SECONDS warm-up
+        is over AND settling has begun — so MEDIUM/HEAVY transition
+        straight from 'deferred' to 'run-but-paced', with no instant where
+        they run unpaced."""
+        from app import idle_scheduler
+        self._at_age(monkeypatch, idle_scheduler.IDLE_WARMUP_SECONDS)
+        assert idle_scheduler._in_warmup_phase() is False
+        assert idle_scheduler._in_settling_phase() is True
+
+
+class TestHeavyJobPace:
+    """``_heavy_job_pace_s()`` — the GIL-yield pause after MEDIUM/HEAVY."""
+
+    def setup_method(self) -> None:
+        from app import boot_state
+        boot_state._reset_for_tests()
+
+    def teardown_method(self) -> None:
+        from app import boot_state
+        boot_state._reset_for_tests()
+
+    def test_zero_when_fix_disabled(self) -> None:
+        """Master switch off ⇒ pace 0.0 ⇒ _interruptible_sleep(0) no-op ⇒
+        behaviour reverts exactly to pre-fix. The reversibility contract."""
+        from app import idle_scheduler
+        with patch.object(
+            idle_scheduler, "_boot_starvation_fix_enabled", return_value=False,
+        ):
+            assert idle_scheduler._heavy_job_pace_s() == 0.0
+
+    def test_settle_pace_during_settling_window(self, monkeypatch) -> None:
+        from app import boot_state, idle_scheduler
+        boot_state.mark_boot_complete()
+        completed_at = boot_state.boot_completed_at()
+        assert completed_at is not None
+        monkeypatch.setattr(
+            idle_scheduler.time, "monotonic",
+            lambda: completed_at + idle_scheduler.IDLE_WARMUP_SECONDS + 1,
+        )
+        with patch.object(
+            idle_scheduler, "_boot_starvation_fix_enabled", return_value=True,
+        ):
+            assert (
+                idle_scheduler._heavy_job_pace_s()
+                == idle_scheduler.IDLE_HEAVY_PACE_SETTLE_S
+            )
+
+    def test_steady_pace_after_settling_window(self, monkeypatch) -> None:
+        from app import boot_state, idle_scheduler
+        boot_state.mark_boot_complete()
+        completed_at = boot_state.boot_completed_at()
+        assert completed_at is not None
+        past = (
+            idle_scheduler.IDLE_WARMUP_SECONDS
+            + idle_scheduler.IDLE_SETTLING_SECONDS
+            + 1
+        )
+        monkeypatch.setattr(
+            idle_scheduler.time, "monotonic", lambda: completed_at + past,
+        )
+        with patch.object(
+            idle_scheduler, "_boot_starvation_fix_enabled", return_value=True,
+        ):
+            assert (
+                idle_scheduler._heavy_job_pace_s()
+                == idle_scheduler.IDLE_HEAVY_PACE_STEADY_S
+            )
+
+    def test_pace_ramp_tapers_down_but_stays_positive(self) -> None:
+        """The ramp must taper (settle ≥ steady) and the permanent steady
+        pace must be > 0 — the operator asked for staggering MEDIUM/HEAVY
+        *permanently*, not just during a window. A steady pace of 0 would
+        re-open the back-to-back-grind path once settling ends."""
+        from app import idle_scheduler
+        assert (
+            idle_scheduler.IDLE_HEAVY_PACE_SETTLE_S
+            >= idle_scheduler.IDLE_HEAVY_PACE_STEADY_S
+        )
+        assert idle_scheduler.IDLE_HEAVY_PACE_STEADY_S > 0.0
