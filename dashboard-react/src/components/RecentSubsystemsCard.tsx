@@ -12,6 +12,7 @@
 //   scan.
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   useUpdateRuntimeSettings,
   type RuntimeSettings,
@@ -172,8 +173,11 @@ export function RecentSubsystemsCard({
                   {s.description}
                 </div>
                 {s.link && (
-                  <a
-                    href={s.link.href}
+                  // Router-resolved Link so BrowserRouter basename="/cp" is
+                  // applied — a plain <a href="/benchmarks"> bypasses the
+                  // basename and lands on a 404 (2026-05-30 fix).
+                  <Link
+                    to={s.link.href}
                     style={{
                       display: 'inline-block', marginTop: '4px',
                       color: '#60a5fa', fontSize: '12px',
@@ -181,7 +185,7 @@ export function RecentSubsystemsCard({
                     }}
                   >
                     {s.link.label}
-                  </a>
+                  </Link>
                 )}
                 {errKey === s.key && (
                   <div
