@@ -2139,6 +2139,7 @@ class Commander:
     def _run_with_reflexion(
         self, crew_name: str, task: str, difficulty: int = 5, max_trials: int = 3,
         conversation_history: str = "",
+        tier_hint: str | None = None,
     ) -> tuple[str, bool]:
         """Execute crew with Reflexion retry loop on quality failure (L3).
 
@@ -2203,6 +2204,10 @@ class Commander:
                 crew_name, enriched, difficulty=trial_difficulty,
                 conversation_history=conversation_history,
                 preloaded_context=_cached_context if trial > 1 else None,
+                # Honor the caller's tier hint on the first attempt only; on
+                # retries the reflexion loop's own tier escalation (above) must
+                # be free to override it, or a pinned hint defeats recovery.
+                tier_hint=tier_hint if trial == 1 else None,
             )
             # Capture context from trial 1 for reuse
             if trial == 1 and hasattr(self, '_last_context'):
