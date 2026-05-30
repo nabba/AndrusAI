@@ -708,6 +708,7 @@ def _run_single_job(name: str, fn: Callable, timeout_s: int = 60) -> bool:
     try:
         _report_background_activity(name, "running")
         with agent_scope(name):
+            logger.info(f"idle_scheduler: '{name}' starting (cap={timeout_s}s)")
             fn()
         logger.info(f"idle_scheduler: '{name}' completed")
         _report_background_activity(name, "completed")
