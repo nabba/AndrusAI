@@ -2334,7 +2334,7 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             check_post_commit_regression()
         except Exception:
             pass
-    jobs.append(("data-retention", _data_retention, JobWeight.LIGHT))
+    jobs.append(("data-retention", _data_retention, JobWeight.HEAVY))
 
     # ── Crew-task spans: 7-day retention sweep ───────────────────────
     # Spans capture fine-grained execution flow (agent/tool/LLM events)
