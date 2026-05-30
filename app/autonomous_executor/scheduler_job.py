@@ -70,21 +70,31 @@ def _is_enabled() -> bool:
 
 
 def _pick_run() -> Optional[ExecutorRun]:
-    """Highest-priority active run. v1 picks the most recently touched
-    — same ordering as threads + workflows.
+    """Highest-priority *advanceable* active run. v1 picks the most
+    recently touched — same ordering as threads + workflows.
+
+    PENDING_APPROVAL runs are active (so the dashboard still shows them
+    as awaiting approval) but are skipped here: the opt-in gate means a
+    run never executes until the operator approves it (👍 → CREATED).
+    This is the load-bearing line — never advance a run the operator
+    hasn't approved.
 
     Future v2 may add a priority field (operator-set urgency, age
     pressure, budget headroom) — drop-in change here.
     """
     try:
-        active = store.list_active(limit=1)
+        active = store.list_active(limit=50)
     except Exception:
         logger.debug(
             "autonomous_executor: store.list_active failed",
             exc_info=True,
         )
         return None
-    return active[0] if active else None
+    for run in active:
+        if run.status is ExecutorStatus.PENDING_APPROVAL:
+            continue
+        return run
+    return None
 
 
 def run_executor_tick(

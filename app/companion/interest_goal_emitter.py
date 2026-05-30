@@ -112,6 +112,12 @@ _PER_EMISSION_BUDGET_USD = 2.0
 # clear via the slash command.
 _DECLINE_COOLDOWN_DAYS = 30
 
+# Opt-in expiry. A run parked in PENDING_APPROVAL with no operator
+# 👍/👎 within this window is auto-aborted by the next run() pass.
+# Mirrors the change-request gate's silence-is-not-consent semantics:
+# the operator must actively approve before any budget is spent.
+_EXPIRY_DAYS = 7
+
 # Topic identity is normalised to lowercase trimmed for dedup keys.
 _TOPIC_KEY_MAXLEN = 80
 
@@ -366,7 +372,11 @@ def _spawn_executor_run(qp: QualifiedPattern, *, requestor: str) -> dict[str, An
         run_id=run_id,
         goal=qp.as_goal_text(),
         requestor=requestor,
-        status=ExecutorStatus.CREATED,
+        # Opt-in gate: the run is parked in PENDING_APPROVAL and is
+        # never picked up by the scheduler (see scheduler_job._pick_run)
+        # until the operator approves it via 👍. No budget is spent
+        # while it waits.
+        status=ExecutorStatus.PENDING_APPROVAL,
         budget=Budget(cap_usd=float(_PER_EMISSION_BUDGET_USD)),
         zone="autonomous",
     )
@@ -380,7 +390,7 @@ def _spawn_executor_run(qp: QualifiedPattern, *, requestor: str) -> dict[str, An
 
         _audit.record(
             run_id=run_id,
-            kind="run_created",
+            kind="run_pending_approval",
             actor=requestor,
             payload={
                 "goal_preview": qp.as_goal_text()[:140],
@@ -405,12 +415,15 @@ def _signal_alert(qp: QualifiedPattern, run_id: str) -> str | None:
     except Exception:
         return None
     body = (
-        f"💡 Interest signal — autonomous research started\n\n"
+        f"💡 Interest signal — autonomous research awaiting approval\n\n"
         f"Topic: *{qp.topic}*\n"
         f"Why: {qp.as_reasoning()}\n\n"
-        f"I queued a research run (budget cap ${_PER_EMISSION_BUDGET_USD:.2f}). "
-        f"👎 cancels + adds the topic to a {_DECLINE_COOLDOWN_DAYS}-day cooldown; "
-        f"👍 acknowledges. Silence = continue to completion.\n\n"
+        f"I'd like to run a research goal on this (budget cap "
+        f"${_PER_EMISSION_BUDGET_USD:.2f}). "
+        f"👍 approves + starts it; "
+        f"👎 skips + adds the topic to a {_DECLINE_COOLDOWN_DAYS}-day cooldown. "
+        f"No reaction within {_EXPIRY_DAYS} days = the request expires "
+        f"(nothing runs, no spend).\n\n"
         f"Run id: `{run_id}`"
     )
     try:
@@ -551,17 +564,155 @@ def decline(topic: str, *, run_id: str | None = None, source: str = "operator") 
     return {"ok": True, "topic_key": key, "until": until.isoformat()}
 
 
+def topic_for_run(run_id: str) -> str | None:
+    """Resolve the topic for an emitted run from the emission history.
+
+    The Signal bridge only stores ``signal_ts → run_id`` (no topic), so
+    the 👎 reaction handler needs this to feed :func:`decline` a topic
+    for the cooldown. Most-recent emission wins on the (rare) case of a
+    recycled id. Returns None if the run isn't one of ours.
+    """
+    run_id = (run_id or "").strip()
+    if not run_id:
+        return None
+    try:
+        state = _load_state()
+    except Exception:
+        return None
+    for row in reversed(state.get("emissions") or []):
+        if isinstance(row, dict) and row.get("run_id") == run_id:
+            topic = row.get("topic")
+            return str(topic) if topic else None
+    return None
+
+
+def approve(run_id: str, *, source: str = "operator") -> dict[str, Any]:
+    """Approve a pending interest-goal run: PENDING_APPROVAL → CREATED.
+
+    Once CREATED, the scheduler's ``_pick_run`` will advance it on the
+    next tick (the normal CREATED→PLANNING→RUNNING path). This is the
+    opt-in counterpart to :func:`decline`.
+
+    Called by:
+      * The 👍 Signal reaction handler
+      * (future) an ``/interest approve <run_id>`` slash command
+
+    If the run is already past PENDING_APPROVAL (operator double-tapped,
+    or it expired), this is a no-op reported as ok=True so the reaction
+    handler stays quiet.
+    """
+    run_id = (run_id or "").strip()
+    if not run_id:
+        return {"ok": False, "reason": "empty run_id"}
+    try:
+        import importlib
+
+        store = importlib.import_module("app.autonomous_executor.store")
+        models_mod = importlib.import_module("app.autonomous_executor.models")
+    except Exception as exc:
+        return {"ok": False, "reason": f"executor modules unavailable: {exc}"}
+
+    run = store.get(run_id)
+    if run is None:
+        return {"ok": False, "reason": "run not found"}
+    if run.status is not models_mod.ExecutorStatus.PENDING_APPROVAL:
+        return {"ok": True, "run_id": run_id, "already": run.status.value}
+    try:
+        run.transition(
+            models_mod.ExecutorStatus.CREATED,
+            reason="approved by operator (interest goal)",
+        )
+        store.save(run)
+    except Exception as exc:
+        return {"ok": False, "reason": f"transition failed: {exc}"}
+
+    topic = topic_for_run(run_id) or ""
+    qp = QualifiedPattern(
+        topic=topic,
+        modalities=[],
+        occurrences_total=0,
+        strength=0.0,
+        detected_at="",
+        prior_detections=0,
+    )
+    _emit_landmark("interest_goal_approved", qp, run_id)
+    return {"ok": True, "run_id": run_id}
+
+
+def _expire_stale_pending(now: datetime) -> int:
+    """Abort our PENDING_APPROVAL runs older than ``_EXPIRY_DAYS``.
+
+    Silence-is-not-consent: a run the operator never reacted to must not
+    linger as a standing invitation. Returns the count aborted.
+    Failure-isolated end-to-end — best-effort housekeeping that must
+    never block the emission pipeline.
+    """
+    try:
+        import importlib
+
+        store = importlib.import_module("app.autonomous_executor.store")
+        models_mod = importlib.import_module("app.autonomous_executor.models")
+    except Exception:
+        return 0
+    try:
+        active = store.list_active(limit=200)
+    except Exception:
+        return 0
+    cutoff = now - timedelta(days=_EXPIRY_DAYS)
+    aborted = 0
+    for run in active:
+        try:
+            if run.status is not models_mod.ExecutorStatus.PENDING_APPROVAL:
+                continue
+            if run.requestor != "interest_goal_emitter":
+                continue
+            try:
+                created_dt = datetime.fromisoformat(run.created_at or "")
+                if created_dt.tzinfo is None:
+                    created_dt = created_dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            if created_dt > cutoff:
+                continue
+            run.transition(
+                models_mod.ExecutorStatus.ABORTED,
+                reason=(
+                    f"expired (no operator approval within "
+                    f"{_EXPIRY_DAYS} days)"
+                ),
+            )
+            store.save(run)
+            aborted += 1
+        except Exception:
+            logger.debug(
+                "interest_goal_emitter: expiry sweep skipped a run",
+                exc_info=True,
+            )
+            continue
+    return aborted
+
+
 def run() -> dict[str, Any]:
     """LIGHT idle-job entry. Single-pass. Failure-isolated."""
     result: dict[str, Any] = {
         "checked": 0,
         "qualified": 0,
         "emitted": 0,
+        "expired": 0,
         "skipped_reason": None,
     }
     if not _master_switch_on():
         result["skipped_reason"] = "master_switch_off"
         return result
+
+    # Housekeeping first: expire pending-approval runs the operator never
+    # reacted to. Runs even when the executor is temporarily disabled —
+    # an ignored invitation shouldn't outlive its window.
+    try:
+        result["expired"] = _expire_stale_pending(datetime.now(timezone.utc))
+    except Exception:
+        logger.debug("interest_goal_emitter: expiry sweep failed", exc_info=True)
+
     if not _executor_enabled():
         result["skipped_reason"] = "executor_disabled"
         return result
@@ -610,7 +761,9 @@ def run() -> dict[str, Any]:
 
 __all__ = [
     "QualifiedPattern",
+    "approve",
     "decline",
     "emit_for_pattern",
     "run",
+    "topic_for_run",
 ]

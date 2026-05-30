@@ -14917,3 +14917,39 @@ type — so the settings-dispatcher pinning test round-trips them in CI as a fre
 clean. The three gates compose: A stops known-rejected paraphrases, B makes library proposals arrive only as
 trial-verified adoption CRs, C auto-throttles any producer the operator chronically rejects.
 
+## §79 — Interest-goal emitter: opt-out → opt-in approval gate (2026-05-30)
+
+Closes the autonomous-spend-before-consent posture in Gap 2's `interest_goal_emitter` (§70). As shipped, a
+qualified cross-modal interest signal spawned a §62 executor run directly in `CREATED` — the next scheduler
+tick executed it *before* the operator could react. 👎 only aborted in-flight; silence = silent-adopt. That
+opt-out model is defensible for the inert viability goals from the Tier-3 `affect/goal_emitter.py` (they only
+write `SelfState.current_goals`), but interest goals **actually spend money** ($2/goal Budget cap) and **take
+autonomous actions** (web research + `notes/` file writes). So the emitter is converted to approve-before-act,
+mirroring the change-request gate's silence-is-not-consent semantics. Additive + reversible; **no TIER_IMMUTABLE
+touches** (`affect/goal_emitter.py` untouched), **no Tier-3 amendment, no new master switches**.
+
+**New executor state** (`app/autonomous_executor/models.py`). `ExecutorStatus.PENDING_APPROVAL = "pending_approval"`,
+ordered before `CREATED`. `_LEGAL_TRANSITIONS[PENDING_APPROVAL] = {CREATED, ABORTED}`; **non-terminal** so the
+dashboard still lists it as awaiting approval. `store.list_active` already returns it (non-terminal).
+
+**Scheduler skip** (`scheduler_job._pick_run`). Iterates `store.list_active(limit=50)` and `continue`s past any
+`PENDING_APPROVAL` run — the load-bearing line that guarantees a run never executes until the operator approves
+it. Pinned by `test_scheduler_never_advances_pending_approval` + `test_scheduler_picks_created_skipping_pending`.
+
+**Emitter** (`app/companion/interest_goal_emitter.py`). `_spawn_executor_run` now parks the run in
+`PENDING_APPROVAL` (audit kind `run_pending_approval`). New `approve(run_id)` (PENDING_APPROVAL→CREATED, idempotent —
+returns `{already: <status>}` if already advanced), `topic_for_run(run_id)` (recovers the topic from emission state,
+since the Signal bridge stores no topic), and `_expire_stale_pending(now)` (a sweep on every `run()` that aborts
+interest-emitter PENDING_APPROVAL runs older than `_EXPIRY_DAYS = 7`, per-run failure-isolated). Signal alert copy
+rewritten: "👍 approves + starts it; 👎 skips + adds the topic to a 30-day cooldown. No reaction within 7 days =
+the request expires (nothing runs, no spend)."
+
+**Reaction wiring** (`app/main.py`). New reaction block (after governance) resolves `interest_goal_signal_bridge.find_run_id`
+→ 👍 calls `approve()`, 👎 calls `decline(topic_for_run(run_id))` → then `unregister`s the bridge entry + acks via
+Signal. Falls through to the feedback pipeline when the reacted-to message isn't an interest-goal alert.
+
+**Verification.** 177 tests pass in the gateway container (48 `test_interest_goal_emitter` + `test_autonomous_executor_scheduler`;
+129 across `test_autonomous_executor{,_driver,_delegate,_llm_planner}`), 0 regressions. 10 new opt-in cases cover
+pending-parking, scheduler-skip, approve (incl. already-advanced no-op + missing run), topic recovery, and the
+expiry sweep (stale-aborts / fresh-leaves / other-requestor-ignored).
+

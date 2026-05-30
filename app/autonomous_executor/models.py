@@ -6,6 +6,7 @@ Mirrors the threads + workflows + change_requests pattern: dataclasses
 State machine
 ─────────────
 
+    PENDING_APPROVAL ──→ CREATED   (operator 👍 approves; 👎 / 7-day expiry ──→ ABORTED)
     CREATED ──→ PLANNING ──→ RUNNING ──┬──→ COMPLETED  ← terminal
        │                       │       │
        │                       │       ├──→ FAILED      ← terminal
@@ -161,6 +162,7 @@ class ExecutorStatus(str, enum.Enum):
     """Run lifecycle state. Terminal states (see ``TERMINAL_STATUSES``)
     cannot be transitioned out of."""
 
+    PENDING_APPROVAL = "pending_approval"
     CREATED = "created"
     PLANNING = "planning"
     RUNNING = "running"
@@ -183,6 +185,13 @@ TERMINAL_STATUSES: frozenset[ExecutorStatus] = frozenset({
 # Legal transitions: source → set[destination]. Computed from the
 # diagram above. Used by :func:`assert_can_transition`.
 _LEGAL_TRANSITIONS: dict[ExecutorStatus, frozenset[ExecutorStatus]] = {
+    # Opt-in gate: a run parked here is never picked up by the scheduler
+    # (see scheduler_job._pick_run). Approval routes it to CREATED so the
+    # normal CREATED→PLANNING path is untouched; 👎 / expiry routes to ABORTED.
+    ExecutorStatus.PENDING_APPROVAL: frozenset({
+        ExecutorStatus.CREATED,
+        ExecutorStatus.ABORTED,
+    }),
     ExecutorStatus.CREATED: frozenset({
         ExecutorStatus.PLANNING,
         ExecutorStatus.ABORTED,
