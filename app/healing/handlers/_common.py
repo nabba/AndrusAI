@@ -186,6 +186,27 @@ def file_change_request(
         logger.debug("healing.handlers: change_requests import failed", exc_info=True)
         return None
 
+    # Pre-flight validation (2026-05-29). A producer that files a CR
+    # against a path the validator will reject (e.g. anything under
+    # ``workspace/``, which is outside the allowed roots) produces a
+    # guaranteed-REJECTED record on every call — pure queue noise. Run
+    # the same ``validate(...)`` the lifecycle layer would run and skip
+    # the doomed filing entirely, so no rejected record is ever minted.
+    try:
+        from app.change_requests.validator import validate
+        pre = validate(path=path, new_content=new_content)
+        if not pre.ok:
+            logger.warning(
+                "healing.handlers: skipping doomed CR by %s for path=%s — "
+                "validator would reject: %s",
+                requestor, path, pre.reason,
+            )
+            return None
+    except Exception:
+        # Validator import/exec failure is non-fatal — fall through and
+        # let create_request run the canonical validation path.
+        logger.debug("healing.handlers: pre-flight validate failed", exc_info=True)
+
     try:
         cr = create_request(
             requestor=requestor,
