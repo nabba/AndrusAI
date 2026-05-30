@@ -691,6 +691,17 @@ export interface RuntimeSettings {
   // settings cards can read the current value without an extra
   // request.
   anthropic_daily_cap_usd?: number | null;
+  // ── CR-quality gates (2026-05-30) ──
+  // Gate A: semantic rejection suppression. Gate B: evidence-gated
+  // library promotion. Gate C: per-producer approval-rate auto-pause.
+  cr_rejection_suppression_mode?: string; // 'off' | 'advisory' | 'enforcing'
+  cr_rejection_suppression_similarity?: number;
+  cr_rejection_suppression_min_count?: number;
+  library_radar_evidence_gated_promotion?: boolean;
+  producer_autopause_enabled?: boolean;
+  producer_autopause_min_approval_rate?: number;
+  producer_autopause_min_samples?: number;
+  producer_autopause_window_days?: number;
 }
 
 export function useRuntimeSettingsQuery() {

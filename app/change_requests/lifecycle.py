@@ -65,6 +65,30 @@ _DEDUP_OPEN_STATUSES = frozenset({
 })
 
 
+# Durable-rejection cooldown (2026-05-29). The Q18 open-status dedup
+# above compresses *concurrent* spam, but the dedup hold releases the
+# moment a CR reaches a terminal status — so a producer that re-files
+# an identical proposal on its next idle tick creates a fresh PENDING
+# record every reject cycle. That is the open feedback loop behind the
+# "seen 710× before" rejected-pattern counter: rejecting the CR never
+# changes the standing world-state the producer keeps re-observing.
+#
+# Fix: when an identical (requestor, content_hash) was recently
+# REJECTED (or TIMED OUT — same "operator did not approve" signal),
+# suppress the re-file for a cooldown window. We bump the recurrence
+# counter on the already-rejected record (so the operator can see "this
+# keeps coming back N times") rather than creating a new PENDING CR.
+#
+# The suppression is a COOLDOWN, not a permanent block: once the window
+# elapses the producer is allowed to file a fresh CR again, so a
+# genuinely-still-relevant proposal resurfaces for reconsideration.
+_REJECTED_SUPPRESSION_DAYS = 30
+_SUPPRESS_AFTER_STATUSES = frozenset({
+    Status.REJECTED,
+    Status.TIMEOUT,
+})
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -121,10 +145,77 @@ def _find_open_duplicate(*, requestor: str, content_hash: str) -> ChangeRequest 
     return None
 
 
-def _bump_recurrence(cr: ChangeRequest, *, new_reason: str | None = None) -> ChangeRequest:
+def _parse_iso(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp, returning None on any failure.
+
+    Tolerates the rare naive timestamp by assuming UTC so comparisons
+    against the timezone-aware cooldown cutoff never raise.
+    """
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _find_recent_rejected_duplicate(
+    *, requestor: str, content_hash: str,
+) -> ChangeRequest | None:
+    """Find a recently-terminal-without-approval CR matching the
+    ``(requestor, content_hash)`` key whose decision lands inside the
+    ``_REJECTED_SUPPRESSION_DAYS`` cooldown window.
+
+    Returns the most-recently-decided match (so a producer that has
+    been re-filing across several reject cycles always lands on the
+    newest suppression record), or None when no in-window match exists
+    — in which case the caller proceeds to create a fresh CR (the
+    cooldown has expired and the proposal earns a fresh review).
+    """
+    try:
+        candidates = store.list_all(limit=500)
+    except Exception:
+        return None
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        days=_REJECTED_SUPPRESSION_DAYS,
+    )
+    best: ChangeRequest | None = None
+    best_decided: datetime | None = None
+    for cr in candidates:
+        if cr.requestor != requestor:
+            continue
+        if cr.content_hash != content_hash:
+            continue
+        if cr.status not in _SUPPRESS_AFTER_STATUSES:
+            continue
+        decided = _parse_iso(cr.decided_at)
+        if decided is None or decided < cutoff:
+            continue
+        if best_decided is None or decided > best_decided:
+            best = cr
+            best_decided = decided
+    return best
+
+
+def _bump_recurrence(
+    cr: ChangeRequest,
+    *,
+    new_reason: str | None = None,
+    audit_event: str = "recurrence_bumped",
+) -> ChangeRequest:
     """Update an existing CR with a recurrence rather than creating a
-    duplicate. The caller already established that cr is non-terminal
-    and matches the (requestor, content_hash) dedup key."""
+    duplicate. The caller already established that cr matches the
+    ``(requestor, content_hash)`` dedup key — either a non-terminal
+    open CR or a recently-rejected one inside the cooldown window.
+
+    Does NOT change ``cr.status``: a rejected record stays rejected
+    (so it never re-enters the operator's pending queue) while its
+    recurrence counter records how persistently the producer keeps
+    re-proposing it.
+    """
     cr.recurrence_count = (cr.recurrence_count or 0) + 1
     cr.last_recurrence_at = _now_iso()
     if cr.first_seen_at is None:
@@ -138,10 +229,138 @@ def _bump_recurrence(cr: ChangeRequest, *, new_reason: str | None = None) -> Cha
             f"— recurrence #{cr.recurrence_count} at {cr.last_recurrence_at}: "
             f"{new_reason[:300]}"
         )
-    store.save(cr, audit_event="recurrence_bumped")
+    store.save(cr, audit_event=audit_event)
     logger.info(
-        "change_requests: recurrence bumped to %d for %s (requestor=%s, hash=%s)",
+        "change_requests: recurrence bumped to %d for %s "
+        "(requestor=%s, hash=%s, status=%s, event=%s)",
         cr.recurrence_count, cr.id, cr.requestor, cr.content_hash,
+        cr.status.value, audit_event,
+    )
+    return cr
+
+
+def _maybe_suppress_by_lesson(
+    *,
+    requestor: str,
+    path: str,
+    reason: str,
+    new_content: str,
+    old_content: str,
+    diff: str,
+    content_hash: str,
+) -> ChangeRequest | None:
+    """Gate A — semantic rejection suppression.
+
+    Returns a terminal REJECTED :class:`ChangeRequest` when an observational
+    producer is re-filing something semantically equivalent to a
+    repeatedly-rejected idea AND the gate is in ``enforcing`` mode. In
+    ``advisory`` mode the would-be decision is logged and ``None`` is
+    returned (the CR proceeds normally, including the existing advisory
+    banner). ``None`` always means "proceed".
+
+    Policy (allowlist, thresholds, mode) lives in
+    :mod:`app.change_requests.rejection_gate`; the rejection DATA lives in
+    :mod:`app.companion.lessons_learned`. Failure-isolated end-to-end — any
+    error returns ``None`` so the gate can only ever suppress on a positive,
+    well-formed signal.
+    """
+    try:
+        from app.change_requests import rejection_gate
+    except Exception:
+        logger.debug("change_requests: rejection_gate import failed", exc_info=True)
+        return None
+
+    if not rejection_gate.is_suppressible_producer(requestor):
+        return None
+
+    verdict = rejection_gate.evaluate(f"{path}: {reason}")
+    if not verdict.matched:
+        return None
+
+    if verdict.mode != "enforcing":
+        logger.warning(
+            "change_requests: [advisory] WOULD suppress re-file by %s for "
+            "path=%s — %s. Set cr_rejection_suppression_mode=enforcing to "
+            "suppress.",
+            requestor, path, verdict.detail(),
+        )
+        return None
+
+    now = _now_iso()
+    cr = ChangeRequest(
+        id=uuid.uuid4().hex[:12],
+        created_at=now,
+        requestor=requestor,
+        path=path,
+        new_content=new_content,
+        old_content=old_content,
+        reason=reason,
+        diff=diff,
+        content_hash=content_hash,
+        first_seen_at=now,
+    )
+    cr.status = Status.REJECTED
+    cr.decision_reason = f"semantic-rejection-suppressed: {verdict.detail()}"
+    store.save(cr, audit_event="semantic_rejection_suppressed")
+    logger.info(
+        "change_requests: semantic-suppressed re-file by %s for path=%s — %s",
+        requestor, path, verdict.detail(),
+    )
+    return cr
+
+
+def _maybe_suppress_by_producer_health(
+    *,
+    requestor: str,
+    path: str,
+    reason: str,
+    new_content: str,
+    old_content: str,
+    diff: str,
+    content_hash: str,
+) -> ChangeRequest | None:
+    """Gate C — per-producer approval-rate auto-pause.
+
+    Returns a terminal REJECTED :class:`ChangeRequest` when an observational
+    producer's rolling **operator**-approval rate has fallen below the floor
+    (with enough samples): the producer is auto-paused so it stops flooding
+    the operator with chronically-rejected output. ``None`` means "proceed".
+
+    Policy + computation live in
+    :mod:`app.change_requests.producer_health`. The suppressed CR is recorded
+    with ``decided_by=None`` so it is EXCLUDED from the approval-rate
+    computation — the pause is a self-releasing cooldown, not a latch.
+    Failure-isolated.
+    """
+    try:
+        from app.change_requests import producer_health
+
+        verdict = producer_health.evaluate(requestor)
+    except Exception:
+        logger.debug("change_requests: producer_health check failed", exc_info=True)
+        return None
+    if not verdict.paused:
+        return None
+
+    now = _now_iso()
+    cr = ChangeRequest(
+        id=uuid.uuid4().hex[:12],
+        created_at=now,
+        requestor=requestor,
+        path=path,
+        new_content=new_content,
+        old_content=old_content,
+        reason=reason,
+        diff=diff,
+        content_hash=content_hash,
+        first_seen_at=now,
+    )
+    cr.status = Status.REJECTED
+    cr.decision_reason = verdict.reason
+    store.save(cr, audit_event="producer_autopaused")
+    logger.info(
+        "change_requests: producer-autopaused re-file by %s for path=%s — %s",
+        requestor, path, verdict.reason,
     )
     return cr
 
@@ -213,6 +432,64 @@ def create_request(
     existing = _find_open_duplicate(requestor=requestor, content_hash=content_hash)
     if existing is not None:
         return _bump_recurrence(existing, new_reason=reason)
+
+    # Durable-rejection cooldown (2026-05-29). No open duplicate exists,
+    # but an identical proposal from the same producer may have been
+    # rejected (or timed out) recently. Re-filing it would just re-add
+    # noise to the operator's queue — the standing world-state that
+    # triggered it hasn't changed. Suppress within the cooldown window
+    # by bumping the recurrence counter on the rejected record; let it
+    # through once the window has elapsed (the proposal earns a fresh
+    # review). This closes the cross-reject-cycle re-file loop that the
+    # Q18 open-status dedup alone could not.
+    recent_rejected = _find_recent_rejected_duplicate(
+        requestor=requestor, content_hash=content_hash,
+    )
+    if recent_rejected is not None:
+        logger.info(
+            "change_requests: suppressing re-file by %s for path=%s — "
+            "identical proposal %s in status=%s within %dd cooldown "
+            "(recurrence now %d)",
+            requestor, path, recent_rejected.id,
+            recent_rejected.status.value, _REJECTED_SUPPRESSION_DAYS,
+            (recent_rejected.recurrence_count or 0) + 1,
+        )
+        return _bump_recurrence(
+            recent_rejected,
+            new_reason=reason,
+            audit_event="suppressed_after_recent_reject",
+        )
+
+    # Gate A (2026-05-30) — semantic rejection suppression. The byte-exact
+    # dedup above only catches identical re-files; LLM-driven observational
+    # producers paraphrase a rejected idea with fresh wording every pass, so
+    # each re-file gets a new content_hash and slips through. Consult the
+    # lessons-learned KB (which already clusters rejections semantically): if
+    # this is an observational producer re-filing something highly similar to
+    # an idea the operator rejected repeatedly, suppress it instead of queuing
+    # an Nth review. Mode defaults to advisory (logged, not suppressed) so the
+    # gate is observable before it bites. Human + real-fix producers are never
+    # eligible. See app/change_requests/rejection_gate.py.
+    suppressed = _maybe_suppress_by_lesson(
+        requestor=requestor, path=path, reason=reason,
+        new_content=new_content, old_content=old_content,
+        diff=diff, content_hash=content_hash,
+    )
+    if suppressed is not None:
+        return suppressed
+
+    # Gate C (2026-05-30) — per-producer approval-rate auto-pause. The
+    # backstop for distinct (non-paraphrase) low-value floods: an
+    # observational producer whose rolling operator-approval rate has
+    # cratered is auto-paused instead of continuing to file. Self-releasing
+    # cooldown; observational producers only; never humans/bug-fixes.
+    autopaused = _maybe_suppress_by_producer_health(
+        requestor=requestor, path=path, reason=reason,
+        new_content=new_content, old_content=old_content,
+        diff=diff, content_hash=content_hash,
+    )
+    if autopaused is not None:
+        return autopaused
 
     # Risk-class gate: AUTO_APPLY uses the strict validator. On
     # failure, DOWNGRADE to STANDARD rather than reject — the

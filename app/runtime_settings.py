@@ -1007,6 +1007,40 @@ def _defaults() -> dict[str, Any]:
         "capability_regression_enabled": True,
         "connector_budgets_enabled": False,
         "connector_budget_overrides": {},
+
+        # ── Gate A: semantic rejection suppression (2026-05-30) ─────────
+        # Suppress re-files of ideas the operator has already rejected
+        # multiple times (semantic match against the lessons-learned KB),
+        # for OBSERVATIONAL producers only. Shipped "advisory" then flipped
+        # to "enforcing" by operator decision 2026-05-30 (soak waived — the
+        # conservative thresholds, similarity ≥0.55 AND count ≥3 AND
+        # proposal_bridge: producers only, make a false-suppress very
+        # unlikely; cooldown not a ban). Dial back to "advisory"/"off" via
+        # /cp/settings if needed. See app/change_requests/rejection_gate.py.
+        "cr_rejection_suppression_mode": "enforcing",
+        "cr_rejection_suppression_similarity": 0.55,
+        "cr_rejection_suppression_min_count": 3,
+
+        # ── Gate B: evidence-gated promotion (2026-05-30) ───────────────
+        # When ON, library_radar markdown-doc proposals are NOT promoted to
+        # an operator CR on a timer — promotion is gated on the trial
+        # verdict (passed → the requirements.txt adoption CR is the operator
+        # surface; failed → dropped; pending → wait). The operator only ever
+        # reviews library proposals the system actually install+import
+        # verified. Flip OFF to revert to the legacy "promote the doc after
+        # cooldown" behavior. See app/proposal_bridge/promoter.py.
+        "library_radar_evidence_gated_promotion": True,
+
+        # ── Gate C: per-producer approval-rate auto-pause (2026-05-30) ──
+        # Backstop: auto-pause an OBSERVATIONAL producer whose rolling
+        # explicit-operator-approval rate falls below the floor (with
+        # enough samples), so it stops flooding the operator with
+        # chronically-rejected output. Self-releasing cooldown.
+        # See app/change_requests/producer_health.py.
+        "producer_autopause_enabled": True,
+        "producer_autopause_min_approval_rate": 0.15,
+        "producer_autopause_min_samples": 10,
+        "producer_autopause_window_days": 30,
     }
 
 
@@ -1090,6 +1124,105 @@ def get_concierge_persona_enabled() -> bool:
 def set_concierge_persona_enabled(value: bool) -> None:
     _update({"concierge_persona_enabled": bool(value)})
     logger.info(f"runtime_settings: concierge_persona_enabled set to {bool(value)}")
+
+
+# ── Gate A: semantic rejection suppression (2026-05-30) ────────────────
+_VALID_CR_SUPPRESSION_MODES = ("off", "advisory", "enforcing")
+
+
+def get_cr_rejection_suppression_mode() -> str:
+    return str(_ensure_initialized()["cr_rejection_suppression_mode"])
+
+
+def set_cr_rejection_suppression_mode(value: str) -> None:
+    v = (value or "").strip().lower()
+    if v not in _VALID_CR_SUPPRESSION_MODES:
+        raise ValueError(
+            f"cr_rejection_suppression_mode must be one of "
+            f"{_VALID_CR_SUPPRESSION_MODES}, got {value!r}"
+        )
+    _update({"cr_rejection_suppression_mode": v})
+    logger.info(f"runtime_settings: cr_rejection_suppression_mode set to {v!r}")
+
+
+def get_cr_rejection_suppression_similarity() -> float:
+    return float(_ensure_initialized()["cr_rejection_suppression_similarity"])
+
+
+def set_cr_rejection_suppression_similarity(value: float) -> None:
+    v = float(value)
+    if not (0.0 <= v <= 1.0):
+        raise ValueError("cr_rejection_suppression_similarity must be in [0.0, 1.0]")
+    _update({"cr_rejection_suppression_similarity": v})
+    logger.info(f"runtime_settings: cr_rejection_suppression_similarity set to {v:.2f}")
+
+
+def get_cr_rejection_suppression_min_count() -> int:
+    return int(_ensure_initialized()["cr_rejection_suppression_min_count"])
+
+
+def set_cr_rejection_suppression_min_count(value: int) -> None:
+    v = int(value)
+    if v < 1:
+        raise ValueError("cr_rejection_suppression_min_count must be >= 1")
+    _update({"cr_rejection_suppression_min_count": v})
+    logger.info(f"runtime_settings: cr_rejection_suppression_min_count set to {v}")
+
+
+def get_library_radar_evidence_gated_promotion() -> bool:
+    return bool(_ensure_initialized()["library_radar_evidence_gated_promotion"])
+
+
+def set_library_radar_evidence_gated_promotion(value: bool) -> None:
+    _update({"library_radar_evidence_gated_promotion": bool(value)})
+    logger.info(
+        f"runtime_settings: library_radar_evidence_gated_promotion set to {bool(value)}"
+    )
+
+
+def get_producer_autopause_enabled() -> bool:
+    return bool(_ensure_initialized()["producer_autopause_enabled"])
+
+
+def set_producer_autopause_enabled(value: bool) -> None:
+    _update({"producer_autopause_enabled": bool(value)})
+    logger.info(f"runtime_settings: producer_autopause_enabled set to {bool(value)}")
+
+
+def get_producer_autopause_min_approval_rate() -> float:
+    return float(_ensure_initialized()["producer_autopause_min_approval_rate"])
+
+
+def set_producer_autopause_min_approval_rate(value: float) -> None:
+    v = float(value)
+    if not (0.0 <= v <= 1.0):
+        raise ValueError("producer_autopause_min_approval_rate must be in [0.0, 1.0]")
+    _update({"producer_autopause_min_approval_rate": v})
+    logger.info(f"runtime_settings: producer_autopause_min_approval_rate set to {v:.2f}")
+
+
+def get_producer_autopause_min_samples() -> int:
+    return int(_ensure_initialized()["producer_autopause_min_samples"])
+
+
+def set_producer_autopause_min_samples(value: int) -> None:
+    v = int(value)
+    if v < 1:
+        raise ValueError("producer_autopause_min_samples must be >= 1")
+    _update({"producer_autopause_min_samples": v})
+    logger.info(f"runtime_settings: producer_autopause_min_samples set to {v}")
+
+
+def get_producer_autopause_window_days() -> int:
+    return int(_ensure_initialized()["producer_autopause_window_days"])
+
+
+def set_producer_autopause_window_days(value: int) -> None:
+    v = int(value)
+    if v < 1:
+        raise ValueError("producer_autopause_window_days must be >= 1")
+    _update({"producer_autopause_window_days": v})
+    logger.info(f"runtime_settings: producer_autopause_window_days set to {v}")
 
 
 def get_critic_review_difficulty_threshold() -> int:

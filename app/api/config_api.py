@@ -408,6 +408,17 @@ def _build_setter_registry():
         set_gcp_bootstrap_enabled,
         set_hardening_profile,
         set_binauthz_mode,
+        # 2026-05-30 — Gate A semantic rejection suppression
+        set_cr_rejection_suppression_mode,
+        set_cr_rejection_suppression_similarity,
+        set_cr_rejection_suppression_min_count,
+        # 2026-05-30 — Gate B evidence-gated promotion
+        set_library_radar_evidence_gated_promotion,
+        # 2026-05-30 — Gate C per-producer approval-rate auto-pause
+        set_producer_autopause_enabled,
+        set_producer_autopause_min_approval_rate,
+        set_producer_autopause_min_samples,
+        set_producer_autopause_window_days,
     )
 
     optional_float = _coerce_optional(float)
@@ -641,6 +652,29 @@ def _build_setter_registry():
         "gcp_bootstrap_enabled": (set_gcp_bootstrap_enabled, bool),
         "hardening_profile": (set_hardening_profile, str),
         "binauthz_mode": (set_binauthz_mode, str),
+        # ── 2026-05-30 — Gate A semantic rejection suppression ────────
+        "cr_rejection_suppression_mode": (
+            set_cr_rejection_suppression_mode, str,
+        ),
+        "cr_rejection_suppression_similarity": (
+            set_cr_rejection_suppression_similarity, float,
+        ),
+        "cr_rejection_suppression_min_count": (
+            set_cr_rejection_suppression_min_count, int,
+        ),
+        "library_radar_evidence_gated_promotion": (
+            set_library_radar_evidence_gated_promotion, bool,
+        ),
+        "producer_autopause_enabled": (set_producer_autopause_enabled, bool),
+        "producer_autopause_min_approval_rate": (
+            set_producer_autopause_min_approval_rate, float,
+        ),
+        "producer_autopause_min_samples": (
+            set_producer_autopause_min_samples, int,
+        ),
+        "producer_autopause_window_days": (
+            set_producer_autopause_window_days, int,
+        ),
     }
 
 

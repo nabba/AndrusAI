@@ -14850,3 +14850,70 @@ probe (0× HTTP 000) including during active background LLM work; `boot_warmup` 
 fired live. 14 host-runnable idle tests pass (`test_idle_scheduler_warmup.py`,
 `test_idle_scheduler_iterator_timeout.py`); full suite runs in the CI Docker test image.
 
+## §78 — CR-quality gates: eliminate worthless change-requests at the root (2026-05-30)
+
+Root-cause closure for the recurring "worthless CR" flood the operator kept hand-rejecting —
+e.g. 7 rejected `proposal_bridge:library_radar` "OpenRouter web search / tool calling" CRs on
+2026-05-29, then an 8th paraphrase (`b1c394dcf290`) the next day carrying its own "seen 7×
+before, similarity 0.67" banner — *computed, then ignored*. The audit found four guards, each
+defeated by paraphrase, and the one semantic check wired to do nothing. Three composing gates,
+all additive/reversible, **no TIER_IMMUTABLE touches, no Tier-3 amendments**.
+
+**Diagnosis (why the floods got through).** (1) `tech_radar_crew` re-surfaces the same real-world
+trend with different wording each run — the source has no memory. (2) `library_radar._signature_for`
+= `sha256(category|title)` → synonymous titles → distinct signatures → no producer dedup.
+(3) `_extract_package_names` is a regex over the title → fabricated "candidate packages"
+(`openrouter, search, fetch, tooling`), never PyPI-verified. (4) `change_requests.lifecycle._compute_content_hash`
+= `sha256(requestor|path|diff)` → also title-derived → the 30-day rejection cooldown only catches
+*byte-identical* re-files, which an LLM never produces. (5) **The smoking gun**: `create_request`
+already called `lessons_learned.check_against()` (fuzzy embedding match, the one semantic signal),
+computed "0.67 / seen 7×", wrote it into a banner, and filed the CR anyway.
+
+**Gate A — semantic rejection suppression** (`app/change_requests/rejection_gate.py`, new policy
+module + wired into `lifecycle.create_request`). Promotes `check_against` from advisory banner to a
+decision: a re-file semantically similar (≥ `cr_rejection_suppression_similarity`, default 0.55) to a
+lesson the operator rejected ≥ `cr_rejection_suppression_min_count` times (default 3) is recorded
+REJECTED instead of queued. Producer allowlist is exactly `("proposal_bridge:",)` — every
+observational markdown-doc producer routes through the bridge with that requestor prefix, while the
+**evidence-bearing `library_radar_trial` adoption CR is exempt** (the bare `library_radar` prefix is
+deliberately absent so it can't be suppressed for naming the same package as a rejected doc). count≥N
+preserves novelty (a brand-new idea is never suppressed); cooldown, not a ban; failure-isolated
+(can only suppress on a positive signal). Mode off/advisory/enforcing — **shipped advisory, flipped to
+enforcing by operator decision 2026-05-30** (soak waived; thresholds conservative). `config()`'s
+try/except fail-safe fallback stays advisory so an infra glitch never silently suppresses.
+
+**Gate A′ — producer-side pre-cost filter** (`library_radar.proposer.run_one_pass`). Consults the same
+`rejection_gate` policy *before* staging, so a paraphrase of a rejected idea never costs a staging slot,
+a 7-day cooldown, or an LLM cycle. New `all_rejected_pattern` status + `n_rejected_skipped` counter.
+
+**Gate B — evidence-gated promotion** (`app/proposal_bridge/promoter.py`). The system already had the
+evidence machinery (`library_radar.trial_runner` resolves the real PyPI distribution + runs a
+venv-isolated `pip install` + smoke-import + files an evidence-bearing adoption CR on pass) — but the
+markdown-doc proposal was promoted to its *own* CR on a 7-day timer regardless of the trial. `_evidence_verdict`
+gates promotion on the trial verdict for `library_radar` only: **passed → supersede** (terminate APPLIED;
+the requirements.txt adoption CR is the single operator surface), **failed → reject** (unsubstantiated,
+no operator CR), **pending/none → wait** (30-day expiry backstop). Other sources unchanged. Master switch
+`library_radar_evidence_gated_promotion` default ON; fail-open to legacy on trial_state error.
+
+**Gate C — per-producer approval-rate auto-pause** (`app/change_requests/producer_health.py` + 47th healing
+monitor `producer_approval_health`). The backstop for *distinct* (non-paraphrase) low-value floods: computes
+each observational producer's rolling **explicit-operator**-approval rate (`decided_by` ∈ Signal/React
+approve-reject only — system suppressions/auto-applies/timeouts/pending EXCLUDED, which is load-bearing:
+counting the gate's own suppressions would self-latch the pause). Below `producer_autopause_min_approval_rate`
+(default 0.15) with ≥ `producer_autopause_min_samples` (default 10) over `producer_autopause_window_days`
+(default 30) → producer auto-paused (its CRs recorded REJECTED with `decided_by=None`, so excluded from the
+rate → self-releasing cooldown). Observational producers only; humans/bug-fixes never paused. The monitor
+Signal-alerts on pause↔recover transitions (week-keyed dedup); never mutates. Master switch
+`producer_autopause_enabled` default ON.
+
+**Operator surface.** React `CrQualityGatesCard` in `/cp/settings` (between Goodhart and Structured-Diagnosis):
+Gate A mode radio + similarity/count inputs, Gate B toggle, Gate C toggle + floor/samples/window inputs. 9 new
+runtime_settings keys, all wired through the declarative dispatcher registry (§75-era) + `RuntimeSettings` TS
+type — so the settings-dispatcher pinning test round-trips them in CI as a free silent-drop guard.
+
+**Verification.** 33 new host tests (12 Gate A + 11 Gate B + 10 Gate C); 96 pass across `test_rejection_gate`,
+`test_producer_autopause`, `proposal_bridge`, `library_radar`, `test_cr_lifecycle_dedup` — zero regressions
+(pre-existing `fastapi`/`signal_client` host-env failures unchanged; those run in CI Docker). `tsc -b --noEmit`
+clean. The three gates compose: A stops known-rejected paraphrases, B makes library proposals arrive only as
+trial-verified adoption CRs, C auto-throttles any producer the operator chronically rejects.
+

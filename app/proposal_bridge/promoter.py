@@ -274,6 +274,71 @@ def _is_promotable(state: ProposalState, now: datetime) -> bool:
     return (now - staged_at) >= cooldown
 
 
+# ── Gate B: evidence-gated promotion (2026-05-30) ────────────────────────
+
+
+def _evidence_gating_enabled() -> bool:
+    """Master switch read. Failure → default ON (the unverified markdown
+    doc-CR is pure noise; the trial-backed adoption CR is the operator
+    surface)."""
+    try:
+        from app import runtime_settings as rs
+
+        return bool(rs.snapshot().get("library_radar_evidence_gated_promotion", True))
+    except Exception:
+        return True
+
+
+def _evidence_verdict(state: ProposalState) -> tuple[str, str]:
+    """Should this proposal be promoted to an operator CR yet?
+
+    Returns ``(verdict, reason)``:
+
+      * ``"promote"``   — no evidence requirement (any non-``library_radar``
+        source, or gating disabled): proceed with the normal cooldown +
+        CR-filing path. Behavior unchanged for those sources.
+      * ``"wait"``      — ``library_radar`` proposal whose trial has not yet
+        produced a verdict. Don't promote; ``_MAX_AGE_DAYS`` expiry is the
+        backstop if a trial never runs.
+      * ``"reject"``    — trial FAILED (no PyPI distribution / smoke import
+        failed): the idea didn't substantiate. Terminate without queuing an
+        operator review.
+      * ``"supersede"`` — trial PASSED: the evidence-bearing adoption CR
+        (``library_radar_trial`` → ``requirements.txt``) is the operator's
+        decision point, so the unverified markdown-doc proposal is redundant.
+        Terminate without filing its own CR.
+
+    Only ``library_radar`` is evidence-gated — its trial machinery
+    (:mod:`app.library_radar.trial_runner`) already resolves the real PyPI
+    distribution and runs a venv-isolated smoke import. Other observational
+    producers (capability_gap_analyzer, paper_pipeline) have no trial
+    pipeline and keep cooldown-then-promote.
+
+    Failure-isolated: an unreadable trial-state ledger yields ``"promote"``
+    (fail-open to legacy behavior — a broken module must not silence the
+    producer entirely).
+    """
+    if not _evidence_gating_enabled():
+        return "promote", "evidence gating disabled"
+    if state.source != "library_radar":
+        return "promote", ""
+    try:
+        from app.library_radar import trial_state
+
+        ts = trial_state.get(state.signature)
+    except Exception:
+        logger.debug("proposal_bridge: trial_state lookup failed", exc_info=True)
+        return "promote", "trial_state unavailable; fail-open to promote"
+    if ts is None:
+        return "wait", "no trial verdict yet"
+    if ts.status in ("passed", "adoption_cr_filed"):
+        adopt = ts.adoption_cr_id or "(adoption CR pending)"
+        return "supersede", f"trial passed; adoption CR {adopt} is the operator surface"
+    if ts.status in ("failed", "adoption_cr_rejected"):
+        return "reject", f"trial failed: {ts.trial_error or ts.status}"
+    return "wait", f"trial {ts.status}"
+
+
 # ── Pass orchestration ───────────────────────────────────────────────────
 
 
@@ -291,6 +356,10 @@ def run_one_pass() -> dict[str, Any]:
         "validator_rejected": 0,
         "expired_stale": 0,
         "cleaned_up": 0,
+        # Gate B (2026-05-30) — evidence-gated promotion outcomes.
+        "evidence_superseded": 0,
+        "evidence_rejected": 0,
+        "evidence_waiting": 0,
     }
     promotions_this_pass = 0
 
@@ -317,6 +386,39 @@ def run_one_pass() -> dict[str, Any]:
             if _maybe_expire_stale(state, now):
                 counters["expired_stale"] += 1
                 continue
+
+            # Gate B (2026-05-30) — evidence-gated promotion. For
+            # library_radar, the trial verdict decides: passed → the
+            # adoption CR is the operator surface (terminate, no doc-CR);
+            # failed → idea unsubstantiated (terminate); pending → wait.
+            # Other sources / gating-off → "promote" (unchanged).
+            verdict, vreason = _evidence_verdict(state)
+            if verdict == "supersede":
+                state.status = ProposalStatus.APPLIED
+                state.resolved_at = now.isoformat()
+                state.notes["evidence_outcome"] = vreason
+                update_proposal(state)
+                counters["evidence_superseded"] += 1
+                logger.info(
+                    "proposal_bridge: %s/%s superseded by trial evidence — %s",
+                    state.source, state.signature, vreason,
+                )
+                continue
+            if verdict == "reject":
+                state.status = ProposalStatus.REJECTED
+                state.resolved_at = now.isoformat()
+                state.notes["evidence_outcome"] = vreason
+                update_proposal(state)
+                counters["evidence_rejected"] += 1
+                logger.info(
+                    "proposal_bridge: %s/%s rejected by trial evidence — %s",
+                    state.source, state.signature, vreason,
+                )
+                continue
+            if verdict == "wait":
+                counters["evidence_waiting"] += 1
+                continue
+
             if not _is_promotable(state, now):
                 continue
             if promotions_this_pass >= _MAX_PROMOTIONS_PER_PASS:
@@ -351,8 +453,15 @@ _SALIENCE_WEIGHTS: dict[str, float] = {
     "reconciled_rejected": 0.30,
     "promoted_to_cr": 0.25,
     "validator_rejected": 0.15,
+    # Gate B (2026-05-30) — evidence-driven terminations. A trial-backed
+    # supersede (the adoption CR carries the real decision) is a meaningful
+    # disposition; an evidence-reject is the system declining to bother the
+    # operator with an unsubstantiated idea. Waiting is housekeeping.
+    "evidence_superseded": 0.25,
+    "evidence_rejected": 0.15,
     "expired_stale": 0.05,
     "cleaned_up": 0.02,
+    "evidence_waiting": 0.02,
 }
 _SALIENCE_FLOOR = 0.20  # base salience when any significant event fires
 _SALIENCE_CEILING = 0.70  # never crowd out higher-priority channels
@@ -382,9 +491,12 @@ def _publish_outcome(counters: dict[str, Any]) -> None:
     validator = int(counters.get("validator_rejected", 0) or 0)
     stale = int(counters.get("expired_stale", 0) or 0)
     cleaned = int(counters.get("cleaned_up", 0) or 0)
+    superseded = int(counters.get("evidence_superseded", 0) or 0)
+    ev_rejected = int(counters.get("evidence_rejected", 0) or 0)
     summary = (
         f"proposal_bridge: {promoted} promoted, {applied} applied, "
         f"{rejected} rejected, {validator} validator-rejected, "
+        f"{superseded} evidence-superseded, {ev_rejected} evidence-rejected, "
         f"{stale} expired-stale, {cleaned} cleaned"
     )
     logger.info(summary)

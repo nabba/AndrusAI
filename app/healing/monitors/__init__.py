@@ -76,6 +76,7 @@ _DEFAULT_CADENCE_S = {
     "version_upgrade_drill": 24 * 3600,      # daily probe — alerts at 100d stale; §2.5
     "provider_contract_drift": 7 * 24 * 3600,  # weekly probe; §2.7
     "crypto_rotation_drill": 7 * 24 * 3600,    # weekly probe; §2.1
+    "producer_approval_health": 24 * 3600,     # daily probe; internal weekly cadence; Gate C (2026-05-30)
     "chromadb_hygiene": 24 * 3600,             # daily probe — internal 90-day cadence; PROGRAM §40 Item 10
     "notify_suppression_review": 6 * 3600,     # 6h probe — internal 7d cadence; PROGRAM §41 Item 17
     "drill_staleness": 24 * 3600,              # daily probe; alerts when any drill past cadence+grace; PROGRAM §44.2 Q6.2
@@ -240,6 +241,14 @@ def _driver() -> None:
         ))
     except Exception:
         logger.debug("monitors: epistemic_gate_health import failed", exc_info=True)
+    try:
+        from app.healing.monitors import producer_approval_health
+        monitors.append((
+            "producer_approval_health", producer_approval_health.run,
+            _DEFAULT_CADENCE_S["producer_approval_health"], 0.0,
+        ))
+    except Exception:
+        logger.debug("monitors: producer_approval_health import failed", exc_info=True)
     try:
         from app.healing.monitors import db_backup
         monitors.append(("db_backup", db_backup.run, _DEFAULT_CADENCE_S["db_backup"], 0.0))

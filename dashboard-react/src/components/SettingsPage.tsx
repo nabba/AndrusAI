@@ -41,6 +41,7 @@ import { SourceLedgerCard } from './SourceLedgerCard';
 import { TrustZonesCard } from './TrustZonesCard';
 import { VerificationExtensionCard } from './VerificationExtensionCard';
 import { CapabilityRegressionCard } from './CapabilityRegressionCard';
+import { CrQualityGatesCard } from './CrQualityGatesCard';
 import { ConnectorBudgetCard } from './ConnectorBudgetCard';
 import { AnthropicBudgetCard } from './AnthropicBudgetCard';
 import { RecentSubsystemsCard } from './RecentSubsystemsCard';
@@ -106,6 +107,7 @@ export function SettingsPage() {
       />
       <GovernanceRatchetCard />
       <GoodhartHardGateCard settings={settingsQ.data} />
+      <CrQualityGatesCard settings={settingsQ.data} />
       <StructuredDiagnosisCard settings={settingsQ.data} />
       <SelfHealSubsystemsCard settings={settingsQ.data} />
       <PersonCorrelationCard

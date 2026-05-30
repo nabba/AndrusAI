@@ -274,6 +274,43 @@ def run_one_pass(
             "n_evidence": len(discoveries),
         }
 
+    # Gate A′ (2026-05-30) — consult the rejected-lessons KB BEFORE staging
+    # so a paraphrase of a repeatedly-rejected idea never costs a staging
+    # slot, a 7-day cooldown, or an operator review. Same policy the CR gate
+    # uses (app.change_requests.rejection_gate); advisory mode only logs.
+    # Failure-isolated — a broken gate never blocks the proposer.
+    n_rejected_skipped = 0
+    try:
+        from app.change_requests import rejection_gate
+
+        kept: list[Discovery] = []
+        for d in parsed:
+            verdict = rejection_gate.evaluate(f"{d.title} {d.summary}")
+            if verdict.should_suppress:
+                n_rejected_skipped += 1
+                logger.info(
+                    "library_radar: skipping rejected-pattern discovery %r — %s",
+                    d.title[:60], verdict.detail(),
+                )
+                continue
+            if verdict.matched:  # advisory mode — log, don't skip
+                logger.warning(
+                    "library_radar: [advisory] WOULD skip discovery %r — %s",
+                    d.title[:60], verdict.detail(),
+                )
+            kept.append(d)
+        parsed = kept
+    except Exception:
+        logger.debug("library_radar: rejection_gate check failed", exc_info=True)
+
+    if not parsed:
+        return {
+            "status": "all_rejected_pattern",
+            "drafts_written": 0,
+            "n_evidence": len(discoveries),
+            "n_rejected_skipped": n_rejected_skipped,
+        }
+
     try:
         from app.proposal_bridge import stage
     except Exception:
@@ -337,6 +374,7 @@ def run_one_pass(
         "n_relevant": len(parsed),
         "drafts_written": written,
         "drafts_skipped_dedup": skipped,
+        "n_rejected_skipped": n_rejected_skipped,
     }
 
 

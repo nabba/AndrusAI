@@ -79,23 +79,116 @@ def test_recurrence_reasons_accumulate_in_canonical_record(fake_validator, stub_
     assert "second reason" in canonical.reason
 
 
-def test_terminal_cr_releases_dedup_hold(fake_validator, stub_side_effects):
-    """Once a CR is resolved (REJECTED/APPLIED/...), a new identical
-    proposal can create a fresh CR — the previous decision was about
-    a past occurrence, the new one is a new event."""
+def test_applied_terminal_releases_dedup_hold(fake_validator, stub_side_effects):
+    """An APPLIED CR is NOT a rejection — re-filing the same proposal
+    later is a new event (the prior change already landed). The
+    durable-rejection cooldown is scoped to REJECTED/TIMEOUT only, so
+    APPLIED still releases the dedup hold."""
     from app.change_requests import lifecycle, store
     from app.change_requests.models import DecisionSource, Status
     cr1 = _create("agent", "p.md", "x", "first")
-    # Reject the original.
-    lifecycle.reject(cr1.id, source=DecisionSource.REACT_REJECT,
-                      decision_reason="not now")
-    rejected = store.get(cr1.id)
-    assert rejected.status == Status.REJECTED
-    # File the same proposal again.
+    lifecycle.approve(cr1.id, source=DecisionSource.REACT_APPROVE)
+    # Simulate a successful apply (terminal, non-rejection).
+    lifecycle.mark_applied(
+        cr1.id, git_branch="b", git_commit_sha="deadbeef", pr_url=None,
+    )
+    assert store.get(cr1.id).status == Status.APPLIED
     cr2 = _create("agent", "p.md", "x", "first")
-    assert cr2.id != cr1.id  # new CR
-    # And the new one has its own recurrence_count = 0
+    assert cr2.id != cr1.id  # new CR — applied is not a suppression signal
     assert store.get(cr2.id).recurrence_count == 0
+
+
+def test_rejected_refile_is_suppressed_within_cooldown(fake_validator, stub_side_effects):
+    """Fix 1 (2026-05-29): the core loop-closer. A producer that
+    re-files an identical CR after rejection does NOT create a second
+    PENDING record within the cooldown window — it bumps the recurrence
+    counter on the rejected record so the operator sees how persistently
+    it keeps coming back."""
+    from app.change_requests import lifecycle, store
+    from app.change_requests.models import DecisionSource, Status
+    cr1 = _create("vendor_sunset_monitor", "app/x.py", "x", "first")
+    lifecycle.reject(cr1.id, source=DecisionSource.REACT_REJECT,
+                     decision_reason="not now")
+    assert store.get(cr1.id).status == Status.REJECTED
+
+    # Re-file the identical proposal: must NOT mint a new record.
+    cr2 = _create("vendor_sunset_monitor", "app/x.py", "x", "first")
+    assert cr2.id == cr1.id
+    # Still exactly one record, still REJECTED (never re-enters queue).
+    assert len(store.list_all()) == 1
+    canonical = store.get(cr1.id)
+    assert canonical.status == Status.REJECTED
+    assert canonical.recurrence_count == 1
+
+    # Re-file a few more times — recurrence keeps climbing, no new CRs.
+    for _ in range(5):
+        _create("vendor_sunset_monitor", "app/x.py", "x", "again")
+    assert len(store.list_all()) == 1
+    assert store.get(cr1.id).recurrence_count == 6
+
+
+def test_no_pending_cr_created_by_suppressed_refile(fake_validator, stub_side_effects):
+    """The suppressed re-file must not surface anything in the PENDING
+    queue — that is the whole point (operator review surface stays
+    clean)."""
+    from app.change_requests import lifecycle, store
+    from app.change_requests.models import DecisionSource, Status
+    cr1 = _create("local_only_drill", "wiki/topic.md", "x", "fail")
+    lifecycle.reject(cr1.id, source=DecisionSource.SIGNAL_THUMBS_DOWN)
+    _create("local_only_drill", "wiki/topic.md", "x", "fail again")
+    assert store.list_all(status=Status.PENDING) == []
+
+
+def test_refile_allowed_after_cooldown_expires(fake_validator, stub_side_effects):
+    """The suppression is a cooldown, not a permanent block. Once the
+    rejection is older than the cooldown window, an identical proposal
+    is allowed to file a fresh CR for reconsideration."""
+    from datetime import datetime, timedelta, timezone
+    from app.change_requests import lifecycle, store
+    from app.change_requests.models import DecisionSource, Status
+    cr1 = _create("agent", "app/y.py", "x", "first")
+    lifecycle.reject(cr1.id, source=DecisionSource.REACT_REJECT)
+    # Backdate the decision beyond the cooldown window.
+    rejected = store.get(cr1.id)
+    old = (
+        datetime.now(timezone.utc)
+        - timedelta(days=lifecycle._REJECTED_SUPPRESSION_DAYS + 1)
+    )
+    rejected.decided_at = old.isoformat()
+    store.save(rejected)
+    # Now a re-file should mint a fresh PENDING CR.
+    cr2 = _create("agent", "app/y.py", "x", "first")
+    assert cr2.id != cr1.id
+    assert store.get(cr2.id).status == Status.PENDING
+    assert store.get(cr2.id).recurrence_count == 0
+
+
+def test_timeout_also_suppresses_refile_within_cooldown(fake_validator, stub_side_effects):
+    """A timed-out CR is the same 'operator did not approve' signal as a
+    rejection; re-filing within the cooldown is suppressed too."""
+    from app.change_requests import lifecycle, store
+    from app.change_requests.models import Status
+    cr1 = _create("wiki_index_reconciler", "wiki/index.md", "x", "drift")
+    lifecycle.mark_timeout(cr1.id)
+    assert store.get(cr1.id).status == Status.TIMEOUT
+    cr2 = _create("wiki_index_reconciler", "wiki/index.md", "x", "drift")
+    assert cr2.id == cr1.id
+    assert len(store.list_all()) == 1
+
+
+def test_suppression_is_scoped_to_same_requestor_and_content(fake_validator, stub_side_effects):
+    """A rejection of one producer's proposal must not suppress a
+    different producer, nor a different proposal from the same producer."""
+    from app.change_requests import lifecycle, store
+    from app.change_requests.models import DecisionSource
+    cr1 = _create("agent_a", "app/z.py", "x", "r")
+    lifecycle.reject(cr1.id, source=DecisionSource.REACT_REJECT)
+    # Different requestor, same content → fresh CR (independent suggestion).
+    cr2 = _create("agent_b", "app/z.py", "x", "r")
+    assert cr2.id != cr1.id
+    # Same requestor, different content → fresh CR.
+    cr3 = _create("agent_a", "app/z.py", "y", "r")
+    assert cr3.id != cr1.id
 
 
 def test_different_requestors_dont_dedup(fake_validator, stub_side_effects):
