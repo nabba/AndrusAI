@@ -62,5 +62,19 @@
     "allowed_hosts": ["github.com", "api.github.com", "pypi.org", "arxiv.org"],
     "max_requests_per_minute": 30,
     "risk_ceiling": "high"
+  },
+  {
+    "agent_id": "change_requests",
+    "token": "cr-GENERATE-YOUR-OWN-TOKEN",
+    "allowed_actions": ["filesystem.read", "filesystem.list", "filesystem.write", "execute", "status"],
+    "allowed_paths": ["/Users/YOUR_USER/BotArmy/crewai-team/*", "/tmp/crewai-*"],
+    "blocked_paths": [
+      "/Users/YOUR_USER/BotArmy/crewai-team/host_bridge/*",
+      "/Users/YOUR_USER/BotArmy/crewai-team/app/souls/*",
+      "/Users/YOUR_USER/.crewai-bridge/*"
+    ],
+    "allowed_hosts": [],
+    "max_requests_per_minute": 60,
+    "risk_ceiling": "high"
   }
 ]

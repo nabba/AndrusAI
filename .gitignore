@@ -7,6 +7,8 @@ secrets/*
 *.pem
 *-credentials.json
 *-service-account.json
+# Host-bridge capability tokens — live secrets. Use capabilities.example.json as template.
+host_bridge/capabilities.json
 workspace/memory/
 workspace/output/
 workspace/affect/

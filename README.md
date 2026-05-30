@@ -475,6 +475,13 @@ cp .env.example .env
 # Fill in: ANTHROPIC_API_KEY, OPENROUTER_API_KEY, GOOGLE_API_KEY,
 #         GATEWAY_SECRET, BRIDGE_TOKEN, SIGNAL_OWNER_NUMBER, etc.
 
+# Bridge capabilities (capabilities.json is gitignored — it holds live tokens)
+cp host_bridge/capabilities.example.json host_bridge/capabilities.json
+# Generate one token per agent and paste each into BOTH capabilities.json and
+# the matching BRIDGE_TOKEN_<AGENT> in .env. Agents: commander, researcher,
+# coder, writer, self_improver, pim, change_requests. A token present in .env
+# but missing from capabilities.json yields "403 Invalid capability token".
+
 # Start host services
 signal-cli daemon --http 7583 &
 ollama serve &
