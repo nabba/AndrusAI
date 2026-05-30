@@ -19,6 +19,11 @@ except ImportError:
 # Ensure all loggers output to stdout so docker logs captures tracebacks
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
+# litellm's WARNING records propagate to the root handler above (LITELLM_LOG
+# only lowers litellm's own handler). Raise the logger level so its botocore
+# preload noise — we don't use Bedrock/SageMaker — never reaches the root.
+logging.getLogger("LiteLLM").setLevel(logging.ERROR)
+
 # Structured error logging (JSON file for aggregation/debugging)
 try:
     from app.error_handler import setup_structured_logging
