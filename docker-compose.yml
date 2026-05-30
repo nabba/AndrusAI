@@ -32,6 +32,10 @@ services:
       - '127.0.0.1:${GATEWAY_PORT}:${GATEWAY_PORT}'
     environment:
       DOCKER_HOST: tcp://docker-proxy:2375
+      # litellm logs WARNING noise at import when botocore is absent (we don't
+      # route to Bedrock/SageMaker, so its AWS stream-shape preload always fails).
+      # ERROR silences that; genuine litellm errors still surface.
+      LITELLM_LOG: ERROR
       # Redirect CrewAI's SQLite long-term memory into the writable workspace
       # volume so it persists across restarts and survives read_only rootfs.
       CREWAI_STORAGE_DIR: /app/workspace/crewai_storage
