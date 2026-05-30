@@ -14917,3 +14917,26 @@ type — so the settings-dispatcher pinning test round-trips them in CI as a fre
 clean. The three gates compose: A stops known-rejected paraphrases, B makes library proposals arrive only as
 trial-verified adoption CRs, C auto-throttles any producer the operator chronically rejects.
 
+## §80 — Hotfix: research/analysis requests failed with generic apology (`orchestrator.py`) (2026-05-30)
+
+Root-cause fix for the user-visible "Sorry, an internal error occurred while processing your request." returned
+on **every difficulty ≥ 5 task** (research / analysis / comparison queries — the substantive ones). Trivial chat
+(difficulty < 5) was unaffected, which made the failure look intermittent rather than total.
+
+**Root cause — partial-refactor regression.** The `tier_hint` routing plumbing was added to the crew-dispatch
+call site (`_handle_locked`, orchestrator.py:3243) and to `_run_crew` (which accepts `tier_hint`), but
+`_run_with_reflexion` — the dispatch path taken for difficulty ≥ 5 — was never updated. So the call
+`self._run_with_reflexion(..., tier_hint=...)` raised `TypeError: Commander._run_with_reflexion() got an
+unexpected keyword argument 'tier_hint'`, which the catch-all at orchestrator.py:3254-3257 swallowed and replaced
+with the generic apology. Confirmed in gateway logs (2026-05-30 19:44 UTC deforestation query + 13:56 UTC
+forest-governance query died identically).
+
+**Fix (2 lines).** `_run_with_reflexion` now accepts `tier_hint: str | None = None` and forwards it into its
+internal `_run_crew` call **on trial 1 only** — on retries the reflexion loop's own tier escalation
+(budget→mid→premium) must remain free to override the hint, or a pinned hint would defeat recovery. Restores
+symmetry between the two dispatch paths. Additive, no TIER_IMMUTABLE touches, no new switches.
+
+**Latent issue noted (not fixed here):** the catch-all at orchestrator.py:3254-3257 converts *any* crew-dispatch
+exception into the same generic apology, so a 100%-of-hard-requests outage surfaced only as a vague glitch.
+Surfacing crew-dispatch failures to the error monitor / Signal is a candidate follow-up.
+
