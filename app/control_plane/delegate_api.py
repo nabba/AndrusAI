@@ -113,6 +113,27 @@ class _CreateBody(BaseModel):
             "'autonomous' zone so the research-evidence gate engages."
         ),
     )
+    experiment: bool = Field(
+        default=False,
+        description=(
+            "Research mode only. When True, swap the single 'investigate' "
+            "step for the design_experiment -> run_experiment -> "
+            "analyze_result spine (Phase C). The run_experiment step still "
+            "checks the default-OFF 'research_experiments_enabled' switch at "
+            "execution time and records a non-blocking 'skipped' marker when "
+            "it is off, so requesting experiments is always safe. Ignored "
+            "when mode != 'research'."
+        ),
+    )
+    synthesize: bool = Field(
+        default=False,
+        description=(
+            "Research mode only. When True, append a 'synthesize' step that "
+            "bakes a ResearchDossier PDF into the run. Optional — the "
+            "on-demand GET /{run_id}/research-dossier endpoint already renders "
+            "one from any run state. Ignored when mode != 'research'."
+        ),
+    )
 
 
 class _AbortBody(BaseModel):
@@ -217,8 +238,12 @@ def create_run(body: _CreateBody):
     on the next tick when ``autonomous_executor_enabled`` is True.
 
     ``mode="research"`` routes to ``build_research_run``, which returns
-    the run with its five-step research plan already attached (the driver
-    treats a pre-populated plan as first-class and skips the planner). The
+    the run with its research plan already attached (the driver treats a
+    pre-populated plan as first-class and skips the planner).
+    ``experiment=True`` swaps the single ``investigate`` step for the
+    design_experiment -> run_experiment -> analyze_result spine (still gated
+    at execution time by the default-OFF ``research_experiments_enabled``
+    switch); ``synthesize=True`` appends a dossier-PDF step. The
     research-evidence gate only fires outside the ``chat`` zone, so a
     research run left at the default ``chat`` zone is upgraded to
     ``autonomous``; an explicit non-chat zone is honoured.
@@ -232,6 +257,8 @@ def create_run(body: _CreateBody):
             requestor=body.requestor,
             zone=research_zone,
             budget=_budget_for_create(body),
+            experiment=body.experiment,
+            synthesize=body.synthesize,
         )
         # Phase D — bind the run to a Thread so cross-run learning runs for
         # free: create_thread consults the lessons_learned KB for adjacent
@@ -257,9 +284,10 @@ def create_run(body: _CreateBody):
         )
     store.save(run)
     logger.info(
-        "delegate_api: created run %s (mode=%s, goal_len=%d, requestor=%s, "
-        "budget_usd=%.2f)",
-        run.run_id, body.mode, len(run.goal), run.requestor, run.budget.cap_usd,
+        "delegate_api: created run %s (mode=%s, experiment=%s, synthesize=%s, "
+        "goal_len=%d, requestor=%s, budget_usd=%.2f)",
+        run.run_id, body.mode, body.experiment, body.synthesize,
+        len(run.goal), run.requestor, run.budget.cap_usd,
     )
     return _serialize(run)
 

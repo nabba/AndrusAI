@@ -564,7 +564,10 @@ def code_intel_history(
     file_path: str,
     *,
     max_commits: int = _HISTORY_MAX_COMMITS,
-    line: Optional[int] = None,
+    line: int | None = None,  # not Optional[int]: with `from __future__ import
+    # annotations`, CrewAI's @tool builds the args schema in a namespace where
+    # `Optional` is unresolved → "Code_Intel_History is not fully defined". The
+    # PEP-604 form needs only builtins, so pydantic resolves it cleanly.
 ) -> str:
     """Return the recent git change history for ``file_path``.
 
