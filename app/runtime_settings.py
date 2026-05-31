@@ -790,6 +790,16 @@ def _defaults() -> dict[str, Any]:
         # slot. Driver + planner + idle-scheduler integration come
         # in Phase 2 piece 2. Default OFF — no driver, no callers.
         "autonomous_executor_enabled": False,
+        # Finer-grained gate for the auto-research experiment spine
+        # (``app.research.run`` Phase C). When OFF (default), a research
+        # run's ``run_experiment`` step is a no-op that records a skipped
+        # marker — the design/analyze steps still run, but nothing executes
+        # in a container. When ON, the step ships the Commander-designed
+        # script to an ephemeral Docker sandbox. This is a SEPARATE opt-in
+        # on top of ``autonomous_executor_enabled``: spawning containers to
+        # run LLM-authored code is the highest-trust action in the research
+        # pipeline, so it gets its own switch. Read failure-closed.
+        "research_experiments_enabled": False,
         # Per-run defaults the driver uses when an explicit budget
         # isn't supplied on /delegate. Sanity caps in
         # ``app.autonomous_executor.budget_caps`` constrain how high
@@ -1653,6 +1663,26 @@ def set_autonomous_executor_enabled(value: bool) -> None:
     _update({"autonomous_executor_enabled": bool(value)})
     logger.info(
         "runtime_settings: autonomous_executor_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_research_experiments_enabled() -> bool:
+    """Finer-grained switch for the auto-research experiment spine
+    (``app.research.run`` Phase C). Default OFF — the ``run_experiment``
+    step is a no-op skip until the operator opts in. Gates ONLY the
+    container-execution step; the design + analyze steps run regardless.
+    Composes with ``autonomous_executor_enabled``: both must be ON for an
+    experiment to actually execute in the scheduler-driven path."""
+    return bool(
+        _ensure_initialized().get("research_experiments_enabled", False),
+    )
+
+
+def set_research_experiments_enabled(value: bool) -> None:
+    _update({"research_experiments_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: research_experiments_enabled set to %s",
         bool(value),
     )
 

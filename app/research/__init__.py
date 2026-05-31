@@ -22,4 +22,4 @@ imported on demand by their callers.
 
 from __future__ import annotations
 
-__all__ = ["literature", "hypothesis", "run"]
+__all__ = ["literature", "hypothesis", "run", "experiment", "experiment_job"]
