@@ -646,6 +646,20 @@ def approve(run_id: str, *, source: str = "operator") -> dict[str, Any]:
             models_mod.ExecutorStatus.CREATED,
             reason="approved by operator (interest goal)",
         )
+        # G3 cross-run learning: bind the now-approved research run to a Thread
+        # (mirrors delegate_api.create_run's Phase-D binding) so its closure
+        # distils into the lessons_learned KB and the dedup check runs. Done at
+        # approval — not at PENDING_APPROVAL creation — so declined/expired goals
+        # never leave orphan OPEN threads. Failure-isolated: an unbound run still
+        # runs, it just won't feed cross-run learning.
+        try:
+            from app.research.binding import bind_run_to_thread
+
+            bind_run_to_thread(run)
+        except Exception:
+            logger.debug(
+                "interest_goal approve: thread binding failed", exc_info=True
+            )
         store.save(run)
     except Exception as exc:
         return {"ok": False, "reason": f"transition failed: {exc}"}
