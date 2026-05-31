@@ -19,7 +19,16 @@ Environment:
     HEALTH_TIMEOUT_SECONDS  per-probe timeout (default 5)
     FAILURE_THRESHOLD       consecutive failures before restart (default 6 → ~2 min)
     RESTART_COOLDOWN_SECONDS  refuse a second restart inside this window (default 300)
-    RESTART_GRACE_SECONDS   skip probes for this long after restart kicks off (default 90)
+    RESTART_GRACE_SECONDS   skip probes for this long after restart kicks off (default 120)
+    BOOT_GRACE_SECONDS      skip probes for this long after the WATCHDOG itself
+                            starts, so a gateway that is mid-boot when the
+                            watchdog (re)launches isn't killed before uvicorn
+                            has bound the port (default 180). /health does not
+                            answer until the gateway's lifespan startup fully
+                            completes, so a cold boot legitimately looks
+                            "unresponsive" for a stretch — this grace prevents
+                            the watchdog from turning a slow boot into a
+                            restart loop.
     COMPOSE_PROJECT_DIR     dir containing docker-compose.yml (default /Users/andrus/BotArmy/crewai-team)
     GATEWAY_SERVICE         compose service name (default gateway)
     SIGNAL_CLI_HTTP_URL     signal-cli JSON-RPC endpoint (default http://127.0.0.1:7583)
@@ -45,7 +54,8 @@ POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL_SECONDS", "20"))
 HEALTH_TIMEOUT = float(os.environ.get("HEALTH_TIMEOUT_SECONDS", "5"))
 FAILURE_THRESHOLD = int(os.environ.get("FAILURE_THRESHOLD", "6"))
 RESTART_COOLDOWN = float(os.environ.get("RESTART_COOLDOWN_SECONDS", "300"))
-RESTART_GRACE = float(os.environ.get("RESTART_GRACE_SECONDS", "90"))
+RESTART_GRACE = float(os.environ.get("RESTART_GRACE_SECONDS", "120"))
+BOOT_GRACE = float(os.environ.get("BOOT_GRACE_SECONDS", "180"))
 COMPOSE_PROJECT_DIR = os.environ.get(
     "COMPOSE_PROJECT_DIR", "/Users/andrus/BotArmy/crewai-team"
 )
@@ -153,6 +163,55 @@ def signal_alert(text: str) -> None:
         log(f"signal alert failed: {e}")
 
 
+def gateway_diagnostics() -> str:
+    """Inspect the gateway container to explain WHY it's unresponsive.
+
+    Returns a short human-readable string for the restart alert + logs.
+    A blank/unknown result is fine — diagnostics are best-effort.
+
+    The key disambiguation:
+      - OOMKilled=true / exit 137  → the 8 GB cgroup limit was hit; Docker
+        SIGKILLed it and (restart: unless-stopped) is already restarting it.
+        The fix is memory headroom, NOT the watchdog.
+      - high RestartCount           → the container is in a Docker-level
+        crash/restart loop independent of the watchdog.
+      - Running=true, low uptime    → the gateway is simply still booting
+        (lifespan startup hasn't finished, so uvicorn isn't serving yet).
+    """
+    try:
+        fmt = (
+            "{{.State.Running}}|{{.State.OOMKilled}}|{{.State.ExitCode}}|"
+            "{{.RestartCount}}|{{.State.StartedAt}}"
+        )
+        result = subprocess.run(
+            [DOCKER_BIN, "inspect",
+             "--format", fmt,
+             f"{os.path.basename(COMPOSE_PROJECT_DIR.rstrip('/'))}-{GATEWAY_SERVICE}-1"],
+            cwd=COMPOSE_PROJECT_DIR, capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            # Fall back to `docker compose ps` style name resolution failure —
+            # just report what we got.
+            return f"inspect rc={result.returncode}: {result.stderr.strip()[:120]}"
+        running, oom, exit_code, restarts, started = (
+            result.stdout.strip().split("|") + ["", "", "", "", ""]
+        )[:5]
+        parts = []
+        if oom.lower() == "true":
+            parts.append("⚠️ OOMKilled=true (hit the 8 GB memory limit)")
+        if exit_code and exit_code not in ("0", ""):
+            parts.append(f"last exit={exit_code}")
+        if restarts and restarts not in ("0", ""):
+            parts.append(f"docker RestartCount={restarts}")
+        if running.lower() == "true" and started:
+            parts.append(f"running, StartedAt={started}")
+        elif running.lower() == "false":
+            parts.append("container NOT running")
+        return "; ".join(parts) if parts else "no anomaly in docker inspect"
+    except Exception as e:  # noqa: BLE001 — diagnostics must never crash the watchdog
+        return f"diagnostics unavailable: {e}"
+
+
 def restart_gateway() -> bool:
     log(f"Restarting compose service '{GATEWAY_SERVICE}' in {COMPOSE_PROJECT_DIR}")
     try:
@@ -194,7 +253,15 @@ def main() -> int:
             f"Restored prior restart state — cooldown {remaining}s remaining "
             f"(state file: {STATE_PATH})"
         )
-    grace_until: float = 0.0
+    # Initial boot grace: the gateway may be mid-boot when this watchdog
+    # (re)starts (launchd relaunch, host reboot, fresh install). /health does
+    # not answer until the gateway's lifespan startup completes, so probing
+    # immediately would mis-read a normal cold boot as a hang and restart it —
+    # the exact loop that floods the operator with alerts. Skip probes for
+    # BOOT_GRACE on watchdog startup.
+    grace_until: float = time.time() + BOOT_GRACE
+    log(f"Initial boot grace: skipping probes for {BOOT_GRACE:.0f}s "
+        f"(gateway may be booting)")
 
     while True:
         now = time.time()
@@ -225,9 +292,12 @@ def main() -> int:
                     log(f"Threshold breached but cooldown active ({remaining}s remaining)")
                 else:
                     elapsed_hung = int(consecutive_failures * POLL_INTERVAL)
-                    log(f"Threshold breached — gateway hung ~{elapsed_hung}s; restarting")
+                    diag = gateway_diagnostics()
+                    log(f"Threshold breached — gateway hung ~{elapsed_hung}s; "
+                        f"diagnostics: {diag}; restarting")
                     signal_alert(
-                        f"⚠️ Gateway watchdog: /health unresponsive for ~{elapsed_hung}s. "
+                        f"⚠️ Gateway watchdog: /health unresponsive for ~{elapsed_hung}s.\n"
+                        f"Cause: {diag}\n"
                         f"Restarting {GATEWAY_SERVICE} now."
                     )
                     success = restart_gateway()
