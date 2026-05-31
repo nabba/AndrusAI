@@ -15089,3 +15089,26 @@ on first RAG query unless the local reranker is also disabled — a separate, op
 tests in `tests/test_mem0_provider_selection.py::TestMem0EmbedderBackend`; mem0 config verified by direct
 invocation. No TIER_IMMUTABLE touches, no Tier-3 amendments, no new master switches. Activate: rebuild the
 gateway (`docker compose up -d --build gateway`, or for a GPU node `--build-arg TORCH_VARIANT=cuda`).
+
+## §84 — Auto-research subsystem: land + verify the missing bug-fixes on `main` (2026-05-31)
+
+The research/skills/brainstorm subsystem reached `main` via PRs #134 (consolidation) + #137 (Phase C
+experiment spine), but a parallel branch (`auto-research-phase0`) carried six bug-fixes that #134/#137 never
+picked up — several of them **live bugs on `main`**. An independent ultrathink audit + an end-to-end live run
+surfaced them; this section lands the fixes on `main` (PR #138). They were cherry-picked cleanly onto
+`origin/main` — the branch-merge's add/add conflict on `app/research/run.py` was only a merge-*base* artifact
+(the merge base predates the file); the file *contents* were the same lineage minus the fixes, so each fix
+commit applied without conflict and was re-verified semantically against `main`.
+
+**The six fixes (all broken on `main` before this):**
+
+1. **`commander_adapter` imported the renamed-away `CommanderOrchestrator`** (`app/autonomous_executor/commander_adapter.py`). `app.agents.commander.orchestrator` exports `Commander`; the stale import raised `ImportError` inside `default_commander_provider`, FAIL-ing the Commander step of **every** scheduler-advanced executor run — research investigate/design_experiment/draft AND all standard `/delegate` runs. One-line fix to `import Commander`. The single most impactful bug — it broke the entire autonomous executor's Commander dispatch.
+2. **Experiment spine unreachable from the API** (`app/control_plane/delegate_api.py`). `build_research_run` already supported `experiment`/`synthesize`, but `_CreateBody` never exposed them and `create_run` never forwarded them, so the Phase-C design_experiment → run_experiment → analyze_result spine was reachable only from tests. Added both fields (default `False`) + forwarding; pinned by two route tests.
+3. **Prose steps returned self-chronicles instead of output** (`app/research/run.py`). `design_experiment`, `investigate`, and `draft` dispatched through the conversational `Commander`, whose intent-routing/persona returned a status chronicle ("I have 42 skill files…") for these structured prompts. New shared `_focused_completion` helper routes each through `chat_completion_for_role(role=…).create()` (coding / research / writing) — the sanctioned raw-completion path, mirroring how `literature`/`hypotheses` call focused functions. Removed the now-dead `_delegate` inner helper.
+4. **Research-run Claims failed the `epistemic_claims` FK** (`app/research/run.py`). `epistemic_claims.task_id` FKs into `crew_tasks.id`; research runs live in the executor store, not `crew_tasks`, so `analyze_result`'s Claim silently failed the foreign key (only the in-memory ledger kept it). New `_ensure_research_task_row` upserts a lightweight `crew_tasks` row before emitting.
+5. **`code_intel` `Optional[int]` broke the `@tool` args-schema** (`app/code_intel/agent_tools.py`). Under `from __future__ import annotations`, CrewAI's `@tool` decorator builds `Code_Intel_History`'s pydantic schema in a namespace where `Optional` is unresolved ("not fully defined"). Changed to `int | None` (builtins only — no name to resolve).
+6. **Goal-seeding wired (Phase 4)** (`app/companion/interest_goal_emitter.py`). `_spawn_executor_run` now seeds a **research** run (`build_research_run`, `experiment=False` — literature→draft, deliberately NOT autonomous sandbox code-execution for an auto-emitted goal) parked at `PENDING_APPROVAL` behind the existing opt-in gate; on approval `approve()` binds the run to a Thread so its closure distils into `lessons_learned`. The pre-populated research plan runs straight through (`driver._handle_planning` preserves a pre-populated plan).
+
+**Verification.** Proven end-to-end before landing: a live research run measured binary-vs-linear search **in the evolver sandbox** (returncode 0; ~10,000× / ~35,000× speedups at n=1e6) and persisted Claim `clm_2d734bdedb79`; four dossier PDFs rendered to `workspace/output/`. Anti-fabrication held under failure — a malformed experiment script reported "no measurement", never a fabricated number. A 4-agent independent audit of the on-disk code confirmed all wiring; the ports were re-verified against `main`'s lineage (`build_research_run` accepts `experiment`/`synthesize`; plans correct; `Commander` import; goal-seeding present) before the PR.
+
+No TIER_IMMUTABLE files touched, no Tier-3 amendments, no new master switches; default-OFF switches unchanged (`research_experiments_enabled` stays OFF — experiments never run without an explicit operator flip). **Deployed**: host fast-forwarded to `main` (`d3bc84e8`); gateway rebuilt + restarted under a controlled (watchdog-paused) boot, combining these fixes with §82/§83. Residual (pre-existing, separate concern): the gateway's slow cold boot (372-model LLM-catalog refresh + RAG pre-warm on the lifespan path) — §82/§83 mitigate but don't eliminate it; `/health` can take >10 min to bind on a cold restart.
