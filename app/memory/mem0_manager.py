@@ -123,6 +123,17 @@ def _get_config() -> dict:
             },
         }
 
+    # Embedder runs on Ollama (host Metal GPU), matching the system-wide
+    # 768-dim nomic-embed-text pin — keeps torch + the in-process embedding
+    # model out of the gateway process (PROGRAM §83). Resolved once here so the
+    # embedder block below stays declarative.
+    ollama_base = (
+        _os.environ.get("OLLAMA_BASE_URL")
+        or _os.environ.get("OLLAMA_HOST")
+        or "http://host.docker.internal:11434"
+    )
+    ollama_embed_model = _os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+
     config = {
         "vector_store": {
             "provider": "pgvector",
@@ -142,9 +153,18 @@ def _get_config() -> dict:
         },
         "llm": llm_config,
         "embedder": {
-            "provider": "huggingface",
+            # Ollama (out-of-process, host Metal GPU) instead of the in-process
+            # HuggingFace torch embedder. The HF provider loaded
+            # nomic-embed-text-v1.5 (~0.5 GB) + torch INTO the gateway process,
+            # which (a) pushed RSS toward the 8 GB OOM ceiling (PROGRAM §82/§83)
+            # and (b) was inconsistent with the system-wide "all embeddings on
+            # Ollama nomic-embed-text" pin (chromadb_manager._OLLAMA_MODEL).
+            # Both are 768-dim nomic-embed-text, so embedding_model_dims is
+            # unchanged and existing pgvector rows stay dimension-compatible.
+            "provider": "ollama",
             "config": {
-                "model": s.mem0_embedder_model,
+                "model": ollama_embed_model,
+                "ollama_base_url": ollama_base,
             },
         },
         "version": "v1.1",

@@ -80,3 +80,56 @@ class TestMem0ProviderSelection:
         from app.memory.mem0_manager import _get_config
         cfg = _get_config()
         assert "host.docker.internal" in cfg["llm"]["config"]["ollama_base_url"]
+
+
+class TestMem0EmbedderBackend:
+    """The embedder runs on Ollama (out-of-process), not the in-process
+    HuggingFace torch embedder — keeps torch + the embedding model out of
+    the gateway process (PROGRAM §83), consistent with the system-wide
+    768-dim nomic-embed-text pin.
+    """
+
+    def _stub_settings(self, monkeypatch):
+        fake = MagicMock()
+        fake.mem0_llm_model = "ollama/qwen3.5:35b-a3b-q4_K_M"
+        fake.mem0_embedder_model = "nomic-ai/nomic-embed-text-v1.5"  # now unused
+        fake.mem0_postgres_url = "postgresql://x@y/z"
+        fake.embedding_dimension = 768
+        monkeypatch.setattr("app.config.get_settings", lambda: fake)
+
+    def test_embedder_uses_ollama_not_huggingface(self, monkeypatch):
+        self._stub_settings(monkeypatch)
+        from app.memory.mem0_manager import _get_config
+        cfg = _get_config()
+        assert cfg["embedder"]["provider"] == "ollama"
+        # No in-process HF/torch model id leaks into the embedder config.
+        assert "huggingface" not in str(cfg["embedder"]).lower()
+
+    def test_embedder_model_defaults_to_nomic_embed_text(self, monkeypatch):
+        self._stub_settings(monkeypatch)
+        monkeypatch.delenv("OLLAMA_EMBED_MODEL", raising=False)
+        from app.memory.mem0_manager import _get_config
+        cfg = _get_config()
+        assert cfg["embedder"]["config"]["model"] == "nomic-embed-text"
+
+    def test_embedder_model_env_override(self, monkeypatch):
+        self._stub_settings(monkeypatch)
+        monkeypatch.setenv("OLLAMA_EMBED_MODEL", "mxbai-embed-large")
+        from app.memory.mem0_manager import _get_config
+        cfg = _get_config()
+        assert cfg["embedder"]["config"]["model"] == "mxbai-embed-large"
+
+    def test_embedder_base_url_resolved(self, monkeypatch):
+        self._stub_settings(monkeypatch)
+        monkeypatch.setenv("OLLAMA_BASE_URL", "http://test-ollama:11434")
+        from app.memory.mem0_manager import _get_config
+        cfg = _get_config()
+        assert cfg["embedder"]["config"]["ollama_base_url"] == "http://test-ollama:11434"
+
+    def test_embedding_dims_unchanged_768(self, monkeypatch):
+        # Dimension is unchanged (both HF v1.5 and Ollama nomic-embed-text are
+        # 768-dim) so existing pgvector rows stay compatible.
+        self._stub_settings(monkeypatch)
+        from app.memory.mem0_manager import _get_config
+        cfg = _get_config()
+        assert cfg["vector_store"]["config"]["embedding_model_dims"] == 768

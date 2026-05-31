@@ -18,6 +18,23 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir yt-dlp
 
+# Torch variant (PROGRAM §83). The gateway uses torch ONLY for the optional
+# CrossEncoder reranker (embeddings run on Ollama, out-of-process). The default
+# PyPI torch wheel bundles the full CUDA stack (~GBs) — dead weight on a
+# GPU-less host (Docker Desktop on macOS) that bloats image size + resident RSS
+# toward the 8 GB OOM ceiling. Default to the CPU-only wheel, installed BEFORE
+# requirements.txt so the resolver sees torch already satisfied and never pulls
+# the CUDA wheel transitively (via sentence-transformers). A GPU cloud
+# deployment overrides with `--build-arg TORCH_VARIANT=cuda` to restore CUDA
+# torch (GPU-accelerated reranking + any GPU mem0 embedder).
+ARG TORCH_VARIANT=cpu
+RUN if [ "$TORCH_VARIANT" = "cpu" ]; then \
+      echo "TORCH_VARIANT=cpu — installing CPU-only torch wheel" && \
+      pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu ; \
+    else \
+      echo "TORCH_VARIANT=$TORCH_VARIANT — using default (CUDA) torch from PyPI" ; \
+    fi
+
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt \

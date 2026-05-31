@@ -15057,3 +15057,35 @@ probe populating the fraction. The reader validated live against this very conta
 Tier-3 amendments, no new master switches — one new conservative policy field, default 0.90. Composes with the
 existing disk/inflight/host-alert predicates and the §81 watchdog diagnostics (proactive defer + post-hoc cause
 reporting cover the OOM path from both ends).
+
+## §83 — Memory footprint: CPU-only torch build arg + Mem0 Ollama embedder (2026-05-31)
+
+Follow-on to §82, addressing the gateway's RAM footprint at the source (the OOM pressure §82 defends
+against reactively). A memory investigation found the dominant, addressable consumer is **torch loaded
+in-process**, used for two things only — the optional CrossEncoder reranker AND (newly discovered)
+**Mem0's embedder, which was configured `provider="huggingface"`** and loaded `nomic-embed-text-v1.5`
+(~0.5 GB) + torch into the gateway. Embeddings everywhere else are pinned to Ollama (out-of-process, host
+Metal GPU), so the in-process torch + HF model were both wasted weight on a GPU-less Docker-Desktop host
+and inconsistent with the system-wide pin. The default PyPI torch wheel also bundles the full CUDA stack
+(~GBs) that no Mac host can use.
+
+**Fix 1 — `TORCH_VARIANT` Docker build arg** (`Dockerfile`). New `ARG TORCH_VARIANT=cpu`; when `cpu`
+(default), the CPU-only torch wheel is installed from `download.pytorch.org/whl/cpu` BEFORE `requirements.txt`
+so pip sees torch already satisfied and never pulls the CUDA wheel transitively (via sentence-transformers).
+Big image + RSS cut, zero behaviour change (the reranker runs on CPU either way — there's no GPU). **Cloud-safe
+by design:** a GPU cloud deployment (GKE/EKS with an NVIDIA node) overrides `--build-arg TORCH_VARIANT=cuda`
+to restore the CUDA wheel and GPU-accelerate reranking / any GPU embedder — one flag, no code change. The
+default is correct for every deployment that exists today (Mac + CPU cloud nodes).
+
+**Fix 2 — Mem0 embedder → Ollama** (`app/memory/mem0_manager.py`). Switched the embedder block from
+`provider="huggingface"` (in-process torch) to `provider="ollama"` (`OLLAMA_EMBED_MODEL`, default
+`nomic-embed-text`, via the resolved `ollama_base_url`). Keeps the ~0.5 GB embedding model + torch out of the
+gateway process and aligns Mem0 with the system-wide "all embeddings on Ollama nomic-embed-text" pin. Both the
+old HF model and the Ollama model are **768-dim nomic-embed-text**, so `embedding_model_dims` is unchanged and
+existing pgvector rows stay dimension-compatible (new embeddings use the Ollama function; same model family).
+
+Together these can remove torch from the gateway's resident set almost entirely (the reranker still imports it
+on first RAG query unless the local reranker is also disabled — a separate, optional lever). 5 new embedder
+tests in `tests/test_mem0_provider_selection.py::TestMem0EmbedderBackend`; mem0 config verified by direct
+invocation. No TIER_IMMUTABLE touches, no Tier-3 amendments, no new master switches. Activate: rebuild the
+gateway (`docker compose up -d --build gateway`, or for a GPU node `--build-arg TORCH_VARIANT=cuda`).
