@@ -267,6 +267,53 @@ class TestDelegateResearchMode(unittest.TestCase):
             ],
         )
 
+    def test_research_mode_experiment_creates_seven_step_plan(self):
+        # G1 fix (2026-05-31): experiment=True must reach build_research_run so
+        # the single investigate step is swapped for the design_experiment ->
+        # run_experiment -> analyze_result spine. Pins the create_run forwarding;
+        # if the experiment= kwarg is dropped, the plan reverts to five steps.
+        with _patch_runtime_settings():
+            resp = self.client.post(
+                "/api/cp/delegate",
+                json={
+                    "goal": "do caches cut p99 latency",
+                    "mode": "research",
+                    "experiment": True,
+                },
+            )
+        self.assertEqual(resp.status_code, 200)
+        hints = [s["crew_hint"] for s in resp.json()["plan"]]
+        self.assertEqual(
+            hints,
+            [
+                "research:literature",
+                "research:hypotheses",
+                "research:design_experiment",
+                "research:run_experiment",
+                "research:analyze_result",
+                "research:draft",
+                "research:gate",
+            ],
+        )
+
+    def test_research_mode_synthesize_appends_dossier_step(self):
+        # G1 fix (2026-05-31): synthesize=True must reach build_research_run so a
+        # final research:synthesize (dossier-PDF) step is appended.
+        with _patch_runtime_settings():
+            resp = self.client.post(
+                "/api/cp/delegate",
+                json={
+                    "goal": "do caches cut p99 latency",
+                    "mode": "research",
+                    "synthesize": True,
+                },
+            )
+        self.assertEqual(resp.status_code, 200)
+        hints = [s["crew_hint"] for s in resp.json()["plan"]]
+        # synthesize alone (experiment defaults False) → five base steps + dossier
+        self.assertEqual(hints[-1], "research:synthesize")
+        self.assertEqual(len(hints), 6)
+
     def test_research_mode_upgrades_chat_zone_to_autonomous(self):
         # No zone given → defaults to "chat" → research upgrades to "autonomous"
         # so the research-evidence gate (chat-exempt) engages on the draft.
