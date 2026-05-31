@@ -103,6 +103,16 @@ class _CreateBody(BaseModel):
         default="react-operator",
         description="Identifier for the operator creating the run.",
     )
+    mode: str = Field(
+        default="standard",
+        description=(
+            "'standard' (default) runs the deterministic single-step "
+            "planner. 'research' pre-plans the five-step "
+            "literature -> hypotheses -> investigate -> draft -> gate "
+            "chain (app.research.run.build_research_run) and forces the "
+            "'autonomous' zone so the research-evidence gate engages."
+        ),
+    )
 
 
 class _AbortBody(BaseModel):
@@ -204,19 +214,52 @@ def _budget_for_create(body: _CreateBody) -> Budget:
 @router.post("")
 def create_run(body: _CreateBody):
     """Create a new run in CREATED status. The scheduler picks it up
-    on the next tick when ``autonomous_executor_enabled`` is True."""
-    run = ExecutorRun(
-        run_id=str(uuid.uuid4()),
-        goal=body.goal.strip(),
-        requestor=body.requestor,
-        zone=body.zone,
-        budget=_budget_for_create(body),
-    )
+    on the next tick when ``autonomous_executor_enabled`` is True.
+
+    ``mode="research"`` routes to ``build_research_run``, which returns
+    the run with its five-step research plan already attached (the driver
+    treats a pre-populated plan as first-class and skips the planner). The
+    research-evidence gate only fires outside the ``chat`` zone, so a
+    research run left at the default ``chat`` zone is upgraded to
+    ``autonomous``; an explicit non-chat zone is honoured.
+    """
+    if body.mode == "research":
+        from app.research.run import build_research_run
+
+        research_zone = "autonomous" if body.zone == "chat" else body.zone
+        run = build_research_run(
+            body.goal.strip(),
+            requestor=body.requestor,
+            zone=research_zone,
+            budget=_budget_for_create(body),
+        )
+        # Phase D — bind the run to a Thread so cross-run learning runs for
+        # free: create_thread consults the lessons_learned KB for adjacent
+        # past closures (dedup at creation), and the eventual closure distils
+        # what was tried back into the KB (capture at completion). The
+        # back-pointer rides in run.notes and is persisted by the shared
+        # store.save below. Failure-isolated — an unbound run still runs.
+        from app.research.binding import bind_run_to_thread
+
+        thread_id = bind_run_to_thread(run)
+        if thread_id:
+            logger.info(
+                "delegate_api: bound research run %s to thread %s",
+                run.run_id, thread_id,
+            )
+    else:
+        run = ExecutorRun(
+            run_id=str(uuid.uuid4()),
+            goal=body.goal.strip(),
+            requestor=body.requestor,
+            zone=body.zone,
+            budget=_budget_for_create(body),
+        )
     store.save(run)
     logger.info(
-        "delegate_api: created run %s (goal_len=%d, requestor=%s, "
+        "delegate_api: created run %s (mode=%s, goal_len=%d, requestor=%s, "
         "budget_usd=%.2f)",
-        run.run_id, len(run.goal), run.requestor, run.budget.cap_usd,
+        run.run_id, body.mode, len(run.goal), run.requestor, run.budget.cap_usd,
     )
     return _serialize(run)
 
@@ -258,6 +301,66 @@ def get_run(run_id: str):
             detail=f"run {run_id!r} not found",
         )
     return _serialize(run)
+
+
+@router.get("/{run_id}/research-summary")
+def research_summary(run_id: str):
+    """Research-meaningful view of a run's artifacts.
+
+    Pulls literature/hypotheses/draft/gate-verdict out of the run's step
+    results via ``app.research.run.summarise_run`` so the operator surface
+    doesn't have to know the JSON-in-``result_text`` convention. Defined
+    for every run — a non-research run simply summarises to zeros/empty,
+    which is the honest answer (it carries no research steps).
+    """
+    run = store.get(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"run {run_id!r} not found",
+        )
+    from app.research.run import summarise_run
+
+    return summarise_run(run).to_dict()
+
+
+@router.get("/{run_id}/research-dossier")
+def research_dossier(run_id: str):
+    """Render a run's artifacts into a PDF dossier and return its path.
+
+    On-demand companion to ``research-summary``: where that returns the JSON
+    artifacts, this bakes them into a multi-page PDF via
+    ``app.research.dossier.render_research_dossier``. Works in ANY run state —
+    an operator can pull a dossier from a BLOCKED run mid-flight to read the
+    flagged claims; gate escalation surfaces inline as a data-quality flag.
+
+    The PDF is written to the dossier output directory and surfaces in
+    ``/cp/files`` for download/send; the response carries its server-side path
+    + filename. 404 when the run isn't found; 503 when the PDF toolchain
+    (reportlab) is unavailable in this runtime.
+    """
+    run = store.get(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"run {run_id!r} not found",
+        )
+    from app.research.dossier import render_research_dossier
+
+    try:
+        path = render_research_dossier(run)
+    except RuntimeError as exc:
+        # reportlab absent — the only thing render raises deterministically.
+        raise HTTPException(status_code=503, detail=str(exc))
+    logger.info(
+        "delegate_api: rendered research dossier for run %s -> %s",
+        run_id, path.name,
+    )
+    return {
+        "run_id": run_id,
+        "path": str(path),
+        "filename": path.name,
+    }
 
 
 @router.post("/{run_id}/abort")

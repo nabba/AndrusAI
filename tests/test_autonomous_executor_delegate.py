@@ -224,6 +224,137 @@ class TestDelegateRest(unittest.TestCase):
 
 
 # ============================================================================
+# Research mode (mode="research" pre-plans the five-step research chain)
+# ============================================================================
+
+
+class TestDelegateResearchMode(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        store.reset_for_tests(Path(self.tmp.name))
+        _reset_runtime_settings()
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from app.control_plane.delegate_api import router as delegate_router
+        app = FastAPI()
+        app.include_router(delegate_router)
+        self.client = TestClient(app)
+
+    def tearDown(self) -> None:
+        store.reset_for_tests(None)
+        self.tmp.cleanup()
+
+    def test_research_mode_creates_five_step_plan(self):
+        with _patch_runtime_settings():
+            resp = self.client.post(
+                "/api/cp/delegate",
+                json={"goal": "do caches cut p99 latency", "mode": "research"},
+            )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        # build_research_run pre-populates the plan and lands in PLANNING —
+        # the scheduler advances it from there (no planner runs).
+        self.assertEqual(data["status"], "planning")
+        hints = [s["crew_hint"] for s in data["plan"]]
+        self.assertEqual(
+            hints,
+            [
+                "research:literature",
+                "research:hypotheses",
+                "research:investigate",
+                "research:draft",
+                "research:gate",
+            ],
+        )
+
+    def test_research_mode_upgrades_chat_zone_to_autonomous(self):
+        # No zone given → defaults to "chat" → research upgrades to "autonomous"
+        # so the research-evidence gate (chat-exempt) engages on the draft.
+        with _patch_runtime_settings():
+            resp = self.client.post(
+                "/api/cp/delegate",
+                json={"goal": "investigate the thing", "mode": "research"},
+            )
+        self.assertEqual(resp.json()["zone"], "autonomous")
+
+    def test_research_mode_honors_explicit_nonchat_zone(self):
+        with _patch_runtime_settings():
+            resp = self.client.post(
+                "/api/cp/delegate",
+                json={
+                    "goal": "investigate the thing",
+                    "mode": "research",
+                    "zone": "financial",
+                },
+            )
+        self.assertEqual(resp.json()["zone"], "financial")
+
+    def test_standard_mode_keeps_chat_zone_and_empty_plan(self):
+        # Control: a non-research run is unchanged by the new branch.
+        with _patch_runtime_settings():
+            resp = self.client.post(
+                "/api/cp/delegate",
+                json={"goal": "summarise the news"},
+            )
+        data = resp.json()
+        self.assertEqual(data["zone"], "chat")
+        self.assertEqual(data["status"], "created")
+        self.assertEqual(data["plan"], [])
+
+    def test_research_summary_endpoint(self):
+        with _patch_runtime_settings():
+            r = self.client.post(
+                "/api/cp/delegate",
+                json={"goal": "does X cause Y", "mode": "research"},
+            )
+            run_id = r.json()["run_id"]
+            resp = self.client.get(f"/api/cp/delegate/{run_id}/research-summary")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["question"], "does X cause Y")
+        # A freshly-built run hasn't executed any step yet — summary is zeros.
+        for key in (
+            "question",
+            "status",
+            "n_literature",
+            "n_hypotheses",
+            "top_hypothesis",
+            "draft",
+            "gate_action",
+            "gate_note",
+        ):
+            self.assertIn(key, data)
+        self.assertEqual(data["n_literature"], 0)
+        self.assertEqual(data["n_hypotheses"], 0)
+
+    def test_research_summary_unknown_returns_404(self):
+        resp = self.client.get("/api/cp/delegate/nope/research-summary")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_research_dossier_endpoint(self):
+        with _patch_runtime_settings():
+            r = self.client.post(
+                "/api/cp/delegate",
+                json={"goal": "does X cause Y", "mode": "research"},
+            )
+            run_id = r.json()["run_id"]
+            resp = self.client.get(f"/api/cp/delegate/{run_id}/research-dossier")
+        # 200 when reportlab is present (CI image); 503 when the PDF
+        # toolchain is unavailable — both are correctly-wired responses.
+        self.assertIn(resp.status_code, (200, 503))
+        if resp.status_code == 200:
+            data = resp.json()
+            self.assertEqual(data["run_id"], run_id)
+            self.assertTrue(data["filename"].endswith(".pdf"))
+            self.assertIn(run_id, data["filename"])
+            self.assertTrue(data["path"])
+
+    def test_research_dossier_unknown_returns_404(self):
+        resp = self.client.get("/api/cp/delegate/nope/research-dossier")
+        self.assertEqual(resp.status_code, 404)
+
+
+# ============================================================================
 # Signal slash command
 # ============================================================================
 

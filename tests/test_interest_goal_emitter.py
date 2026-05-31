@@ -357,3 +357,170 @@ def test_run_id_registered_on_signal_alert(monkeypatch):
     outcome = ige.emit_for_pattern(qp)
     run_id = outcome["run_id"]
     assert bridge.find_run_id("1700000000999") == run_id
+
+
+# ── Opt-in gate (2026-05-30): PENDING_APPROVAL semantics ─────────────
+# A run no longer executes on the next tick after emission. It waits in
+# PENDING_APPROVAL until the operator 👍 (approve → CREATED → advanceable)
+# or 👎 (decline → ABORTED + cooldown); silence for 7 days expires it.
+
+
+def _save_run(status, *, requestor="interest_goal_emitter", run_id=None, created_at=None):
+    from app.autonomous_executor import store as _store
+    from app.autonomous_executor.models import Budget, ExecutorRun
+
+    run = ExecutorRun(
+        run_id=run_id or f"run-{status.value}-test",
+        goal="research kaicart",
+        requestor=requestor,
+        status=status,
+        budget=Budget(cap_usd=2.0),
+        zone="autonomous",
+    )
+    if created_at is not None:
+        run.created_at = created_at
+    _store.save(run)
+    return run
+
+
+def test_emission_parks_run_in_pending_approval(monkeypatch):
+    """Opt-in: a freshly emitted run must NOT be CREATED (which the
+    scheduler would advance). It waits in PENDING_APPROVAL with zero
+    budget spent until the operator 👍."""
+    from app.companion import interest_goal_emitter as ige
+    from app.autonomous_executor import models as _models, store as _store
+
+    qp = ige.QualifiedPattern(
+        topic="kaicart", modalities=["email"], occurrences_total=5,
+        strength=0.8, detected_at=datetime.now(timezone.utc).isoformat(),
+        prior_detections=2,
+    )
+    monkeypatch.setattr(ige, "_signal_alert", lambda *a, **kw: None)
+    monkeypatch.setattr(ige, "_emit_landmark", lambda *a, **kw: None)
+    outcome = ige.emit_for_pattern(qp)
+    run = _store.get(outcome["run_id"])
+    assert run.status == _models.ExecutorStatus.PENDING_APPROVAL
+    assert float(run.budget.spent_usd) == 0.0
+
+
+def test_scheduler_never_advances_pending_approval():
+    """The load-bearing safety line: _pick_run skips PENDING_APPROVAL."""
+    from app.autonomous_executor import scheduler_job
+    from app.autonomous_executor.models import ExecutorStatus
+
+    _save_run(ExecutorStatus.PENDING_APPROVAL, run_id="run-pending-1")
+    assert scheduler_job._pick_run() is None
+
+
+def test_scheduler_picks_created_skipping_pending():
+    """A CREATED run is advanceable even when a (more recent) pending
+    run sits ahead of it in the most-recent-first active list."""
+    from app.autonomous_executor import scheduler_job
+    from app.autonomous_executor.models import ExecutorStatus
+
+    _save_run(ExecutorStatus.CREATED, run_id="run-created-1")
+    _save_run(ExecutorStatus.PENDING_APPROVAL, run_id="run-pending-2")
+    picked = scheduler_job._pick_run()
+    assert picked is not None
+    assert picked.run_id == "run-created-1"
+
+
+def test_approve_transitions_pending_to_created(monkeypatch):
+    from app.companion import interest_goal_emitter as ige
+    from app.autonomous_executor import models as _models, store as _store
+    from app.autonomous_executor import scheduler_job
+
+    monkeypatch.setattr(ige, "_emit_landmark", lambda *a, **kw: None)
+    run = _save_run(_models.ExecutorStatus.PENDING_APPROVAL, run_id="run-approve-1")
+    out = ige.approve(run.run_id)
+    assert out["ok"] is True
+    refreshed = _store.get(run.run_id)
+    assert refreshed.status == _models.ExecutorStatus.CREATED
+    # Now advanceable by the scheduler.
+    assert scheduler_job._pick_run() is not None
+
+
+def test_approve_is_noop_on_already_advanced_run(monkeypatch):
+    from app.companion import interest_goal_emitter as ige
+    from app.autonomous_executor import models as _models
+
+    monkeypatch.setattr(ige, "_emit_landmark", lambda *a, **kw: None)
+    run = _save_run(_models.ExecutorStatus.CREATED, run_id="run-already")
+    out = ige.approve(run.run_id)
+    assert out["ok"] is True
+    assert out.get("already") == "created"
+
+
+def test_approve_missing_run():
+    from app.companion import interest_goal_emitter as ige
+
+    out = ige.approve("run-does-not-exist")
+    assert out["ok"] is False
+
+
+def test_topic_for_run_resolves_from_emission_state(monkeypatch):
+    from app.companion import interest_goal_emitter as ige
+
+    qp = ige.QualifiedPattern(
+        topic="signal_resilience", modalities=["email"], occurrences_total=5,
+        strength=0.8, detected_at=datetime.now(timezone.utc).isoformat(),
+        prior_detections=2,
+    )
+    monkeypatch.setattr(ige, "_signal_alert", lambda *a, **kw: None)
+    monkeypatch.setattr(ige, "_emit_landmark", lambda *a, **kw: None)
+    outcome = ige.emit_for_pattern(qp)
+    assert ige.topic_for_run(outcome["run_id"]) == "signal_resilience"
+    assert ige.topic_for_run("run-unknown") is None
+
+
+def test_expiry_sweep_aborts_stale_pending(monkeypatch):
+    from app.companion import interest_goal_emitter as ige
+    from app.autonomous_executor import models as _models, store as _store
+
+    monkeypatch.setattr(ige, "_emit_landmark", lambda *a, **kw: None)
+    old = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+    run = _save_run(
+        _models.ExecutorStatus.PENDING_APPROVAL,
+        run_id="run-stale-pending",
+        created_at=old,
+    )
+    n = ige._expire_stale_pending(datetime.now(timezone.utc))
+    assert n == 1
+    refreshed = _store.get(run.run_id)
+    assert refreshed.status == _models.ExecutorStatus.ABORTED
+    assert "expired" in refreshed.abort_reason.lower()
+
+
+def test_expiry_sweep_leaves_fresh_pending(monkeypatch):
+    from app.companion import interest_goal_emitter as ige
+    from app.autonomous_executor import models as _models, store as _store
+
+    monkeypatch.setattr(ige, "_emit_landmark", lambda *a, **kw: None)
+    recent = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    run = _save_run(
+        _models.ExecutorStatus.PENDING_APPROVAL,
+        run_id="run-fresh-pending",
+        created_at=recent,
+    )
+    n = ige._expire_stale_pending(datetime.now(timezone.utc))
+    assert n == 0
+    assert _store.get(run.run_id).status == _models.ExecutorStatus.PENDING_APPROVAL
+
+
+def test_expiry_sweep_ignores_other_requestors(monkeypatch):
+    """Only our own pending runs expire — a hypothetical PENDING_APPROVAL
+    run from another producer is left untouched."""
+    from app.companion import interest_goal_emitter as ige
+    from app.autonomous_executor import models as _models, store as _store
+
+    monkeypatch.setattr(ige, "_emit_landmark", lambda *a, **kw: None)
+    old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    run = _save_run(
+        _models.ExecutorStatus.PENDING_APPROVAL,
+        requestor="operator:signal:+123",
+        run_id="run-other",
+        created_at=old,
+    )
+    n = ige._expire_stale_pending(datetime.now(timezone.utc))
+    assert n == 0
+    assert _store.get(run.run_id).status == _models.ExecutorStatus.PENDING_APPROVAL

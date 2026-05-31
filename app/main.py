@@ -1763,6 +1763,74 @@ async def receive_signal(request: Request):
                 )
                 # Fall through to feedback pipeline
 
+        # ── Interest-goal opt-in approval via reaction (2026-05-30) ───
+        # 👍 on an interest-signal "awaiting approval" message approves
+        # the parked PENDING_APPROVAL run (→ CREATED; the scheduler
+        # advances it on the next tick); 👎 declines + adds a topic
+        # cooldown. Silence is handled separately by the emitter's
+        # 7-day expiry sweep. Opt-in counterpart to the change-request
+        # gate — nothing runs (and nothing is spent) until 👍.
+        if target_ts and not is_remove and emoji in ("👍", "👎", "+1", "-1"):
+            try:
+                from app import interest_goal_signal_bridge as _ig_bridge
+                from app.companion import interest_goal_emitter as _ig_emitter
+                ig_run_id = _ig_bridge.find_run_id(str(target_ts))
+                if ig_run_id:
+                    is_approve = emoji in ("👍", "+1")
+                    loop = asyncio.get_running_loop()
+                    if is_approve:
+                        outcome = await loop.run_in_executor(
+                            None, _ig_emitter.approve, ig_run_id,
+                        )
+                        verb = "approved — research run starting"
+                    else:
+                        def _ig_decline_call():
+                            topic = _ig_emitter.topic_for_run(ig_run_id) or ""
+                            return _ig_emitter.decline(topic, run_id=ig_run_id)
+
+                        outcome = await loop.run_in_executor(
+                            None, _ig_decline_call,
+                        )
+                        verb = "declined — topic on cooldown"
+                    try:
+                        _ig_bridge.unregister(ig_run_id)
+                    except Exception:
+                        pass
+                    rid_short = str(ig_run_id)[:12]
+                    if outcome.get("ok"):
+                        ack_msg = f"💡 Interest goal {rid_short} {verb}."
+                    else:
+                        ack_msg = (
+                            f"⚠ Interest goal {rid_short}: "
+                            f"{outcome.get('reason', 'action failed')}"
+                        )
+                    try:
+                        client = SignalClient()
+                        await client.send(sender, ack_msg)
+                    except Exception:
+                        logger.debug(
+                            "Failed to send interest-goal reaction ack",
+                            exc_info=True,
+                        )
+                    logger.info(
+                        "Reaction %s on interest-goal %s → %s",
+                        emoji, rid_short,
+                        "approve" if is_approve else "decline",
+                    )
+                    return {
+                        "status": "accepted",
+                        "interest_goal_action": (
+                            "approved" if is_approve else "declined"
+                        ),
+                        "run_id": ig_run_id,
+                    }
+            except Exception:
+                logger.debug(
+                    "Reaction-based interest-goal handling failed",
+                    exc_info=True,
+                )
+                # Fall through to feedback pipeline
+
         # ── Briefing-evolution trial-section drop/keep (2026-05-23) ───
         # 👎 on a morning briefing carrying a trial section → drop the
         # section permanently (90d cooldown before re-propose). 👍 →

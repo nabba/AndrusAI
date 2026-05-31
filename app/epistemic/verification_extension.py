@@ -460,6 +460,37 @@ def apply_verification_extension(
             exc,
         )
 
+    # Evaluator 4 (Phase 1, auto-research): gate_research_evidence —
+    # escalation only. Activates on autonomous/financial zones; flags
+    # research drafts that make empirical claims (numbers, percentages,
+    # p-values, named metrics, prices) while citing nothing. Three-mode
+    # switch (off/advisory/enforcing) default OFF.
+    try:
+        provisional = _max_action(actions)
+        provisional_verdict = (
+            replace(verdict, suggested_action=provisional)
+            if provisional != verdict.suggested_action
+            else verdict
+        )
+        from app.epistemic.gate_research_evidence import evaluate as _re_evaluate
+
+        re_action, re_note = _re_evaluate(
+            proposal_text=proposal_text,
+            task_id=task_id,
+            verdict=provisional_verdict,
+        )
+        if re_action is not None:
+            actions.append(re_action)
+            if re_note:
+                notes.append(f"research-evidence: {re_note}")
+        elif re_note:
+            notes.append(f"research-evidence: {re_note}")
+    except Exception as exc:
+        logger.debug(
+            "verification_extension: gate_research_evidence evaluator raised: %s",
+            exc,
+        )
+
     final_action = _max_action(actions)
     if final_action == verdict.suggested_action:
         return verdict, notes

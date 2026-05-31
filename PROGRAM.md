@@ -14917,6 +14917,42 @@ type — so the settings-dispatcher pinning test round-trips them in CI as a fre
 clean. The three gates compose: A stops known-rejected paraphrases, B makes library proposals arrive only as
 trial-verified adoption CRs, C auto-throttles any producer the operator chronically rejects.
 
+## §79 — Interest-goal emitter: opt-out → opt-in approval gate (2026-05-30)
+
+Closes the autonomous-spend-before-consent posture in Gap 2's `interest_goal_emitter` (§70). As shipped, a
+qualified cross-modal interest signal spawned a §62 executor run directly in `CREATED` — the next scheduler
+tick executed it *before* the operator could react. 👎 only aborted in-flight; silence = silent-adopt. That
+opt-out model is defensible for the inert viability goals from the Tier-3 `affect/goal_emitter.py` (they only
+write `SelfState.current_goals`), but interest goals **actually spend money** ($2/goal Budget cap) and **take
+autonomous actions** (web research + `notes/` file writes). So the emitter is converted to approve-before-act,
+mirroring the change-request gate's silence-is-not-consent semantics. Additive + reversible; **no TIER_IMMUTABLE
+touches** (`affect/goal_emitter.py` untouched), **no Tier-3 amendment, no new master switches**.
+
+**New executor state** (`app/autonomous_executor/models.py`). `ExecutorStatus.PENDING_APPROVAL = "pending_approval"`,
+ordered before `CREATED`. `_LEGAL_TRANSITIONS[PENDING_APPROVAL] = {CREATED, ABORTED}`; **non-terminal** so the
+dashboard still lists it as awaiting approval. `store.list_active` already returns it (non-terminal).
+
+**Scheduler skip** (`scheduler_job._pick_run`). Iterates `store.list_active(limit=50)` and `continue`s past any
+`PENDING_APPROVAL` run — the load-bearing line that guarantees a run never executes until the operator approves
+it. Pinned by `test_scheduler_never_advances_pending_approval` + `test_scheduler_picks_created_skipping_pending`.
+
+**Emitter** (`app/companion/interest_goal_emitter.py`). `_spawn_executor_run` now parks the run in
+`PENDING_APPROVAL` (audit kind `run_pending_approval`). New `approve(run_id)` (PENDING_APPROVAL→CREATED, idempotent —
+returns `{already: <status>}` if already advanced), `topic_for_run(run_id)` (recovers the topic from emission state,
+since the Signal bridge stores no topic), and `_expire_stale_pending(now)` (a sweep on every `run()` that aborts
+interest-emitter PENDING_APPROVAL runs older than `_EXPIRY_DAYS = 7`, per-run failure-isolated). Signal alert copy
+rewritten: "👍 approves + starts it; 👎 skips + adds the topic to a 30-day cooldown. No reaction within 7 days =
+the request expires (nothing runs, no spend)."
+
+**Reaction wiring** (`app/main.py`). New reaction block (after governance) resolves `interest_goal_signal_bridge.find_run_id`
+→ 👍 calls `approve()`, 👎 calls `decline(topic_for_run(run_id))` → then `unregister`s the bridge entry + acks via
+Signal. Falls through to the feedback pipeline when the reacted-to message isn't an interest-goal alert.
+
+**Verification.** 177 tests pass in the gateway container (48 `test_interest_goal_emitter` + `test_autonomous_executor_scheduler`;
+129 across `test_autonomous_executor{,_driver,_delegate,_llm_planner}`), 0 regressions. 10 new opt-in cases cover
+pending-parking, scheduler-skip, approve (incl. already-advanced no-op + missing run), topic recovery, and the
+expiry sweep (stale-aborts / fresh-leaves / other-requestor-ignored).
+
 ## §80 — Hotfix: research/analysis requests failed with generic apology (`orchestrator.py`) (2026-05-30)
 
 Root-cause fix for the user-visible "Sorry, an internal error occurred while processing your request." returned
@@ -14940,51 +14976,3 @@ symmetry between the two dispatch paths. Additive, no TIER_IMMUTABLE touches, no
 exception into the same generic apology, so a 100%-of-hard-requests outage surfaced only as a vague glitch.
 Surfacing crew-dispatch failures to the error monitor / Signal is a candidate follow-up.
 
-
-## §81 — Cold-boot watchdog restart loop: defer the lifespan, make the watchdog boot-aware (2026-05-31)
-
-Closes the *remaining* "gateway restart" Signal floods that survived §77/§79/§80. Those fixes
-all targeted **post-boot idle-job GIL contention**, which runs only after `boot_state.mark_boot_complete()` —
-so they could never touch the actual remaining cause: **slow/unbounded boot itself.**
-
-**Diagnosis.** Per ASGI/uvicorn semantics, uvicorn does not bind the port or serve *any* route — including the
-trivial `async def health(): return {"status":"ok"}` (`app/api/health.py`) — until the lifespan *startup* phase
-completes and `yield`s (`app/main.py`). The lifespan `await`ed ~20 boot steps **in series**, several unbounded and
-network-bound: workspace git restore, `mcp_connect` (→ `app/mcp/registry.py:connect_all`, which dials each server
-with **no per-server timeout**), the LLM-catalog live scan, firebase/chronicle reports, outbound replay, Discord
-WS connect. No `asyncio.wait_for` guarded any of them. On a cold/slow boot `/health` returned **connection-refused
-(HTTP 000)** — boot incomplete, *not* a slow-but-serving GIL-starved loop — for minutes. The host watchdog
-(`scripts/gateway_watchdog.py`) had **no boot grace** (`grace_until` started at `0.0`, set only after its *own*
-restart) and a ~2-min threshold, so it killed the half-finished boot and restarted it → colder caches → slower
-boot → loop → two Signal alerts per iteration. (The §77 note's own "HTTP 000" observation is the tell: 000 is
-connection-refused = no listener = boot incomplete.)
-
-**Secondary contributor.** The gateway has a hard `memory: 8g` limit with `restart: unless-stopped` and no Docker
-healthcheck (`docker-compose.yml`). An OOM (SIGKILL / exit 137) triggers a Docker restart → another cold boot that
-can fall into the same watchdog loop. This is a *separate* lever (raise the limit / trim boot footprint), now made
-visible by the watchdog diagnostics below.
-
-**Fix A+B — `app/main.py` (defer + bound).** New `_spawn_bg(coro, *, name, timeout)` runs a deferrable boot step as
-a bounded fire-and-forget task: `asyncio.wait_for` timeout-caps a hung step (it can't become a zombie), failures are
-logged not fatal, and a strong reference is retained in `_BG_BOOT_TASKS` so the task can't be GC-cancelled mid-flight
-(a documented `create_task` footgun). Moved off the await chain: workspace restore (90 s), `mcp_connect` (60 s),
-LLM-catalog refresh (120 s), firebase/chronicle (120 s), outbound replay (90 s), Discord start (60 s). None are
-needed before the server answers requests — the catalog is also refreshed by `idle_scheduler._run_boot_prep`, and
-the durable outbox makes replay deferral safe. The lifespan now reaches `yield` in seconds, so `/health` answers
-almost immediately and the watchdog never trips during a normal boot. `mark_boot_complete()` stays at the same
-point (right before `yield`); the deferred tasks run concurrently with serving.
-
-**Fix B — `scripts/gateway_watchdog.py` (boot-aware + diagnostics).** (1) `BOOT_GRACE_SECONDS` (default 180) applied
-on watchdog startup so a gateway that is *mid-boot* when the watchdog (re)launches isn't killed before uvicorn binds.
-(2) `RESTART_GRACE` default 90 → 120 (a cold boot can exceed 90 s). (3) `gateway_diagnostics()` runs `docker inspect`
-and the restart alert now reports the **actual cause** — `OOMKilled=true` / `exit=137` (the 8 GB limit), docker
-`RestartCount`, or simply "still booting / running, StartedAt=…" — instead of an opaque "unresponsive." Best-effort:
-diagnostics never raise (a missing docker binary degrades to "diagnostics unavailable").
-
-**Verification.** All changed files `py_compile` clean; the diagnostics OOM-parse + never-raises contract verified
-by direct invocation; 4 new tests in `tests/test_gateway_watchdog_cooldown.py` pin `BOOT_GRACE` default/override and
-the diagnostics behaviour. The existing cooldown tests cover only the state helpers (unaffected). Additive +
-reversible (env: `IDLE`-side §77 switches unchanged; `BOOT_GRACE_SECONDS` / `RESTART_GRACE_SECONDS` env-overridable).
-No TIER_IMMUTABLE touches, no Tier-3 amendments, no new master switches. **Operator action:** rebuild the gateway
-(`docker compose up -d --build gateway`) for the `main.py` change and reload the host launchd watchdog
-(`./scripts/install_gateway_watchdog.sh restart`) for the watchdog change. Merged via PR #130.
