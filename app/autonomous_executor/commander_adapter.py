@@ -65,8 +65,12 @@ def default_commander_provider():
     # Lazy import — the orchestrator module pulls in crewai, llm_factory,
     # tools, souls. Keeping the import inside the function means
     # ``app.autonomous_executor`` stays lightweight at module-load.
-    from app.agents.commander.orchestrator import CommanderOrchestrator
-    commander = CommanderOrchestrator()
+    # NB: the orchestrator class is ``Commander`` — it was renamed from
+    # ``CommanderOrchestrator``. Import the current name; the stale name
+    # raised ImportError here, silently FAILED-ing every executor step
+    # (research investigate/design_experiment/draft + all standard runs).
+    from app.agents.commander.orchestrator import Commander
+    commander = Commander()
     _PRODUCTION_COMMANDER_CACHE.append(commander)
     return commander
 
