@@ -91,16 +91,28 @@ def build_create_payload(
     extra_env: Optional[dict[str, str]] = None,
     memory_bytes: int = 4 * 1024**3,
     pids_limit: int = 512,
+    job_env_var: str = "AAI_EVOLVE_JOB",
+    entrypoint: Optional[list[str]] = None,
 ) -> dict[str, Any]:
-    """Docker ``POST /containers/create`` body. Pure — unit-tested."""
-    env = [f"AAI_EVOLVE_JOB={json.dumps(job)}"]
+    """Docker ``POST /containers/create`` body. Pure — unit-tested.
+
+    ``job_env_var`` names the env var the job spec is serialised into
+    (``AAI_EVOLVE_JOB`` for the verified-mutation entrypoint baked into the
+    image; another caller — e.g. the research experiment runner — passes its
+    own name and an ``entrypoint`` override so the SAME image runs a different
+    in-container module). ``entrypoint``, when set, overrides the image's baked
+    ``ENTRYPOINT`` via the create-time ``Entrypoint`` field; left ``None`` the
+    image default (the evolver entrypoint) runs, so existing callers are
+    unaffected.
+    """
+    env = [f"{job_env_var}={json.dumps(job)}"]
     for key in (*_LLM_ENV_KEYS, *_REQUIRED_SETTINGS_KEYS):
         val = os.environ.get(key)
         if val:
             env.append(f"{key}={val}")
     for key, val in (extra_env or {}).items():
         env.append(f"{key}={val}")
-    return {
+    payload: dict[str, Any] = {
         "Image": image,
         "Env": env,
         "Tty": True,  # raw (un-multiplexed) logs → simple sentinel extraction
@@ -111,33 +123,61 @@ def build_create_payload(
             "Memory": memory_bytes,
             "PidsLimit": pids_limit,
             "SecurityOpt": ["no-new-privileges:true"],
-            # Under host memory pressure, the throwaway evolver is the OOM
-            # victim — never the production gateway. A killed evolver just
+            # Under host memory pressure, the throwaway container is the OOM
+            # victim — never the production gateway. A killed sandbox just
             # fails the (retryable) job; a killed gateway takes the whole
             # system down, which is exactly what happened on the first real
             # run (2026-05-29) when the spawn collided with the gateway.
             "OomScoreAdj": 900,
         },
     }
+    if entrypoint is not None:
+        payload["Entrypoint"] = entrypoint
+    return payload
 
 
-def run_evolver_job(
+def run_container_job(
     job: dict,
     *,
-    image: Optional[str] = None,
+    image: str,
+    job_env_var: str = "AAI_EVOLVE_JOB",
+    entrypoint: Optional[list[str]] = None,
+    extract_fn: Callable[[str], dict] = extract_result,
+    memory_bytes: int = 4 * 1024**3,
+    pids_limit: int = 512,
     timeout_s: int = 1800,
     transport: Optional[Transport] = None,
 ) -> dict:
-    """Run one job in an ephemeral evolver container; return the result dict.
+    """Run one job in an ephemeral sandbox container; return the result dict.
 
-    Returns ``{"ok": True, "result": {...pipeline verdict...}}`` or
-    ``{"ok": False, "error": "..."}``. Never raises — a spawn/transport failure
-    becomes an error dict so the caller's gate logic stays simple.
+    Generic core of the ephemeral-job mechanism: create → start → wait → read
+    logs → extract the sentinel result → remove. ``job_env_var`` names the env
+    var the job spec is serialised into; ``entrypoint`` overrides the image's
+    baked ENTRYPOINT (left ``None`` the image default runs); ``extract_fn``
+    parses the result sentinel out of the container's stdout logs.
+
+    ``run_evolver_job`` is the verified-mutation specialisation (baked
+    ENTRYPOINT, ``AAI_EVOLVE_JOB`` env). ``app.research.experiment`` is a second
+    caller that reuses the SAME sandbox mechanics with its own env-var name,
+    entrypoint override, and result extractor — so the research experiment
+    runner needs no host process and no proxy change.
+
+    Returns whatever ``extract_fn`` produces (by convention
+    ``{"ok": True, "result": {...}}`` or ``{"ok": False, "error": "..."}``).
+    Never raises — a spawn/transport/parse failure becomes an error dict so the
+    caller's gate logic stays simple.
     """
-    image = image or os.environ.get("EVOLVER_IMAGE", _DEFAULT_IMAGE)
     tx = transport or _http_transport
 
-    status, data = tx("POST", "/containers/create", build_create_payload(image, job), 30)
+    payload = build_create_payload(
+        image,
+        job,
+        memory_bytes=memory_bytes,
+        pids_limit=pids_limit,
+        job_env_var=job_env_var,
+        entrypoint=entrypoint,
+    )
+    status, data = tx("POST", "/containers/create", payload, 30)
     if status not in (200, 201):
         return {"ok": False, "error": f"container create failed ({status}): {data[:200]!r}"}
     try:
@@ -156,15 +196,42 @@ def run_evolver_job(
         status, logs = tx("GET", f"/containers/{cid}/logs?stdout=1&stderr=1", None, 30)
         if status != 200:
             return {"ok": False, "error": f"could not read container logs ({status})"}
-        return extract_result(logs.decode("utf-8", "replace"))
+        return extract_fn(logs.decode("utf-8", "replace"))
     except Exception as exc:  # transport/timeout/parse — never propagate
-        logger.warning("run_evolver_job: %s", exc)
+        logger.warning("run_container_job: %s", exc)
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
     finally:
         try:
             tx("DELETE", f"/containers/{cid}?force=1", None, 30)
         except Exception:
-            logger.debug("run_evolver_job: container %s cleanup failed", cid, exc_info=True)
+            logger.debug("run_container_job: container %s cleanup failed", cid, exc_info=True)
+
+
+def run_evolver_job(
+    job: dict,
+    *,
+    image: Optional[str] = None,
+    timeout_s: int = 1800,
+    transport: Optional[Transport] = None,
+) -> dict:
+    """Run one verified-mutation job in an ephemeral evolver container.
+
+    Returns ``{"ok": True, "result": {...pipeline verdict...}}`` or
+    ``{"ok": False, "error": "..."}``. Never raises. Thin specialisation of
+    ``run_container_job`` with the evolver image + baked entrypoint.
+    """
+    image = image or os.environ.get("EVOLVER_IMAGE", _DEFAULT_IMAGE)
+    return run_container_job(
+        job,
+        image=image,
+        job_env_var="AAI_EVOLVE_JOB",
+        entrypoint=None,  # use the image's baked evolver entrypoint
+        extract_fn=extract_result,
+        memory_bytes=4 * 1024**3,
+        pids_limit=512,
+        timeout_s=timeout_s,
+        transport=transport,
+    )
 
 
 def image_exists(image: Optional[str] = None, *, transport: Optional[Transport] = None) -> bool:
