@@ -120,6 +120,19 @@ tail -F workspace/healing/.gateway_watchdog.log   # observe
 
 The outbox SQLite is auto-created at first write.
 
+## Deploy (rebuild gateway + reload watchdog)
+
+After pulling code that touches the gateway (`app/`) or the watchdog
+(`scripts/gateway_watchdog.py`), redeploy on the **host** with the one-shot:
+
+```bash
+./scripts/deploy_gateway.sh            # git pull + docker rebuild + watchdog reload + verify
+./scripts/deploy_gateway.sh --no-pull  # deploy the working tree as-is
+```
+
+It refuses to run where there is no Docker engine (CI sandbox / inside the
+container), since the gateway image is built by host Docker.
+
 ## Operator verification
 
 After install, expected log signatures:
