@@ -1041,6 +1041,18 @@ def _defaults() -> dict[str, Any]:
         "producer_autopause_min_approval_rate": 0.15,
         "producer_autopause_min_samples": 10,
         "producer_autopause_window_days": 30,
+
+        # ── Research evidence gate (Phase 1, auto-research) ─────────────
+        # Three-mode evaluator in the verification_extension chain that
+        # flags research-style drafts making empirical claims (numbers,
+        # percentages, p-values, named metrics, prices) while citing
+        # nothing. "off" = inert; "advisory" = emits a would-escalate note
+        # but returns no action (zero behavior change); "enforcing" =
+        # escalates to verify (autonomous zone) / peer_review (financial).
+        # Only activates on autonomous/financial zones. Default OFF until
+        # the operator calibrates on advisory observations.
+        # See app/epistemic/gate_research_evidence.py.
+        "research_evidence_gate_mode": "off",
     }
 
 
@@ -1223,6 +1235,25 @@ def set_producer_autopause_window_days(value: int) -> None:
         raise ValueError("producer_autopause_window_days must be >= 1")
     _update({"producer_autopause_window_days": v})
     logger.info(f"runtime_settings: producer_autopause_window_days set to {v}")
+
+
+# ── Research evidence gate (Phase 1, auto-research) ────────────────────
+_VALID_RESEARCH_EVIDENCE_GATE_MODES = ("off", "advisory", "enforcing")
+
+
+def get_research_evidence_gate_mode() -> str:
+    return str(_ensure_initialized().get("research_evidence_gate_mode", "off"))
+
+
+def set_research_evidence_gate_mode(value: str) -> None:
+    v = (value or "").strip().lower()
+    if v not in _VALID_RESEARCH_EVIDENCE_GATE_MODES:
+        raise ValueError(
+            f"research_evidence_gate_mode must be one of "
+            f"{_VALID_RESEARCH_EVIDENCE_GATE_MODES}, got {value!r}"
+        )
+    _update({"research_evidence_gate_mode": v})
+    logger.info(f"runtime_settings: research_evidence_gate_mode set to {v!r}")
 
 
 def get_critic_review_difficulty_threshold() -> int:

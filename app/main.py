@@ -441,10 +441,14 @@ async def lifespan(app: FastAPI):
             except Exception as exc:
                 logger.debug(f"ChromaDB preopen skipped (import failed): {exc}")
                 return
-            # Core collections used on the hot path.
+            # Core collections that actually go through chromadb_manager's
+            # default-path client. The per-domain RAG stores (episteme /
+            # experiential / aesthetics / tensions / philosophy) each build
+            # their OWN PersistentClient on their own KB path, so warming
+            # them here was a no-op for the hot path — they're pre-warmed at
+            # the correct layer by idle_scheduler._prewarm_rag_stores.
             collections = [
                 "team_shared", "commander",
-                "episteme", "experiential", "aesthetics", "tensions",
             ]
             for name in collections:
                 try:

@@ -97,6 +97,32 @@ def _pick_run() -> Optional[ExecutorRun]:
     return None
 
 
+def _maybe_close_thread(run: ExecutorRun) -> None:
+    """Phase D — close the run's bound Thread once the run is terminal/blocked.
+
+    ``close_thread_for_run`` is itself failure-isolated and idempotent (no-op
+    while the run is in flight, no-op once the thread is already terminal), but
+    this module's discipline is "every layer is wrapped", so the call is
+    guarded here too: a broken thread store must never break the scheduler tick
+    or mask the run that just advanced. Only research runs ever carry a
+    ``research-thread:`` back-pointer, so this is a cheap no-op for every other
+    run.
+
+    The closure transition runs ``distill_on_closure`` for free — that is the
+    Phase-D "what did we learn?" capture, written back to ``lessons_learned``.
+    """
+    try:
+        from app.research.binding import close_thread_for_run
+
+        close_thread_for_run(run)
+    except Exception:
+        logger.debug(
+            "autonomous_executor: close_thread_for_run failed for run %s",
+            run.run_id,
+            exc_info=True,
+        )
+
+
 def run_executor_tick(
     *,
     commander_fn: Optional[CommanderFn] = None,
@@ -117,19 +143,32 @@ def run_executor_tick(
     if run is None:
         return None
 
-    # Self-improvement runs (a JSON job in the step description) are dispatched
-    # deterministically through the verified mutation engine; every other run
-    # uses the normal Commander adapter. Falls back safely if the orchestrator
-    # import is unavailable, so the executor never breaks on this routing.
+    # Adapter routing is layered by composition, each layer a strict superset
+    # of the one beneath it: research:* steps are handled by the research
+    # adapter, self-improvement JSON jobs by the verified mutation engine, and
+    # everything else falls through to the normal Commander adapter. Each layer
+    # falls back safely if its package can't be imported, so the executor never
+    # breaks on this routing.
     if commander_fn is not None:
         adapter: CommanderFn = commander_fn
     else:
         try:
             from app.self_improvement.orchestrator import make_self_improvement_adapter
 
-            adapter = make_self_improvement_adapter()
+            inner = make_self_improvement_adapter()
         except Exception:
-            adapter = make_commander_adapter()
+            inner = make_commander_adapter()
+        # Research runs carry research:* crew-hints. make_research_adapter is a
+        # strict superset of the commander adapter — any unrecognised hint
+        # falls through to `inner` — so nesting it here is behaviour-preserving
+        # for every non-research run while teaching the scheduler the research
+        # hints. Falls back to `inner` if the research package can't be loaded.
+        try:
+            from app.research.run import make_research_adapter
+
+            adapter = make_research_adapter(commander_fn=inner)
+        except Exception:
+            adapter = inner
     chosen_planner: PlannerFn = planner_fn or get_default_planner()
 
     try:
@@ -152,6 +191,7 @@ def run_executor_tick(
                 "autonomous_executor: failed to persist run %s after "
                 "advance crash", run.run_id,
             )
+        _maybe_close_thread(run)
         return run.run_id
 
     try:
@@ -161,7 +201,10 @@ def run_executor_tick(
             "autonomous_executor: failed to persist run %s after "
             "advance_one_step", run.run_id,
         )
+        _maybe_close_thread(run)
         return run.run_id
+
+    _maybe_close_thread(run)
 
     logger.info(
         "autonomous_executor: tick advanced run %s → status=%s "
