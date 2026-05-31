@@ -708,6 +708,7 @@ def _run_single_job(name: str, fn: Callable, timeout_s: int = 60) -> bool:
     try:
         _report_background_activity(name, "running")
         with agent_scope(name):
+            logger.info(f"idle_scheduler: '{name}' starting (cap={timeout_s}s)")
             fn()
         logger.info(f"idle_scheduler: '{name}' completed")
         _report_background_activity(name, "completed")
@@ -2404,7 +2405,7 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             check_post_commit_regression()
         except Exception:
             pass
-    jobs.append(("data-retention", _data_retention, JobWeight.LIGHT))
+    jobs.append(("data-retention", _data_retention, JobWeight.HEAVY))
 
     # ── Crew-task spans: 7-day retention sweep ───────────────────────
     # Spans capture fine-grained execution flow (agent/tool/LLM events)

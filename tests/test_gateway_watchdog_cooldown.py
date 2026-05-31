@@ -131,3 +131,48 @@ def test_save_uses_atomic_replace(monkeypatch, tmp_path):
     assert state_file.exists()
     # No .tmp sidecar left around.
     assert not (state_file.parent / (state_file.name + ".tmp")).exists()
+
+
+# ── Boot-grace + diagnostics (2026-05-31) ──────────────────────────────
+# The watchdog must not turn a slow GATEWAY cold-boot into a restart loop:
+# /health is not served until the gateway's lifespan startup completes, so a
+# booting gateway legitimately looks unresponsive. These pin the boot-grace
+# default and the docker-inspect cause reporting added to the restart alert.
+
+
+def test_boot_grace_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("BOOT_GRACE_SECONDS", raising=False)
+    mod, _ = _load_watchdog(monkeypatch, tmp_path)
+    assert mod.BOOT_GRACE == 180.0
+
+
+def test_boot_grace_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOOT_GRACE_SECONDS", "300")
+    mod, _ = _load_watchdog(monkeypatch, tmp_path)
+    assert mod.BOOT_GRACE == 300.0
+
+
+def test_diagnostics_reports_oom(monkeypatch, tmp_path):
+    mod, _ = _load_watchdog(monkeypatch, tmp_path)
+
+    class _CP:
+        returncode = 0
+        stdout = "true|true|137|3|2026-05-31T10:00:00Z"
+        stderr = ""
+
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: _CP())
+    diag = mod.gateway_diagnostics()
+    assert "OOMKilled=true" in diag
+    assert "exit=137" in diag
+    assert "RestartCount=3" in diag
+
+
+def test_diagnostics_never_raises(monkeypatch, tmp_path):
+    mod, _ = _load_watchdog(monkeypatch, tmp_path)
+
+    def _boom(*a, **k):
+        raise OSError("docker missing")
+
+    monkeypatch.setattr(mod.subprocess, "run", _boom)
+    diag = mod.gateway_diagnostics()
+    assert isinstance(diag, str) and "unavailable" in diag
