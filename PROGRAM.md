@@ -14940,3 +14940,51 @@ symmetry between the two dispatch paths. Additive, no TIER_IMMUTABLE touches, no
 exception into the same generic apology, so a 100%-of-hard-requests outage surfaced only as a vague glitch.
 Surfacing crew-dispatch failures to the error monitor / Signal is a candidate follow-up.
 
+
+## §81 — Cold-boot watchdog restart loop: defer the lifespan, make the watchdog boot-aware (2026-05-31)
+
+Closes the *remaining* "gateway restart" Signal floods that survived §77/§79/§80. Those fixes
+all targeted **post-boot idle-job GIL contention**, which runs only after `boot_state.mark_boot_complete()` —
+so they could never touch the actual remaining cause: **slow/unbounded boot itself.**
+
+**Diagnosis.** Per ASGI/uvicorn semantics, uvicorn does not bind the port or serve *any* route — including the
+trivial `async def health(): return {"status":"ok"}` (`app/api/health.py`) — until the lifespan *startup* phase
+completes and `yield`s (`app/main.py`). The lifespan `await`ed ~20 boot steps **in series**, several unbounded and
+network-bound: workspace git restore, `mcp_connect` (→ `app/mcp/registry.py:connect_all`, which dials each server
+with **no per-server timeout**), the LLM-catalog live scan, firebase/chronicle reports, outbound replay, Discord
+WS connect. No `asyncio.wait_for` guarded any of them. On a cold/slow boot `/health` returned **connection-refused
+(HTTP 000)** — boot incomplete, *not* a slow-but-serving GIL-starved loop — for minutes. The host watchdog
+(`scripts/gateway_watchdog.py`) had **no boot grace** (`grace_until` started at `0.0`, set only after its *own*
+restart) and a ~2-min threshold, so it killed the half-finished boot and restarted it → colder caches → slower
+boot → loop → two Signal alerts per iteration. (The §77 note's own "HTTP 000" observation is the tell: 000 is
+connection-refused = no listener = boot incomplete.)
+
+**Secondary contributor.** The gateway has a hard `memory: 8g` limit with `restart: unless-stopped` and no Docker
+healthcheck (`docker-compose.yml`). An OOM (SIGKILL / exit 137) triggers a Docker restart → another cold boot that
+can fall into the same watchdog loop. This is a *separate* lever (raise the limit / trim boot footprint), now made
+visible by the watchdog diagnostics below.
+
+**Fix A+B — `app/main.py` (defer + bound).** New `_spawn_bg(coro, *, name, timeout)` runs a deferrable boot step as
+a bounded fire-and-forget task: `asyncio.wait_for` timeout-caps a hung step (it can't become a zombie), failures are
+logged not fatal, and a strong reference is retained in `_BG_BOOT_TASKS` so the task can't be GC-cancelled mid-flight
+(a documented `create_task` footgun). Moved off the await chain: workspace restore (90 s), `mcp_connect` (60 s),
+LLM-catalog refresh (120 s), firebase/chronicle (120 s), outbound replay (90 s), Discord start (60 s). None are
+needed before the server answers requests — the catalog is also refreshed by `idle_scheduler._run_boot_prep`, and
+the durable outbox makes replay deferral safe. The lifespan now reaches `yield` in seconds, so `/health` answers
+almost immediately and the watchdog never trips during a normal boot. `mark_boot_complete()` stays at the same
+point (right before `yield`); the deferred tasks run concurrently with serving.
+
+**Fix B — `scripts/gateway_watchdog.py` (boot-aware + diagnostics).** (1) `BOOT_GRACE_SECONDS` (default 180) applied
+on watchdog startup so a gateway that is *mid-boot* when the watchdog (re)launches isn't killed before uvicorn binds.
+(2) `RESTART_GRACE` default 90 → 120 (a cold boot can exceed 90 s). (3) `gateway_diagnostics()` runs `docker inspect`
+and the restart alert now reports the **actual cause** — `OOMKilled=true` / `exit=137` (the 8 GB limit), docker
+`RestartCount`, or simply "still booting / running, StartedAt=…" — instead of an opaque "unresponsive." Best-effort:
+diagnostics never raise (a missing docker binary degrades to "diagnostics unavailable").
+
+**Verification.** All changed files `py_compile` clean; the diagnostics OOM-parse + never-raises contract verified
+by direct invocation; 4 new tests in `tests/test_gateway_watchdog_cooldown.py` pin `BOOT_GRACE` default/override and
+the diagnostics behaviour. The existing cooldown tests cover only the state helpers (unaffected). Additive +
+reversible (env: `IDLE`-side §77 switches unchanged; `BOOT_GRACE_SECONDS` / `RESTART_GRACE_SECONDS` env-overridable).
+No TIER_IMMUTABLE touches, no Tier-3 amendments, no new master switches. **Operator action:** rebuild the gateway
+(`docker compose up -d --build gateway`) for the `main.py` change and reload the host launchd watchdog
+(`./scripts/install_gateway_watchdog.sh restart`) for the watchdog change. Merged via PR #130.

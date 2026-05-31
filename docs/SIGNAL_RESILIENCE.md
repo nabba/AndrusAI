@@ -77,12 +77,31 @@ Knobs (`scripts/gateway_watchdog.plist` env block):
 | `HEALTH_TIMEOUT_SECONDS` | `5` | per-probe timeout |
 | `FAILURE_THRESHOLD` | `6` | consecutive failures before restart |
 | `RESTART_COOLDOWN_SECONDS` | `300` | refuse a second restart inside this window |
-| `RESTART_GRACE_SECONDS` | `90` | skip probes for this long after a restart |
+| `RESTART_GRACE_SECONDS` | `120` | skip probes for this long after a restart |
+| `BOOT_GRACE_SECONDS` | `180` | skip probes for this long after the **watchdog itself** starts |
 
 The grace window stops the watchdog from re-firing during the gateway's
-own boot (~30–90s on this host before HTTP listens). The cooldown stops
-restart-thrashing if the gateway keeps hanging — at the bound the operator
-has to intervene.
+own boot. The cooldown stops restart-thrashing if the gateway keeps hanging —
+at the bound the operator has to intervene.
+
+**Boot grace (2026-05-31, PROGRAM §81).** `/health` is a liveness probe, but
+uvicorn does not serve *any* route until the gateway's lifespan startup phase
+completes and yields — so a cold/slow boot legitimately looks "unresponsive"
+(connection-refused, HTTP 000) for a stretch. `RESTART_GRACE_SECONDS` only
+applied after the watchdog's *own* restart, leaving a watchdog (re)launch
+during a gateway boot (host reboot, launchd relaunch, fresh install, or a
+Docker `restart: unless-stopped` after OOM) free to kill a perfectly-healthy
+boot → cold-boot restart loop. `BOOT_GRACE_SECONDS` now skips probes for 180 s
+on watchdog startup. §81 also moved the unbounded network boot steps off the
+gateway's lifespan await-chain (`app/main.py:_spawn_bg`) so boot reaches the
+serving state in seconds; the boot grace is the host-side safety margin on top.
+
+**Restart-cause diagnostics (2026-05-31).** Before restarting, the watchdog
+now runs `docker inspect` and includes the cause in the Signal alert:
+`OOMKilled=true` / `exit=137` (the gateway hit its 8 GB `docker-compose.yml`
+memory limit — a *separate* lever from the boot fix), docker `RestartCount`
+(a Docker-level crash loop), or "running, StartedAt=…" (still booting).
+Diagnostics are best-effort and never crash the watchdog.
 
 ## Installation
 
