@@ -478,6 +478,58 @@ def _build_analysis_text(run: ExecutorRun) -> str:
 # ── Adapter ────────────────────────────────────────────────────────────────
 
 
+def _default_design_experiment(prompt: str) -> str:
+    """Author a runnable measurement script via a focused code-gen completion.
+
+    Deliberately NOT routed through the conversational ``Commander`` — that
+    orchestrator does its own intent-routing/persona and (observed live)
+    returned a status chronicle instead of code. ``design_experiment`` needs a
+    single structured artifact (one Python script), so it uses the factory's
+    sanctioned raw-completion path with a coding role — mirroring how
+    ``literature``/``hypotheses`` call focused functions rather than the
+    Commander. Failure-isolated: any error returns ``""`` so ``run_experiment``
+    records a non-blocking skipped marker and the spine still produces a draft.
+    """
+    try:
+        from app.llm_factory import chat_completion_for_role
+
+        handle = chat_completion_for_role(
+            role="coding", task_hint="research experiment script"
+        )
+        resp = handle.create(
+            messages=[{"role": "user", "content": prompt}], max_tokens=2000
+        )
+        return resp.choices[0].message.content or ""
+    except Exception:
+        logger.debug("research.run: design_experiment code-gen call failed", exc_info=True)
+        return ""
+
+
+def _ensure_research_task_row(run: ExecutorRun) -> None:
+    """Register a ``control_plane.crew_tasks`` row for the research run.
+
+    ``epistemic_claims.task_id`` FKs into ``crew_tasks.id``; research runs live
+    in the autonomous-executor store, not ``crew_tasks``, so analyze_result's
+    Claim would fail the FK and never persist (only the in-memory ledger kept
+    it). Upserting a lightweight task row makes the run first-class for the
+    epistemic tables. Failure-isolated — never blocks the run (a host without a
+    DB simply skips, exactly as before).
+    """
+    try:
+        from app.control_plane.db import execute
+
+        execute(
+            """
+            INSERT INTO control_plane.crew_tasks (id, crew, state, summary)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (run.run_id, "research", "running", (run.goal or "")[:500]),
+        )
+    except Exception:
+        logger.debug("research.run: ensure crew_tasks row failed", exc_info=True)
+
+
 def make_research_adapter(
     *,
     search_fn: Optional[Callable] = None,
@@ -487,6 +539,7 @@ def make_research_adapter(
     experiment_fn: Optional[Callable] = None,
     enabled_fn: Optional[Callable] = None,
     gate_output_fn: Optional[Callable] = None,
+    design_fn: Optional[Callable] = None,
 ) -> CommanderFn:
     """Build a ``CommanderFn`` that executes research steps by crew-hint.
 
@@ -500,6 +553,7 @@ def make_research_adapter(
       * ``experiment_fn``   → ``app.research.experiment.run_experiment_script``
       * ``enabled_fn``      → :func:`_experiments_enabled` (Phase C switch)
       * ``gate_output_fn``  → :func:`_default_gate_output` (epistemic gate)
+      * ``design_fn``       → :func:`_default_design_experiment` (code-gen)
 
     Dispatch by ``step.crew_hint``:
 
@@ -509,8 +563,9 @@ def make_research_adapter(
       * investigate / draft — build a prompt from prior artifacts and
         delegate to ``commander_fn`` (text in, text out; cost carried
         through unchanged).
-      * design_experiment (Phase C) — delegate to ``commander_fn`` to turn the
-        leading hypothesis into a runnable Python script.
+      * design_experiment (Phase C) — author a runnable Python script from the
+        leading hypothesis via ``design_fn`` (a focused code-gen completion,
+        NOT the conversational Commander, which returns a status chronicle).
       * run_experiment (Phase C) — run that script FULLY AUTONOMOUSLY in an
         ephemeral Docker sandbox via ``experiment_fn``, gated by
         ``enabled_fn()`` (off → a non-blocking ``skipped`` marker; the spine
@@ -543,6 +598,8 @@ def make_research_adapter(
         enabled_fn = _experiments_enabled
     if gate_output_fn is None:
         gate_output_fn = _default_gate_output
+    if design_fn is None:
+        design_fn = _default_design_experiment
 
     def _delegate(step: ExecutorStep, run: ExecutorRun, prompt: str) -> CommanderResult:
         synthetic = ExecutorStep(
@@ -572,8 +629,12 @@ def make_research_adapter(
             return _delegate(step, run, _build_investigate_prompt(run))
 
         if hint == HINT_DESIGN_EXPERIMENT:
-            # Turn the leading hypothesis into a runnable measurement script.
-            return _delegate(step, run, _build_design_experiment_prompt(run))
+            # Author the measurement script via a focused code-gen completion
+            # (NOT the conversational Commander, which returned a status
+            # chronicle instead of code — see _default_design_experiment).
+            return CommanderResult(
+                text=design_fn(_build_design_experiment_prompt(run)) or ""
+            )
 
         if hint == HINT_RUN_EXPERIMENT:
             # FULLY AUTONOMOUS — no per-experiment operator gate. Bounded by the
@@ -633,6 +694,7 @@ def make_research_adapter(
                     load_bearing=True,
                     tags=("research", "experiment"),
                 )
+                _ensure_research_task_row(run)
                 led.emit(claim)
                 run.record_note(f"claim emitted: {claim.claim_id}")
             except Exception:
