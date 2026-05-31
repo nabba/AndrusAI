@@ -244,12 +244,62 @@ def _probe_self_improvement(snap: SubstrateStatus) -> None:
     snap.self_improvement = out
 
 
+def _read_cgroup_memory() -> tuple[int | None, int | None]:
+    """Return (used_bytes, limit_bytes) for this process's memory cgroup.
+
+    Tries cgroup v2 (``/sys/fs/cgroup/memory.current`` + ``memory.max``) then
+    cgroup v1 (``.../memory/memory.usage_in_bytes`` + ``memory.limit_in_bytes``).
+    Returns (None, None) when no files are readable (non-Linux host, e.g. the
+    test runner) and (used, None) when no limit is set (``memory.max == max``
+    or the v1 sentinel ~= 2**63). Never raises.
+    """
+    def _read_int(p: str) -> int | None:
+        try:
+            return int(Path(p).read_text().strip())
+        except (OSError, ValueError):
+            return None
+
+    # cgroup v2
+    used = _read_int("/sys/fs/cgroup/memory.current")
+    if used is not None:
+        raw = ""
+        try:
+            raw = Path("/sys/fs/cgroup/memory.max").read_text().strip()
+        except OSError:
+            raw = ""
+        if raw == "max" or raw == "":
+            return used, None
+        try:
+            return used, int(raw)
+        except ValueError:
+            return used, None
+
+    # cgroup v1
+    used = _read_int("/sys/fs/cgroup/memory/memory.usage_in_bytes")
+    if used is not None:
+        limit = _read_int("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+        # v1 "unlimited" is a huge sentinel near 2**63; treat as no limit.
+        if limit is None or limit >= (1 << 62):
+            return used, None
+        return used, limit
+
+    return None, None
+
+
 def _probe_resources(snap: SubstrateStatus) -> None:
     out: dict[str, Any] = {
         "disk_free_gb": None,
         "disk_total_gb": None,
         "host_substrate_state": None,
         "host_substrate_alerts": [],
+        # Gateway container's OWN cgroup memory (NOT host RAM). On macOS Docker
+        # the in-container /proc/meminfo reflects the VM, not the 8 GB cgroup
+        # limit, so host-memory probes can't see the gateway nearing its OOM
+        # threshold. Reading the cgroup directly is the only signal that
+        # tracks the actual limit the OOM killer enforces (PROGRAM §81 / §82).
+        "cgroup_mem_used_fraction": None,
+        "cgroup_mem_used_mb": None,
+        "cgroup_mem_limit_mb": None,
     }
 
     # Disk free under workspace
@@ -260,6 +310,18 @@ def _probe_resources(snap: SubstrateStatus) -> None:
         out["disk_total_gb"] = round(usage.total / 1024 / 1024 / 1024, 2)
     except Exception as exc:
         snap.errors.append(f"resources.disk: {exc}")
+
+    # Container cgroup memory — failure-isolated; absent files (non-Linux /
+    # no limit set) simply leave the fields None.
+    try:
+        used, limit = _read_cgroup_memory()
+        if used is not None and limit:
+            out["cgroup_mem_used_mb"] = round(used / 1024 / 1024, 1)
+            out["cgroup_mem_limit_mb"] = round(limit / 1024 / 1024, 1)
+            out["cgroup_mem_used_fraction"] = round(used / limit, 4)
+    except Exception as exc:
+        snap.errors.append(f"resources.cgroup_mem: {exc}")
+
 
     # Host substrate state (from Q16 monitor)
     try:

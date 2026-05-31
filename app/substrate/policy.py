@@ -39,6 +39,13 @@ class ResourcePolicy:
     max_inflight_tasks: int = 8
     """Above this, defer heavy work — let the foreground request finish first."""
 
+    max_cgroup_mem_fraction: float = 0.90
+    """Above this fraction of the container's cgroup memory limit, defer heavy
+    idle work so a CPU+RAM-hungry job doesn't push the gateway into its OOM
+    ceiling (the secondary cause behind the §81 restart floods — Docker
+    SIGKILLs the 8 GB-capped gateway, then restarts it cold). ``None`` on the
+    snapshot (non-Linux / no limit set) means this predicate is skipped."""
+
 
 _DEFAULT_POLICY = ResourcePolicy()
 
@@ -80,6 +87,17 @@ def should_defer_heavy_work(
         inflight = int(getattr(snapshot, "inflight_tasks", 0) or 0)
         if inflight > pol.max_inflight_tasks:
             return f"inflight_tasks={inflight} > max={pol.max_inflight_tasks}"
+
+        # Container cgroup memory pressure — the OOM ceiling the watchdog
+        # reports AFTER the fact (§81); deferring here is the proactive half.
+        # Only fires when the snapshot actually carries a fraction (Linux +
+        # a real limit); None ⇒ skip (fail-open).
+        mem_frac = (snapshot.resources or {}).get("cgroup_mem_used_fraction")
+        if mem_frac is not None and mem_frac >= pol.max_cgroup_mem_fraction:
+            return (
+                f"cgroup_mem={mem_frac:.0%} >= max={pol.max_cgroup_mem_fraction:.0%} "
+                "(near container memory limit)"
+            )
 
         # Host substrate alerts — if Q16 monitor recently fired a disk-horizon
         # or memory-headroom alert, defer until cleared.
