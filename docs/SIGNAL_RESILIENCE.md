@@ -133,6 +133,39 @@ After pulling code that touches the gateway (`app/`) or the watchdog
 It refuses to run where there is no Docker engine (CI sandbox / inside the
 container), since the gateway image is built by host Docker.
 
+### Hands-off: deploy webhook (merge → auto-deploy)
+
+To redeploy automatically on a merge to `main` with no terminal, install the
+host-side deploy webhook (`scripts/deploy_webhook.py` + launchd agent):
+
+```bash
+./scripts/install_deploy_webhook.sh install     # generates HMAC secret + loads agent, prints setup steps
+./scripts/install_deploy_webhook.sh setup-help   # reprint the GitHub + Funnel steps
+./scripts/install_deploy_webhook.sh secret        # reprint the HMAC secret to paste into GitHub
+```
+
+Then expose the loopback listener and point GitHub at it:
+
+```bash
+tailscale funnel --bg 9200      # gives an https://<host>.ts.net URL
+# GitHub → repo Settings → Webhooks → Add:
+#   Payload URL  = the Funnel URL
+#   Content type = application/json
+#   Secret       = output of `install_deploy_webhook.sh secret`
+#   Events       = "Pull requests" (and/or "Pushes")
+```
+
+**Trust model.** Every request must carry a valid `X-Hub-Signature-256` HMAC
+over the raw body (keyed by the secret) or it's rejected 401 — that is the
+real boundary, independent of bind/Funnel. Only a push to / merged PR into the
+deploy branch (default `main`) from the pinned repo (`DEPLOY_REPO`) triggers a
+build; everything else is acked and ignored. Single-flight: a second webhook
+while a deploy runs returns 409, never a stacked build. The HMAC secret lives
+at `~/.crewai-bridge/deploy_webhook_secret` (chmod 600, **outside the repo —
+never committed**); rotate it by deleting the file and re-running `install`.
+The listener binds `127.0.0.1` by default — expose via Funnel, not `0.0.0.0`.
+Logs: `workspace/healing/.deploy_webhook.log`.
+
 ## Operator verification
 
 After install, expected log signatures:

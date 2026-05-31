@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>org.andrus.botarmy.deploy-webhook</string>
+
+  <!-- Host-side deploy webhook: receives a GitHub webhook and, on a merge to
+       the deploy branch, runs scripts/deploy_gateway.sh. Lives on the host
+       because the deploy is a host docker build. The HMAC secret is NOT in
+       this file — it is read from ~/.crewai-bridge/deploy_webhook_secret,
+       which the installer generates (gitignored, never committed). -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>-u</string>
+    <string>/Users/andrus/BotArmy/crewai-team/scripts/deploy_webhook.py</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Bind loopback; expose to GitHub via `tailscale funnel 9200` rather
+         than binding a public interface. HMAC is the boundary regardless. -->
+    <key>DEPLOY_WEBHOOK_BIND</key>
+    <string>127.0.0.1</string>
+    <key>DEPLOY_WEBHOOK_PORT</key>
+    <string>9200</string>
+    <key>DEPLOY_WEBHOOK_BRANCH</key>
+    <string>main</string>
+    <key>DEPLOY_REPO</key>
+    <string>nabba/andrusai</string>
+    <key>DEPLOY_SCRIPT</key>
+    <string>/Users/andrus/BotArmy/crewai-team/scripts/deploy_gateway.sh</string>
+    <key>DEPLOY_WEBHOOK_SECRET_FILE</key>
+    <string>/Users/andrus/.crewai-bridge/deploy_webhook_secret</string>
+    <key>DEPLOY_WEBHOOK_LOG</key>
+    <string>/Users/andrus/BotArmy/crewai-team/workspace/healing/.deploy_webhook.log</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/andrus/BotArmy/crewai-team</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/andrus/BotArmy/crewai-team/workspace/healing/.deploy_webhook.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/andrus/BotArmy/crewai-team/workspace/healing/.deploy_webhook.log</string>
+</dict>
+</plist>

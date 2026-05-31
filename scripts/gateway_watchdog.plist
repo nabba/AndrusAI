@@ -37,8 +37,12 @@
     <string>6</string>
     <key>RESTART_COOLDOWN_SECONDS</key>
     <string>300</string>
+    <!-- §81 (2026-05-31): post-restart grace 90→120, plus an initial boot
+         grace so a mid-boot gateway isn't killed before uvicorn binds. -->
     <key>RESTART_GRACE_SECONDS</key>
-    <string>90</string>
+    <string>120</string>
+    <key>BOOT_GRACE_SECONDS</key>
+    <string>180</string>
     <key>COMPOSE_PROJECT_DIR</key>
     <string>/Users/andrus/BotArmy/crewai-team</string>
     <key>GATEWAY_SERVICE</key>
