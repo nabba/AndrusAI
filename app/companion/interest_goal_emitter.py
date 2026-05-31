@@ -367,19 +367,43 @@ def _spawn_executor_run(qp: QualifiedPattern, *, requestor: str) -> dict[str, An
     except Exception as exc:
         return {"ok": False, "reason": f"executor modules unavailable: {exc}"}
 
-    run_id = f"run-{uuid.uuid4().hex[:12]}"
-    run = ExecutorRun(
-        run_id=run_id,
-        goal=qp.as_goal_text(),
-        requestor=requestor,
-        # Opt-in gate: the run is parked in PENDING_APPROVAL and is
-        # never picked up by the scheduler (see scheduler_job._pick_run)
-        # until the operator approves it via 👍. No budget is spent
-        # while it waits.
-        status=ExecutorStatus.PENDING_APPROVAL,
-        budget=Budget(cap_usd=float(_PER_EMISSION_BUDGET_USD)),
-        zone="autonomous",
-    )
+    # G3 (goal-seeding): interest goals are research questions — seed a
+    # *research* run (literature -> hypotheses -> investigate -> draft -> gate)
+    # rather than a bare single-step run. build_research_run pre-populates the
+    # plan and the driver runs a pre-populated plan straight through (skips the
+    # planner — driver._handle_planning: "plan present -> RUNNING").
+    # experiment=False by deliberate default: an auto-emitted goal does
+    # literature review + draft, NOT autonomous code execution in the sandbox —
+    # the operator opts into experiments manually via /delegate.
+    try:
+        from app.research.run import build_research_run
+
+        run = build_research_run(
+            qp.as_goal_text(),
+            requestor=requestor,
+            zone="autonomous",
+            budget=Budget(cap_usd=float(_PER_EMISSION_BUDGET_USD)),
+            experiment=False,
+        )
+        # Opt-in gate: park at PENDING_APPROVAL — the scheduler skips it (see
+        # scheduler_job._pick_run) until the operator approves via 👍. No budget
+        # is spent while it waits; on approval -> CREATED -> the research plan
+        # runs.
+        run.status = ExecutorStatus.PENDING_APPROVAL
+    except Exception:
+        logger.debug(
+            "interest_goal_emitter: research-run build failed; bare run",
+            exc_info=True,
+        )
+        run = ExecutorRun(
+            run_id=f"run-{uuid.uuid4().hex[:12]}",
+            goal=qp.as_goal_text(),
+            requestor=requestor,
+            status=ExecutorStatus.PENDING_APPROVAL,
+            budget=Budget(cap_usd=float(_PER_EMISSION_BUDGET_USD)),
+            zone="autonomous",
+        )
+    run_id = run.run_id
     try:
         store.save(run)
     except Exception as exc:
