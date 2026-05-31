@@ -288,6 +288,51 @@ def _process_post_amendment_restart_claims() -> None:
             pass
 
 
+# ── Boot-latency fix (2026-05-31) ─────────────────────────────────────────
+# Per ASGI/uvicorn semantics the server does NOT bind the port or serve any
+# route — including the trivial liveness probe ``/health`` — until the
+# lifespan *startup* phase completes and ``yield``s. Historically the lifespan
+# below ``await``ed ~20 boot steps in series, several of them unbounded and
+# network-bound (workspace git restore, MCP server dialing, the LLM-catalog
+# live scan, Discord WS connect). On a cold/slow boot the cumulative latency
+# (or a single hung step) kept ``/health`` returning connection-refused
+# (HTTP 000) for minutes, so the host watchdog (``scripts/gateway_watchdog.py``,
+# ~2 min threshold, no boot grace) killed the half-finished boot and restarted
+# it — a cold-boot-then-restart loop that floods the operator with watchdog
+# Signal alerts. The earlier §77/§79/§80 fixes addressed post-boot idle-job
+# GIL contention, which runs only AFTER boot completes and so never touched
+# this window.
+#
+# ``_spawn_bg`` runs a deferrable boot step as a bounded fire-and-forget task
+# so it can't gate the ``yield``. A timeout caps a hung step (it can't become a
+# zombie), and failures are logged, never fatal. Steps moved here are ones not
+# required for the server to answer requests — they warm/connect things that
+# the request paths already lazy-init or degrade past.
+# Retain strong references to deferred-boot tasks. asyncio only holds a weak
+# reference to a task, so a fire-and-forget create_task() can be garbage-
+# collected mid-flight and silently cancelled. Holding the task here until it
+# finishes prevents that.
+_BG_BOOT_TASKS: "set[asyncio.Task]" = set()
+
+
+def _spawn_bg(coro, *, name: str, timeout: float) -> "asyncio.Task":
+    async def _runner() -> None:
+        try:
+            await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "boot: deferred step %r exceeded %.0fs budget — continuing "
+                "(it keeps running detached; this only means it didn't finish "
+                "within the window)", name, timeout,
+            )
+        except Exception:
+            logger.warning("boot: deferred step %r failed (non-fatal)", name, exc_info=True)
+    task = asyncio.create_task(_runner(), name=f"boot-defer:{name}")
+    _BG_BOOT_TASKS.add(task)
+    task.add_done_callback(_BG_BOOT_TASKS.discard)
+    return task
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.crews.self_improvement_crew import SelfImprovementCrew
@@ -367,9 +412,16 @@ async def lifespan(app: FastAPI):
             f"Invalid WORKSPACE_SYNC_CRON expression {settings.workspace_sync_cron!r}: {exc}"
         ) from exc
 
-    # Restore workspace state from cloud backup (non-fatal if remote is empty/absent)
+    # Restore workspace state from cloud backup (non-fatal if remote is empty/absent).
+    # DEFERRED (2026-05-31): a git fetch from the remote backup must not gate
+    # /health. On a normal restart the workspace volume already persists (bind
+    # mount), so this is a fast-forward/no-op; on a fresh host it can be slow.
+    # Either way it isn't needed before the server answers requests.
     if settings.workspace_backup_repo:
-        await asyncio.to_thread(setup_workspace_repo, settings.workspace_backup_repo)
+        _spawn_bg(
+            asyncio.to_thread(setup_workspace_repo, settings.workspace_backup_repo),
+            name="workspace-restore", timeout=90,
+        )
 
     scheduler.add_job(SelfImprovementCrew().run, trigger, id="self_improve")
 
@@ -759,16 +811,20 @@ async def lifespan(app: FastAPI):
         logger.warning("Lifecycle hooks init failed (non-fatal)", exc_info=True)
 
     # ── MCP client (T1-1) — consume external MCP servers ────────────────
+    # DEFERRED (2026-05-31): registry.connect_all() dials each configured
+    # external MCP server serially with NO per-server timeout (see
+    # app/mcp/registry.py:connect_all), so one slow/unreachable server would
+    # otherwise stall the whole lifespan — and thus /health — past the host
+    # watchdog window. Tools register a few seconds late instead of hanging boot.
     if settings.mcp_client_enabled:
-        try:
+        async def _connect_mcp() -> None:
             from app.mcp.registry import connect_all as mcp_connect
             n = await asyncio.to_thread(mcp_connect)
             if n:
                 logger.info(f"MCP client: connected to {n} external server(s)")
             else:
                 logger.info("MCP client enabled but no servers configured")
-        except Exception:
-            logger.debug("MCP client startup failed (non-fatal)", exc_info=True)
+        _spawn_bg(_connect_mcp(), name="mcp-connect", timeout=60)
 
     # ── Tool plugin registry (T1-2) — MCP, browser, session search ──────
     try:
@@ -857,7 +913,13 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.debug("System monitor report failed (non-fatal)", exc_info=True)
 
-    await asyncio.gather(_report_phil(), _gen_chronicle(), _report_monitor())
+    # DEFERRED (2026-05-31): firebase reporting + an LLM-synthesized system
+    # chronicle are observability, not serving-critical — they must not gate
+    # /health (the chronicle in particular can make an LLM call).
+    _spawn_bg(
+        asyncio.gather(_report_phil(), _gen_chronicle(), _report_monitor()),
+        name="boot-observability", timeout=120,
+    )
 
     # ── LLM catalog early refresh ─────────────────────────────────────
     # The bootstrap CATALOG only holds 3 survival entries.  Without a
@@ -868,21 +930,19 @@ async def lifespan(app: FastAPI):
     # so it just loads the cached snapshot if still fresh, or does one
     # network scan if not).  This runs BEFORE the first agent is built
     # so all role resolutions see the full catalog.
-    try:
+    # DEFERRED (2026-05-31): a stale 24h TTL turns this into a live network
+    # scan of LLM sources, which must not gate /health. The on-disk snapshot
+    # already backs role resolution on boot, and idle_scheduler._run_boot_prep
+    # also refreshes on its daemon thread — so deferring delays catalog
+    # *freshness* by a few seconds, never access.
+    async def _refresh_catalog_bg() -> None:
         from app.llm_catalog_builder import refresh as _refresh_catalog
-        _cat_before = 3  # bootstrap size
         summary = await asyncio.to_thread(_refresh_catalog)
-        _cat_after = summary.get("catalog_size", _cat_before)
         logger.info(
-            f"LLM catalog loaded at startup: {_cat_before} → {_cat_after} entries "
-            f"(sources: {summary.get('source_counts', {})})"
+            "LLM catalog refreshed at startup: %s entries (sources: %s)",
+            summary.get("catalog_size", "?"), summary.get("source_counts", {}),
         )
-    except Exception:
-        logger.warning(
-            "LLM catalog startup refresh failed — role defaults will fall "
-            "back to bootstrap (sonnet/deepseek/qwen3)",
-            exc_info=True,
-        )
+    _spawn_bg(_refresh_catalog_bg(), name="llm-catalog-refresh", timeout=120)
 
     # ── Inbound queue replay ─────────────────────────────────────────
     # If a previous container instance died or was restarted while
@@ -926,7 +986,10 @@ async def lifespan(app: FastAPI):
     # attachment) was interrupted mid-send by a restart, redeliver it.
     # Rows that fail 3 replays stay in 'failed' with last_error for
     # inspection so a poison payload can't loop forever.
-    try:
+    # DEFERRED (2026-05-31): outbound replay re-sends interrupted Signal
+    # messages over the network (signal-cli); the durable outbox makes a few
+    # seconds' delay safe, and it must not gate /health.
+    async def _replay_outbound() -> None:
         from app.signal_client import replay_pending_outbound_sync
         from app.conversation_store import prune_old_outbound
         replayed = await asyncio.to_thread(replay_pending_outbound_sync)
@@ -938,8 +1001,7 @@ async def lifespan(app: FastAPI):
                 logger.info(f"Pruned {pruned} old outbound_queue rows (>7d)")
         except Exception:
             pass
-    except Exception:
-        logger.exception("Outbound queue replay failed at startup")
+    _spawn_bg(_replay_outbound(), name="outbound-replay", timeout=90)
 
     # ── Theory-of-Mind state hygiene ─────────────────────────────────
     # Purge phantom crews (test fixtures, typos, retired names) from
@@ -973,11 +1035,13 @@ async def lifespan(app: FastAPI):
     # Opt-in via DISCORD_ENABLED + DISCORD_BOT_TOKEN. The bot runs as a
     # background asyncio task on the gateway's loop and forwards owner
     # DMs to handle_task with sender prefix `discord:<user_id>`.
+    # DEFERRED (2026-05-31): opening the Discord gateway WebSocket is a network
+    # connect that must not gate /health.
     try:
         from app.discord_client import start_bot as _discord_start
-        await _discord_start()
+        _spawn_bg(_discord_start(), name="discord-start", timeout=60)
     except Exception:
-        logger.exception("Discord bot startup failed (non-fatal)")
+        logger.exception("Discord bot startup scheduling failed (non-fatal)")
 
     # Signal that lifespan setup is complete. Consumers (idle_scheduler,
     # potentially other deferrable subsystems over time) gate on this so
