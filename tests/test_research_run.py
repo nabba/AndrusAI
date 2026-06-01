@@ -529,6 +529,7 @@ def test_module_exports():
         "HINT_DRAFT",
         "HINT_GATE",
         "HINT_SYNTHESIZE",
+        "HINT_VERIFY",
         "ResearchRunOutcome",
         "plan_research",
         "make_research_adapter",

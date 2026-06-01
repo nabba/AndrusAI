@@ -43,7 +43,7 @@ _DEFAULT_BUDGET_USD = 0.50
 _SCRIPT_PATH = "experiment.py"  # the in-memory "file" the loop anchors on
 
 
-def _measurement_present(envelope: Any) -> bool:
+def measurement_present(envelope: Any) -> bool:
     """A run counts as green only when it ran clean AND emitted a measurement.
 
     Mirrors the design-prompt contract ("prints its measurements to stdout as
@@ -217,7 +217,7 @@ def run_experiment_with_repair(
         holder["last_envelope"] = env
         result = env.get("result") if isinstance(env.get("result"), dict) else {}
         return _RunResult(
-            ok=_measurement_present(env),
+            ok=measurement_present(env),
             stderr=_error_text(env),
             stdout=str(result.get("stdout") or ""),
         )
@@ -245,4 +245,4 @@ def run_experiment_with_repair(
     return env
 
 
-__all__ = ["run_experiment_with_repair"]
+__all__ = ["run_experiment_with_repair", "measurement_present"]

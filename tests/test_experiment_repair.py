@@ -63,12 +63,12 @@ _ID = lambda reply: reply  # identity extractor: a repair reply is the new scrip
 
 
 def test_measurement_present_truth_table():
-    assert ER._measurement_present(_clean()) is True
-    assert ER._measurement_present(_failed()) is False
-    assert ER._measurement_present(_empty_stdout()) is False  # clean exit, no output ≠ measurement
-    assert ER._measurement_present(_transport_fail()) is False
-    assert ER._measurement_present("not a dict") is False
-    assert ER._measurement_present({"ok": True}) is False  # no result block
+    assert ER.measurement_present(_clean()) is True
+    assert ER.measurement_present(_failed()) is False
+    assert ER.measurement_present(_empty_stdout()) is False  # clean exit, no output ≠ measurement
+    assert ER.measurement_present(_transport_fail()) is False
+    assert ER.measurement_present("not a dict") is False
+    assert ER.measurement_present({"ok": True}) is False  # no result block
 
 
 def test_error_text_describes_each_failure():
