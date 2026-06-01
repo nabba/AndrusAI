@@ -91,6 +91,41 @@ class Citation:
     def verified(self) -> bool:
         return self.status is CitationStatus.VERIFIED
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "Citation":
+        """Rebuild a Citation from its :meth:`to_dict` form (e.g. a citation the
+        verify step persisted in an executor step's result_text). Defensive —
+        unknown status/confidence values fall back to UNVERIFIED / LOW."""
+        if not isinstance(d, dict):
+            return cls()
+        src = d.get("source")
+        source = None
+        if isinstance(src, dict):
+            source = Source(
+                adapter=str(src.get("adapter") or ""),
+                url=str(src.get("url") or ""),
+                document_id=str(src.get("document_id") or ""),
+                note=str(src.get("note") or ""),
+                accessed_at=str(src.get("accessed_at") or ""),
+            )
+        status = d.get("status")
+        status = CitationStatus(status) if status in {s.value for s in CitationStatus} else CitationStatus.UNVERIFIED
+        conf = d.get("confidence")
+        conf = Confidence(conf) if conf in {c.value for c in Confidence} else Confidence.LOW
+        return cls(
+            raw=str(d.get("raw") or ""),
+            title=str(d.get("title") or ""),
+            authors=tuple(d.get("authors") or ()),
+            year=d.get("year"),
+            doi=str(d.get("doi") or ""),
+            arxiv_id=str(d.get("arxiv_id") or ""),
+            url=str(d.get("url") or ""),
+            status=status,
+            confidence=conf,
+            source=source,
+            reason=str(d.get("reason") or ""),
+        )
+
     def to_dict(self) -> dict:
         return {
             "raw": self.raw,
