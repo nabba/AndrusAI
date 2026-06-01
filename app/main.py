@@ -337,6 +337,22 @@ def _spawn_bg(coro, *, name: str, timeout: float) -> "asyncio.Task":
 async def lifespan(app: FastAPI):
     from app.crews.self_improvement_crew import SelfImprovementCrew
 
+    # ── Process-liveness heartbeat (2026-06-01) — start FIRST ──────────
+    # A daemon thread (NOT this event loop) writes a heartbeat file every
+    # few seconds. It survives event-loop starvation (heavy idle-job GIL
+    # contention, a multi-minute evolver docker-wait), so the host watchdog
+    # can tell "process alive, loop busy" (don't restart — let heavy work
+    # finish) from "process dead/wedged" (restart). This ends the loop where
+    # a busy-but-healthy gateway was guillotined at the 120 s /health
+    # threshold. See app/liveness.py + scripts/gateway_watchdog.py.
+    try:
+        from app.liveness import start_liveness_heartbeat
+
+        _hb_path = start_liveness_heartbeat()
+        logger.info("main: process-liveness heartbeat started (%s)", _hb_path)
+    except Exception:
+        logger.exception("main: liveness heartbeat failed to start (non-fatal)")
+
     # ── Q3.3 (PROGRAM §40.3 Item 1) — Post-amendment restart claims FIRST.
     # Per FastAPI/uvicorn semantics, lifespan-startup runs BEFORE port-
     # binding, so the claim surface here is already before any route
