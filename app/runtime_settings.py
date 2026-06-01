@@ -806,6 +806,12 @@ def _defaults() -> dict[str, Any]:
         # Default OFF — additional to ``research_experiments_enabled``; off
         # keeps the one-shot ``run_experiment`` behaviour byte-for-byte.
         "research_experiment_repair_enabled": False,
+        # Phase-B anti-fabrication verification step: verify the draft's
+        # citations against authoritative sources (dropping fabricated ones)
+        # and block a draft whose empirical claims trace to neither a recorded
+        # measurement nor a verified citation. Default OFF; opt-in per run via
+        # the ``verify=True`` planner flag AND this switch (makes network calls).
+        "research_citation_verification_enabled": False,
         # Per-run defaults the driver uses when an explicit budget
         # isn't supplied on /delegate. Sanity caps in
         # ``app.autonomous_executor.budget_caps`` constrain how high
@@ -1708,6 +1714,25 @@ def set_research_experiment_repair_enabled(value: bool) -> None:
     _update({"research_experiment_repair_enabled": bool(value)})
     logger.info(
         "runtime_settings: research_experiment_repair_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_research_citation_verification_enabled() -> bool:
+    """Switch for the Phase-B anti-fabrication verification step
+    (``app.research.run``'s ``research:verify`` hint). Default OFF — the step is
+    a no-op skip until the operator opts in (it makes network calls to the
+    literature APIs). Opt-in per run also requires the ``verify=True`` planner
+    flag so the step is even in the plan."""
+    return bool(
+        _ensure_initialized().get("research_citation_verification_enabled", False),
+    )
+
+
+def set_research_citation_verification_enabled(value: bool) -> None:
+    _update({"research_citation_verification_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: research_citation_verification_enabled set to %s",
         bool(value),
     )
 
