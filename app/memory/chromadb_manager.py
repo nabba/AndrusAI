@@ -266,6 +266,38 @@ def get_kb_client(kb_name: str):
         return client
 
 
+# Path-keyed client cache (2026-06-01). The per-KB vectorstores
+# (KnowledgeStore / EpistemeStore / …) each live at their own
+# ``workspace/<kb>`` directory, so they can't share the ``memory`` singleton.
+# But ChromaDB 1.5.x is RUST-backed: every PersistentClient spawns a tokio
+# runtime (~2x cores worker threads) + an sqlx sqlite pool. KnowledgeStore()
+# is built at 14 hot-path call sites with NO singleton, so opening a fresh
+# client per instance leaked those Rust runtimes (threads + memory) until the
+# 8 GB cgroup OOM. Caching by resolved path makes every store reuse ONE client
+# per KB. Recycle-aware: ``recycle_client`` clears this cache too.
+_clients_by_path: dict[str, object] = {}
+
+
+def get_client_for_path(persist_dir) -> object:
+    """Return a process-cached ``PersistentClient`` for a KB directory.
+
+    Use this instead of ``chromadb.PersistentClient(path=...)`` anywhere a
+    long-lived store opens its own KB directory, so repeated instantiation
+    reuses one Rust runtime instead of leaking one per call.
+    """
+    key = str(Path(persist_dir).resolve())
+    cached = _clients_by_path.get(key)
+    if cached is not None:
+        return cached
+    with _client_lock:
+        cached = _clients_by_path.get(key)
+        if cached is not None:
+            return cached
+        client = chromadb.PersistentClient(path=key)
+        _clients_by_path[key] = client
+        return client
+
+
 # E4: Cache collection objects — avoid get_or_create_collection() per operation.
 # Also cache count() to avoid O(n) scan on every retrieve call.
 _collections: dict[str, object] = {}
@@ -305,6 +337,13 @@ def recycle_client(kb_name: str | None = None) -> dict:
     global _client
     target = (kb_name or "").strip()
     with _client_lock:
+        # Also drop any path-cached clients (get_client_for_path) — the per-KB
+        # vectorstores use those, so recycle must clear them too or a wedged
+        # client survives. Rare recovery action → nuke all (re-created on next
+        # access, each cleanly closed first).
+        for _pc in _clients_by_path.values():
+            _safe_close(_pc)
+        _clients_by_path.clear()
         if not target or target == "memory":
             closed = _safe_close(_client)
             _client = None
