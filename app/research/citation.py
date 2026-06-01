@@ -153,6 +153,35 @@ def _title_tokens(title: str) -> set[str]:
     return set(_WORD_RE.findall((title or "").lower()))
 
 
+def extract_citations(text: str) -> list["Citation"]:
+    """Pull identifier-bearing citations (DOIs, arXiv ids) out of free text.
+
+    Deliberately extracts only the reliably machine-verifiable identifiers — it
+    does NOT try to parse author-year reference strings (a separate, fuzzy
+    problem). Each unique DOI / arXiv id becomes one ``Citation`` for the
+    verifier; deduped by identifier. This is what lets a finished draft be
+    checked for fabricated references: every id it cites must resolve.
+    """
+    if not text:
+        return []
+    out: list[Citation] = []
+    seen: set[tuple[str, str]] = set()
+    for m in _DOI_RE.finditer(text):
+        doi = _DOI_TRAILING.sub("", m.group(1)).lower()
+        key = ("doi", doi)
+        if doi and key not in seen:
+            seen.add(key)
+            out.append(Citation(raw=m.group(0).strip(), doi=doi))
+    for rx in (_ARXIV_NEW_RE, _ARXIV_OLD_RE):
+        for m in rx.finditer(text):
+            aid = m.group(1)
+            key = ("arxiv", aid)
+            if key not in seen:
+                seen.add(key)
+                out.append(Citation(raw=m.group(0).strip(), arxiv_id=aid))
+    return out
+
+
 def title_similarity(a: str, b: str) -> float:
     """Token-Jaccard similarity of two titles in [0, 1] — order-insensitive and
     robust to punctuation/casing (the codebase's idiom; no embedding dep)."""
@@ -192,6 +221,7 @@ __all__ = [
     "Citation",
     "normalize_arxiv_id",
     "normalize_doi",
+    "extract_citations",
     "title_similarity",
     "title_match_score",
 ]

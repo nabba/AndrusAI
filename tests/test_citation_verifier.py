@@ -68,6 +68,33 @@ def test_title_match_score_short_candidate_cannot_spuriously_match():
     assert C.title_match_score("a long sentence about transformers and attention", "attention") < 0.5
 
 
+# ── extract_citations ─────────────────────────────────────────────────────────
+
+
+def test_extract_citations_pulls_dois_and_arxiv_ids():
+    text = (
+        "We build on Transformers (arXiv:1706.03762) and ResNet "
+        "(https://doi.org/10.1109/CVPR.2016.90). See also 2305.12345 and "
+        "doi:10.1038/nature12373 for context."
+    )
+    keys = {(c.doi or c.arxiv_id) for c in C.extract_citations(text)}
+    assert "1706.03762" in keys
+    assert "2305.12345" in keys
+    assert "10.1109/cvpr.2016.90" in keys
+    assert "10.1038/nature12373" in keys
+
+
+def test_extract_citations_skips_invalid_doi_and_dedups():
+    text = "10.1/x is not a DOI. But 10.1000/y appears twice: 10.1000/y."
+    dois = [c.doi for c in C.extract_citations(text) if c.doi]
+    assert dois == ["10.1000/y"]  # one-digit registrant rejected; duplicate collapsed
+
+
+def test_extract_citations_empty():
+    assert C.extract_citations("") == []
+    assert C.extract_citations("no identifiers here at all") == []
+
+
 # ── Layer 1: arXiv id ─────────────────────────────────────────────────────────
 
 

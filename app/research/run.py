@@ -89,6 +89,13 @@ HINT_ANALYZE_RESULT = "research:analyze_result"
 # ``synthesize=True``. The primary dossier surface is the on-demand endpoint
 # (works in any run state) — this step just bakes a PDF into the run itself.
 HINT_SYNTHESIZE = "research:synthesize"
+# Phase B — anti-fabrication verification pass (off by default; opt in with
+# ``verify=True``). Inserted just before the evidence gate: it verifies every
+# identifier-bearing citation in the draft (dropping fabricated ones via
+# ``app.research.citation_verifier``) and BLOCKS a draft whose empirical claims
+# trace to NEITHER a recorded measurement NOR a verified citation — the
+# "results must come from somewhere real" property.
+HINT_VERIFY = "research:verify"
 
 # How much prior context to fold into the prose-step prompts.
 _MAX_LIT_FOR_PROMPT = 6
@@ -144,6 +151,7 @@ def plan_research(
     *,
     synthesize: bool = False,
     experiment: bool = False,
+    verify: bool = False,
 ) -> list[ExecutorStep]:
     """Return the research steps, each carrying a ``research:*`` hint.
 
@@ -164,8 +172,11 @@ def plan_research(
       analyze_result → draft → gate.
     * ``synthesize=True`` — a trailing :data:`HINT_SYNTHESIZE` step is
       appended that bakes a ResearchDossier PDF into the run.
+    * ``verify=True`` (Phase B) — a :data:`HINT_VERIFY` step is inserted just
+      before the gate: it verifies the draft's citations and grounds its
+      empirical claims (see :func:`make_research_adapter`).
 
-    With neither flag the plan is byte-identical to the original Phase-3
+    With none of the flags the plan is byte-identical to the original Phase-3
     five-step contract.
     """
     q = (goal or "").strip()
@@ -210,18 +221,28 @@ def plan_research(
                 crew_hint=HINT_INVESTIGATE,
             )
         )
-    steps += [
+    steps.append(
         ExecutorStep(
             step_id="",
             description=f"Draft research findings for: {short}",
             crew_hint=HINT_DRAFT,
-        ),
+        )
+    )
+    if verify:
+        steps.append(
+            ExecutorStep(
+                step_id="",
+                description="Verify citations + ground empirical claims in the draft",
+                crew_hint=HINT_VERIFY,
+            )
+        )
+    steps.append(
         ExecutorStep(
             step_id="",
             description="Check the draft for uncited empirical claims",
             crew_hint=HINT_GATE,
-        ),
-    ]
+        )
+    )
     if synthesize:
         steps.append(
             ExecutorStep(
@@ -390,6 +411,63 @@ def _default_experiment_repair(script: str, *, experiment_fn, goal: str, timeout
         goal=goal,
         timeout_s=timeout_s,
     )
+
+
+# Quantitative empirical assertions (percentage / speedup / p-value / sample
+# size / throughput) — the kind of claim the verification step requires to be
+# grounded in a measurement or a verified citation.
+_EMPIRICAL_CLAIM_RE = re.compile(
+    r"\b\d+(?:\.\d+)?\s*%"
+    r"|\b\d+(?:\.\d+)?\s*[x×]\b"
+    r"|\bp\s*[<=>]\s*0?\.\d+"
+    r"|\bn\s*=\s*\d+"
+    r"|\b\d+(?:\.\d+)?\s*(?:ms|s|rps|qps|fps|gb|mb|kb|tok(?:ens?)?/s)\b",
+    re.IGNORECASE,
+)
+
+
+def _draft_has_empirical_claims(text: str) -> bool:
+    """True if the draft makes a quantitative empirical assertion that must be
+    grounded in a measurement or a verified citation."""
+    return bool(_EMPIRICAL_CLAIM_RE.search(text or ""))
+
+
+def _run_measurement_present(run: ExecutorRun) -> bool:
+    """True if the run's experiment step produced a real measurement.
+
+    Reuses ``experiment_repair.measurement_present`` over the run_experiment
+    envelope. False when there was no experiment step (the 5-step plan) or it
+    skipped/failed — in which case any empirical claim needs a verified citation.
+    """
+    raw = _text_for(run, HINT_RUN_EXPERIMENT)
+    if not raw:
+        return False
+    try:
+        env = json.loads(raw)
+        from app.research.experiment_repair import measurement_present
+
+        return bool(measurement_present(env))
+    except Exception:
+        logger.debug("research.run: measurement_present read failed", exc_info=True)
+        return False
+
+
+def _citation_verification_enabled() -> bool:
+    """Master switch for the Phase-B verification step (failure-closed)."""
+    try:
+        from app.runtime_settings import get_research_citation_verification_enabled
+
+        return bool(get_research_citation_verification_enabled())
+    except Exception:
+        logger.debug("research.run: citation-verification-enabled read failed", exc_info=True)
+        return False
+
+
+def _default_verify_references(citations):
+    """Default verification seam — the 4-layer citation verifier."""
+    from app.research.citation_verifier import verify_references
+
+    return verify_references(citations)
 
 
 def _default_gate_output(*, proposal_text: str, task_id: str, triggering_claim_id=None):
@@ -599,6 +677,8 @@ def make_research_adapter(
     design_fn: Optional[Callable] = None,
     investigate_fn: Optional[Callable] = None,
     draft_fn: Optional[Callable] = None,
+    verify_references_fn: Optional[Callable] = None,
+    citation_verification_enabled_fn: Optional[Callable] = None,
 ) -> CommanderFn:
     """Build a ``CommanderFn`` that executes research steps by crew-hint.
 
@@ -673,6 +753,10 @@ def make_research_adapter(
         investigate_fn = _default_investigate
     if draft_fn is None:
         draft_fn = _default_draft
+    if verify_references_fn is None:
+        verify_references_fn = _default_verify_references
+    if citation_verification_enabled_fn is None:
+        citation_verification_enabled_fn = _citation_verification_enabled
 
     def _adapter(step: ExecutorStep, run: ExecutorRun) -> CommanderResult:
         hint = step.crew_hint
@@ -808,6 +892,48 @@ def make_research_adapter(
             # Focused write-up completion, NOT the conversational Commander.
             return CommanderResult(text=draft_fn(_build_draft_prompt(run)) or "")
 
+        if hint == HINT_VERIFY:
+            # Phase B — anti-fabrication pass. Gated by
+            # ``citation_verification_enabled_fn`` (off → a non-blocking skip;
+            # the spine still gates + completes). Escalates (BLOCKED) when a
+            # cited identifier doesn't resolve, OR when the draft asserts an
+            # empirical result backed by neither a recorded measurement nor a
+            # verified citation. Failure-isolated — a sick verifier never blocks.
+            if not citation_verification_enabled_fn():
+                run.record_note("verify: skipped (research_citation_verification_enabled off)")
+                return CommanderResult(
+                    text=_encode({"skipped": "research_citation_verification_enabled off"})
+                )
+            draft = (
+                _text_for(run, HINT_DRAFT)
+                or _text_for(run, HINT_ANALYZE_RESULT)
+                or _text_for(run, HINT_INVESTIGATE)
+            )
+            from app.research.citation import extract_citations
+
+            try:
+                report = verify_references_fn(extract_citations(draft))
+            except Exception:
+                logger.debug("research.run: verify_references_fn raised", exc_info=True)
+                run.record_note("verify: unavailable")
+                return CommanderResult(text="research-citation verification: unavailable")
+            dropped = list(getattr(report, "dropped", []) or [])
+            verified = list(getattr(report, "verified", []) or [])
+            measured = _run_measurement_present(run)
+            has_empirical = _draft_has_empirical_claims(draft)
+            reasons = []
+            if dropped:
+                reasons.append(f"{len(dropped)} unverifiable citation(s)")
+            if has_empirical and not measured and not verified:
+                reasons.append("empirical claims with no recorded measurement or verified citation")
+            if reasons:
+                detail = "; ".join(reasons)
+                run.record_note(f"verify: escalate ({detail})")
+                return CommanderResult(text=f"BLOCKED: anti-fabrication verification — {detail}")
+            summary = report.summary() if hasattr(report, "summary") else {}
+            run.record_note(f"verify: clear (verified={len(verified)}, dropped={len(dropped)})")
+            return CommanderResult(text=_encode({"verdict": "clear", "citations": summary}))
+
         if hint == HINT_GATE:
             draft = _text_for(run, HINT_DRAFT) or _text_for(run, HINT_INVESTIGATE)
             try:
@@ -858,6 +984,7 @@ def build_research_run(
     budget: Optional[Budget] = None,
     synthesize: bool = False,
     experiment: bool = False,
+    verify: bool = False,
 ) -> ExecutorRun:
     """Create a research ExecutorRun with its plan pre-populated.
 
@@ -887,7 +1014,7 @@ def build_research_run(
         budget=budget or Budget(),
     )
     run.transition(ExecutorStatus.PLANNING)
-    for step in plan_research(q, run, synthesize=synthesize, experiment=experiment):
+    for step in plan_research(q, run, synthesize=synthesize, experiment=experiment, verify=verify):
         run.add_step(description=step.description, crew_hint=step.crew_hint)
     return run
 
@@ -980,6 +1107,7 @@ __all__ = [
     "HINT_DRAFT",
     "HINT_GATE",
     "HINT_SYNTHESIZE",
+    "HINT_VERIFY",
     "ResearchRunOutcome",
     "plan_research",
     "make_research_adapter",
