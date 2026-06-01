@@ -2855,6 +2855,10 @@ def _handle_thread_command(user_input: str) -> str | None:
 def _delegate_help() -> str:
     return (
         "/delegate <goal>                — create a new autonomous run\n"
+        "/delegate paper <question>      — research run → verified paper.tex "
+        "(verify + compose)\n"
+        "/delegate research [verify] [compose] [experiment] <question>\n"
+        "                                — research run with explicit steps\n"
         "/delegate status                — list active runs\n"
         "/delegate status <run_id>       — detail of one run (8-char "
         "prefix ok)\n"
@@ -3054,6 +3058,12 @@ def _handle_delegate_command(
             f"▶ Resumed run {run.run_id[:8]} with hint."
         )
 
+    # /delegate research|paper [flags] <goal>  — file a research run that can
+    # produce a verified paper (idea → … → paper.tex). `paper` is shorthand for
+    # research + verify + compose; `research` takes explicit leading flags.
+    if sub in ("research", "paper"):
+        return _handle_research_delegate(sub, arg, sender)
+
     # Anything else is treated as the goal for a new run.
     # Re-assemble the original goal text (without the /delegate prefix).
     goal = text.strip()
@@ -3107,6 +3117,105 @@ def _handle_delegate_command(
             "scheduler will not advance this run until you flip the "
             "master switch in /cp/settings."
         )
+    return msg
+
+
+def _handle_research_delegate(sub: str, arg: str, sender: str) -> str:
+    """Create a research run from Signal.
+
+    ``/delegate paper <goal>``      → research + verify + compose (full idea→paper).
+    ``/delegate research [experiment] [verify] [compose] [synthesize] <goal>``
+                                    → research with explicit leading flags.
+
+    Each step is still gated at execution time by its own default-OFF switch,
+    so a flag only adds the step to the plan; it can't run anything the operator
+    hasn't enabled. Routes to ``build_research_run`` exactly like the REST
+    surface (``POST /api/cp/delegate {mode:"research", ...}``).
+    """
+    from app.research.run import parse_delegate_flags
+
+    if sub == "paper":
+        # `paper` is the no-flags shorthand — the whole arg is the goal, and we
+        # force verify + compose (so it doesn't eat a goal word like "verify").
+        flags = {"experiment": False, "verify": True, "compose": True, "synthesize": False}
+        goal = arg.strip()
+    else:  # research — explicit leading flags
+        flags, goal = parse_delegate_flags(arg)
+
+    if len(goal) < 4:
+        return (
+            "Goal too short (need ≥4 chars).\n"
+            "  /delegate paper <question>            — full idea→paper run\n"
+            "  /delegate research [experiment] [verify] [compose] <question>"
+        )
+
+    try:
+        from app.autonomous_executor import store as _store
+        from app.autonomous_executor.models import Budget
+        from app.research.run import build_research_run
+        from app.runtime_settings import (
+            get_executor_default_budget_tokens,
+            get_executor_default_budget_usd,
+            get_executor_default_wall_clock_s,
+        )
+
+        budget = Budget(
+            cap_usd=get_executor_default_budget_usd(),
+            cap_tokens=get_executor_default_budget_tokens(),
+            cap_wall_clock_s=get_executor_default_wall_clock_s(),
+        )
+        run = build_research_run(
+            goal,
+            requestor=f"signal:{sender or 'unknown'}",
+            zone="autonomous",
+            budget=budget,
+            experiment=flags["experiment"],
+            verify=flags["verify"],
+            compose=flags["compose"],
+            synthesize=flags["synthesize"],
+        )
+        # Cross-run learning, like the REST path. Failure-isolated.
+        try:
+            from app.research.binding import bind_run_to_thread
+
+            bind_run_to_thread(run)
+        except Exception:
+            pass
+        _store.save(run)
+    except Exception as exc:
+        return f"Could not create research run: {exc}"
+
+    enabled = [k for k, v in flags.items() if v]
+    detail = (" [" + ", ".join(enabled) + "]") if enabled else ""
+    msg = (
+        f"📄 Filed research run {run.run_id[:8]}{detail} (budget "
+        f"${run.budget.cap_usd:.2f}, {len(run.plan)} steps). "
+        f"Use /delegate status {run.run_id[:8]}."
+    )
+
+    # Tell the operator which requested steps will SKIP because their switch is
+    # off — otherwise a `paper` run that silently doesn't compose is confusing.
+    off: list[str] = []
+    try:
+        from app.runtime_settings import (
+            get_autonomous_executor_enabled,
+            get_research_citation_verification_enabled,
+            get_research_compose_paper_enabled,
+            get_research_experiments_enabled,
+        )
+
+        if not get_autonomous_executor_enabled():
+            off.append("autonomous_executor_enabled (run won't advance)")
+        if flags["verify"] and not get_research_citation_verification_enabled():
+            off.append("research_citation_verification_enabled")
+        if flags["compose"] and not get_research_compose_paper_enabled():
+            off.append("research_compose_paper_enabled")
+        if flags["experiment"] and not get_research_experiments_enabled():
+            off.append("research_experiments_enabled")
+    except Exception:
+        pass
+    if off:
+        msg += "\n\n⚠ Off (these steps skip until you flip them in /cp/settings): " + ", ".join(off) + "."
     return msg
 
 

@@ -143,6 +143,40 @@ def test_plan_research_truncates_long_goal():
     assert "a" * 118 not in steps[0].description
 
 
+# ── parse_delegate_flags (Signal /delegate research|paper) ────────────────────
+
+
+def test_parse_delegate_flags_extracts_leading_flags():
+    flags, goal = R.parse_delegate_flags("verify compose how fast is binary search")
+    assert flags == {"experiment": False, "verify": True, "compose": True, "synthesize": False}
+    assert goal == "how fast is binary search"
+
+
+def test_parse_delegate_flags_handles_dashes_and_all_flags():
+    flags, goal = R.parse_delegate_flags("--experiment --verify --compose --synthesize study X")
+    assert all(flags.values())
+    assert goal == "study X"
+
+
+def test_parse_delegate_flags_no_flags_is_all_goal():
+    flags, goal = R.parse_delegate_flags("is caching worth it")
+    assert not any(flags.values())
+    assert goal == "is caching worth it"
+
+
+def test_parse_delegate_flags_stops_at_first_non_flag():
+    # a flag word that appears AFTER the goal starts is part of the goal
+    flags, goal = R.parse_delegate_flags("verify does X verify Y")
+    assert flags["verify"] is True and flags["compose"] is False
+    assert goal == "does X verify Y"
+
+
+def test_parse_delegate_flags_empty():
+    flags, goal = R.parse_delegate_flags("")
+    assert not any(flags.values())
+    assert goal == ""
+
+
 # ── build_research_run ───────────────────────────────────────────────────────
 
 
@@ -533,6 +567,7 @@ def test_module_exports():
         "HINT_COMPOSE",
         "ResearchRunOutcome",
         "plan_research",
+        "parse_delegate_flags",
         "make_research_adapter",
         "build_research_run",
         "run_to_completion",

@@ -1129,6 +1129,33 @@ def make_research_adapter(
     return _adapter
 
 
+# ── Delegate-input parsing (Signal / CLI) ─────────────────────────────────────
+
+_DELEGATE_FLAG_WORDS = ("experiment", "verify", "compose", "synthesize")
+
+
+def parse_delegate_flags(arg: str) -> tuple[dict, str]:
+    """Split leading research flag-words off a ``/delegate research …`` argument.
+
+    Returns ``({experiment, verify, compose, synthesize: bool}, goal)``. Flag
+    words (optionally ``--``-prefixed) are consumed from the FRONT until the
+    first non-flag token; everything after is the goal. So
+    ``"verify compose how fast is X"`` → ({verify, compose}, "how fast is X").
+    Pure + stdlib so the Signal command parser is host-testable.
+    """
+    flags = {w: False for w in _DELEGATE_FLAG_WORDS}
+    tokens = (arg or "").split()
+    i = 0
+    while i < len(tokens):
+        word = tokens[i].lower().lstrip("-")
+        if word in flags:
+            flags[word] = True
+            i += 1
+        else:
+            break
+    return flags, " ".join(tokens[i:]).strip()
+
+
 # ── Run construction + driving ────────────────────────────────────────────────
 
 
@@ -1274,6 +1301,7 @@ __all__ = [
     "HINT_COMPOSE",
     "ResearchRunOutcome",
     "plan_research",
+    "parse_delegate_flags",
     "make_research_adapter",
     "build_research_run",
     "run_to_completion",
