@@ -29,6 +29,16 @@ Environment:
                             "unresponsive" for a stretch — this grace prevents
                             the watchdog from turning a slow boot into a
                             restart loop.
+    GATEWAY_LIVENESS_PATH   process-liveness heartbeat file the gateway writes
+                            from a daemon thread (default
+                            <COMPOSE_PROJECT_DIR>/workspace/healing/gateway_liveness).
+                            A fresh heartbeat means the PROCESS is alive even if
+                            the event loop is too busy to answer /health.
+    HEARTBEAT_STALE_SECONDS heartbeat age past which the process is treated as
+                            wedged/dead → restart (default 60)
+    HEALTH_ESCALATE_SECONDS how long /health may stay down WHILE the heartbeat
+                            is fresh before we treat it as a real event-loop
+                            wedge and restart anyway (default 900)
     COMPOSE_PROJECT_DIR     dir containing docker-compose.yml (default /Users/andrus/BotArmy/crewai-team)
     GATEWAY_SERVICE         compose service name (default gateway)
     SIGNAL_CLI_HTTP_URL     signal-cli JSON-RPC endpoint (default http://127.0.0.1:7583)
@@ -51,7 +61,7 @@ import requests
 
 HEALTH_URL = os.environ.get("HEALTH_URL", "http://127.0.0.1:8765/health")
 POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL_SECONDS", "20"))
-HEALTH_TIMEOUT = float(os.environ.get("HEALTH_TIMEOUT_SECONDS", "5"))
+HEALTH_TIMEOUT = float(os.environ.get("HEALTH_TIMEOUT_SECONDS", "15"))
 FAILURE_THRESHOLD = int(os.environ.get("FAILURE_THRESHOLD", "6"))
 RESTART_COOLDOWN = float(os.environ.get("RESTART_COOLDOWN_SECONDS", "300"))
 RESTART_GRACE = float(os.environ.get("RESTART_GRACE_SECONDS", "120"))
@@ -68,6 +78,26 @@ STATE_PATH = os.environ.get(
     "STATE_PATH",
     os.path.expanduser("~/.crewai-bridge/gateway_watchdog_state.json"),
 )
+
+# ── Process-liveness heartbeat gate (2026-06-01) ─────────────────────────
+# The gateway writes a heartbeat file (app/liveness.py) from a daemon thread
+# that survives event-loop starvation. When /health is unresponsive we read
+# this file to distinguish "process alive, loop busy" (a heavy idle job or a
+# multi-minute evolver wait — DON'T restart, let it finish) from "process
+# dead/wedged" (restart). This ends the loop where a busy-but-healthy gateway
+# was guillotined at the /health threshold, killing in-flight work and never
+# letting heavy self-improvement/research jobs complete.
+LIVENESS_PATH = os.environ.get(
+    "GATEWAY_LIVENESS_PATH",
+    os.path.join(COMPOSE_PROJECT_DIR, "workspace", "healing", "gateway_liveness"),
+)
+HEARTBEAT_STALE = float(os.environ.get("HEARTBEAT_STALE_SECONDS", "60"))
+# /health may legitimately be slow for the length of one heavy idle job
+# (evolution cap 600 s; evolver docker-wait up to 1800 s). Only treat a LIVE
+# process whose /health stays continuously down past this as a genuine loop
+# wedge worth a restart — generous, so we never guillotine real work.
+HEALTH_ESCALATE = float(os.environ.get("HEALTH_ESCALATE_SECONDS", "900"))
+BUSY_LOG_INTERVAL = 120.0  # throttle the "busy, not restarting" log line
 
 _session = requests.Session()
 
@@ -136,6 +166,28 @@ def probe_health() -> bool:
     except Exception as e:
         log(f"probe raised unexpected: {e}")
         return False
+
+
+def read_liveness_age() -> Optional[float]:
+    """Seconds since the gateway's process-liveness heartbeat was last written.
+
+    The gateway (app/liveness.py) writes ``time.time()`` to LIVENESS_PATH from a
+    daemon thread every few seconds. A fresh value means the PROCESS is alive and
+    the interpreter is scheduling threads, EVEN IF the asyncio event loop is too
+    busy to answer /health. Returns None if the file is missing/unreadable (e.g.
+    a gateway build that predates the heartbeat) — callers treat None as "no
+    liveness signal, fall back to the /health-threshold decision".
+    """
+    try:
+        with open(LIVENESS_PATH, "r", encoding="utf-8") as f:
+            ts = float(f.read().strip())
+        return max(0.0, time.time() - ts)  # clamp clock-skew negatives to "fresh"
+    except (OSError, ValueError):
+        # Content unreadable/partial — fall back to mtime (atomic on close).
+        try:
+            return max(0.0, time.time() - os.path.getmtime(LIVENESS_PATH))
+        except OSError:
+            return None
 
 
 def signal_alert(text: str) -> None:
@@ -242,10 +294,15 @@ def main() -> int:
     log(f"Starting — poll {HEALTH_URL} every {POLL_INTERVAL:.0f}s "
         f"(timeout {HEALTH_TIMEOUT:.0f}s), restart after {FAILURE_THRESHOLD} consecutive failures, "
         f"cooldown {RESTART_COOLDOWN:.0f}s, grace {RESTART_GRACE:.0f}s")
+    log(f"Liveness gate: heartbeat {LIVENESS_PATH} (stale>{HEARTBEAT_STALE:.0f}s ⇒ restart); "
+        f"a LIVE process with slow /health is NOT restarted until /health is down "
+        f">{HEALTH_ESCALATE:.0f}s")
     if not SIGNAL_OWNER:
         log("SIGNAL_OWNER_NUMBER not set; alerts disabled (recovery still runs)")
 
     consecutive_failures = 0
+    health_down_since: Optional[float] = None  # when /health started failing (this outage)
+    last_busy_log = 0.0  # throttle the "busy, not restarting" log line
     last_restart_at: Optional[float] = _load_restart_state()
     if last_restart_at is not None:
         remaining = int(RESTART_COOLDOWN - (time.time() - last_restart_at))
@@ -275,9 +332,12 @@ def main() -> int:
             if consecutive_failures:
                 log(f"Recovered after {consecutive_failures} failed probe(s)")
                 consecutive_failures = 0
+                health_down_since = None
+                last_busy_log = 0.0
         else:
             consecutive_failures += 1
             if consecutive_failures == 1:
+                health_down_since = now
                 log("First failed probe — watching")
             elif consecutive_failures % max(1, FAILURE_THRESHOLD // 2) == 0:
                 log(f"Failed probe {consecutive_failures}/{FAILURE_THRESHOLD}")
@@ -287,24 +347,53 @@ def main() -> int:
                     last_restart_at is not None
                     and (now - last_restart_at) < RESTART_COOLDOWN
                 )
+                # ── Liveness gate (2026-06-01) ─────────────────────────
+                # Is the PROCESS alive (loop merely busy) or dead/wedged?
+                age = read_liveness_age()
+                process_alive = age is not None and age < HEARTBEAT_STALE
+                down_for = (
+                    int(now - health_down_since) if health_down_since
+                    else int(consecutive_failures * POLL_INTERVAL)
+                )
                 if in_cooldown:
                     remaining = int(RESTART_COOLDOWN - (now - last_restart_at))
                     log(f"Threshold breached but cooldown active ({remaining}s remaining)")
+                elif process_alive and down_for < HEALTH_ESCALATE:
+                    # Process alive (heartbeat fresh) — the event loop is just
+                    # busy with heavy work. Restarting would guillotine it and
+                    # never let it finish. Hold off; escalate only past
+                    # HEALTH_ESCALATE (a genuine loop wedge, not a heavy job).
+                    if (now - last_busy_log) >= BUSY_LOG_INTERVAL:
+                        log(f"/health down ~{down_for}s but process ALIVE "
+                            f"(heartbeat {age:.0f}s old) — busy loop, NOT restarting "
+                            f"(escalate at {int(HEALTH_ESCALATE)}s)")
+                        last_busy_log = now
                 else:
-                    elapsed_hung = int(consecutive_failures * POLL_INTERVAL)
+                    # Restart: heartbeat stale/missing (process wedged/dead, or a
+                    # pre-heartbeat build), OR /health down past the escalation
+                    # window with a live process (genuine event-loop wedge).
+                    if age is None:
+                        cause = "no process heartbeat (dead, or pre-heartbeat build)"
+                    elif age >= HEARTBEAT_STALE:
+                        cause = f"process heartbeat STALE ({age:.0f}s) — process wedged/dead"
+                    else:
+                        cause = (f"/health down >{int(HEALTH_ESCALATE)}s with a live "
+                                 f"process — event loop wedged")
                     diag = gateway_diagnostics()
-                    log(f"Threshold breached — gateway hung ~{elapsed_hung}s; "
+                    log(f"Threshold breached — {cause}; /health down ~{down_for}s; "
                         f"diagnostics: {diag}; restarting")
                     signal_alert(
-                        f"⚠️ Gateway watchdog: /health unresponsive for ~{elapsed_hung}s.\n"
-                        f"Cause: {diag}\n"
-                        f"Restarting {GATEWAY_SERVICE} now."
+                        f"⚠️ Gateway watchdog: restarting {GATEWAY_SERVICE}.\n"
+                        f"Reason: {cause}\n"
+                        f"/health down ~{down_for}s. {diag}"
                     )
                     success = restart_gateway()
                     last_restart_at = time.time()
                     _save_restart_state(last_restart_at)
                     grace_until = last_restart_at + RESTART_GRACE
                     consecutive_failures = 0
+                    health_down_since = None
+                    last_busy_log = 0.0
                     if success:
                         signal_alert(
                             f"♻️ Gateway restart issued. Probing again in {int(RESTART_GRACE)}s."
