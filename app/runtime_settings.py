@@ -812,6 +812,10 @@ def _defaults() -> dict[str, Any]:
         # measurement nor a verified citation. Default OFF; opt-in per run via
         # the ``verify=True`` planner flag AND this switch (makes network calls).
         "research_citation_verification_enabled": False,
+        # Phase-C/D compose step: render the run's artifacts into paper.tex +
+        # references.bib (manuscript composer + LaTeX backend). Default OFF;
+        # opt-in per run via the ``compose=True`` planner flag AND this switch.
+        "research_compose_paper_enabled": False,
         # Per-run defaults the driver uses when an explicit budget
         # isn't supplied on /delegate. Sanity caps in
         # ``app.autonomous_executor.budget_caps`` constrain how high
@@ -1733,6 +1737,24 @@ def set_research_citation_verification_enabled(value: bool) -> None:
     _update({"research_citation_verification_enabled": bool(value)})
     logger.info(
         "runtime_settings: research_citation_verification_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_research_compose_paper_enabled() -> bool:
+    """Switch for the Phase-C/D compose step (``app.research.run``'s
+    ``research:compose`` hint) — renders the run's artifacts into paper.tex +
+    references.bib. Default OFF; opt-in per run also requires the
+    ``compose=True`` planner flag so the step is even in the plan."""
+    return bool(
+        _ensure_initialized().get("research_compose_paper_enabled", False),
+    )
+
+
+def set_research_compose_paper_enabled(value: bool) -> None:
+    _update({"research_compose_paper_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: research_compose_paper_enabled set to %s",
         bool(value),
     )
 

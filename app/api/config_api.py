@@ -359,6 +359,7 @@ def _build_setter_registry():
         set_research_experiments_enabled,
         set_research_experiment_repair_enabled,
         set_research_citation_verification_enabled,
+        set_research_compose_paper_enabled,
         set_tripit_ical_url,
         set_aviationstack_api_key,
         set_analogy_index_populator_enabled,
@@ -529,6 +530,7 @@ def _build_setter_registry():
         "research_experiments_enabled": (set_research_experiments_enabled, bool),
         "research_experiment_repair_enabled": (set_research_experiment_repair_enabled, bool),
         "research_citation_verification_enabled": (set_research_citation_verification_enabled, bool),
+        "research_compose_paper_enabled": (set_research_compose_paper_enabled, bool),
         # Q9.3 travel
         "tripit_ical_url": (set_tripit_ical_url, str),
         "aviationstack_api_key": (set_aviationstack_api_key, str),

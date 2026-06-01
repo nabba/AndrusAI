@@ -96,6 +96,12 @@ HINT_SYNTHESIZE = "research:synthesize"
 # trace to NEITHER a recorded measurement NOR a verified citation — the
 # "results must come from somewhere real" property.
 HINT_VERIFY = "research:verify"
+# Phase C/D — emit the actual paper. Composes the run's artifacts into a
+# Manuscript (``app.research.manuscript``) and renders it to paper.tex +
+# references.bib (``app.research.typeset_latex``). Off by default; opt in with
+# ``compose=True`` + the ``research_compose_paper_enabled`` switch. Runs AFTER
+# the gate, so a blocked (fabrication-flagged) draft is never turned into a paper.
+HINT_COMPOSE = "research:compose"
 
 # How much prior context to fold into the prose-step prompts.
 _MAX_LIT_FOR_PROMPT = 6
@@ -152,6 +158,7 @@ def plan_research(
     synthesize: bool = False,
     experiment: bool = False,
     verify: bool = False,
+    compose: bool = False,
 ) -> list[ExecutorStep]:
     """Return the research steps, each carrying a ``research:*`` hint.
 
@@ -175,6 +182,10 @@ def plan_research(
     * ``verify=True`` (Phase B) — a :data:`HINT_VERIFY` step is inserted just
       before the gate: it verifies the draft's citations and grounds its
       empirical claims (see :func:`make_research_adapter`).
+    * ``compose=True`` (Phase C/D) — a :data:`HINT_COMPOSE` step is appended
+      AFTER the gate that composes the run's artifacts into a manuscript and
+      renders ``paper.tex`` + ``references.bib`` (so a gate-blocked run never
+      produces a paper).
 
     With none of the flags the plan is byte-identical to the original Phase-3
     five-step contract.
@@ -243,6 +254,14 @@ def plan_research(
             crew_hint=HINT_GATE,
         )
     )
+    if compose:
+        steps.append(
+            ExecutorStep(
+                step_id="",
+                description=f"Compose paper.tex + references.bib for: {short}",
+                crew_hint=HINT_COMPOSE,
+            )
+        )
     if synthesize:
         steps.append(
             ExecutorStep(
@@ -470,6 +489,106 @@ def _default_verify_references(citations):
     return verify_references(citations)
 
 
+def _compose_paper_enabled() -> bool:
+    """Master switch for the Phase-C/D compose step (failure-closed)."""
+    try:
+        from app.runtime_settings import get_research_compose_paper_enabled
+
+        return bool(get_research_compose_paper_enabled())
+    except Exception:
+        logger.debug("research.run: compose-enabled read failed", exc_info=True)
+        return False
+
+
+def _measurements_text(run: ExecutorRun) -> str:
+    """The experiment's stdout (the measurement), or '' when no experiment ran."""
+    raw = _text_for(run, HINT_RUN_EXPERIMENT)
+    if not raw:
+        return ""
+    try:
+        env = json.loads(raw)
+        result = env.get("result") if isinstance(env, dict) else None
+        return str(result.get("stdout") or "") if isinstance(result, dict) else ""
+    except Exception:
+        return ""
+
+
+def _kept_citations(run: ExecutorRun, verify_references_fn) -> list:
+    """The verified citations for the bibliography.
+
+    Reuses the verify step's persisted ``kept`` set when present (no second
+    round of literature-API calls); otherwise extracts the draft's identifiers
+    and verifies them here. Empty when neither yields anything.
+    """
+    from app.research.citation import Citation, extract_citations
+
+    raw = _text_for(run, HINT_VERIFY)
+    if raw:
+        try:
+            data = json.loads(raw)
+            kept = data.get("kept") if isinstance(data, dict) else None
+            if isinstance(kept, list):
+                return [Citation.from_dict(d) for d in kept if isinstance(d, dict)]
+        except Exception:
+            logger.debug("research.run: reuse of verify kept-citations failed", exc_info=True)
+    draft = _text_for(run, HINT_DRAFT) or _text_for(run, HINT_ANALYZE_RESULT) or _text_for(run, HINT_INVESTIGATE)
+    try:
+        report = verify_references_fn(extract_citations(draft))
+        return list(getattr(report, "kept", []) or [])
+    except Exception:
+        logger.debug("research.run: compose-time citation verification failed", exc_info=True)
+        return []
+
+
+def _artifacts_from_run(run: ExecutorRun, citations: list):
+    """Assemble the manuscript inputs from the run's persisted step artifacts."""
+    from app.research.manuscript import ResearchArtifacts
+
+    hyps = [str((h or {}).get("text") or "").strip() for h in _decode_list(run, HINT_HYPOTHESES)]
+    return ResearchArtifacts(
+        question=run.goal,
+        literature=_decode_list(run, HINT_LITERATURE),
+        hypotheses=[h for h in hyps if h],
+        findings=(
+            _text_for(run, HINT_DRAFT)
+            or _text_for(run, HINT_ANALYZE_RESULT)
+            or _text_for(run, HINT_INVESTIGATE)
+        ),
+        measurements=_measurements_text(run),
+        citations=citations,
+    )
+
+
+def _paper_output_dir(run: ExecutorRun) -> str:
+    """Per-run output directory for the rendered paper, under the workspace."""
+    from pathlib import Path
+
+    try:
+        from app.paths import WORKSPACE_ROOT
+
+        base = Path(WORKSPACE_ROOT)
+    except Exception:
+        base = Path("workspace")
+    return str(base / "research" / "papers" / run.run_id)
+
+
+def _compose_paper_for_run(run: ExecutorRun, *, verify_references_fn) -> dict:
+    """Compose the run into a Manuscript and render paper.tex + references.bib."""
+    from app.research.manuscript import compose_manuscript
+    from app.research.typeset_latex import render_latex
+
+    citations = _kept_citations(run, verify_references_fn)
+    manuscript = compose_manuscript(_artifacts_from_run(run, citations))
+    rendered = render_latex(manuscript, output_dir=_paper_output_dir(run))
+    return {
+        "paper_tex": str(rendered.tex_path) if rendered.tex_path else None,
+        "references_bib": str(rendered.bib_path) if rendered.bib_path else None,
+        "sections": len(manuscript.sections),
+        "references": len(manuscript.references),
+        "warnings": len(manuscript.all_warnings()),
+    }
+
+
 def _default_gate_output(*, proposal_text: str, task_id: str, triggering_claim_id=None):
     """Default analyze_result gate — the epistemic output gate, resolved lazily.
 
@@ -679,6 +798,8 @@ def make_research_adapter(
     draft_fn: Optional[Callable] = None,
     verify_references_fn: Optional[Callable] = None,
     citation_verification_enabled_fn: Optional[Callable] = None,
+    compose_fn: Optional[Callable] = None,
+    compose_enabled_fn: Optional[Callable] = None,
 ) -> CommanderFn:
     """Build a ``CommanderFn`` that executes research steps by crew-hint.
 
@@ -757,6 +878,10 @@ def make_research_adapter(
         verify_references_fn = _default_verify_references
     if citation_verification_enabled_fn is None:
         citation_verification_enabled_fn = _citation_verification_enabled
+    if compose_fn is None:
+        compose_fn = _compose_paper_for_run
+    if compose_enabled_fn is None:
+        compose_enabled_fn = _compose_paper_enabled
 
     def _adapter(step: ExecutorStep, run: ExecutorRun) -> CommanderResult:
         hint = step.crew_hint
@@ -931,8 +1056,18 @@ def make_research_adapter(
                 run.record_note(f"verify: escalate ({detail})")
                 return CommanderResult(text=f"BLOCKED: anti-fabrication verification — {detail}")
             summary = report.summary() if hasattr(report, "summary") else {}
+            kept = list(getattr(report, "kept", []) or [])
             run.record_note(f"verify: clear (verified={len(verified)}, dropped={len(dropped)})")
-            return CommanderResult(text=_encode({"verdict": "clear", "citations": summary}))
+            return CommanderResult(
+                text=_encode({
+                    "verdict": "clear",
+                    "citations": summary,
+                    # Persist the verified set so a downstream compose step can
+                    # reuse it for the bibliography without re-verifying (avoids
+                    # a second round of literature-API calls).
+                    "kept": [c.to_dict() for c in kept if hasattr(c, "to_dict")],
+                })
+            )
 
         if hint == HINT_GATE:
             draft = _text_for(run, HINT_DRAFT) or _text_for(run, HINT_INVESTIGATE)
@@ -951,6 +1086,27 @@ def make_research_adapter(
                 )
             detail = note or "no uncited empirical claims detected"
             return CommanderResult(text=f"research-evidence gate: clear ({detail})")
+
+        if hint == HINT_COMPOSE:
+            # Phase C/D — emit the paper. Gated by ``compose_enabled_fn`` (off →
+            # non-blocking skip). Reached only after the gate, so a blocked
+            # (fabrication-flagged) run never produces a paper. Failure-isolated:
+            # a render failure degrades to a note, never fails the run.
+            if not compose_enabled_fn():
+                run.record_note("compose: skipped (research_compose_paper_enabled off)")
+                return CommanderResult(
+                    text=_encode({"skipped": "research_compose_paper_enabled off"})
+                )
+            try:
+                result = compose_fn(run, verify_references_fn=verify_references_fn)
+            except Exception as exc:
+                logger.debug("research.run: compose_fn raised", exc_info=True)
+                return CommanderResult(text=f"paper composition unavailable: {exc}")
+            run.record_note(
+                f"compose: paper.tex written ({result.get('sections')} sections, "
+                f"{result.get('references')} refs)"
+            )
+            return CommanderResult(text=_encode(result))
 
         if hint == HINT_SYNTHESIZE:
             # Bake a ResearchDossier PDF into the run. Failure-isolated: the
@@ -985,6 +1141,7 @@ def build_research_run(
     synthesize: bool = False,
     experiment: bool = False,
     verify: bool = False,
+    compose: bool = False,
 ) -> ExecutorRun:
     """Create a research ExecutorRun with its plan pre-populated.
 
@@ -1000,8 +1157,12 @@ def build_research_run(
       but stays bounded by ``budget``, the ephemeral Docker sandbox, and the
       default-OFF ``research_experiments_enabled`` switch.
     * ``synthesize=True`` — append a trailing dossier-render step.
+    * ``verify=True`` (Phase B) — insert the anti-fabrication ``verify`` step
+      before the gate.
+    * ``compose=True`` (Phase C/D) — append a ``compose`` step AFTER the gate
+      that renders ``paper.tex`` + ``references.bib`` from the run's artifacts.
 
-    With neither flag the plan stays the five-step Phase-3 contract.
+    With none of the flags the plan stays the five-step Phase-3 contract.
     """
     q = (question or "").strip()
     if not q:
@@ -1014,7 +1175,9 @@ def build_research_run(
         budget=budget or Budget(),
     )
     run.transition(ExecutorStatus.PLANNING)
-    for step in plan_research(q, run, synthesize=synthesize, experiment=experiment, verify=verify):
+    for step in plan_research(
+        q, run, synthesize=synthesize, experiment=experiment, verify=verify, compose=compose
+    ):
         run.add_step(description=step.description, crew_hint=step.crew_hint)
     return run
 
@@ -1108,6 +1271,7 @@ __all__ = [
     "HINT_GATE",
     "HINT_SYNTHESIZE",
     "HINT_VERIFY",
+    "HINT_COMPOSE",
     "ResearchRunOutcome",
     "plan_research",
     "make_research_adapter",
