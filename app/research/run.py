@@ -355,6 +355,43 @@ def _experiments_enabled() -> bool:
         return False
 
 
+def _experiment_repair_enabled() -> bool:
+    """Master switch for the Phase-C experiment repair loop (failure-closed).
+
+    Reads the default-OFF ``research_experiment_repair_enabled`` setting. When
+    off, ``run_experiment`` keeps its one-shot behaviour byte-for-byte; when on,
+    a failed/empty measurement is repaired-and-rerun (bounded). Any read failure
+    reads as OFF so the repair loop never engages by accident.
+    """
+    try:
+        from app.runtime_settings import get_research_experiment_repair_enabled
+
+        return bool(get_research_experiment_repair_enabled())
+    except Exception:
+        logger.debug("research.run: repair-enabled read failed", exc_info=True)
+        return False
+
+
+def _default_experiment_repair(script: str, *, experiment_fn, goal: str, timeout_s: int = 300) -> dict:
+    """Default repair seam — the bounded design→run→repair loop.
+
+    Lazily imports ``experiment_repair`` (which lazily imports the iterate loop)
+    so module load stays host-safe. ``experiment_fn`` is threaded through so the
+    repair loop shares the adapter's (possibly injected) container runner, and
+    ``_extract_python_script`` is reused to pull the rewritten script out of each
+    repair reply.
+    """
+    from app.research.experiment_repair import run_experiment_with_repair
+
+    return run_experiment_with_repair(
+        script,
+        experiment_fn=experiment_fn,
+        extract_fn=_extract_python_script,
+        goal=goal,
+        timeout_s=timeout_s,
+    )
+
+
 def _default_gate_output(*, proposal_text: str, task_id: str, triggering_claim_id=None):
     """Default analyze_result gate — the epistemic output gate, resolved lazily.
 
@@ -556,6 +593,8 @@ def make_research_adapter(
     gate_fn: Optional[Callable] = None,
     experiment_fn: Optional[Callable] = None,
     enabled_fn: Optional[Callable] = None,
+    repair_enabled_fn: Optional[Callable] = None,
+    experiment_repair_fn: Optional[Callable] = None,
     gate_output_fn: Optional[Callable] = None,
     design_fn: Optional[Callable] = None,
     investigate_fn: Optional[Callable] = None,
@@ -591,7 +630,11 @@ def make_research_adapter(
       * run_experiment (Phase C) — run that script FULLY AUTONOMOUSLY in an
         ephemeral Docker sandbox via ``experiment_fn``, gated by
         ``enabled_fn()`` (off → a non-blocking ``skipped`` marker; the spine
-        carries on so design + analysis still produce a draft).
+        carries on so design + analysis still produce a draft). When
+        ``repair_enabled_fn()`` is also on, the run goes through
+        ``experiment_repair_fn`` — a bounded design→run→repair loop that
+        rewrites + re-runs a failed/empty measurement — instead of a single
+        shot; off (the default) keeps the one-shot path byte-for-byte.
       * analyze_result (Phase C) — turn the measurement into an epistemic
         Claim (best-effort) and run it through ``gate_output_fn``; an
         ``action == "block"`` verdict starts the result with ``BLOCKED:`` so
@@ -618,6 +661,10 @@ def make_research_adapter(
         from app.research.experiment import run_experiment_script as experiment_fn
     if enabled_fn is None:
         enabled_fn = _experiments_enabled
+    if repair_enabled_fn is None:
+        repair_enabled_fn = _experiment_repair_enabled
+    if experiment_repair_fn is None:
+        experiment_repair_fn = _default_experiment_repair
     if gate_output_fn is None:
         gate_output_fn = _default_gate_output
     if design_fn is None:
@@ -675,6 +722,24 @@ def make_research_adapter(
                 return CommanderResult(
                     text=_encode({"skipped": "no experiment script produced"})
                 )
+            if repair_enabled_fn():
+                # Bounded design→run→repair (default-OFF, additional to the
+                # ``research_experiments_enabled`` gate above): a failed/empty
+                # measurement is rewritten and re-run, each round in a fresh
+                # network=none container; the repair completion runs here,
+                # gateway-side. Failure-isolated — the spine carries on either way.
+                try:
+                    result = experiment_repair_fn(
+                        script, experiment_fn=experiment_fn, goal=run.goal, timeout_s=300
+                    )
+                except Exception as exc:
+                    logger.debug("research.run: experiment_repair_fn raised", exc_info=True)
+                    result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+                rep = result.get("repair") if isinstance(result, dict) else None
+                rounds = rep.get("rounds") if isinstance(rep, dict) else "?"
+                ran_ok = bool(isinstance(result, dict) and result.get("ok"))
+                run.record_note(f"experiment: ran with repair (ok={ran_ok}, rounds={rounds})")
+                return CommanderResult(text=_encode(result))
             try:
                 result = experiment_fn(script, timeout_s=300)
             except Exception as exc:  # experiment_fn is failure-isolated, but be safe

@@ -255,9 +255,14 @@ def _exp_seams(*, enabled=True, exp_result=None, gate=None, design_reply=_DEFAUL
         return [{"text": "leading hypothesis", "rank": 1}]
 
     def commander_fn(step, run):
-        if step.crew_hint == R.HINT_DESIGN_EXPERIMENT:
-            return CommanderResult(text=design_reply)
-        return CommanderResult(text=draft_text)
+        # Fallback only — every research:* hint routes through a dedicated seam.
+        return CommanderResult(text="COMMANDER-FALLBACK")
+
+    def design_fn(prompt):
+        return design_reply
+
+    def draft_fn(prompt):
+        return draft_text
 
     def gate_fn(*, proposal_text, task_id, verdict):
         return (None, "")  # draft gate clears
@@ -281,6 +286,8 @@ def _exp_seams(*, enabled=True, exp_result=None, gate=None, design_reply=_DEFAUL
         experiment_fn=experiment_fn,
         enabled_fn=enabled_fn,
         gate_output_fn=gate_output_fn,
+        design_fn=design_fn,
+        draft_fn=draft_fn,
     )
     return seams, cap
 
@@ -302,12 +309,12 @@ def _complete(run, hint, text):
     return step
 
 
-def test_design_experiment_delegates_to_commander():
+def test_design_experiment_uses_design_seam():
     seams, _ = _exp_seams()
     adapter = R.make_research_adapter(**seams)
     run = _exp_run()
     out = adapter(_step(run, R.HINT_DESIGN_EXPERIMENT), run)
-    assert "print('x=1')" in out.text  # commander's design reply passed through
+    assert "print('x=1')" in out.text  # design_fn's script reply passed through
 
 
 def test_run_experiment_runs_when_enabled_and_script_present():

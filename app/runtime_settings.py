@@ -800,6 +800,12 @@ def _defaults() -> dict[str, Any]:
         # run LLM-authored code is the highest-trust action in the research
         # pipeline, so it gets its own switch. Read failure-closed.
         "research_experiments_enabled": False,
+        # Bounded design→run→repair for the experiment step: a failed/empty
+        # measurement is rewritten and re-run (network=none container each
+        # round; repair completion runs gateway-side), instead of one-shot.
+        # Default OFF — additional to ``research_experiments_enabled``; off
+        # keeps the one-shot ``run_experiment`` behaviour byte-for-byte.
+        "research_experiment_repair_enabled": False,
         # Per-run defaults the driver uses when an explicit budget
         # isn't supplied on /delegate. Sanity caps in
         # ``app.autonomous_executor.budget_caps`` constrain how high
@@ -1683,6 +1689,25 @@ def set_research_experiments_enabled(value: bool) -> None:
     _update({"research_experiments_enabled": bool(value)})
     logger.info(
         "runtime_settings: research_experiments_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_research_experiment_repair_enabled() -> bool:
+    """Switch for the experiment repair loop (``app.research.experiment_repair``).
+    Default OFF — when off, ``run_experiment`` is a single shot, exactly as
+    before. When on, a failed/empty measurement is repaired-and-rerun, bounded
+    by rounds + a per-run budget. Additional to ``research_experiments_enabled``
+    (which still gates whether the container runs at all)."""
+    return bool(
+        _ensure_initialized().get("research_experiment_repair_enabled", False),
+    )
+
+
+def set_research_experiment_repair_enabled(value: bool) -> None:
+    _update({"research_experiment_repair_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: research_experiment_repair_enabled set to %s",
         bool(value),
     )
 
