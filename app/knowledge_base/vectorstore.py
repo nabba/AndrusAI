@@ -43,11 +43,15 @@ class KnowledgeStore:
     ):
         Path(persist_dir).mkdir(parents=True, exist_ok=True)
 
-        # Use a dedicated PersistentClient for the KB so it reads from
-        # config.CHROMA_PERSIST_DIR (/app/workspace/knowledge), NOT the
-        # shared memory client which points to /app/workspace/memory.
-        # Both use the same embed() function (Ollama GPU / CPU fallback).
-        self._client = chromadb.PersistentClient(path=persist_dir)
+        # Reuse a CACHED PersistentClient for this KB path. ChromaDB 1.5.x is
+        # Rust-backed: each PersistentClient spawns a tokio runtime + sqlx pool
+        # (~55 threads + Rust memory). KnowledgeStore() is built at 14 hot-path
+        # sites with NO singleton, so a fresh client per instance leaked those
+        # runtimes until the 8 GB OOM. get_client_for_path caches one client per
+        # resolved KB path (recycle-aware), still distinct from the memory
+        # client at /app/workspace/memory. 2026-06-01.
+        from app.memory.chromadb_manager import get_client_for_path
+        self._client = get_client_for_path(persist_dir)
 
         col = self._client.get_or_create_collection(
             name=collection_name,
