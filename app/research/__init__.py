@@ -22,4 +22,18 @@ imported on demand by their callers.
 
 from __future__ import annotations
 
-__all__ = ["literature", "hypothesis", "run", "experiment", "experiment_job"]
+__all__ = [
+    "literature",
+    "hypothesis",
+    "run",
+    "experiment",
+    "experiment_job",
+    # Phase B — literature/citation verification (pure stdlib, host-safe).
+    "citation",
+    "literature_sources",
+    "citation_verifier",
+    # Phase C — manuscript composer (pure stdlib, host-safe).
+    "manuscript",
+    # Phase D — LaTeX output backend (paper.tex + references.bib).
+    "typeset_latex",
+]

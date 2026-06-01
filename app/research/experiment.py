@@ -13,7 +13,8 @@ The script runs FULLY AUTONOMOUSLY — there is no per-experiment operator gate
 
   1. the per-run executor :class:`Budget` (enforced by the driver upstream);
   2. the ephemeral sandbox (memory + pids caps, no-new-privileges,
-     OOM-victim score, throwaway filesystem) supplied by
+     OOM-victim score, throwaway filesystem, AND ``network=none`` — a
+     self-contained measurement script gets no internet at all) supplied by
      :func:`evolver_spawn.build_create_payload`;
   3. the default-OFF ``research_experiments_enabled`` master switch, checked
      by the caller in :mod:`app.research.run` *before* any script reaches
@@ -69,6 +70,7 @@ def run_experiment_script(
         entrypoint=_EXPERIMENT_ENTRYPOINT,
         extract_fn=experiment_job.extract_result,
         memory_bytes=_EXPERIMENT_MEMORY_BYTES,
+        network_mode="none",  # a self-contained measurement needs no network — enforce it
         timeout_s=int(timeout_s),
         transport=transport,  # None → evolver_spawn's default http transport
     )

@@ -31,8 +31,10 @@
     <string>http://127.0.0.1:8765/health</string>
     <key>POLL_INTERVAL_SECONDS</key>
     <string>20</string>
+    <!-- 2026-06-01: 5→15 so a briefly-busy event loop isn't counted as a failed
+         probe; the liveness-heartbeat gate below is the real protection. -->
     <key>HEALTH_TIMEOUT_SECONDS</key>
-    <string>5</string>
+    <string>15</string>
     <key>FAILURE_THRESHOLD</key>
     <string>6</string>
     <key>RESTART_COOLDOWN_SECONDS</key>
@@ -43,6 +45,15 @@
     <string>120</string>
     <key>BOOT_GRACE_SECONDS</key>
     <string>180</string>
+    <!-- 2026-06-01 liveness gate: the gateway writes a heartbeat from a daemon
+         thread (app/liveness.py) that survives event-loop starvation. A stale
+         heartbeat ⇒ process wedged/dead ⇒ restart. A LIVE process with slow
+         /health is NOT restarted until /health is down past HEALTH_ESCALATE —
+         a real loop wedge, vs a legitimately long heavy idle job. -->
+    <key>HEARTBEAT_STALE_SECONDS</key>
+    <string>60</string>
+    <key>HEALTH_ESCALATE_SECONDS</key>
+    <string>900</string>
     <key>COMPOSE_PROJECT_DIR</key>
     <string>/Users/andrus/BotArmy/crewai-team</string>
     <key>GATEWAY_SERVICE</key>
