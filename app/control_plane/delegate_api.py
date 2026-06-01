@@ -134,6 +134,31 @@ class _CreateBody(BaseModel):
             "one from any run state. Ignored when mode != 'research'."
         ),
     )
+    verify: bool = Field(
+        default=False,
+        description=(
+            "Research mode only. When True, insert a 'verify' step before the "
+            "gate that verifies the draft's citations against authoritative "
+            "sources (dropping fabricated ones) and blocks a draft whose "
+            "empirical claims trace to neither a recorded measurement nor a "
+            "verified citation. Still checks the default-OFF "
+            "'research_citation_verification_enabled' switch at execution time "
+            "(off -> non-blocking skip), so requesting it is always safe. "
+            "Ignored when mode != 'research'."
+        ),
+    )
+    compose: bool = Field(
+        default=False,
+        description=(
+            "Research mode only. When True, append a 'compose' step (after the "
+            "gate) that renders the run's artifacts into paper.tex + "
+            "references.bib under workspace/research/papers/<run_id>/. Still "
+            "checks the default-OFF 'research_compose_paper_enabled' switch at "
+            "execution time (off -> non-blocking skip). Pairs with verify=True "
+            "so the bibliography is the verified citation set. Ignored when "
+            "mode != 'research'."
+        ),
+    )
 
 
 class _AbortBody(BaseModel):
@@ -243,7 +268,11 @@ def create_run(body: _CreateBody):
     ``experiment=True`` swaps the single ``investigate`` step for the
     design_experiment -> run_experiment -> analyze_result spine (still gated
     at execution time by the default-OFF ``research_experiments_enabled``
-    switch); ``synthesize=True`` appends a dossier-PDF step. The
+    switch); ``synthesize=True`` appends a dossier-PDF step; ``verify=True``
+    inserts the anti-fabrication citation/claim check before the gate; and
+    ``compose=True`` appends a step (after the gate) that renders
+    ``paper.tex`` + ``references.bib`` — each gated at execution time by its
+    own default-OFF switch, so requesting any of them is always safe. The
     research-evidence gate only fires outside the ``chat`` zone, so a
     research run left at the default ``chat`` zone is upgraded to
     ``autonomous``; an explicit non-chat zone is honoured.
@@ -259,6 +288,8 @@ def create_run(body: _CreateBody):
             budget=_budget_for_create(body),
             experiment=body.experiment,
             synthesize=body.synthesize,
+            verify=body.verify,
+            compose=body.compose,
         )
         # Phase D — bind the run to a Thread so cross-run learning runs for
         # free: create_thread consults the lessons_learned KB for adjacent
@@ -285,8 +316,9 @@ def create_run(body: _CreateBody):
     store.save(run)
     logger.info(
         "delegate_api: created run %s (mode=%s, experiment=%s, synthesize=%s, "
-        "goal_len=%d, requestor=%s, budget_usd=%.2f)",
+        "verify=%s, compose=%s, goal_len=%d, requestor=%s, budget_usd=%.2f)",
         run.run_id, body.mode, body.experiment, body.synthesize,
+        body.verify, body.compose,
         len(run.goal), run.requestor, run.budget.cap_usd,
     )
     return _serialize(run)
