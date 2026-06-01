@@ -34,4 +34,6 @@ __all__ = [
     "citation_verifier",
     # Phase C — manuscript composer (pure stdlib, host-safe).
     "manuscript",
+    # Phase D — LaTeX output backend (paper.tex + references.bib).
+    "typeset_latex",
 ]
