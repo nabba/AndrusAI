@@ -68,6 +68,38 @@ def test_build_create_payload_makes_evolver_the_oom_victim():
     assert payload["HostConfig"]["OomScoreAdj"] == 900
 
 
+def test_build_create_payload_network_mode_default_and_override():
+    # Default keeps the evolver on bridge (internet for in-container LLM calls),
+    # so the verified-mutation path is byte-for-byte unchanged.
+    assert es.build_create_payload("img:1", {})["HostConfig"]["NetworkMode"] == "bridge"
+    # The research experiment runner isolates the container: a self-contained
+    # measurement script gets no network at all — the kernel enforces what the
+    # design prompt only requested.
+    isolated = es.build_create_payload("img:1", {}, network_mode="none")
+    assert isolated["HostConfig"]["NetworkMode"] == "none"
+
+
+def test_run_container_job_threads_network_mode_into_create():
+    seen: dict = {}
+
+    def fake_tx(method, path, body=None, timeout=None):
+        if path == "/containers/create":
+            seen["network_mode"] = body["HostConfig"]["NetworkMode"]
+            return 201, json.dumps({"Id": "cid"}).encode()
+        if path.endswith("/start"):
+            return 204, b""
+        if path.endswith("/wait"):
+            return 200, b"{}"
+        if "/logs" in path:
+            return 200, _result_logs({"ok": True, "result": {}})
+        if method == "DELETE":
+            return 200, b""
+        return 404, b""
+
+    es.run_container_job({"x": 1}, image="img:1", network_mode="none", transport=fake_tx)
+    assert seen["network_mode"] == "none"
+
+
 def _result_logs(payload: dict) -> bytes:
     return (
         "INFO noise\n"
@@ -138,3 +170,79 @@ def test_run_evolver_job_removes_container_even_on_log_error():
 def test_image_exists(monkeypatch):
     assert es.image_exists("img:1", transport=lambda *a, **k: (200, b"{}")) is True
     assert es.image_exists("img:1", transport=lambda *a, **k: (404, b"")) is False
+
+
+def test_http_transport_end_to_end_against_loopback_proxy(monkeypatch):
+    """Exercise the REAL ``_http_transport`` (urllib) against a faithful
+    in-process docker-proxy stub.
+
+    Every other test injects a fake ``transport=``, so the actual wire
+    construction (URL from ``DOCKER_HOST``, JSON body, method/headers, response
+    parsing), the full create→start→wait→logs→delete sequence, AND end-to-end
+    env-key forwarding are otherwise unpinned. This closes that gap and is the
+    regression fence for the 2026-05-29 §76 bug (required Settings env keys
+    silently absent from the container) at the wire, not just the payload.
+    """
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    captured: dict = {}
+
+    class _Proxy(BaseHTTPRequestHandler):
+        def log_message(self, *_a):  # keep the test run quiet
+            pass
+
+        def _send(self, code: int, body: bytes = b""):
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+
+        def do_POST(self):
+            n = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(n) if n else b""
+            if self.path == "/containers/create":
+                captured["create_body"] = json.loads(raw or b"{}")
+                self._send(201, json.dumps({"Id": "cid"}).encode())
+            elif self.path.endswith("/start"):
+                self._send(204)
+            elif self.path.endswith("/wait"):
+                self._send(200, b"{}")
+            else:
+                self._send(404)
+
+        def do_GET(self):
+            if "/logs" in self.path:
+                payload = {
+                    "ok": True,
+                    "result": {"ok": True, "returncode": 0, "stdout": "m=1", "stderr": "", "timed_out": False},
+                }
+                logs = _RESULT_BEGIN + json.dumps(payload) + _RESULT_END + "\n"
+                self._send(200, logs.encode())
+            else:
+                self._send(404)
+
+        def do_DELETE(self):
+            self._send(200, b"{}")
+
+    srv = HTTPServer(("127.0.0.1", 0), _Proxy)
+    port = srv.server_address[1]
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    try:
+        monkeypatch.setenv("DOCKER_HOST", f"tcp://127.0.0.1:{port}")
+        monkeypatch.setenv("GATEWAY_SECRET", "gw-xyz")  # a REQUIRED settings key
+        # No transport= → the real urllib _http_transport runs against the stub.
+        res = es.run_container_job({"x": 1}, image="img:1", timeout_s=5)
+    finally:
+        srv.shutdown()
+        thread.join(timeout=2)
+
+    # Sentinel round-tripped through the real GET /logs read + extract_result.
+    assert res == {
+        "ok": True,
+        "result": {"ok": True, "returncode": 0, "stdout": "m=1", "stderr": "", "timed_out": False},
+    }
+    # §76 regression fence: the required Settings key reached the create wire.
+    assert "GATEWAY_SECRET=gw-xyz" in captured["create_body"]["Env"]

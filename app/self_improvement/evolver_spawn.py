@@ -93,6 +93,7 @@ def build_create_payload(
     pids_limit: int = 512,
     job_env_var: str = "AAI_EVOLVE_JOB",
     entrypoint: Optional[list[str]] = None,
+    network_mode: str = "bridge",
 ) -> dict[str, Any]:
     """Docker ``POST /containers/create`` body. Pure — unit-tested.
 
@@ -104,6 +105,13 @@ def build_create_payload(
     ``ENTRYPOINT`` via the create-time ``Entrypoint`` field; left ``None`` the
     image default (the evolver entrypoint) runs, so existing callers are
     unaffected.
+
+    ``network_mode`` is the container's Docker network. Defaults to ``"bridge"``
+    (internet — the verified-mutation editor + judge make LLM calls in-container),
+    so the evolver path is unchanged. The research experiment runner passes
+    ``"none"``: a self-contained measurement script needs no network, and its
+    repair LLM calls happen gateway-side, so the kernel can *enforce* the
+    isolation the design prompt only requests.
     """
     env = [f"{job_env_var}={json.dumps(job)}"]
     for key in (*_LLM_ENV_KEYS, *_REQUIRED_SETTINGS_KEYS):
@@ -119,7 +127,7 @@ def build_create_payload(
         "Labels": {"app": "botarmy-evolver"},
         "HostConfig": {
             "AutoRemove": False,  # we read logs after exit, then remove
-            "NetworkMode": "bridge",  # default bridge → internet for LLM calls
+            "NetworkMode": network_mode,  # "bridge" → internet (evolver); "none" → isolated (experiment)
             "Memory": memory_bytes,
             "PidsLimit": pids_limit,
             "SecurityOpt": ["no-new-privileges:true"],
@@ -145,6 +153,7 @@ def run_container_job(
     extract_fn: Callable[[str], dict] = extract_result,
     memory_bytes: int = 4 * 1024**3,
     pids_limit: int = 512,
+    network_mode: str = "bridge",
     timeout_s: int = 1800,
     transport: Optional[Transport] = None,
 ) -> dict:
@@ -176,6 +185,7 @@ def run_container_job(
         pids_limit=pids_limit,
         job_env_var=job_env_var,
         entrypoint=entrypoint,
+        network_mode=network_mode,
     )
     status, data = tx("POST", "/containers/create", payload, 30)
     if status not in (200, 201):

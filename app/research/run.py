@@ -89,6 +89,19 @@ HINT_ANALYZE_RESULT = "research:analyze_result"
 # ``synthesize=True``. The primary dossier surface is the on-demand endpoint
 # (works in any run state) — this step just bakes a PDF into the run itself.
 HINT_SYNTHESIZE = "research:synthesize"
+# Phase B — anti-fabrication verification pass (off by default; opt in with
+# ``verify=True``). Inserted just before the evidence gate: it verifies every
+# identifier-bearing citation in the draft (dropping fabricated ones via
+# ``app.research.citation_verifier``) and BLOCKS a draft whose empirical claims
+# trace to NEITHER a recorded measurement NOR a verified citation — the
+# "results must come from somewhere real" property.
+HINT_VERIFY = "research:verify"
+# Phase C/D — emit the actual paper. Composes the run's artifacts into a
+# Manuscript (``app.research.manuscript``) and renders it to paper.tex +
+# references.bib (``app.research.typeset_latex``). Off by default; opt in with
+# ``compose=True`` + the ``research_compose_paper_enabled`` switch. Runs AFTER
+# the gate, so a blocked (fabrication-flagged) draft is never turned into a paper.
+HINT_COMPOSE = "research:compose"
 
 # How much prior context to fold into the prose-step prompts.
 _MAX_LIT_FOR_PROMPT = 6
@@ -144,6 +157,8 @@ def plan_research(
     *,
     synthesize: bool = False,
     experiment: bool = False,
+    verify: bool = False,
+    compose: bool = False,
 ) -> list[ExecutorStep]:
     """Return the research steps, each carrying a ``research:*`` hint.
 
@@ -164,8 +179,15 @@ def plan_research(
       analyze_result → draft → gate.
     * ``synthesize=True`` — a trailing :data:`HINT_SYNTHESIZE` step is
       appended that bakes a ResearchDossier PDF into the run.
+    * ``verify=True`` (Phase B) — a :data:`HINT_VERIFY` step is inserted just
+      before the gate: it verifies the draft's citations and grounds its
+      empirical claims (see :func:`make_research_adapter`).
+    * ``compose=True`` (Phase C/D) — a :data:`HINT_COMPOSE` step is appended
+      AFTER the gate that composes the run's artifacts into a manuscript and
+      renders ``paper.tex`` + ``references.bib`` (so a gate-blocked run never
+      produces a paper).
 
-    With neither flag the plan is byte-identical to the original Phase-3
+    With none of the flags the plan is byte-identical to the original Phase-3
     five-step contract.
     """
     q = (goal or "").strip()
@@ -210,18 +232,36 @@ def plan_research(
                 crew_hint=HINT_INVESTIGATE,
             )
         )
-    steps += [
+    steps.append(
         ExecutorStep(
             step_id="",
             description=f"Draft research findings for: {short}",
             crew_hint=HINT_DRAFT,
-        ),
+        )
+    )
+    if verify:
+        steps.append(
+            ExecutorStep(
+                step_id="",
+                description="Verify citations + ground empirical claims in the draft",
+                crew_hint=HINT_VERIFY,
+            )
+        )
+    steps.append(
         ExecutorStep(
             step_id="",
             description="Check the draft for uncited empirical claims",
             crew_hint=HINT_GATE,
-        ),
-    ]
+        )
+    )
+    if compose:
+        steps.append(
+            ExecutorStep(
+                step_id="",
+                description=f"Compose paper.tex + references.bib for: {short}",
+                crew_hint=HINT_COMPOSE,
+            )
+        )
     if synthesize:
         steps.append(
             ExecutorStep(
@@ -353,6 +393,200 @@ def _experiments_enabled() -> bool:
     except Exception:
         logger.debug("research.run: experiments-enabled read failed", exc_info=True)
         return False
+
+
+def _experiment_repair_enabled() -> bool:
+    """Master switch for the Phase-C experiment repair loop (failure-closed).
+
+    Reads the default-OFF ``research_experiment_repair_enabled`` setting. When
+    off, ``run_experiment`` keeps its one-shot behaviour byte-for-byte; when on,
+    a failed/empty measurement is repaired-and-rerun (bounded). Any read failure
+    reads as OFF so the repair loop never engages by accident.
+    """
+    try:
+        from app.runtime_settings import get_research_experiment_repair_enabled
+
+        return bool(get_research_experiment_repair_enabled())
+    except Exception:
+        logger.debug("research.run: repair-enabled read failed", exc_info=True)
+        return False
+
+
+def _default_experiment_repair(script: str, *, experiment_fn, goal: str, timeout_s: int = 300) -> dict:
+    """Default repair seam — the bounded design→run→repair loop.
+
+    Lazily imports ``experiment_repair`` (which lazily imports the iterate loop)
+    so module load stays host-safe. ``experiment_fn`` is threaded through so the
+    repair loop shares the adapter's (possibly injected) container runner, and
+    ``_extract_python_script`` is reused to pull the rewritten script out of each
+    repair reply.
+    """
+    from app.research.experiment_repair import run_experiment_with_repair
+
+    return run_experiment_with_repair(
+        script,
+        experiment_fn=experiment_fn,
+        extract_fn=_extract_python_script,
+        goal=goal,
+        timeout_s=timeout_s,
+    )
+
+
+# Quantitative empirical assertions (percentage / speedup / p-value / sample
+# size / throughput) — the kind of claim the verification step requires to be
+# grounded in a measurement or a verified citation.
+_EMPIRICAL_CLAIM_RE = re.compile(
+    r"\b\d+(?:\.\d+)?\s*%"
+    r"|\b\d+(?:\.\d+)?\s*[x×]\b"
+    r"|\bp\s*[<=>]\s*0?\.\d+"
+    r"|\bn\s*=\s*\d+"
+    r"|\b\d+(?:\.\d+)?\s*(?:ms|s|rps|qps|fps|gb|mb|kb|tok(?:ens?)?/s)\b",
+    re.IGNORECASE,
+)
+
+
+def _draft_has_empirical_claims(text: str) -> bool:
+    """True if the draft makes a quantitative empirical assertion that must be
+    grounded in a measurement or a verified citation."""
+    return bool(_EMPIRICAL_CLAIM_RE.search(text or ""))
+
+
+def _run_measurement_present(run: ExecutorRun) -> bool:
+    """True if the run's experiment step produced a real measurement.
+
+    Reuses ``experiment_repair.measurement_present`` over the run_experiment
+    envelope. False when there was no experiment step (the 5-step plan) or it
+    skipped/failed — in which case any empirical claim needs a verified citation.
+    """
+    raw = _text_for(run, HINT_RUN_EXPERIMENT)
+    if not raw:
+        return False
+    try:
+        env = json.loads(raw)
+        from app.research.experiment_repair import measurement_present
+
+        return bool(measurement_present(env))
+    except Exception:
+        logger.debug("research.run: measurement_present read failed", exc_info=True)
+        return False
+
+
+def _citation_verification_enabled() -> bool:
+    """Master switch for the Phase-B verification step (failure-closed)."""
+    try:
+        from app.runtime_settings import get_research_citation_verification_enabled
+
+        return bool(get_research_citation_verification_enabled())
+    except Exception:
+        logger.debug("research.run: citation-verification-enabled read failed", exc_info=True)
+        return False
+
+
+def _default_verify_references(citations):
+    """Default verification seam — the 4-layer citation verifier."""
+    from app.research.citation_verifier import verify_references
+
+    return verify_references(citations)
+
+
+def _compose_paper_enabled() -> bool:
+    """Master switch for the Phase-C/D compose step (failure-closed)."""
+    try:
+        from app.runtime_settings import get_research_compose_paper_enabled
+
+        return bool(get_research_compose_paper_enabled())
+    except Exception:
+        logger.debug("research.run: compose-enabled read failed", exc_info=True)
+        return False
+
+
+def _measurements_text(run: ExecutorRun) -> str:
+    """The experiment's stdout (the measurement), or '' when no experiment ran."""
+    raw = _text_for(run, HINT_RUN_EXPERIMENT)
+    if not raw:
+        return ""
+    try:
+        env = json.loads(raw)
+        result = env.get("result") if isinstance(env, dict) else None
+        return str(result.get("stdout") or "") if isinstance(result, dict) else ""
+    except Exception:
+        return ""
+
+
+def _kept_citations(run: ExecutorRun, verify_references_fn) -> list:
+    """The verified citations for the bibliography.
+
+    Reuses the verify step's persisted ``kept`` set when present (no second
+    round of literature-API calls); otherwise extracts the draft's identifiers
+    and verifies them here. Empty when neither yields anything.
+    """
+    from app.research.citation import Citation, extract_citations
+
+    raw = _text_for(run, HINT_VERIFY)
+    if raw:
+        try:
+            data = json.loads(raw)
+            kept = data.get("kept") if isinstance(data, dict) else None
+            if isinstance(kept, list):
+                return [Citation.from_dict(d) for d in kept if isinstance(d, dict)]
+        except Exception:
+            logger.debug("research.run: reuse of verify kept-citations failed", exc_info=True)
+    draft = _text_for(run, HINT_DRAFT) or _text_for(run, HINT_ANALYZE_RESULT) or _text_for(run, HINT_INVESTIGATE)
+    try:
+        report = verify_references_fn(extract_citations(draft))
+        return list(getattr(report, "kept", []) or [])
+    except Exception:
+        logger.debug("research.run: compose-time citation verification failed", exc_info=True)
+        return []
+
+
+def _artifacts_from_run(run: ExecutorRun, citations: list):
+    """Assemble the manuscript inputs from the run's persisted step artifacts."""
+    from app.research.manuscript import ResearchArtifacts
+
+    hyps = [str((h or {}).get("text") or "").strip() for h in _decode_list(run, HINT_HYPOTHESES)]
+    return ResearchArtifacts(
+        question=run.goal,
+        literature=_decode_list(run, HINT_LITERATURE),
+        hypotheses=[h for h in hyps if h],
+        findings=(
+            _text_for(run, HINT_DRAFT)
+            or _text_for(run, HINT_ANALYZE_RESULT)
+            or _text_for(run, HINT_INVESTIGATE)
+        ),
+        measurements=_measurements_text(run),
+        citations=citations,
+    )
+
+
+def _paper_output_dir(run: ExecutorRun) -> str:
+    """Per-run output directory for the rendered paper, under the workspace."""
+    from pathlib import Path
+
+    try:
+        from app.paths import WORKSPACE_ROOT
+
+        base = Path(WORKSPACE_ROOT)
+    except Exception:
+        base = Path("workspace")
+    return str(base / "research" / "papers" / run.run_id)
+
+
+def _compose_paper_for_run(run: ExecutorRun, *, verify_references_fn) -> dict:
+    """Compose the run into a Manuscript and render paper.tex + references.bib."""
+    from app.research.manuscript import compose_manuscript
+    from app.research.typeset_latex import render_latex
+
+    citations = _kept_citations(run, verify_references_fn)
+    manuscript = compose_manuscript(_artifacts_from_run(run, citations))
+    rendered = render_latex(manuscript, output_dir=_paper_output_dir(run))
+    return {
+        "paper_tex": str(rendered.tex_path) if rendered.tex_path else None,
+        "references_bib": str(rendered.bib_path) if rendered.bib_path else None,
+        "sections": len(manuscript.sections),
+        "references": len(manuscript.references),
+        "warnings": len(manuscript.all_warnings()),
+    }
 
 
 def _default_gate_output(*, proposal_text: str, task_id: str, triggering_claim_id=None):
@@ -556,10 +790,16 @@ def make_research_adapter(
     gate_fn: Optional[Callable] = None,
     experiment_fn: Optional[Callable] = None,
     enabled_fn: Optional[Callable] = None,
+    repair_enabled_fn: Optional[Callable] = None,
+    experiment_repair_fn: Optional[Callable] = None,
     gate_output_fn: Optional[Callable] = None,
     design_fn: Optional[Callable] = None,
     investigate_fn: Optional[Callable] = None,
     draft_fn: Optional[Callable] = None,
+    verify_references_fn: Optional[Callable] = None,
+    citation_verification_enabled_fn: Optional[Callable] = None,
+    compose_fn: Optional[Callable] = None,
+    compose_enabled_fn: Optional[Callable] = None,
 ) -> CommanderFn:
     """Build a ``CommanderFn`` that executes research steps by crew-hint.
 
@@ -591,7 +831,11 @@ def make_research_adapter(
       * run_experiment (Phase C) — run that script FULLY AUTONOMOUSLY in an
         ephemeral Docker sandbox via ``experiment_fn``, gated by
         ``enabled_fn()`` (off → a non-blocking ``skipped`` marker; the spine
-        carries on so design + analysis still produce a draft).
+        carries on so design + analysis still produce a draft). When
+        ``repair_enabled_fn()`` is also on, the run goes through
+        ``experiment_repair_fn`` — a bounded design→run→repair loop that
+        rewrites + re-runs a failed/empty measurement — instead of a single
+        shot; off (the default) keeps the one-shot path byte-for-byte.
       * analyze_result (Phase C) — turn the measurement into an epistemic
         Claim (best-effort) and run it through ``gate_output_fn``; an
         ``action == "block"`` verdict starts the result with ``BLOCKED:`` so
@@ -618,6 +862,10 @@ def make_research_adapter(
         from app.research.experiment import run_experiment_script as experiment_fn
     if enabled_fn is None:
         enabled_fn = _experiments_enabled
+    if repair_enabled_fn is None:
+        repair_enabled_fn = _experiment_repair_enabled
+    if experiment_repair_fn is None:
+        experiment_repair_fn = _default_experiment_repair
     if gate_output_fn is None:
         gate_output_fn = _default_gate_output
     if design_fn is None:
@@ -626,6 +874,14 @@ def make_research_adapter(
         investigate_fn = _default_investigate
     if draft_fn is None:
         draft_fn = _default_draft
+    if verify_references_fn is None:
+        verify_references_fn = _default_verify_references
+    if citation_verification_enabled_fn is None:
+        citation_verification_enabled_fn = _citation_verification_enabled
+    if compose_fn is None:
+        compose_fn = _compose_paper_for_run
+    if compose_enabled_fn is None:
+        compose_enabled_fn = _compose_paper_enabled
 
     def _adapter(step: ExecutorStep, run: ExecutorRun) -> CommanderResult:
         hint = step.crew_hint
@@ -675,6 +931,24 @@ def make_research_adapter(
                 return CommanderResult(
                     text=_encode({"skipped": "no experiment script produced"})
                 )
+            if repair_enabled_fn():
+                # Bounded design→run→repair (default-OFF, additional to the
+                # ``research_experiments_enabled`` gate above): a failed/empty
+                # measurement is rewritten and re-run, each round in a fresh
+                # network=none container; the repair completion runs here,
+                # gateway-side. Failure-isolated — the spine carries on either way.
+                try:
+                    result = experiment_repair_fn(
+                        script, experiment_fn=experiment_fn, goal=run.goal, timeout_s=300
+                    )
+                except Exception as exc:
+                    logger.debug("research.run: experiment_repair_fn raised", exc_info=True)
+                    result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+                rep = result.get("repair") if isinstance(result, dict) else None
+                rounds = rep.get("rounds") if isinstance(rep, dict) else "?"
+                ran_ok = bool(isinstance(result, dict) and result.get("ok"))
+                run.record_note(f"experiment: ran with repair (ok={ran_ok}, rounds={rounds})")
+                return CommanderResult(text=_encode(result))
             try:
                 result = experiment_fn(script, timeout_s=300)
             except Exception as exc:  # experiment_fn is failure-isolated, but be safe
@@ -743,6 +1017,58 @@ def make_research_adapter(
             # Focused write-up completion, NOT the conversational Commander.
             return CommanderResult(text=draft_fn(_build_draft_prompt(run)) or "")
 
+        if hint == HINT_VERIFY:
+            # Phase B — anti-fabrication pass. Gated by
+            # ``citation_verification_enabled_fn`` (off → a non-blocking skip;
+            # the spine still gates + completes). Escalates (BLOCKED) when a
+            # cited identifier doesn't resolve, OR when the draft asserts an
+            # empirical result backed by neither a recorded measurement nor a
+            # verified citation. Failure-isolated — a sick verifier never blocks.
+            if not citation_verification_enabled_fn():
+                run.record_note("verify: skipped (research_citation_verification_enabled off)")
+                return CommanderResult(
+                    text=_encode({"skipped": "research_citation_verification_enabled off"})
+                )
+            draft = (
+                _text_for(run, HINT_DRAFT)
+                or _text_for(run, HINT_ANALYZE_RESULT)
+                or _text_for(run, HINT_INVESTIGATE)
+            )
+            from app.research.citation import extract_citations
+
+            try:
+                report = verify_references_fn(extract_citations(draft))
+            except Exception:
+                logger.debug("research.run: verify_references_fn raised", exc_info=True)
+                run.record_note("verify: unavailable")
+                return CommanderResult(text="research-citation verification: unavailable")
+            dropped = list(getattr(report, "dropped", []) or [])
+            verified = list(getattr(report, "verified", []) or [])
+            measured = _run_measurement_present(run)
+            has_empirical = _draft_has_empirical_claims(draft)
+            reasons = []
+            if dropped:
+                reasons.append(f"{len(dropped)} unverifiable citation(s)")
+            if has_empirical and not measured and not verified:
+                reasons.append("empirical claims with no recorded measurement or verified citation")
+            if reasons:
+                detail = "; ".join(reasons)
+                run.record_note(f"verify: escalate ({detail})")
+                return CommanderResult(text=f"BLOCKED: anti-fabrication verification — {detail}")
+            summary = report.summary() if hasattr(report, "summary") else {}
+            kept = list(getattr(report, "kept", []) or [])
+            run.record_note(f"verify: clear (verified={len(verified)}, dropped={len(dropped)})")
+            return CommanderResult(
+                text=_encode({
+                    "verdict": "clear",
+                    "citations": summary,
+                    # Persist the verified set so a downstream compose step can
+                    # reuse it for the bibliography without re-verifying (avoids
+                    # a second round of literature-API calls).
+                    "kept": [c.to_dict() for c in kept if hasattr(c, "to_dict")],
+                })
+            )
+
         if hint == HINT_GATE:
             draft = _text_for(run, HINT_DRAFT) or _text_for(run, HINT_INVESTIGATE)
             try:
@@ -760,6 +1086,27 @@ def make_research_adapter(
                 )
             detail = note or "no uncited empirical claims detected"
             return CommanderResult(text=f"research-evidence gate: clear ({detail})")
+
+        if hint == HINT_COMPOSE:
+            # Phase C/D — emit the paper. Gated by ``compose_enabled_fn`` (off →
+            # non-blocking skip). Reached only after the gate, so a blocked
+            # (fabrication-flagged) run never produces a paper. Failure-isolated:
+            # a render failure degrades to a note, never fails the run.
+            if not compose_enabled_fn():
+                run.record_note("compose: skipped (research_compose_paper_enabled off)")
+                return CommanderResult(
+                    text=_encode({"skipped": "research_compose_paper_enabled off"})
+                )
+            try:
+                result = compose_fn(run, verify_references_fn=verify_references_fn)
+            except Exception as exc:
+                logger.debug("research.run: compose_fn raised", exc_info=True)
+                return CommanderResult(text=f"paper composition unavailable: {exc}")
+            run.record_note(
+                f"compose: paper.tex written ({result.get('sections')} sections, "
+                f"{result.get('references')} refs)"
+            )
+            return CommanderResult(text=_encode(result))
 
         if hint == HINT_SYNTHESIZE:
             # Bake a ResearchDossier PDF into the run. Failure-isolated: the
@@ -782,6 +1129,33 @@ def make_research_adapter(
     return _adapter
 
 
+# ── Delegate-input parsing (Signal / CLI) ─────────────────────────────────────
+
+_DELEGATE_FLAG_WORDS = ("experiment", "verify", "compose", "synthesize")
+
+
+def parse_delegate_flags(arg: str) -> tuple[dict, str]:
+    """Split leading research flag-words off a ``/delegate research …`` argument.
+
+    Returns ``({experiment, verify, compose, synthesize: bool}, goal)``. Flag
+    words (optionally ``--``-prefixed) are consumed from the FRONT until the
+    first non-flag token; everything after is the goal. So
+    ``"verify compose how fast is X"`` → ({verify, compose}, "how fast is X").
+    Pure + stdlib so the Signal command parser is host-testable.
+    """
+    flags = {w: False for w in _DELEGATE_FLAG_WORDS}
+    tokens = (arg or "").split()
+    i = 0
+    while i < len(tokens):
+        word = tokens[i].lower().lstrip("-")
+        if word in flags:
+            flags[word] = True
+            i += 1
+        else:
+            break
+    return flags, " ".join(tokens[i:]).strip()
+
+
 # ── Run construction + driving ────────────────────────────────────────────────
 
 
@@ -793,6 +1167,8 @@ def build_research_run(
     budget: Optional[Budget] = None,
     synthesize: bool = False,
     experiment: bool = False,
+    verify: bool = False,
+    compose: bool = False,
 ) -> ExecutorRun:
     """Create a research ExecutorRun with its plan pre-populated.
 
@@ -808,8 +1184,12 @@ def build_research_run(
       but stays bounded by ``budget``, the ephemeral Docker sandbox, and the
       default-OFF ``research_experiments_enabled`` switch.
     * ``synthesize=True`` — append a trailing dossier-render step.
+    * ``verify=True`` (Phase B) — insert the anti-fabrication ``verify`` step
+      before the gate.
+    * ``compose=True`` (Phase C/D) — append a ``compose`` step AFTER the gate
+      that renders ``paper.tex`` + ``references.bib`` from the run's artifacts.
 
-    With neither flag the plan stays the five-step Phase-3 contract.
+    With none of the flags the plan stays the five-step Phase-3 contract.
     """
     q = (question or "").strip()
     if not q:
@@ -822,7 +1202,9 @@ def build_research_run(
         budget=budget or Budget(),
     )
     run.transition(ExecutorStatus.PLANNING)
-    for step in plan_research(q, run, synthesize=synthesize, experiment=experiment):
+    for step in plan_research(
+        q, run, synthesize=synthesize, experiment=experiment, verify=verify, compose=compose
+    ):
         run.add_step(description=step.description, crew_hint=step.crew_hint)
     return run
 
@@ -915,8 +1297,11 @@ __all__ = [
     "HINT_DRAFT",
     "HINT_GATE",
     "HINT_SYNTHESIZE",
+    "HINT_VERIFY",
+    "HINT_COMPOSE",
     "ResearchRunOutcome",
     "plan_research",
+    "parse_delegate_flags",
     "make_research_adapter",
     "build_research_run",
     "run_to_completion",

@@ -71,15 +71,32 @@ def _make_seams(
         return list(hyps)
 
     def commander_fn(step, run):
+        # Fallback only — for non-research hints. The research adapter routes
+        # investigate/draft through their own seams (below), so commander_fn is
+        # never reached for a research:* hint (pinned by the seam-contract test).
         cap["prompts"].append({"hint": step.crew_hint, "text": step.description})
-        text = investigate_text if step.crew_hint == R.HINT_INVESTIGATE else draft_text
-        return CommanderResult(text=text)
+        return CommanderResult(text="COMMANDER-FALLBACK")
+
+    def investigate_fn(prompt):
+        cap["prompts"].append({"hint": R.HINT_INVESTIGATE, "text": prompt})
+        return investigate_text
+
+    def draft_fn(prompt):
+        cap["prompts"].append({"hint": R.HINT_DRAFT, "text": prompt})
+        return draft_text
 
     def gate_fn(*, proposal_text, task_id, verdict):
         cap["gate_calls"].append({"proposal_text": proposal_text, "task_id": task_id, "verdict": verdict})
         return gate
 
-    seams = dict(search_fn=search_fn, propose_fn=propose_fn, commander_fn=commander_fn, gate_fn=gate_fn)
+    seams = dict(
+        search_fn=search_fn,
+        propose_fn=propose_fn,
+        commander_fn=commander_fn,
+        gate_fn=gate_fn,
+        investigate_fn=investigate_fn,
+        draft_fn=draft_fn,
+    )
     return seams, cap
 
 
@@ -124,6 +141,40 @@ def test_plan_research_truncates_long_goal():
     assert "a" * 200 not in steps[0].description
     assert "a" * 117 + "..." in steps[0].description  # goal capped at 117 + ellipsis
     assert "a" * 118 not in steps[0].description
+
+
+# ── parse_delegate_flags (Signal /delegate research|paper) ────────────────────
+
+
+def test_parse_delegate_flags_extracts_leading_flags():
+    flags, goal = R.parse_delegate_flags("verify compose how fast is binary search")
+    assert flags == {"experiment": False, "verify": True, "compose": True, "synthesize": False}
+    assert goal == "how fast is binary search"
+
+
+def test_parse_delegate_flags_handles_dashes_and_all_flags():
+    flags, goal = R.parse_delegate_flags("--experiment --verify --compose --synthesize study X")
+    assert all(flags.values())
+    assert goal == "study X"
+
+
+def test_parse_delegate_flags_no_flags_is_all_goal():
+    flags, goal = R.parse_delegate_flags("is caching worth it")
+    assert not any(flags.values())
+    assert goal == "is caching worth it"
+
+
+def test_parse_delegate_flags_stops_at_first_non_flag():
+    # a flag word that appears AFTER the goal starts is part of the goal
+    flags, goal = R.parse_delegate_flags("verify does X verify Y")
+    assert flags["verify"] is True and flags["compose"] is False
+    assert goal == "does X verify Y"
+
+
+def test_parse_delegate_flags_empty():
+    flags, goal = R.parse_delegate_flags("")
+    assert not any(flags.values())
+    assert goal == ""
 
 
 # ── build_research_run ───────────────────────────────────────────────────────
@@ -356,6 +407,41 @@ def test_research_adapter_nests_over_inner_adapter():
     assert inner_seen == ["self_improvement:job"]
 
 
+def test_generative_seams_are_actually_invoked():
+    """Seam-contract guard — systemic regression fence for the #138 class.
+
+    Each generative research step MUST route through its injected seam, not a
+    hardcoded default. #138 rewired investigate/draft/design onto new ``*_fn``
+    seams but left callers/tests feeding the old ``commander_fn``; the steps
+    then silently degraded to empty real-LLM calls on a host (the red-suite
+    bug). This pins the contract so the next rewiring that orphans a seam fails
+    CI immediately, instead of shipping a step that no longer calls what it was
+    handed.
+    """
+    adapter = R.make_research_adapter(
+        search_fn=lambda g: [{"id": "k", "title": "t"}],
+        propose_fn=lambda q, **k: [{"text": "h", "rank": 1}],
+        commander_fn=lambda s, r: CommanderResult(text="COMMANDER-FALLBACK"),
+        gate_fn=lambda **k: (None, ""),
+        investigate_fn=lambda prompt: "INVESTIGATE-SEAM",
+        design_fn=lambda prompt: "DESIGN-SEAM",
+        draft_fn=lambda prompt: "DRAFT-SEAM",
+    )
+
+    five = R.build_research_run("q")  # 5-step plan: literature→hypotheses→investigate→draft→gate
+    five.transition(ExecutorStatus.RUNNING)
+    assert adapter(_step(five, R.HINT_INVESTIGATE), five).text == "INVESTIGATE-SEAM"
+    assert adapter(_step(five, R.HINT_DRAFT), five).text == "DRAFT-SEAM"
+
+    seven = R.build_research_run("q", experiment=True)  # has the design_experiment step
+    seven.transition(ExecutorStatus.RUNNING)
+    assert adapter(_step(seven, R.HINT_DESIGN_EXPERIMENT), seven).text == "DESIGN-SEAM"
+
+    # No generative research hint silently falls through to the commander fallback.
+    for hint in (R.HINT_INVESTIGATE, R.HINT_DRAFT):
+        assert adapter(_step(five, hint), five).text != "COMMANDER-FALLBACK"
+
+
 def test_gate_falls_back_to_investigation_when_no_draft():
     captured: dict = {}
 
@@ -477,8 +563,11 @@ def test_module_exports():
         "HINT_DRAFT",
         "HINT_GATE",
         "HINT_SYNTHESIZE",
+        "HINT_VERIFY",
+        "HINT_COMPOSE",
         "ResearchRunOutcome",
         "plan_research",
+        "parse_delegate_flags",
         "make_research_adapter",
         "build_research_run",
         "run_to_completion",
