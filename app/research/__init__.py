@@ -22,4 +22,14 @@ imported on demand by their callers.
 
 from __future__ import annotations
 
-__all__ = ["literature", "hypothesis", "run", "experiment", "experiment_job"]
+__all__ = [
+    "literature",
+    "hypothesis",
+    "run",
+    "experiment",
+    "experiment_job",
+    # Phase B — literature/citation verification (pure stdlib, host-safe).
+    "citation",
+    "literature_sources",
+    "citation_verifier",
+]
