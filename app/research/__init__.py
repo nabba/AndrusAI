@@ -32,4 +32,6 @@ __all__ = [
     "citation",
     "literature_sources",
     "citation_verifier",
+    # Phase C — manuscript composer (pure stdlib, host-safe).
+    "manuscript",
 ]
