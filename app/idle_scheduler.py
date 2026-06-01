@@ -1237,6 +1237,40 @@ def _run_boot_prep() -> None:
         )
 
 
+# ── Serving/compute split (2026-06-01) ──────────────────────────────────
+# IDLE_SCHEDULER_ROLE routes idle jobs between the gateway process and a
+# separate WORKER process, so heavy jobs stop starving the gateway's asyncio
+# event loop / /health. Default "all" = single-process (current behaviour).
+#   all     → run everything here (no split; DEFAULT)
+#   gateway → run everything EXCEPT worker-eligible jobs
+#   worker  → run ONLY worker-eligible jobs (in the worker container)
+# Worker-eligibility is an EXPLICIT allowlist, NOT just weight: a worker
+# process must never open ChromaDB (single-writer; chromadb_manager
+# fail-closed-guards it), so a job is added here only after it is verified
+# chromadb-free OR converted to ledger-first writes. Empty = nothing moves yet
+# (the mechanism is built; migration populates this allowlist per-job).
+_WORKER_ELIGIBLE_JOBS: set[str] = set()
+
+
+def _idle_role() -> str:
+    return os.environ.get("IDLE_SCHEDULER_ROLE", "all").strip().lower()
+
+
+def _filter_jobs_for_role(jobs: list) -> list:
+    role = _idle_role()
+    if role == "worker":
+        kept = [j for j in jobs if j[0] in _WORKER_ELIGIBLE_JOBS]
+    elif role == "gateway":
+        kept = [j for j in jobs if j[0] not in _WORKER_ELIGIBLE_JOBS]
+    else:
+        return jobs  # "all" — single-process, unchanged (default)
+    logger.info(
+        "idle_scheduler: role=%s → %d/%d jobs run here (%d worker-eligible)",
+        role, len(kept), len(jobs), len(_WORKER_ELIGIBLE_JOBS),
+    )
+    return kept
+
+
 def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
     """Start the idle scheduler in a daemon thread.
 
@@ -1254,6 +1288,7 @@ def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
 
     if jobs is None:
         jobs = _default_jobs()
+    jobs = _filter_jobs_for_role(jobs)
 
     if not jobs:
         logger.warning("idle_scheduler: no jobs configured, not starting")

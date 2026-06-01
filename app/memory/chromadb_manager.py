@@ -226,7 +226,28 @@ _client_lock = threading.Lock()
 _kb_clients: dict[str, object] = {}
 
 
+def _guard_worker() -> None:
+    """Fail-closed: the idle WORKER process must NEVER open ChromaDB.
+
+    ChromaDB embedded is single-writer; a second writer corrupts the KBs
+    (§55). In the serving/compute split (``IDLE_SCHEDULER_ROLE=worker``) heavy
+    idle jobs run in a separate process — they route KB writes through the
+    source ledger (the gateway reconciles) and reads via the gateway RAG API,
+    never opening ChromaDB here. Raising turns a misclassified worker job into a
+    loud, SAFE failure instead of silent corruption. The gateway
+    (role=all/gateway, the default) is unaffected.
+    """
+    import os
+    if os.environ.get("IDLE_SCHEDULER_ROLE", "all").strip().lower() == "worker":
+        raise RuntimeError(
+            "ChromaDB access forbidden in the idle worker process "
+            "(single-writer safety, §55). Route writes via the source ledger "
+            "and reads via the gateway RAG API."
+        )
+
+
 def get_client():
+    _guard_worker()
     global _client
     if _client is not None:
         return _client
@@ -246,6 +267,7 @@ def get_kb_client(kb_name: str):
 
     All clients live until process exit; cache is process-local.
     """
+    _guard_worker()
     name = (kb_name or "").strip()
     if not name or name == "memory":
         return get_client()
@@ -285,6 +307,7 @@ def get_client_for_path(persist_dir) -> object:
     long-lived store opens its own KB directory, so repeated instantiation
     reuses one Rust runtime instead of leaking one per call.
     """
+    _guard_worker()
     key = str(Path(persist_dir).resolve())
     cached = _clients_by_path.get(key)
     if cached is not None:
