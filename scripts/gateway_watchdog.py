@@ -264,6 +264,36 @@ def gateway_diagnostics() -> str:
         return f"diagnostics unavailable: {e}"
 
 
+def container_running() -> Optional[bool]:
+    """Authoritative, GIL-independent liveness via docker inspect.
+
+    Returns True if the gateway container is running and NOT OOMKilled, False if
+    it is stopped/OOMKilled, None if the inspect itself failed (treat as
+    'unknown' — never a restart trigger on its own).
+
+    This is the death signal the in-process heartbeat CANNOT be: a pure-Python
+    heartbeat thread starves alongside the event loop under a hard GIL hold (a
+    C-extension that doesn't release the GIL — e.g. an embedding batch), so a
+    stale heartbeat means "GIL busy", NOT necessarily "dead". docker inspect
+    runs in the host kernel and is unaffected by the container's GIL.
+    """
+    try:
+        result = subprocess.run(
+            [DOCKER_BIN, "inspect", "--format",
+             "{{.State.Running}}|{{.State.OOMKilled}}",
+             f"{os.path.basename(COMPOSE_PROJECT_DIR.rstrip('/'))}-{GATEWAY_SERVICE}-1"],
+            cwd=COMPOSE_PROJECT_DIR, capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            return None
+        running, oom = (result.stdout.strip().split("|") + ["", ""])[:2]
+        if oom.lower() == "true":
+            return False
+        return running.lower() == "true"
+    except Exception:  # noqa: BLE001 — never crash the watchdog on inspect
+        return None
+
+
 def restart_gateway() -> bool:
     log(f"Restarting compose service '{GATEWAY_SERVICE}' in {COMPOSE_PROJECT_DIR}")
     try:
@@ -348,40 +378,49 @@ def main() -> int:
                     and (now - last_restart_at) < RESTART_COOLDOWN
                 )
                 # ── Liveness gate (2026-06-01) ─────────────────────────
-                # Is the PROCESS alive (loop merely busy) or dead/wedged?
+                # Decide busy-but-alive vs dead/wedged using signals that do NOT
+                # starve with the event loop:
+                #   • death  → docker inspect (container_running): OS-level,
+                #     GIL-independent. The in-process heartbeat can't be this —
+                #     it starves alongside the loop under a hard GIL hold.
+                #   • wedge  → duration (/health down past HEALTH_ESCALATE):
+                #     longer than any legitimate heavy job (evolution cap 600 s),
+                #     so a continuous outage past it is a real wedge, not work.
+                # The heartbeat age is kept only as a human-readable log hint.
                 age = read_liveness_age()
-                process_alive = age is not None and age < HEARTBEAT_STALE
+                hb = f"{age:.0f}s" if age is not None else "n/a"
+                running = container_running()
                 down_for = (
                     int(now - health_down_since) if health_down_since
                     else int(consecutive_failures * POLL_INTERVAL)
                 )
+                should_restart = False
+                cause = ""
                 if in_cooldown:
                     remaining = int(RESTART_COOLDOWN - (now - last_restart_at))
                     log(f"Threshold breached but cooldown active ({remaining}s remaining)")
-                elif process_alive and down_for < HEALTH_ESCALATE:
-                    # Process alive (heartbeat fresh) — the event loop is just
-                    # busy with heavy work. Restarting would guillotine it and
-                    # never let it finish. Hold off; escalate only past
-                    # HEALTH_ESCALATE (a genuine loop wedge, not a heavy job).
+                elif running is False:
+                    should_restart = True
+                    cause = "container stopped/OOMKilled"
+                elif down_for >= HEALTH_ESCALATE:
+                    should_restart = True
+                    cause = (f"/health down >{int(HEALTH_ESCALATE)}s with container "
+                             f"up — event loop wedged")
+                else:
+                    # Container up (or inspect unknown) and /health has been down
+                    # less than any legitimate heavy job could hold the loop. Do
+                    # NOT restart — let the work finish; /health recovers on its
+                    # own. This is the case the old watchdog restart-looped on.
                     if (now - last_busy_log) >= BUSY_LOG_INTERVAL:
-                        log(f"/health down ~{down_for}s but process ALIVE "
-                            f"(heartbeat {age:.0f}s old) — busy loop, NOT restarting "
+                        log(f"/health down ~{down_for}s but container UP "
+                            f"(heartbeat {hb}) — busy/working, NOT restarting "
                             f"(escalate at {int(HEALTH_ESCALATE)}s)")
                         last_busy_log = now
-                else:
-                    # Restart: heartbeat stale/missing (process wedged/dead, or a
-                    # pre-heartbeat build), OR /health down past the escalation
-                    # window with a live process (genuine event-loop wedge).
-                    if age is None:
-                        cause = "no process heartbeat (dead, or pre-heartbeat build)"
-                    elif age >= HEARTBEAT_STALE:
-                        cause = f"process heartbeat STALE ({age:.0f}s) — process wedged/dead"
-                    else:
-                        cause = (f"/health down >{int(HEALTH_ESCALATE)}s with a live "
-                                 f"process — event loop wedged")
+
+                if should_restart:
                     diag = gateway_diagnostics()
-                    log(f"Threshold breached — {cause}; /health down ~{down_for}s; "
-                        f"diagnostics: {diag}; restarting")
+                    log(f"Threshold breached — {cause}; /health down ~{down_for}s "
+                        f"(heartbeat {hb}); diagnostics: {diag}; restarting")
                     signal_alert(
                         f"⚠️ Gateway watchdog: restarting {GATEWAY_SERVICE}.\n"
                         f"Reason: {cause}\n"
