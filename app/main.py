@@ -337,6 +337,22 @@ def _spawn_bg(coro, *, name: str, timeout: float) -> "asyncio.Task":
 async def lifespan(app: FastAPI):
     from app.crews.self_improvement_crew import SelfImprovementCrew
 
+    # ── Process-liveness heartbeat (2026-06-01) — start FIRST ──────────
+    # A daemon thread (NOT this event loop) writes a heartbeat file every
+    # few seconds. It survives event-loop starvation (heavy idle-job GIL
+    # contention, a multi-minute evolver docker-wait), so the host watchdog
+    # can tell "process alive, loop busy" (don't restart — let heavy work
+    # finish) from "process dead/wedged" (restart). This ends the loop where
+    # a busy-but-healthy gateway was guillotined at the 120 s /health
+    # threshold. See app/liveness.py + scripts/gateway_watchdog.py.
+    try:
+        from app.liveness import start_liveness_heartbeat
+
+        _hb_path = start_liveness_heartbeat()
+        logger.info("main: process-liveness heartbeat started (%s)", _hb_path)
+    except Exception:
+        logger.exception("main: liveness heartbeat failed to start (non-fatal)")
+
     # ── Q3.3 (PROGRAM §40.3 Item 1) — Post-amendment restart claims FIRST.
     # Per FastAPI/uvicorn semantics, lifespan-startup runs BEFORE port-
     # binding, so the claim surface here is already before any route
@@ -525,20 +541,12 @@ async def lifespan(app: FastAPI):
     except ValueError:
         logger.warning(f"Invalid ERROR_FIX_CRON: {error_fix_cron}")
 
-    # Evolution loop — autoresearch-style continuous improvement (every 6 hours)
-    from app.evolution import run_evolution_session
-    evolution_cron = os.environ.get("EVOLUTION_CRON", "0 */6 * * *")
-    try:
-        evo_trigger = CronTrigger.from_crontab(evolution_cron)
-        scheduler.add_job(
-            run_evolution_session,
-            evo_trigger,
-            id="evolution",
-            kwargs={"max_iterations": settings.evolution_iterations},
-        )
-        logger.info(f"Evolution loop scheduled: {evolution_cron} ({settings.evolution_iterations} iterations/session)")
-    except ValueError:
-        logger.warning(f"Invalid EVOLUTION_CRON: {evolution_cron}, evolution loop disabled")
+    # Verified self-improvement runs via the single resource-aware idle job
+    # ("evolution" in idle_scheduler), not a fixed cron — the idle scheduler
+    # yields to user tasks and backs off under the §82 memory ceiling, which a
+    # blunt 6h timer cannot, and the orchestrator's _single_run lock prevents
+    # concurrent evolver spawns. Do NOT re-add an APScheduler evolution cron.
+    # See reports/EVOLUTION_CONSOLIDATION_PLAN_2026-06-01.md.
 
     # Retrospective crew — meta-cognitive self-improvement (daily at 4 AM by default)
     from app.crews.retrospective_crew import RetrospectiveCrew

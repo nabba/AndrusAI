@@ -781,14 +781,6 @@ class TestSystemWiring:
         src = inspect.getsource(__import__("app.agents.commander.orchestrator", fromlist=["_"]))
         assert "get_best_crew_for_difficulty" in src
 
-    def test_evolution_wires_journal(self):
-        src = inspect.getsource(__import__("app.evolution", fromlist=["_"]))
-        assert "JournalEntryType.EVOLUTION_RESULT" in src
-
-    def test_evolution_wires_world_model(self):
-        src = inspect.getsource(__import__("app.evolution", fromlist=["_"]))
-        assert "store_causal_belief" in src
-
     def test_idle_scheduler_wires_cogito(self):
         src = inspect.getsource(__import__("app.idle_scheduler", fromlist=["_"]))
         assert "run_cogito" in src

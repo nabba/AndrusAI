@@ -81,7 +81,6 @@ def _():
         "learn-queue", "evolution", "discover-topics", "retrospective",
         "feedback-aggregate", "safety-health-check", "modification-engine",
         "health-evaluate", "version-snapshot",
-        "island-evolution", "parallel-evolution",
         "atlas-competence-sync", "atlas-stale-check",
         "cogito-cycle", "self-knowledge-ingest",
         "tech-radar",
@@ -101,7 +100,7 @@ def _():
         "app/eval_sandbox.py", "app/safety_guardian.py",
         "app/feedback_pipeline.py", "app/modification_engine.py",
         # Evolution
-        "app/evolve_blocks.py", "app/island_evolution.py", "app/adaptive_ensemble.py",
+        "app/evolve_blocks.py", "app/adaptive_ensemble.py",
         # Self-awareness
         "app/self_awareness/inspect_tools.py", "app/self_awareness/query_router.py",
         "app/self_awareness/grounding.py", "app/self_awareness/cogito.py",
@@ -862,42 +861,6 @@ def _():
     report = monitor.format_health_report()
     assert "Health Monitor" in report or "No interaction" in report
     return True
-
-@test("UAT: evolution archive tracks lineage")
-def _():
-    import tempfile
-    from app.parallel_evolution import EvolutionArchive, ArchiveEntry
-
-    with tempfile.TemporaryDirectory() as td:
-        archive = EvolutionArchive(archive_dir=Path(td))
-
-        # Add parent
-        archive.add(ArchiveEntry(
-            version_tag="parent-v1", metrics={"task_completion": 0.7},
-            mutation_strategy="prompt_optimization", composite_score=0.65,
-        ))
-
-        # Add child
-        archive.add(ArchiveEntry(
-            version_tag="child-v1", metrics={"task_completion": 0.8},
-            parent_version="parent-v1",
-            mutation_strategy="inspiration", composite_score=0.75,
-        ))
-
-        # Record child outcome
-        archive.record_child_outcome("parent-v1", success=True)
-
-        # Verify lineage
-        best = archive.get_best_variants(1)
-        assert best[0].version_tag == "child-v1"
-
-        # Strategy distribution
-        dist = archive.get_strategy_distribution()
-        assert "prompt_optimization" in dist
-        assert "inspiration" in dist
-
-    return True
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 8. ORPHAN DETECTION — Find disconnected modules

@@ -84,3 +84,22 @@
 {"version": 47, "reason": "promoted (was v046)", "timestamp": "2026-04-23T00:34:03.577079+00:00", "status": "promoted"}
 {"version": 60, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-18T12:35:44.784026+00:00", "status": "proposed"}
 {"version": 60, "reason": "promoted (was v047)", "timestamp": "2026-05-18T12:35:44.785777+00:00", "status": "promoted"}
+{"version": 103, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-25T23:35:32.224916+00:00", "status": "proposed"}
+{"version": 103, "reason": "promoted (was v060)", "timestamp": "2026-05-25T23:35:32.231636+00:00", "status": "promoted"}
+{"version": 104, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T00:32:33.830001+00:00", "status": "proposed"}
+{"version": 104, "reason": "promoted (was v103)", "timestamp": "2026-05-26T00:32:33.834754+00:00", "status": "promoted"}
+{"version": 105, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T01:03:06.400189+00:00", "status": "proposed"}
+{"version": 105, "reason": "promoted (was v104)", "timestamp": "2026-05-26T01:03:06.404471+00:00", "status": "promoted"}
+{"version": 106, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T04:37:34.242168+00:00", "status": "proposed"}
+{"version": 106, "reason": "promoted (was v105)", "timestamp": "2026-05-26T04:37:34.245685+00:00", "status": "promoted"}
+{"version": 107, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T05:01:47.357384+00:00", "status": "proposed"}
+{"version": 107, "reason": "promoted (was v106)", "timestamp": "2026-05-26T05:01:47.360986+00:00", "status": "promoted"}
+{"version": 108, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T07:36:58.567254+00:00", "status": "proposed"}
+{"version": 108, "reason": "promoted (was v107)", "timestamp": "2026-05-26T07:36:58.571194+00:00", "status": "promoted"}
+{"version": 109, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T08:01:00.658282+00:00", "status": "proposed"}
+{"version": 109, "reason": "promoted (was v108)", "timestamp": "2026-05-26T08:01:00.662144+00:00", "status": "promoted"}
+{"version": 110, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T21:05:54.326962+00:00", "status": "proposed"}
+{"version": 110, "reason": "promoted (was v109)", "timestamp": "2026-05-26T21:05:54.333031+00:00", "status": "promoted"}
+{"version": 111, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-27T20:58:17.102998+00:00", "status": "proposed"}
+{"version": 111, "reason": "promoted (was v110)", "timestamp": "2026-05-27T20:58:17.106105+00:00", "status": "promoted"}
+{"version": 1, "reason": "revert island-corrupted prompt v111 to operator baseline v001 (evolution consolidation)", "timestamp": "2026-06-02T10:50:38.000000+00:00", "status": "promoted"}

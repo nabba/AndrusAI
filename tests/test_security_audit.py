@@ -8,7 +8,6 @@ Covers:
   4. conversation_store HMAC — no weak fallback
   5. self_heal input sanitization + verbose=False
   6. signal_client sequential chunk delivery
-  7. evolution SHA256 (not MD5)
 """
 
 import ast
@@ -156,16 +155,6 @@ class TestSignalClientOrdering(unittest.TestCase):
         source = open("app/signal_client.py").read()
         self.assertNotIn("asyncio.gather", source,
                          "Chunks must not be sent with gather (no ordering guarantee)")
-
-
-class TestEvolutionHash(unittest.TestCase):
-    """#7 — evolution.py must use SHA256, not MD5."""
-
-    def test_uses_sha256(self):
-        source = open("app/evolution.py").read()
-        self.assertIn("sha256", source)
-        self.assertNotIn("md5", source.lower().replace("memory.md", ""),
-                         "Should not use MD5 for hashing")
 
 
 if __name__ == "__main__":

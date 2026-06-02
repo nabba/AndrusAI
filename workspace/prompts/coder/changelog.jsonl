@@ -92,3 +92,32 @@
 {"version": 60, "reason": "promoted (was v059)", "timestamp": "2026-05-18T15:59:03.965856+00:00", "status": "promoted"}
 {"version": 61, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-19T16:34:04.288689+00:00", "status": "proposed"}
 {"version": 61, "reason": "promoted (was v060)", "timestamp": "2026-05-19T16:34:04.292323+00:00", "status": "promoted"}
+{"version": 103, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-25T23:00:43.016657+00:00", "status": "proposed"}
+{"version": 103, "reason": "promoted (was v061)", "timestamp": "2026-05-25T23:00:43.022976+00:00", "status": "promoted"}
+{"version": 104, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-26T02:29:33.878184+00:00", "status": "proposed"}
+{"version": 104, "reason": "promoted (was v103)", "timestamp": "2026-05-26T02:29:33.880935+00:00", "status": "promoted"}
+{"version": 105, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-26T02:56:17.279382+00:00", "status": "proposed"}
+{"version": 105, "reason": "promoted (was v104)", "timestamp": "2026-05-26T02:56:17.282777+00:00", "status": "promoted"}
+{"version": 106, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-26T04:11:02.824789+00:00", "status": "proposed"}
+{"version": 106, "reason": "promoted (was v105)", "timestamp": "2026-05-26T04:11:02.829688+00:00", "status": "promoted"}
+{"version": 107, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-26T05:29:39.895616+00:00", "status": "proposed"}
+{"version": 107, "reason": "promoted (was v106)", "timestamp": "2026-05-26T05:29:39.900058+00:00", "status": "promoted"}
+{"version": 108, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-26T05:55:00.664604+00:00", "status": "proposed"}
+{"version": 108, "reason": "promoted (was v107)", "timestamp": "2026-05-26T05:55:00.670489+00:00", "status": "promoted"}
+{"version": 109, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-26T09:52:22.175417+00:00", "status": "proposed"}
+{"version": 109, "reason": "promoted (was v108)", "timestamp": "2026-05-26T09:52:22.182913+00:00", "status": "promoted"}
+{"version": 110, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-26T11:20:31.962444+00:00", "status": "proposed"}
+{"version": 110, "reason": "promoted (was v109)", "timestamp": "2026-05-26T11:20:31.973899+00:00", "status": "promoted"}
+{"version": 111, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-27T01:11:58.989553+00:00", "status": "proposed"}
+{"version": 111, "reason": "promoted (was v110)", "timestamp": "2026-05-27T01:11:58.993039+00:00", "status": "promoted"}
+{"version": 112, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-27T02:51:43.457803+00:00", "status": "proposed"}
+{"version": 112, "reason": "promoted (was v111)", "timestamp": "2026-05-27T02:51:43.462352+00:00", "status": "promoted"}
+{"version": 113, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-27T03:52:41.140387+00:00", "status": "proposed"}
+{"version": 113, "reason": "promoted (was v112)", "timestamp": "2026-05-27T03:52:41.144846+00:00", "status": "promoted"}
+{"version": 114, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-27T04:20:41.462803+00:00", "status": "proposed"}
+{"version": 114, "reason": "promoted (was v113)", "timestamp": "2026-05-27T04:20:41.466759+00:00", "status": "promoted"}
+{"version": 115, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-27T05:32:04.591055+00:00", "status": "proposed"}
+{"version": 115, "reason": "promoted (was v114)", "timestamp": "2026-05-27T05:32:04.596317+00:00", "status": "promoted"}
+{"version": 116, "reason": "Island evolution: fitness=1.000, strategy=meta_prompt", "timestamp": "2026-05-27T21:33:13.817763+00:00", "status": "proposed"}
+{"version": 116, "reason": "promoted (was v115)", "timestamp": "2026-05-27T21:33:13.822837+00:00", "status": "promoted"}
+{"version": 1, "reason": "revert island-corrupted prompt v116 to operator baseline v001 (evolution consolidation)", "timestamp": "2026-06-02T10:50:38.000000+00:00", "status": "promoted"}

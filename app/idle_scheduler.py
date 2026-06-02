@@ -220,6 +220,72 @@ _LIGHT_MIN_CADENCE: dict[str, float] = {
     "spans-watchdog":                  300,
     # ── high-frequency (1 min) ──
     "heartbeat-cycle":                  60,
+    # ── 2026-06-01: close the cadence-map gap. 56 LLM/heavy idle jobs were
+    #    ABSENT from this map → ran every ~4-min cycle, holding the GIL and
+    #    starving /health ~10 min per burst (the load behind the watchdog
+    #    restart loop). These min-cadences match each job's intended
+    #    frequency; the inner functions still no-op finer. Reversible via the
+    #    master switch. See docs/proposed_fixes/idle_scheduler_cadence_gating.md.
+    # daily (yearly/weekly/daily intent — inner logic gates finer) ──
+    "identity-annual-reflection":       86400,
+    "identity-legacy-essay":            86400,
+    "identity-code-consolidation":      86400,
+    "identity-elegance-reflection":     86400,
+    "identity-long-term-goal-review":   86400,
+    "paper-pipeline":                   86400,
+    "upgrade-ecosystem-snapshot":       86400,
+    "upgrade-capability-adoption":      86400,
+    "upgrade-lifecycle-absence":        86400,
+    "upgrade-lifecycle-goodhart":       86400,
+    "upgrade-lifecycle-retention":      86400,
+    "substrate-radar":                  86400,
+    "mcp-discovery":                    86400,
+    "llm-cost-advisor":                 86400,
+    "capability-inventory":             86400,
+    "decade-recall":                    86400,
+    "browse-topics":                    86400,
+    "life-companion-workstream-news":   86400,
+    "companion-xworkspace":             86400,
+    # hourly (observational probes, modeling, periodic sweeps) ──
+    "sentience-ae2":                     3600,
+    "sentience-hot1":                    3600,
+    "sentience-hot4":                    3600,
+    "sentience-rpt1":                    3600,
+    "social-graph":                      3600,
+    "person-model":                      3600,
+    "interest-model":                    3600,
+    "interest-goal-emitter":             3600,
+    "tension-detector":                  3600,
+    "lessons-learned":                   3600,
+    "cross-modal-patterns":              3600,
+    "adapter-performance":               3600,
+    "governance-auto-propose":           3600,
+    "goodhart-enforcing-proposer":       3600,
+    "conversation-memory-index":         3600,
+    "discovery-funnel":                  3600,
+    "operator-transition":               3600,
+    "health-summary":                    3600,
+    "browse-tick":                       3600,
+    "graph-features":                    3600,
+    "companion-ingest":                  3600,
+    "companion-tensions":                3600,
+    "resilience-drills":                 3600,
+    # 30 min (life-companion periodic + cron-windowed briefings) ──
+    "life-companion-briefing":           1800,
+    "life-companion-briefing-proposer":  1800,
+    "life-companion-personalized-digest":1800,
+    "life-companion-long-arc":           1800,
+    "life-companion-routines":           1800,
+    "life-companion-seasonal-nudges":    1800,
+    "life-companion-topic-dormancy":     1800,
+    "life-companion-travel":             1800,
+    "life-companion-calendar-horizon":   1800,
+    "life-companion-calendar-prep":      1800,
+    # 5–15 min (time-sensitive: act-now, email, reaction routing, inbox) ──
+    "life-companion-act-now-digest":      900,
+    "life-companion-email":               600,
+    "feedback-router":                    600,
+    "inbox-tick":                         300,
 }
 
 _light_job_last_run: dict[str, float] = {}
@@ -249,6 +315,61 @@ def _light_job_allowed(name: str) -> bool:
     last = _light_job_last_run.get(name)
     if last is None or (now - last) >= min_cadence:
         _light_job_last_run[name] = now
+        return True
+    return False
+
+
+# ── 2026-06-01: per-MEDIUM/HEAVY-job cadence gate ────────────────────────
+# Phases 2 & 3 already run only ONE medium + ONE heavy job per cycle
+# (round-robin), so they never fire as a simultaneous burst. But the few
+# genuinely long ones — chiefly ``evolution`` (run_verified_cycle → AVO +
+# evolver, ~10 min) plus benchmarks/consolidator/transfer — each hold the GIL
+# for minutes when their round-robin turn comes, blipping /health. Gating
+# them to their intended frequency thins how often those blips occur (it does
+# NOT shorten a single run — that needs out-of-process execution, blocked by
+# the chromadb single-writer constraint). Jobs absent from the map keep the
+# always-run round-robin default. Reuses the LIGHT gate's design.
+_HEAVY_MIN_CADENCE: dict[str, float] = {
+    # HEAVY (cap 600s) — the multi-minute GIL holders behind the blips
+    "evolution":               3600,   # self-improvement; hourly (was ~every rotation)
+    "benchmarks-refresh":     86400,   # leaderboard refresh; daily is plenty
+    "consolidator":           86400,   # meta-agent consolidation; daily
+    "learn-queue":             3600,
+    "transfer-compile":        7200,
+    "widening-proposer-scan":  7200,
+    # MEDIUM (cap 180s) — LLM/CPU cognition jobs
+    "modification-engine":     3600,
+    "cogito-cycle":            3600,
+    "pattern-library-extract": 3600,
+    "self-knowledge-ingest":   3600,
+    "trajectory-tips":         3600,
+    "transfer-promotion":      3600,
+    "personality-development": 3600,
+}
+
+_heavy_job_last_run: dict[str, float] = {}
+
+_HEAVY_CADENCE_GATING_ENABLED = os.environ.get(
+    "IDLE_HEAVY_CADENCE_GATING_ENABLED", "1"
+).lower() in ("1", "true", "yes")
+
+
+def _heavy_job_allowed(name: str) -> bool:
+    """Cadence gate for MEDIUM/HEAVY jobs (mirrors ``_light_job_allowed``).
+
+    Jobs not in ``_HEAVY_MIN_CADENCE`` are always allowed (preserves the
+    round-robin default). Master kill-switch
+    ``IDLE_HEAVY_CADENCE_GATING_ENABLED=0`` reverts to always-allow.
+    """
+    if not _HEAVY_CADENCE_GATING_ENABLED:
+        return True
+    min_cadence = _HEAVY_MIN_CADENCE.get(name, 0)
+    if min_cadence <= 0:
+        return True
+    now = time.monotonic()
+    last = _heavy_job_last_run.get(name)
+    if last is None or (now - last) >= min_cadence:
+        _heavy_job_last_run[name] = now
         return True
     return False
 
@@ -903,7 +1024,9 @@ def _run_idle_loop(jobs) -> None:
             # Boot-starvation fix (2026-05-29) — defer MEDIUM jobs while in
             # the post-boot warm-up window so a long GIL-monopolizing job
             # can't starve /health and trip the host watchdog mid-job.
-            if _in_warmup_phase() and _warmup_defer(JobWeight.MEDIUM):
+            if not _heavy_job_allowed(name):
+                pass  # 2026-06-01: MEDIUM cadence gate — not due to run yet
+            elif _in_warmup_phase() and _warmup_defer(JobWeight.MEDIUM):
                 _publish_deferral(name, JobWeight.MEDIUM, "boot_warmup")
             # Gap #2 (2026-05-24) — total monthly cost ceiling brake.
             # When tripped (>95% of cap), MEDIUM/HEAVY jobs skip; brake
@@ -940,6 +1063,13 @@ def _run_idle_loop(jobs) -> None:
                 if time.monotonic() - _last_training_run < _training_interval:
                     continue  # Skip: ran less than 1 hour ago
                 _last_training_run = time.monotonic()
+
+            # 2026-06-01: per-heavy-job cadence gate — skip this cycle's heavy
+            # slot if the round-robin pick ran within its min cadence. Thins the
+            # multi-minute /health blips from the long jobs (evolution etc.);
+            # heavy_idx already advanced so the next cycle picks the next job.
+            elif not _heavy_job_allowed(name):
+                continue
 
             # Boot-starvation fix (2026-05-29) — defer HEAVY jobs while in
             # the post-boot warm-up window. A heavy job can grind for up to
@@ -1107,6 +1237,40 @@ def _run_boot_prep() -> None:
         )
 
 
+# ── Serving/compute split (2026-06-01) ──────────────────────────────────
+# IDLE_SCHEDULER_ROLE routes idle jobs between the gateway process and a
+# separate WORKER process, so heavy jobs stop starving the gateway's asyncio
+# event loop / /health. Default "all" = single-process (current behaviour).
+#   all     → run everything here (no split; DEFAULT)
+#   gateway → run everything EXCEPT worker-eligible jobs
+#   worker  → run ONLY worker-eligible jobs (in the worker container)
+# Worker-eligibility is an EXPLICIT allowlist, NOT just weight: a worker
+# process must never open ChromaDB (single-writer; chromadb_manager
+# fail-closed-guards it), so a job is added here only after it is verified
+# chromadb-free OR converted to ledger-first writes. Empty = nothing moves yet
+# (the mechanism is built; migration populates this allowlist per-job).
+_WORKER_ELIGIBLE_JOBS: set[str] = set()
+
+
+def _idle_role() -> str:
+    return os.environ.get("IDLE_SCHEDULER_ROLE", "all").strip().lower()
+
+
+def _filter_jobs_for_role(jobs: list) -> list:
+    role = _idle_role()
+    if role == "worker":
+        kept = [j for j in jobs if j[0] in _WORKER_ELIGIBLE_JOBS]
+    elif role == "gateway":
+        kept = [j for j in jobs if j[0] not in _WORKER_ELIGIBLE_JOBS]
+    else:
+        return jobs  # "all" — single-process, unchanged (default)
+    logger.info(
+        "idle_scheduler: role=%s → %d/%d jobs run here (%d worker-eligible)",
+        role, len(kept), len(jobs), len(_WORKER_ELIGIBLE_JOBS),
+    )
+    return kept
+
+
 def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
     """Start the idle scheduler in a daemon thread.
 
@@ -1124,6 +1288,7 @@ def start(jobs: list[tuple[str, Callable[[], None]]] | None = None) -> None:
 
     if jobs is None:
         jobs = _default_jobs()
+    jobs = _filter_jobs_for_role(jobs)
 
     if not jobs:
         logger.warning("idle_scheduler: no jobs configured, not starting")
@@ -1428,17 +1593,9 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
     # Reduced from 5 to 2: each iteration takes ~4min, so 5 = 20min which
     # starves all subsequent jobs. 2 iterations keeps total under 10min.
     def _evolution() -> None:
-        from app.evolution import run_evolution_session
-        run_evolution_session(max_iterations=2)
-    jobs.append(("evolution", _evolution, JobWeight.HEAVY))
-
-    # ── Meta-evolution: improve the evolution engine's own parameters ──
-    # Runs at ~1/5 evolution frequency (5 HEAVY jobs rotate round-robin).
-    # Gate: MAX_META_MUTATIONS_PER_WEEK = 3, 8h cooldown between cycles.
-    def _meta_evolution() -> None:
-        from app.meta_evolution import run_meta_evolution
-        run_meta_evolution()
-    jobs.append(("meta-evolution", _meta_evolution, JobWeight.HEAVY))
+        from app.self_improvement.orchestrator import run_verified_session
+        run_verified_session(max_iterations=2)
+    jobs.append(("self-improvement", _evolution, JobWeight.HEAVY))
 
     # Q11.1 (PROGRAM §46.18) — Analogy-index populator. HEAVY weekly
     # LLM pass over wiki + episteme that extracts abstract structural
@@ -2046,33 +2203,6 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         except Exception:
             logger.debug("idle_scheduler: MAP-Elites maintenance failed", exc_info=True)
     jobs.append(("map-elites-maintain", _map_elites_maintain, JobWeight.LIGHT))
-
-    # ── Island evolution: population-based prompt optimization ─────────
-    def _island_evolution() -> None:
-        try:
-            from app.island_evolution import run_island_evolution_cycle
-            # Rotate through roles each cycle
-            roles = ["coder", "researcher", "writer", "commander"]
-            role = roles[hash(str(time.monotonic())) % len(roles)]
-            result = run_island_evolution_cycle(target_role=role)
-            if result.get("best"):
-                logger.info(f"idle_scheduler: island evolution for '{role}' — "
-                            f"best fitness={result['best'].get('fitness', 0):.3f}")
-        except Exception:
-            logger.debug("idle_scheduler: island evolution failed", exc_info=True)
-    jobs.append(("island-evolution", _island_evolution, JobWeight.HEAVY))
-
-    # ── Parallel evolution: diverse archive exploration ────────────────
-    def _parallel_evolution() -> None:
-        try:
-            from app.parallel_evolution import run_parallel_evolution_cycle
-            result = run_parallel_evolution_cycle()
-            if result.get("best_candidate"):
-                logger.info(f"idle_scheduler: parallel evolution promoted: "
-                            f"{result['best_candidate'].get('strategy', '?')}")
-        except Exception:
-            logger.debug("idle_scheduler: parallel evolution failed", exc_info=True)
-    jobs.append(("parallel-evolution", _parallel_evolution, JobWeight.HEAVY))
 
     # ── ATLAS: competence sync from skill library ─────────────────────
     def _atlas_competence_sync() -> None:

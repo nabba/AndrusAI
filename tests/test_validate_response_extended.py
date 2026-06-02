@@ -24,51 +24,51 @@ class TestOriginalValidationRegression:
     """Ensure existing validation rules are not broken by the new code."""
 
     def test_contains_match(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert validate_response("The capital of France is Paris", "contains:Paris")
 
     def test_contains_no_match(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert not validate_response("The capital is Berlin", "contains:Paris")
 
     def test_contains_case_insensitive(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert validate_response("paris is great", "contains:Paris")
 
     def test_not_contains_pass(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert validate_response("safe output", "not_contains:dangerous")
 
     def test_not_contains_fail(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert not validate_response("this is dangerous", "not_contains:dangerous")
 
     def test_min_length_pass(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert validate_response("x" * 100, "min_length:100")
 
     def test_min_length_fail(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert not validate_response("short", "min_length:100")
 
     def test_max_length_pass(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert validate_response("short", "max_length:100")
 
     def test_max_length_fail(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert not validate_response("x" * 200, "max_length:100")
 
     def test_empty_rule(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert validate_response("anything", "")
 
     def test_none_rule(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert validate_response("anything", None)
 
     def test_unknown_rule_passes(self):
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert validate_response("anything", "unknown_prefix:value")
 
 
@@ -81,7 +81,7 @@ class TestExecPassesValidation:
     def test_passing_code(self, mock_run):
         """exec_passes: returns True when code runs successfully with PASS."""
         mock_run.return_value = True
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         code = "def is_prime(n):\n    if n<2: return False\n    return all(n%i for i in range(2,int(n**0.5)+1))"
         test = "assert is_prime(17)==True; print('PASS')"
         assert validate_response(code, f"exec_passes:{test}")
@@ -91,20 +91,20 @@ class TestExecPassesValidation:
     def test_failing_assertion(self, mock_run):
         """exec_passes: returns False when assertions fail."""
         mock_run.return_value = False
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert not validate_response("def bad(): pass", "exec_passes:assert bad()==42; print('PASS')")
 
     @patch("app.sandbox_runner.run_code_check")
     def test_syntax_error(self, mock_run):
         """exec_passes: returns False on syntax errors in code."""
         mock_run.return_value = False
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         assert not validate_response("def broken(:", "exec_passes:print('PASS')")
 
     @patch("app.sandbox_runner.run_code_check", side_effect=Exception("Docker not available"))
     def test_docker_unavailable_graceful(self, mock_run):
         """exec_passes: returns False gracefully when Docker is unavailable."""
-        from app.experiment_runner import _validate_exec_passes
+        from app.self_improvement.eval_primitives import _validate_exec_passes
         result = _validate_exec_passes("def foo(): pass", "print('PASS')")
         assert result is False
 
@@ -112,7 +112,7 @@ class TestExecPassesValidation:
     def test_extracts_test_code_correctly(self, mock_run):
         """exec_passes: correctly strips the prefix and passes test code."""
         mock_run.return_value = True
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         test_code = "assert 1+1==2; print('PASS')"
         validate_response("x=1", f"exec_passes:{test_code}")
         args = mock_run.call_args[0]
@@ -127,7 +127,7 @@ class TestJudgeValidation:
 
     def setup_method(self):
         """Clear judge cache before each test."""
-        import app.experiment_runner as mod
+        import app.self_improvement.eval_primitives as mod
         mod._judge_cache.clear()
 
     @patch("app.llm_factory.create_vetting_llm")
@@ -137,7 +137,7 @@ class TestJudgeValidation:
         mock_llm.call.return_value = "0.85"
         mock_factory.return_value = mock_llm
 
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         result = validate_response(
             "This is a well-written response with clear structure.",
             "judge:clarity,structure"
@@ -151,7 +151,7 @@ class TestJudgeValidation:
         mock_llm.call.return_value = "0.2"
         mock_factory.return_value = mock_llm
 
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         result = validate_response("bad", "judge:quality")
         assert result is False
 
@@ -162,7 +162,7 @@ class TestJudgeValidation:
         mock_llm.call.return_value = "I cannot provide a numerical score."
         mock_factory.return_value = mock_llm
 
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         result = validate_response("response", "judge:quality")
         assert result is True  # graceful fallback
 
@@ -173,7 +173,7 @@ class TestJudgeValidation:
         mock_llm.call.return_value = "0.75"
         mock_factory.return_value = mock_llm
 
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         # First call — cache miss
         validate_response("same response", "judge:same_criteria")
         # Second call — should hit cache
@@ -189,7 +189,7 @@ class TestJudgeValidation:
         mock_llm.call.return_value = "0.75"
         mock_factory.return_value = mock_llm
 
-        import app.experiment_runner as mod
+        import app.self_improvement.eval_primitives as mod
         # Fill cache beyond limit
         for i in range(mod._JUDGE_CACHE_MAX + 10):
             key = hashlib.md5(f"resp_{i}|criteria".encode()).hexdigest()[:16]
@@ -203,7 +203,7 @@ class TestJudgeValidation:
     @patch("app.llm_factory.create_vetting_llm", side_effect=Exception("LLM unavailable"))
     def test_llm_failure_passes_gracefully(self, mock_factory):
         """judge: returns True when LLM factory fails (don't block evolution)."""
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         result = validate_response("response", "judge:quality")
         assert result is True
 
@@ -214,7 +214,7 @@ class TestJudgeValidation:
         mock_llm.call.return_value = "Based on my analysis, I give this a score of 0.72 out of 1.0."
         mock_factory.return_value = mock_llm
 
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         result = validate_response("response", "judge:quality")
         assert result is True  # 0.72 >= 0.5
 
@@ -225,7 +225,7 @@ class TestJudgeValidation:
         mock_llm.call.return_value = "5.0"
         mock_factory.return_value = mock_llm
 
-        from app.experiment_runner import _validate_judge
+        from app.self_improvement.eval_primitives import _validate_judge
         # Score of 5.0 should be clamped to 1.0 which passes
         result = _validate_judge("response", "quality")
         assert result is True

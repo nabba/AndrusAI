@@ -1,7 +1,9 @@
-"""Tests for SUBIA-evolution bridge in evolution.py.
+"""Tests for the SUBIA-evolution bridge in self_improvement.planning.
 
 Covers Phase 7: surprise-driven evolution targeting and homeostatic
-aggressiveness modulation.
+aggressiveness modulation. (The _build_evolution_context helper moved from
+the deleted evolution.py to app.self_improvement.planning in the 2026-06
+evolution-consolidation refactor.)
 """
 import os
 import sys
@@ -51,7 +53,7 @@ class TestSUBIAPredictionInContext:
 
     def test_context_includes_subia_section_when_available(self, tmp_path, monkeypatch):
         """When SUBIA tracker has sustained errors, they appear in evolution context."""
-        import app.evolution as evo
+        import app.self_improvement.planning as evo
         import app.results_ledger as ledger
         import app.healing.error_diagnosis as heal
 
@@ -75,7 +77,7 @@ class TestSUBIAPredictionInContext:
 
     def test_context_graceful_without_subia(self, tmp_path, monkeypatch):
         """Evolution context works fine when SUBIA modules aren't available."""
-        import app.evolution as evo
+        import app.self_improvement.planning as evo
         import app.results_ledger as ledger
         import app.healing.error_diagnosis as heal
 
@@ -94,7 +96,7 @@ class TestSUBIAPredictionInContext:
 
     def test_context_includes_snapshot_archive(self, tmp_path, monkeypatch):
         """Evolution context includes historical variant tags."""
-        import app.evolution as evo
+        import app.self_improvement.planning as evo
         import app.results_ledger as ledger
         import app.healing.error_diagnosis as heal
 

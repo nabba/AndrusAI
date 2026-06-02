@@ -9,7 +9,6 @@ Tests are organized by module:
   - TestEvolutionROI
   - TestPatternLibrary
   - TestGoodhartGuard
-  - TestMutationStrategies
   - TestDifferentialTest
   - TestTierGraduation
   - TestAlignmentAudit
@@ -254,42 +253,6 @@ class TestGoodhartGuard:
         with patch("app.results_ledger.get_recent_results", return_value=cosmetic_results):
             signals = detect_gaming_signals(window_days=30)
             assert any(s.signal_type == "kept_ratio_spike" for s in signals)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# mutation_strategies
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestMutationStrategies:
-    def test_select_strategy_returns_valid_spec(self):
-        from app.mutation_strategies import select_strategy, MutationStrategy
-        spec = select_strategy(seed=42)
-        assert spec.name in MutationStrategy
-        assert spec.weight >= 0.0
-        assert spec.description
-
-    def test_load_strategies_all_six(self):
-        from app.mutation_strategies import load_strategies, MutationStrategy
-        strategies = load_strategies()
-        for strategy in MutationStrategy:
-            assert strategy in strategies
-
-    def test_build_strategy_prompt_section(self):
-        from app.mutation_strategies import select_strategy, build_strategy_prompt_section
-        spec = select_strategy(seed=0)
-        section = build_strategy_prompt_section(spec)
-        assert spec.name.value.upper() in section
-        assert spec.guidance in section
-
-    def test_update_strategy_success(self, tmp_path, monkeypatch):
-        import app.mutation_strategies as ms
-        monkeypatch.setattr(ms, "STRATEGY_STATS_PATH", tmp_path / "stats.json")
-        ms.update_strategy_success("defensive", succeeded=True, delta=0.03)
-        ms.update_strategy_success("defensive", succeeded=False)
-        rates = ms.get_strategy_success_rates()
-        assert rates["defensive"]["total"] == 2
-        assert rates["defensive"]["succeeded"] == 1
-        assert rates["defensive"]["success_rate"] == 0.5
 
 
 # ─────────────────────────────────────────────────────────────────────────────

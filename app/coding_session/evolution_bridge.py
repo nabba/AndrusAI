@@ -52,6 +52,42 @@ from app.coding_session.models import Status
 logger = logging.getLogger(__name__)
 
 
+def _map_llm_models() -> list[str]:
+    """Map AndrusAI's LLM configuration to ShinkaEvolve model strings.
+
+    Returns OpenRouter-prefixed slugs (so shinka's resolve_model_backend takes
+    its OpenRouter branch, not a native Anthropic/OpenAI SDK) + an optional
+    local Ollama coder. Relocated from the retired ``shinka_engine`` module
+    (2026-06-02 evolution consolidation) — this is its only live consumer.
+    """
+    models: list[str] = []
+
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if openrouter_key:
+        models.append("openrouter/anthropic/claude-sonnet-4.6")
+        models.append("openrouter/qwen/qwen3-coder")
+
+    ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+    try:
+        import requests
+        resp = requests.get(f"{ollama_host}/api/tags", timeout=2)
+        if resp.status_code == 200:
+            tags = resp.json().get("models", [])
+            for tag in tags:
+                name = tag.get("name", "")
+                if "coder" in name.lower() or "qwen" in name.lower():
+                    models.append(f"local/{name}@{ollama_host}/v1")
+                    break
+    except Exception:
+        pass
+
+    # Fallback when no API keys are set: OpenRouter via the same coder.
+    if not models:
+        models.append("openrouter/qwen/qwen3-coder")
+
+    return models
+
+
 MAX_GENERATIONS_INLINE = 20
 MAX_ISLANDS_INLINE = 3
 MAX_COST_USD_INLINE = 5.0
@@ -429,7 +465,6 @@ def _default_runner_factory(
     # which resolve_model_backend routes to NATIVE OpenAI/Gemini SDKs,
     # bypassing the OpenRouter+Ollama consolidation. meta/novelty/prompt
     # model lists default to None → they fall back to llm_models.
-    from app.shinka_engine import _map_llm_models
     evo_config = EvolutionConfig(
         num_generations=num_generations,
         init_program_path=str(initial_path),

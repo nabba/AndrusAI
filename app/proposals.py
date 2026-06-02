@@ -630,7 +630,7 @@ def _pretest_proposal(pid: int, files: dict[str, str]) -> dict:
 
     # 2. Run test tasks (eval integrity checked by experiment_runner)
     try:
-        from app.experiment_runner import load_test_tasks, validate_response
+        from app.self_improvement.eval_primitives import load_test_tasks, validate_response
         tasks = load_test_tasks("fixed")  # regression suite only
         if not tasks:
             results["details"].append("No test tasks available for regression testing")

@@ -109,7 +109,7 @@ def run_adversarial_suite(
     sampled = rng.sample(tasks, min(sample_size, len(tasks)))
 
     try:
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
         from app.llm_factory import create_specialist_llm
     except ImportError as e:
         logger.warning(f"goodhart_guard: dependencies unavailable: {e}")

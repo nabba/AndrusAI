@@ -226,7 +226,28 @@ _client_lock = threading.Lock()
 _kb_clients: dict[str, object] = {}
 
 
+def _guard_worker() -> None:
+    """Fail-closed: the idle WORKER process must NEVER open ChromaDB.
+
+    ChromaDB embedded is single-writer; a second writer corrupts the KBs
+    (§55). In the serving/compute split (``IDLE_SCHEDULER_ROLE=worker``) heavy
+    idle jobs run in a separate process — they route KB writes through the
+    source ledger (the gateway reconciles) and reads via the gateway RAG API,
+    never opening ChromaDB here. Raising turns a misclassified worker job into a
+    loud, SAFE failure instead of silent corruption. The gateway
+    (role=all/gateway, the default) is unaffected.
+    """
+    import os
+    if os.environ.get("IDLE_SCHEDULER_ROLE", "all").strip().lower() == "worker":
+        raise RuntimeError(
+            "ChromaDB access forbidden in the idle worker process "
+            "(single-writer safety, §55). Route writes via the source ledger "
+            "and reads via the gateway RAG API."
+        )
+
+
 def get_client():
+    _guard_worker()
     global _client
     if _client is not None:
         return _client
@@ -246,6 +267,7 @@ def get_kb_client(kb_name: str):
 
     All clients live until process exit; cache is process-local.
     """
+    _guard_worker()
     name = (kb_name or "").strip()
     if not name or name == "memory":
         return get_client()
@@ -263,6 +285,39 @@ def get_kb_client(kb_name: str):
             persist_dir = Path("/app/workspace") / name
         client = chromadb.PersistentClient(path=str(persist_dir))
         _kb_clients[name] = client
+        return client
+
+
+# Path-keyed client cache (2026-06-01). The per-KB vectorstores
+# (KnowledgeStore / EpistemeStore / …) each live at their own
+# ``workspace/<kb>`` directory, so they can't share the ``memory`` singleton.
+# But ChromaDB 1.5.x is RUST-backed: every PersistentClient spawns a tokio
+# runtime (~2x cores worker threads) + an sqlx sqlite pool. KnowledgeStore()
+# is built at 14 hot-path call sites with NO singleton, so opening a fresh
+# client per instance leaked those Rust runtimes (threads + memory) until the
+# 8 GB cgroup OOM. Caching by resolved path makes every store reuse ONE client
+# per KB. Recycle-aware: ``recycle_client`` clears this cache too.
+_clients_by_path: dict[str, object] = {}
+
+
+def get_client_for_path(persist_dir) -> object:
+    """Return a process-cached ``PersistentClient`` for a KB directory.
+
+    Use this instead of ``chromadb.PersistentClient(path=...)`` anywhere a
+    long-lived store opens its own KB directory, so repeated instantiation
+    reuses one Rust runtime instead of leaking one per call.
+    """
+    _guard_worker()
+    key = str(Path(persist_dir).resolve())
+    cached = _clients_by_path.get(key)
+    if cached is not None:
+        return cached
+    with _client_lock:
+        cached = _clients_by_path.get(key)
+        if cached is not None:
+            return cached
+        client = chromadb.PersistentClient(path=key)
+        _clients_by_path[key] = client
         return client
 
 
@@ -305,6 +360,13 @@ def recycle_client(kb_name: str | None = None) -> dict:
     global _client
     target = (kb_name or "").strip()
     with _client_lock:
+        # Also drop any path-cached clients (get_client_for_path) — the per-KB
+        # vectorstores use those, so recycle must clear them too or a wedged
+        # client survives. Rare recovery action → nuke all (re-created on next
+        # access, each cleanly closed first).
+        for _pc in _clients_by_path.values():
+            _safe_close(_pc)
+        _clients_by_path.clear()
         if not target or target == "memory":
             closed = _safe_close(_client)
             _client = None

@@ -78,21 +78,11 @@ def get_evolution_summary():
     # Recent trend (last 20 kept experiments)
     trend = get_improvement_trend(20)
 
-    # Current engine selection
-    current_engine = "unknown"
-    try:
-        from app.evolution import _select_evolution_engine
-        current_engine = _select_evolution_engine()
-    except Exception:
-        pass
-
-    # SUBIA safety
+    # One self-modification engine now — the verified mutation engine. The
+    # legacy AVO/shinka engine-selection was retired in the 2026-06-02
+    # consolidation.
+    current_engine = "verified"
     subia_safety = 0.8
-    try:
-        from app.evolution import _get_subia_safety_value
-        subia_safety = _get_subia_safety_value()
-    except Exception:
-        pass
 
     return {
         "total_experiments": total,
@@ -180,18 +170,10 @@ def get_variant_lineage(variant_id: str):
 @router.get("/meta")
 def get_meta_evolution_history():
     """Return meta-evolution cycle history."""
-    try:
-        from app.meta_evolution import _load_history, measure_evolution_effectiveness
-        history = _load_history()
-        effectiveness = measure_evolution_effectiveness()
-        return {
-            "history": history[-20:],
-            "effectiveness": effectiveness,
-            "total_cycles": len(history),
-            "promoted": sum(1 for h in history if h.get("promoted")),
-        }
-    except Exception as e:
-        return {"history": [], "effectiveness": {}, "error": str(e)[:200]}
+    # Meta-evolution was retired in the 2026-06-02 consolidation (it evolved the
+    # legacy engine's own prompts — a path the immutable-judge verified engine
+    # deliberately does not have). No history surface remains.
+    return {"history": [], "effectiveness": {}, "total_cycles": 0, "promoted": 0}
 
 
 # ── Engine selection info ───────────────────────────────────────────────────
@@ -207,19 +189,9 @@ def get_engine_info():
     except AttributeError:
         pass
 
-    selected = "unknown"
-    try:
-        from app.evolution import _select_evolution_engine
-        selected = _select_evolution_engine()
-    except Exception:
-        pass
-
+    # Single verified engine now (legacy AVO/shinka selection retired 2026-06-02).
+    selected = "verified"
     shinka_available = False
-    try:
-        from app.evolution import _is_shinka_available
-        shinka_available = _is_shinka_available()
-    except Exception:
-        pass
 
     return {
         "config_mode": config_engine,

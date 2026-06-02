@@ -38,7 +38,6 @@ class TestGetProtectionTier:
 
     def test_evaluation_infra_is_immutable(self):
         from app.auto_deployer import get_protection_tier, ProtectionTier
-        assert get_protection_tier("app/experiment_runner.py") == ProtectionTier.IMMUTABLE
         assert get_protection_tier("app/eval_sandbox.py") == ProtectionTier.IMMUTABLE
         assert get_protection_tier("app/safety_guardian.py") == ProtectionTier.IMMUTABLE
         assert get_protection_tier("app/sandbox_runner.py") == ProtectionTier.IMMUTABLE
@@ -50,15 +49,12 @@ class TestGetProtectionTier:
 
     def test_new_modules_are_immutable(self):
         from app.auto_deployer import get_protection_tier, ProtectionTier
-        assert get_protection_tier("app/meta_evolution.py") == ProtectionTier.IMMUTABLE
         assert get_protection_tier("app/external_benchmarks.py") == ProtectionTier.IMMUTABLE
 
     def test_evolution_engine_is_gated(self):
         from app.auto_deployer import get_protection_tier, ProtectionTier
         gated_files = [
-            "app/evolution.py", "app/avo_operator.py",
-            "app/island_evolution.py", "app/map_elites.py",
-            "app/cascade_evaluator.py", "app/adaptive_ensemble.py",
+            "app/map_elites.py", "app/adaptive_ensemble.py",
         ]
         for f in gated_files:
             assert get_protection_tier(f) == ProtectionTier.GATED, f"{f} should be GATED"
@@ -112,21 +108,21 @@ class TestValidateMutationForTier:
     def test_gated_blocked_without_auto_deploy(self, monkeypatch):
         from app.auto_deployer import validate_mutation_for_tier
         monkeypatch.setenv("EVOLUTION_AUTO_DEPLOY", "false")
-        allowed, reason = validate_mutation_for_tier("app/evolution.py", has_canary_pass=True)
+        allowed, reason = validate_mutation_for_tier("app/map_elites.py", has_canary_pass=True)
         assert allowed is False
         assert "EVOLUTION_AUTO_DEPLOY" in reason
 
     def test_gated_blocked_without_canary(self, monkeypatch):
         from app.auto_deployer import validate_mutation_for_tier
         monkeypatch.setenv("EVOLUTION_AUTO_DEPLOY", "true")
-        allowed, reason = validate_mutation_for_tier("app/evolution.py", has_canary_pass=False)
+        allowed, reason = validate_mutation_for_tier("app/map_elites.py", has_canary_pass=False)
         assert allowed is False
         assert "canary" in reason.lower()
 
     def test_gated_allowed_with_auto_deploy_and_canary(self, monkeypatch):
         from app.auto_deployer import validate_mutation_for_tier
         monkeypatch.setenv("EVOLUTION_AUTO_DEPLOY", "true")
-        allowed, reason = validate_mutation_for_tier("app/evolution.py", has_canary_pass=True)
+        allowed, reason = validate_mutation_for_tier("app/map_elites.py", has_canary_pass=True)
         assert allowed is True
 
     def test_open_always_allowed(self):
@@ -146,7 +142,7 @@ class TestValidateProposalPaths:
 
     def test_allows_gated_file_at_proposal_time(self):
         from app.auto_deployer import validate_proposal_paths
-        violations = validate_proposal_paths({"app/evolution.py": "new content"})
+        violations = validate_proposal_paths({"app/map_elites.py": "new content"})
         # GATED files should NOT be blocked at proposal time
         immutable_violations = [v for v in violations if "IMMUTABLE" in v]
         assert len(immutable_violations) == 0
@@ -187,8 +183,8 @@ class TestRegressionNoFileUnprotected:
     ORIGINAL_PROTECTED = [
         "app/sanitize.py", "app/security.py", "app/vetting.py",
         "app/auto_deployer.py", "app/rate_throttle.py", "app/circuit_breaker.py",
-        "app/config.py", "app/main.py", "app/experiment_runner.py",
-        "app/evolution.py", "app/proposals.py", "app/signal_client.py",
+        "app/config.py", "app/main.py",
+        "app/proposals.py", "app/signal_client.py",
         "app/firebase_reporter.py", "entrypoint.sh", "Dockerfile",
         "docker-compose.yml", "dashboard/firestore.rules",
         "app/souls/constitution.md", "app/souls/commander.md",
@@ -206,15 +202,13 @@ class TestRegressionNoFileUnprotected:
         "app/prompt_registry.py", "app/version_manifest.py",
         "app/sandbox_runner.py", "app/health_monitor.py",
         "app/healing/health_remediator.py", "app/reference_tasks.py", "Dockerfile.sandbox",
-        "app/parallel_evolution.py",
         "app/atlas/__init__.py", "app/atlas/skill_library.py",
         "app/atlas/auth_patterns.py", "app/atlas/api_scout.py",
         "app/atlas/code_forge.py", "app/atlas/competence_tracker.py",
         "app/atlas/video_learner.py", "app/atlas/learning_planner.py",
         "app/atlas/audit_log.py",
-        "app/evolve_blocks.py", "app/island_evolution.py",
+        "app/evolve_blocks.py",
         "app/adaptive_ensemble.py", "app/map_elites.py",
-        "app/cascade_evaluator.py",
         "app/training_collector.py", "app/training_pipeline.py",
         "app/personality/validation.py", "app/personality/evaluation.py",
         "app/personality/feedback.py", "app/personality/probes.py",

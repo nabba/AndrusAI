@@ -155,6 +155,66 @@ services:
       - /home/appuser/.cache:uid=1000,gid=1000
       - /home/appuser/.mem0:uid=1000,gid=1000
 
+  # ── Idle-compute worker (serving/compute split, 2026-06-01) ─────────
+  # Runs the idle scheduler's heavy jobs in a SEPARATE process so they don't
+  # starve the gateway's asyncio event loop / /health. DEFAULT-OFF via the
+  # `worker` profile — start with:
+  #   docker compose --profile worker up -d worker
+  # Shares the workspace bind-mount + DBs + docker-proxy with the gateway, but
+  # MUST NOT open ChromaDB (single-writer; app/memory/chromadb_manager fail-
+  # closed-guards every client open when IDLE_SCHEDULER_ROLE=worker). Only runs
+  # jobs in idle_scheduler._WORKER_ELIGIBLE_JOBS (empty until migration fills
+  # it per-job). Same image as the gateway; CMD overridden to the idle worker.
+  worker:
+    build: .
+    restart: unless-stopped
+    profiles: ["worker"]
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment:
+      IDLE_SCHEDULER_ROLE: worker
+      DOCKER_HOST: tcp://docker-proxy:2375
+      LITELLM_LOG: ERROR
+      CREWAI_STORAGE_DIR: /app/workspace/crewai_storage
+      FIRECRAWL_API_URL: http://firecrawl-api:3002
+      EVOLVER_IMAGE: ${EVOLVER_IMAGE:-botarmy-evolver:latest}
+      HOST_TOTAL_RAM_GB: ${HOST_TOTAL_RAM_GB:-}
+      HOST_OS_BASELINE_GB: ${HOST_OS_BASELINE_GB:-}
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /app/workspace
+    volumes:
+      - ./workspace:/app/workspace
+      - ./wiki:/app/wiki
+      - ./secrets:/app/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      docker-proxy:
+        condition: service_started
+    networks:
+      - external
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    tmpfs:
+      - /tmp
+      - /run
+      - /home/appuser/.local:uid=1000,gid=1000
+      - /home/appuser/.cache:uid=1000,gid=1000
+      - /home/appuser/.mem0:uid=1000,gid=1000
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 6g
+
   # ── Verified mutation engine — ephemeral sandbox image (2026-05-27) ──
   # Built but NOT run as a long-lived service. The gateway spawns throwaway
   # containers from this image via docker-proxy for each self-improvement run

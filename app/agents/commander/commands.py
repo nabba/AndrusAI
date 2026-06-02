@@ -339,8 +339,8 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         return display
 
     if lower == "evolve":
-        from app.evolution import run_evolution_session
-        result = run_evolution_session(max_iterations=settings.evolution_iterations)
+        from app.self_improvement.orchestrator import run_verified_session
+        result = run_verified_session(max_iterations=settings.evolution_iterations)
         try:
             from app.memory.system_chronicle import generate_and_save
             _ctx_pool.submit(generate_and_save)
@@ -349,8 +349,8 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         return f"Evolution session completed:\n{result}"
 
     if lower == "evolve deep":
-        from app.evolution import run_evolution_session
-        result = run_evolution_session(max_iterations=settings.evolution_deep_iterations)
+        from app.self_improvement.orchestrator import run_verified_session
+        result = run_verified_session(max_iterations=settings.evolution_deep_iterations)
         try:
             from app.memory.system_chronicle import generate_and_save
             _ctx_pool.submit(generate_and_save)
@@ -359,8 +359,8 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
         return f"Deep evolution session completed:\n{result}"
 
     if lower in ("experiments", "show experiments"):
-        from app.evolution import get_journal_summary
-        return f"Experiment History:\n\n{get_journal_summary(15)}"
+        from app.results_ledger import format_ledger
+        return f"Experiment History:\n\n{format_ledger(15)}"
 
     if lower in ("results", "show results"):
         from app.results_ledger import format_ledger

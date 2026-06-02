@@ -19,12 +19,40 @@ operator-gated change-request system).
 """
 from __future__ import annotations
 
+import functools
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+# ── Concurrency guard ────────────────────────────────────────────────────────
+# Exactly one verified self-improvement run at a time. The idle "evolution" job,
+# the APScheduler cron, and operator-initiated executor runs all reach the
+# engine; two concurrent runs would spawn evolver containers in parallel (cost +
+# the §76 OOM-the-gateway failure mode). RLock so a session may call
+# run_verified_cycle on its own thread (re-entrant); a *different* thread gets a
+# non-blocking skip rather than queueing.
+_ENGINE_LOCK = threading.RLock()
+
+
+def _single_run(skip_return):
+    """Serialize verified self-improvement across triggers; skip (never queue)
+    when a run is already active on another thread."""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            if not _ENGINE_LOCK.acquire(blocking=False):
+                logger.info("verified engine busy — skipping concurrent %s trigger", fn.__name__)
+                return skip_return() if callable(skip_return) else skip_return
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                _ENGINE_LOCK.release()
+        return wrapper
+    return deco
 
 
 def _read_current(path: str) -> str:
@@ -90,6 +118,7 @@ def _default_cr_filer(**kwargs: Any) -> Any:
     return create_request(**kwargs)
 
 
+@_single_run(lambda: {"ok": False, "skipped": True, "error": "another verified run is in progress"})
 def run_verified_cycle(
     target_file: str,
     approach: str,
@@ -151,12 +180,12 @@ def run_verified_cycle(
 
 
 def _plan_target(tried: set[str]) -> Optional[tuple[str, str]]:
-    """Reuse the existing AVO planner to get a (target_file, approach) for a CODE
-    change. Returns None when the planner declines or proposes a non-code change.
+    """Use the verified-engine planner (``self_improvement.planning``) to get a
+    (target_file, approach) for a CODE change. Returns None when the planner
+    declines or proposes a non-code change.
     """
     try:
-        from app.avo_operator import _phase_planning
-        from app.evolution import _build_evolution_context
+        from app.self_improvement.planning import _phase_planning, _build_evolution_context
     except Exception as exc:
         logger.warning("orchestrator: planner unavailable: %s", exc)
         return None
@@ -180,6 +209,7 @@ def _plan_target(tried: set[str]) -> Optional[tuple[str, str]]:
     return _norm_target(targets[0]), approach
 
 
+@_single_run("Verified self-improvement skipped: another run is already in progress")
 def run_verified_session(max_iterations: int = 5) -> str:
     """Plan + run up to ``max_iterations`` verified cycles. Drop-in replacement
     for ``evolution.run_evolution_session`` when the verified engine is on."""
