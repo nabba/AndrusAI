@@ -314,7 +314,10 @@ def _defaults() -> dict[str, Any]:
         # path is hard-cut off (per operator decision). The improvement BAR
         # (effect size, sample floor) is NOT here — it lives in the
         # TIER_IMMUTABLE worktree_eval so it cannot be lowered via settings.
-        "evolution_verified_engine_enabled": False,
+        # Default ON (2026-06-02 consolidation): the verified engine is the sole
+        # self-modification path; a fresh install must NOT fall back to the
+        # structurally-broken legacy AVO loop.
+        "evolution_verified_engine_enabled": True,
         # Hard USD cap per self-improvement cycle (LLM editor + judge + any
         # benchmark crew runs in the ephemeral evolver container).
         "evolution_verified_per_cycle_budget_usd": 5.0,

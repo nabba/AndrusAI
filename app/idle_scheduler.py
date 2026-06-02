@@ -1597,14 +1597,6 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         run_evolution_session(max_iterations=2)
     jobs.append(("evolution", _evolution, JobWeight.HEAVY))
 
-    # ── Meta-evolution: improve the evolution engine's own parameters ──
-    # Runs at ~1/5 evolution frequency (5 HEAVY jobs rotate round-robin).
-    # Gate: MAX_META_MUTATIONS_PER_WEEK = 3, 8h cooldown between cycles.
-    def _meta_evolution() -> None:
-        from app.meta_evolution import run_meta_evolution
-        run_meta_evolution()
-    jobs.append(("meta-evolution", _meta_evolution, JobWeight.HEAVY))
-
     # Q11.1 (PROGRAM §46.18) — Analogy-index populator. HEAVY weekly
     # LLM pass over wiki + episteme that extracts abstract structural
     # patterns into the analogy index. Cadence-checked internally;
@@ -2211,33 +2203,6 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
         except Exception:
             logger.debug("idle_scheduler: MAP-Elites maintenance failed", exc_info=True)
     jobs.append(("map-elites-maintain", _map_elites_maintain, JobWeight.LIGHT))
-
-    # ── Island evolution: population-based prompt optimization ─────────
-    def _island_evolution() -> None:
-        try:
-            from app.island_evolution import run_island_evolution_cycle
-            # Rotate through roles each cycle
-            roles = ["coder", "researcher", "writer", "commander"]
-            role = roles[hash(str(time.monotonic())) % len(roles)]
-            result = run_island_evolution_cycle(target_role=role)
-            if result.get("best"):
-                logger.info(f"idle_scheduler: island evolution for '{role}' — "
-                            f"best fitness={result['best'].get('fitness', 0):.3f}")
-        except Exception:
-            logger.debug("idle_scheduler: island evolution failed", exc_info=True)
-    jobs.append(("island-evolution", _island_evolution, JobWeight.HEAVY))
-
-    # ── Parallel evolution: diverse archive exploration ────────────────
-    def _parallel_evolution() -> None:
-        try:
-            from app.parallel_evolution import run_parallel_evolution_cycle
-            result = run_parallel_evolution_cycle()
-            if result.get("best_candidate"):
-                logger.info(f"idle_scheduler: parallel evolution promoted: "
-                            f"{result['best_candidate'].get('strategy', '?')}")
-        except Exception:
-            logger.debug("idle_scheduler: parallel evolution failed", exc_info=True)
-    jobs.append(("parallel-evolution", _parallel_evolution, JobWeight.HEAVY))
 
     # ── ATLAS: competence sync from skill library ─────────────────────
     def _atlas_competence_sync() -> None:
