@@ -69,7 +69,7 @@ class TestRunExternalBenchmark:
         import app.external_benchmarks as mod
         mod._benchmark_cache.clear()
 
-    @patch("app.experiment_runner.validate_response", return_value=True)
+    @patch("app.self_improvement.eval_primitives.validate_response", return_value=True)
     @patch("app.llm_factory.create_specialist_llm")
     def test_returns_float_in_valid_range(self, mock_llm_factory, mock_validate):
         mock_llm = MagicMock()
@@ -81,7 +81,7 @@ class TestRunExternalBenchmark:
         assert isinstance(score, float)
         assert 0.0 <= score <= 1.0
 
-    @patch("app.experiment_runner.validate_response", return_value=True)
+    @patch("app.self_improvement.eval_primitives.validate_response", return_value=True)
     @patch("app.llm_factory.create_specialist_llm")
     def test_caches_result(self, mock_llm_factory, mock_validate):
         mock_llm = MagicMock()
@@ -96,7 +96,7 @@ class TestRunExternalBenchmark:
         # Factory may be called once (first run only)
         assert mock_llm_factory.call_count == 1
 
-    @patch("app.experiment_runner.validate_response", return_value=True)
+    @patch("app.self_improvement.eval_primitives.validate_response", return_value=True)
     @patch("app.llm_factory.create_specialist_llm")
     def test_cache_expires(self, mock_llm_factory, mock_validate):
         mock_llm = MagicMock()
@@ -126,7 +126,7 @@ class TestGetCachedBenchmarkScore:
         from app.external_benchmarks import get_cached_benchmark_score
         assert get_cached_benchmark_score() is None
 
-    @patch("app.experiment_runner.validate_response", return_value=True)
+    @patch("app.self_improvement.eval_primitives.validate_response", return_value=True)
     @patch("app.llm_factory.create_specialist_llm")
     def test_returns_score_when_cached(self, mock_llm_factory, mock_validate):
         mock_llm = MagicMock()
@@ -142,7 +142,7 @@ class TestGetCachedBenchmarkScore:
 
 
 class TestGetBenchmarkStats:
-    @patch("app.experiment_runner.validate_response", return_value=True)
+    @patch("app.self_improvement.eval_primitives.validate_response", return_value=True)
     @patch("app.llm_factory.create_specialist_llm")
     def test_returns_category_breakdown(self, mock_llm_factory, mock_validate):
         mock_llm = MagicMock()
@@ -158,7 +158,7 @@ class TestGetBenchmarkStats:
 class TestThreadSafety:
     """Verify concurrent access to the benchmark cache doesn't cause corruption."""
 
-    @patch("app.experiment_runner.validate_response", return_value=True)
+    @patch("app.self_improvement.eval_primitives.validate_response", return_value=True)
     @patch("app.llm_factory.create_specialist_llm")
     def test_concurrent_calls(self, mock_llm_factory, mock_validate):
         mock_llm = MagicMock()

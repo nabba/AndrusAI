@@ -101,10 +101,6 @@ class TestImportChains:
         from app.evolution_db.eval_sets import seed_default_eval_sets, load_eval_set
         assert callable(seed_default_eval_sets)
 
-    def test_experiment_runner_eval_set_score(self):
-        from app.experiment_runner import eval_set_score
-        assert callable(eval_set_score)
-
     def test_adaptive_ensemble(self):
         from app.adaptive_ensemble import get_controller, AdaptiveEvolutionController
         ctrl = get_controller()
@@ -292,13 +288,13 @@ class TestDataFlows:
 
     def test_evolution_context_diversity_requirement(self):
         """Evolution context should include diversity requirement."""
-        from app.evolution import _build_evolution_context
+        from app.self_improvement.planning import _build_evolution_context
         context = _build_evolution_context()
         assert "DIVERSITY REQUIREMENT" in context
 
     def test_evolution_context_topic_cooldown(self):
         """Already-addressed errors should be marked in evolution context."""
-        from app.evolution import _build_evolution_context
+        from app.self_improvement.planning import _build_evolution_context
         context = _build_evolution_context()
         # Context should exist (may or may not have cooldown markers depending on data)
         assert len(context) > 100
@@ -437,14 +433,6 @@ class TestGracefulDegradation:
         # May return None or results depending on DB availability
         assert result is None or isinstance(result, list)
 
-    def test_island_evolution_import(self):
-        """Island evolution should be importable and have correct test tasks."""
-        from app.island_evolution import IslandEvolution
-        engine = IslandEvolution(target_role="coder")
-        assert hasattr(engine, '_TEST_TASKS')
-        assert "coder" in engine._TEST_TASKS
-        assert len(engine._TEST_TASKS["coder"]) >= 3
-
     def test_commander_routing_timeout_handling(self):
         """Commander routing should handle Mem0 timeout gracefully."""
         import inspect
@@ -526,18 +514,10 @@ class TestArchitecture:
                 assert "tool_executor" not in f, "Deleted tool_executor.py still in PROTECTED_FILES"
                 assert "ollama_fleet" not in f, "Deleted ollama_fleet.py still in PROTECTED_FILES"
 
-    def test_avo_operator_reads_target_files(self):
-        """AVO Phase 2 should inject existing file contents for code mutations."""
+    def test_planning_phase_diversity_prompt(self):
+        """Planning phase should include diversity instructions."""
         import inspect
-        from app.avo_operator import _phase_implementation
-        source = inspect.getsource(_phase_implementation)
-        assert "_read_target_files" in source
-        assert "Current file contents" in source
-
-    def test_avo_operator_diversity_prompt(self):
-        """AVO Phase 1 should include diversity instructions."""
-        import inspect
-        from app.avo_operator import _phase_planning
+        from app.self_improvement.planning import _phase_planning
         source = inspect.getsource(_phase_planning)
         assert "DIVERSITY" in source
         assert "ALREADY ADDRESSED" in source
@@ -557,22 +537,6 @@ class TestArchitecture:
 
 class TestCrossSubsystem:
     """Verify interactions between subsystems."""
-
-    def test_evolution_uses_adaptive_ensemble(self):
-        """Evolution session should initialize adaptive controller."""
-        import inspect
-        from app.evolution import run_evolution_session
-        source = inspect.getsource(run_evolution_session)
-        assert "adaptive_ensemble" in source
-        assert "get_controller" in source
-
-    def test_evolution_dual_writes_to_pg(self):
-        """Evolution should write to PostgreSQL (not gated by env var)."""
-        import inspect
-        from app.evolution import run_evolution_session
-        source = inspect.getsource(run_evolution_session)
-        assert "EVOLUTION_USE_DGM_DB" not in source  # Gate removed
-        assert "create_run" in source
 
     def test_cogito_uses_grounding(self):
         """Cogito cycle should use grounding protocol for narratives."""

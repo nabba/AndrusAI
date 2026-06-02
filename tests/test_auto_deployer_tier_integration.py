@@ -124,7 +124,7 @@ class TestGatedRefusedWithoutCanary:
         from app.auto_deployer import run_deploy, DeployEvidence
 
         monkeypatch.setenv("EVOLUTION_AUTO_DEPLOY", "true")
-        _write_applied_file(deploy_sandbox, "app/evolution.py")
+        _write_applied_file(deploy_sandbox, "app/map_elites.py")
 
         result = run_deploy(
             reason="direct-gated",
@@ -135,14 +135,14 @@ class TestGatedRefusedWithoutCanary:
         assert "tier protection" in result
         assert "canary" in result.lower()
         # Live file was NOT overwritten
-        assert not (deploy_sandbox["live"] / "app/evolution.py").exists()
+        assert not (deploy_sandbox["live"] / "app/map_elites.py").exists()
 
     def test_proposal_evidence_cannot_bypass_gated(self, deploy_sandbox, monkeypatch):
         """Operator approval on a proposal does not replace canary evidence."""
         from app.auto_deployer import run_deploy, DeployEvidence
 
         monkeypatch.setenv("EVOLUTION_AUTO_DEPLOY", "true")
-        _write_applied_file(deploy_sandbox, "app/evolution.py")
+        _write_applied_file(deploy_sandbox, "app/map_elites.py")
 
         # Even with an operator approval ID, has_canary_pass=False blocks GATED.
         evidence = DeployEvidence(
@@ -160,7 +160,7 @@ class TestGatedRefusedWithoutCanary:
         from app.auto_deployer import run_deploy, DeployEvidence
 
         monkeypatch.setenv("EVOLUTION_AUTO_DEPLOY", "true")
-        _write_applied_file(deploy_sandbox, "app/avo_operator.py")
+        _write_applied_file(deploy_sandbox, "app/map_elites.py")
 
         evidence = DeployEvidence(
             reason="human-approved-xyz",
@@ -178,7 +178,7 @@ class TestGatedRefusedWithoutCanary:
         from app.auto_deployer import run_deploy, DeployEvidence
 
         monkeypatch.setenv("EVOLUTION_AUTO_DEPLOY", "true")
-        _write_applied_file(deploy_sandbox, "app/evolution.py")
+        _write_applied_file(deploy_sandbox, "app/map_elites.py")
 
         evidence = DeployEvidence.direct("canary-disabled", source="canary_fallback")
         result = run_deploy(reason="canary-disabled", evidence=evidence)
@@ -199,7 +199,7 @@ class TestGatedRefusedWithoutAutoDeploy:
         fs.evolution_auto_deploy = False
         config_mod.get_settings = lambda: fs
         try:
-            _write_applied_file(deploy_sandbox, "app/evolution.py")
+            _write_applied_file(deploy_sandbox, "app/map_elites.py")
             evidence = DeployEvidence(
                 reason="real-canary",
                 source="canary",
@@ -224,14 +224,14 @@ class TestGatedAllowedWithCanary:
         fs.evolution_auto_deploy = True
         config_mod.get_settings = lambda: fs
         try:
-            _write_applied_file(deploy_sandbox, "app/evolution.py")
+            _write_applied_file(deploy_sandbox, "app/map_elites.py")
             evidence = DeployEvidence.from_canary(
                 reason="real-canary",
                 canary_id="canary-real-1",
             )
             result = run_deploy(reason="real-canary", evidence=evidence)
             assert "Deployed 1 files" in result, f"expected success, got: {result}"
-            assert (deploy_sandbox["live"] / "app/evolution.py").exists()
+            assert (deploy_sandbox["live"] / "app/map_elites.py").exists()
         finally:
             config_mod.get_settings = lambda: _FakeSettings()
 
@@ -265,7 +265,7 @@ class TestDeployLogRecordsBlockingReason:
         from app.auto_deployer import run_deploy, DeployEvidence
 
         monkeypatch.setenv("EVOLUTION_AUTO_DEPLOY", "true")
-        _write_applied_file(deploy_sandbox, "app/evolution.py")
+        _write_applied_file(deploy_sandbox, "app/map_elites.py")
 
         run_deploy(
             reason="log-test",
@@ -315,11 +315,11 @@ class TestValidateDeployBatch:
         files = [
             (Path("/tmp/x.py"), Path("app/sanitize.py")),    # IMMUTABLE
             (Path("/tmp/y.py"), Path("app/agents/x.py")),    # OPEN
-            (Path("/tmp/z.py"), Path("app/evolution.py")),   # GATED
+            (Path("/tmp/z.py"), Path("app/map_elites.py")),   # GATED
         ]
         # Direct evidence — no canary pass
         violations = _validate_deploy_batch(files, DeployEvidence.direct("test"))
         # IMMUTABLE + GATED should both be refused; OPEN passes through
         assert any("app/sanitize.py" in v for v in violations)
-        assert any("app/evolution.py" in v for v in violations)
+        assert any("app/map_elites.py" in v for v in violations)
         assert not any("app/agents/x.py" in v for v in violations)

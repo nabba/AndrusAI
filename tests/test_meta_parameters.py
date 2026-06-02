@@ -1,7 +1,7 @@
 """Tests for meta-parameter extraction and runtime loading.
 
 Covers Phase 4: workspace/meta/ files loaded at runtime with fallback to hardcoded defaults.
-Tests avo_operator._load_meta_prompt(), metrics._load_composite_weights(), and
+Tests self_improvement.planning._load_meta_prompt(), metrics._load_composite_weights(), and
 adaptive_ensemble._load_phase_weights().
 """
 import os
@@ -22,7 +22,7 @@ config_mod.get_gateway_secret = lambda: "a" * 64
 
 class TestLoadMetaPrompt:
     def test_returns_file_content_when_exists(self, tmp_path, monkeypatch):
-        import app.avo_operator as avo
+        import app.self_improvement.planning as avo
         monkeypatch.setattr(avo, "_META_DIR", tmp_path)
         (tmp_path / "test_prompt.md").write_text("# Custom Prompt\nDo this.")
 
@@ -30,14 +30,14 @@ class TestLoadMetaPrompt:
         assert result == "# Custom Prompt\nDo this."
 
     def test_returns_fallback_when_missing(self, tmp_path, monkeypatch):
-        import app.avo_operator as avo
+        import app.self_improvement.planning as avo
         monkeypatch.setattr(avo, "_META_DIR", tmp_path)
 
         result = avo._load_meta_prompt("nonexistent.md", "fallback text")
         assert result == "fallback text"
 
     def test_returns_fallback_on_empty_file(self, tmp_path, monkeypatch):
-        import app.avo_operator as avo
+        import app.self_improvement.planning as avo
         monkeypatch.setattr(avo, "_META_DIR", tmp_path)
         (tmp_path / "empty.md").write_text("")
 
@@ -45,7 +45,7 @@ class TestLoadMetaPrompt:
         assert result == "fallback"
 
     def test_returns_fallback_on_read_error(self, tmp_path, monkeypatch):
-        import app.avo_operator as avo
+        import app.self_improvement.planning as avo
         monkeypatch.setattr(avo, "_META_DIR", tmp_path / "nonexistent_dir")
 
         result = avo._load_meta_prompt("file.md", "safe fallback")

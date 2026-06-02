@@ -45,17 +45,17 @@ class TestCodingConventionsInjection:
         assert "logger" in content.lower()
 
     def test_load_meta_prompt_returns_content(self, tmp_path, monkeypatch):
-        """The AVO _load_meta_prompt helper should read coding_conventions.md."""
-        import app.avo_operator as avo
-        monkeypatch.setattr(avo, "_META_DIR", tmp_path)
+        """The _load_meta_prompt helper should read coding_conventions.md."""
+        import app.self_improvement.planning as planning
+        monkeypatch.setattr(planning, "_META_DIR", tmp_path)
         (tmp_path / "coding_conventions.md").write_text("# Test conventions\nUse pathlib.")
-        result = avo._load_meta_prompt("coding_conventions.md", "fallback")
+        result = planning._load_meta_prompt("coding_conventions.md", "fallback")
         assert "pathlib" in result
 
     def test_load_meta_prompt_returns_fallback_when_missing(self, tmp_path, monkeypatch):
-        import app.avo_operator as avo
-        monkeypatch.setattr(avo, "_META_DIR", tmp_path)
-        result = avo._load_meta_prompt("coding_conventions.md", "fallback content")
+        import app.self_improvement.planning as planning
+        monkeypatch.setattr(planning, "_META_DIR", tmp_path)
+        result = planning._load_meta_prompt("coding_conventions.md", "fallback content")
         assert result == "fallback content"
 
 
@@ -208,90 +208,6 @@ class TestCritiqueRubric:
         assert "Hard Reject" in content or "hard reject" in content.lower()
         assert "rubric" in content.lower()
 
-    def test_hard_rejects_force_disapproval(self):
-        """When the LLM reports hard_rejects_triggered, approve must flip to false."""
-        from app.avo_operator import _phase_self_critique
-
-        # Mock the LLM to return a positive top-level approve but with hard rejects
-        with patch("app.llm_factory.create_cheap_vetting_llm") as mock_factory:
-            mock_llm = type("MockLLM", (), {})()
-            mock_llm.call = lambda prompt: (
-                '{"approve": true, "concerns": [], '
-                '"rubric_score": 9, '
-                '"smells_detected": [], '
-                '"hard_rejects_triggered": ["bare except clause"]}'
-            )
-            mock_factory.return_value = mock_llm
-
-            approved, notes = _phase_self_critique(
-                plan={"hypothesis": "test", "change_type": "code"},
-                files={"app/foo.py": "code"},
-                memory_context="",
-            )
-            assert not approved
-            assert "Hard reject" in notes
-
-    def test_low_rubric_score_forces_disapproval(self):
-        from app.avo_operator import _phase_self_critique
-
-        with patch("app.llm_factory.create_cheap_vetting_llm") as mock_factory:
-            mock_llm = type("MockLLM", (), {})()
-            mock_llm.call = lambda prompt: (
-                '{"approve": true, "concerns": [], '
-                '"rubric_score": 5, '
-                '"smells_detected": [], '
-                '"hard_rejects_triggered": []}'
-            )
-            mock_factory.return_value = mock_llm
-
-            approved, notes = _phase_self_critique(
-                plan={"hypothesis": "test", "change_type": "code"},
-                files={"app/foo.py": "code"},
-                memory_context="",
-            )
-            assert not approved
-            assert "Rubric score 5" in notes
-
-    def test_two_smells_force_disapproval(self):
-        from app.avo_operator import _phase_self_critique
-
-        with patch("app.llm_factory.create_cheap_vetting_llm") as mock_factory:
-            mock_llm = type("MockLLM", (), {})()
-            mock_llm.call = lambda prompt: (
-                '{"approve": true, "concerns": [], '
-                '"rubric_score": 8, '
-                '"smells_detected": ["wrapping over refactoring", "parameter explosion"], '
-                '"hard_rejects_triggered": []}'
-            )
-            mock_factory.return_value = mock_llm
-
-            approved, _ = _phase_self_critique(
-                plan={"hypothesis": "test", "change_type": "code"},
-                files={"app/foo.py": "code"},
-                memory_context="",
-            )
-            assert not approved
-
-    def test_clean_mutation_approves(self):
-        from app.avo_operator import _phase_self_critique
-
-        with patch("app.llm_factory.create_cheap_vetting_llm") as mock_factory:
-            mock_llm = type("MockLLM", (), {})()
-            mock_llm.call = lambda prompt: (
-                '{"approve": true, "concerns": [], '
-                '"rubric_score": 9, '
-                '"smells_detected": [], '
-                '"hard_rejects_triggered": []}'
-            )
-            mock_factory.return_value = mock_llm
-
-            approved, _ = _phase_self_critique(
-                plan={"hypothesis": "test", "change_type": "code"},
-                files={"app/foo.py": "code"},
-                memory_context="",
-            )
-            assert approved
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Fix D: Pattern library quality filter
@@ -410,37 +326,7 @@ class TestArchitecturalReview:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Integration: experiment_runner consults the quality gate
+# Integration: code_quality gate (the experiment_runner-driven integration test
+# was removed with the legacy evolution stack in the 2026-06 consolidation; the
+# gate itself is covered by TestQualityRegressionGate above)
 # ─────────────────────────────────────────────────────────────────────────────
-
-class TestQualityGateIntegration:
-    def test_evaluate_quality_returns_report_for_python_files(self):
-        """The runner's _evaluate_quality method should produce a report."""
-        from app.experiment_runner import ExperimentRunner, MutationSpec
-
-        er = ExperimentRunner()
-        mutation = MutationSpec(
-            experiment_id="exp_q",
-            hypothesis="test",
-            change_type="code",
-            files={"app/foo.py": "def f(x: int) -> int:\n    \"\"\"Doc.\"\"\"\n    return x"},
-        )
-        # Simulate that the file existed with worse quality before
-        backed_up = {"app/foo.py": "def f(x):\n    return x"}
-        report = er._evaluate_quality(mutation, backed_up)
-        assert report is not None
-        # New version is strictly better, so no regression
-        assert not report.has_regression
-
-    def test_evaluate_quality_returns_none_for_no_python_files(self):
-        from app.experiment_runner import ExperimentRunner, MutationSpec
-
-        er = ExperimentRunner()
-        mutation = MutationSpec(
-            experiment_id="exp_q",
-            hypothesis="test",
-            change_type="skill",
-            files={"workspace/skills/foo.md": "# Skill"},
-        )
-        report = er._evaluate_quality(mutation, {})
-        assert report is None

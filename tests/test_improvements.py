@@ -203,13 +203,6 @@ class TestRetrospectiveNotVerbose(unittest.TestCase):
 class TestSafeJsonParseAdoption(unittest.TestCase):
     """Verify safe_json_parse is used in all LLM JSON parsing locations."""
 
-    def test_evolution_uses_safe_parse(self):
-        with open("app/evolution.py") as f:
-            source = f.read()
-        self.assertIn("safe_json_parse", source)
-        # Should not have raw json.loads on LLM output
-        self.assertNotIn("json.loads(raw_clean)", source)
-
     def test_auditor_uses_safe_parse(self):
         with open("app/auditor.py") as f:
             source = f.read()

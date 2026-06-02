@@ -13,8 +13,8 @@ operator-visibility gap with:
      serving the audit + a one-shot summary.
   4. React surface — verified at source level (no Vitest harness).
 
-These tests cover (1) + (2) + (3) wiring. The bulk subsystem at
-``app.shinka_engine`` is unaffected (it has its own master switch).
+These tests cover (1) + (2) + (3) wiring. The inline-evolve bridge lives in
+``app.coding_session.evolution_bridge`` and has its own master switch.
 """
 from __future__ import annotations
 
