@@ -82,3 +82,30 @@
 {"version": 48, "reason": "promoted (was v047)", "timestamp": "2026-05-18T13:23:41.889518+00:00", "status": "promoted"}
 {"version": 49, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-18T16:47:08.116266+00:00", "status": "proposed"}
 {"version": 49, "reason": "promoted (was v048)", "timestamp": "2026-05-18T16:47:08.119946+00:00", "status": "promoted"}
+{"version": 95, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-25T21:05:43.210645+00:00", "status": "proposed"}
+{"version": 95, "reason": "promoted (was v049)", "timestamp": "2026-05-25T21:05:43.214400+00:00", "status": "promoted"}
+{"version": 96, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-25T21:43:14.162711+00:00", "status": "proposed"}
+{"version": 96, "reason": "promoted (was v095)", "timestamp": "2026-05-25T21:43:14.166893+00:00", "status": "promoted"}
+{"version": 97, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T03:46:00.755964+00:00", "status": "proposed"}
+{"version": 97, "reason": "promoted (was v096)", "timestamp": "2026-05-26T03:46:00.760018+00:00", "status": "promoted"}
+{"version": 98, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T06:25:26.770064+00:00", "status": "proposed"}
+{"version": 98, "reason": "promoted (was v097)", "timestamp": "2026-05-26T06:25:26.775439+00:00", "status": "promoted"}
+{"version": 99, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T09:28:08.177574+00:00", "status": "proposed"}
+{"version": 99, "reason": "promoted (was v098)", "timestamp": "2026-05-26T09:28:08.180847+00:00", "status": "promoted"}
+{"version": 100, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T10:50:31.419460+00:00", "status": "proposed"}
+{"version": 100, "reason": "promoted (was v099)", "timestamp": "2026-05-26T10:50:31.425991+00:00", "status": "promoted"}
+{"version": 101, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T12:30:18.526746+00:00", "status": "proposed"}
+{"version": 101, "reason": "promoted (was v100)", "timestamp": "2026-05-26T12:30:18.532516+00:00", "status": "promoted"}
+{"version": 102, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T13:07:39.465807+00:00", "status": "proposed"}
+{"version": 102, "reason": "promoted (was v101)", "timestamp": "2026-05-26T13:07:39.476299+00:00", "status": "promoted"}
+{"version": 103, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-26T22:06:24.431706+00:00", "status": "proposed"}
+{"version": 103, "reason": "promoted (was v102)", "timestamp": "2026-05-26T22:06:24.436688+00:00", "status": "promoted"}
+{"version": 104, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-27T01:47:14.808888+00:00", "status": "proposed"}
+{"version": 104, "reason": "promoted (was v103)", "timestamp": "2026-05-27T01:47:14.812312+00:00", "status": "promoted"}
+{"version": 105, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-27T02:19:09.602350+00:00", "status": "proposed"}
+{"version": 105, "reason": "promoted (was v104)", "timestamp": "2026-05-27T02:19:09.606692+00:00", "status": "promoted"}
+{"version": 106, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-27T04:59:50.252893+00:00", "status": "proposed"}
+{"version": 106, "reason": "promoted (was v105)", "timestamp": "2026-05-27T04:59:50.258306+00:00", "status": "promoted"}
+{"version": 107, "reason": "Island evolution: fitness=1.000, strategy=inspiration", "timestamp": "2026-05-27T13:47:31.880834+00:00", "status": "proposed"}
+{"version": 107, "reason": "promoted (was v106)", "timestamp": "2026-05-27T13:47:31.883043+00:00", "status": "promoted"}
+{"version": 1, "reason": "revert island-corrupted prompt v107 to operator baseline v001 (evolution consolidation)", "timestamp": "2026-06-02T10:50:38.000000+00:00", "status": "promoted"}
