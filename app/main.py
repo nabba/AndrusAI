@@ -541,20 +541,12 @@ async def lifespan(app: FastAPI):
     except ValueError:
         logger.warning(f"Invalid ERROR_FIX_CRON: {error_fix_cron}")
 
-    # Evolution loop — autoresearch-style continuous improvement (every 6 hours)
-    from app.evolution import run_evolution_session
-    evolution_cron = os.environ.get("EVOLUTION_CRON", "0 */6 * * *")
-    try:
-        evo_trigger = CronTrigger.from_crontab(evolution_cron)
-        scheduler.add_job(
-            run_evolution_session,
-            evo_trigger,
-            id="evolution",
-            kwargs={"max_iterations": settings.evolution_iterations},
-        )
-        logger.info(f"Evolution loop scheduled: {evolution_cron} ({settings.evolution_iterations} iterations/session)")
-    except ValueError:
-        logger.warning(f"Invalid EVOLUTION_CRON: {evolution_cron}, evolution loop disabled")
+    # Verified self-improvement runs via the single resource-aware idle job
+    # ("evolution" in idle_scheduler), not a fixed cron — the idle scheduler
+    # yields to user tasks and backs off under the §82 memory ceiling, which a
+    # blunt 6h timer cannot, and the orchestrator's _single_run lock prevents
+    # concurrent evolver spawns. Do NOT re-add an APScheduler evolution cron.
+    # See reports/EVOLUTION_CONSOLIDATION_PLAN_2026-06-01.md.
 
     # Retrospective crew — meta-cognitive self-improvement (daily at 4 AM by default)
     from app.crews.retrospective_crew import RetrospectiveCrew
