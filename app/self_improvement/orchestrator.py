@@ -180,12 +180,12 @@ def run_verified_cycle(
 
 
 def _plan_target(tried: set[str]) -> Optional[tuple[str, str]]:
-    """Reuse the existing AVO planner to get a (target_file, approach) for a CODE
-    change. Returns None when the planner declines or proposes a non-code change.
+    """Use the verified-engine planner (``self_improvement.planning``) to get a
+    (target_file, approach) for a CODE change. Returns None when the planner
+    declines or proposes a non-code change.
     """
     try:
-        from app.avo_operator import _phase_planning
-        from app.evolution import _build_evolution_context
+        from app.self_improvement.planning import _phase_planning, _build_evolution_context
     except Exception as exc:
         logger.warning("orchestrator: planner unavailable: %s", exc)
         return None

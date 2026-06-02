@@ -80,10 +80,6 @@ _C_LOGGERS_AND_MESSAGES = [
         "app.crews.self_improvement_crew",
         "Improvement scan failed: name 'cost_mode' is not defined",
     ),
-    (
-        "app.evolution",
-        "Evolution session failed: name 'cost_mode' is not defined",
-    ),
 ]
 
 

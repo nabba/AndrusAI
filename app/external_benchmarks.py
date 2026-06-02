@@ -519,7 +519,7 @@ def run_external_benchmark(sample_size: int = 15) -> float:
     # Import dependencies lazily to avoid circular imports
     try:
         from app.llm_factory import create_specialist_llm
-        from app.experiment_runner import validate_response
+        from app.self_improvement.eval_primitives import validate_response
     except ImportError as e:
         logger.error(f"external_benchmark: import failed: {e}")
         return 0.0

@@ -77,7 +77,7 @@ TIER_IMMUTABLE = frozenset({
     "app/sanitize.py", "app/security.py", "app/vetting.py",
     "app/auto_deployer.py", "app/rate_throttle.py", "app/circuit_breaker.py",
     # Evaluation infrastructure — MUST stay at infrastructure level
-    "app/experiment_runner.py", "app/eval_sandbox.py", "app/safety_guardian.py",
+    "app/eval_sandbox.py", "app/safety_guardian.py",
     "app/sandbox_runner.py", "app/reference_tasks.py",
     # Verified mutation engine's judgement (2026-05-27). The Self-Improver must
     # never edit its own evaluator — an engine that can rewrite its judge can
@@ -124,12 +124,8 @@ TIER_IMMUTABLE = frozenset({
     "app/signal_client.py", "app/firebase_reporter.py", "app/proposals.py",
     "app/fiction_inspiration.py", "app/history_compression.py",
     "app/lifecycle_hooks.py", "app/project_isolation.py",
-    # Meta-evolution (cannot modify itself)
-    "app/meta_evolution.py",
     # External benchmarks (evaluation infrastructure)
     "app/external_benchmarks.py",
-    # ShinkaEvolve integration (evolution infrastructure)
-    "app/shinka_engine.py",
     # Error resilience (safety-critical classification + isolation)
     "app/failure_taxonomy.py",
     "app/confidence_tracker.py",
@@ -219,11 +215,9 @@ TIER_IMMUTABLE = frozenset({
 # ── TIER_GATED (~25 files — evolution engine + soul prompts) ────────────────
 # Modifiable only with canary deployment pass + EVOLUTION_AUTO_DEPLOY=true.
 TIER_GATED = frozenset({
-    # Evolution engine (meta-evolution targets)
-    "app/evolution.py", "app/avo_operator.py",
-    "app/parallel_evolution.py", "app/island_evolution.py",
-    "app/adaptive_ensemble.py", "app/map_elites.py",
-    "app/cascade_evaluator.py", "app/evolve_blocks.py",
+    # Prompt-stochasticity + evolve-block infra (kept; the legacy evolution
+    # engines that targeted these were retired 2026-06-02).
+    "app/adaptive_ensemble.py", "app/map_elites.py", "app/evolve_blocks.py",
     # Soul/personality files (agent prompts — not constitution)
     "app/souls/commander.md", "app/souls/coder.md",
     "app/souls/researcher.md", "app/souls/writer.md",

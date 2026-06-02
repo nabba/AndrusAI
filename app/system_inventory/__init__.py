@@ -3,8 +3,8 @@
 Closes the meta-gap behind the May 2026 ultrathink: the system's self-
 documentation (CLAUDE.md) drifted from its actual capabilities. Modules
 like ``code_quality``, ``architectural_review``, ``differential_test``,
-``cascade_evaluator``, ``canary_deploy``, ``evolution_suite`` exist and
-work, but agents reasoning over CLAUDE.md don't know they're there.
+``canary_deploy``, ``circuit_breaker`` exist and work, but agents
+reasoning over CLAUDE.md don't know they're there.
 
 The inventory is the *live truth* — re-built weekly from the filesystem
 plus a few capability signals (``@register_tool`` decorators, healing-

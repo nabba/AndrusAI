@@ -1593,9 +1593,9 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
     # Reduced from 5 to 2: each iteration takes ~4min, so 5 = 20min which
     # starves all subsequent jobs. 2 iterations keeps total under 10min.
     def _evolution() -> None:
-        from app.evolution import run_evolution_session
-        run_evolution_session(max_iterations=2)
-    jobs.append(("evolution", _evolution, JobWeight.HEAVY))
+        from app.self_improvement.orchestrator import run_verified_session
+        run_verified_session(max_iterations=2)
+    jobs.append(("self-improvement", _evolution, JobWeight.HEAVY))
 
     # Q11.1 (PROGRAM §46.18) — Analogy-index populator. HEAVY weekly
     # LLM pass over wiki + episteme that extracts abstract structural
