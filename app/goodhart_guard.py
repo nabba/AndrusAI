@@ -265,24 +265,27 @@ def detect_gaming_signals(window_days: int = _GAMING_DETECTION_WINDOW_DAYS) -> l
                 detected_at=time.time(),
             ))
 
-    # Signal 3: rollback silence (high keep, no rollbacks → may indicate
-    # post-deploy monitoring is not catching regressions)
+    # Signal 3: rollback silence (many applied self-modifications, ~no rollbacks
+    # → post-apply monitoring may not be catching regressions). Sourced from the
+    # canonical change-request audit (round-5 consolidation 2026-06-03 retired
+    # the parallel evolution_roi store).
     try:
-        from app.evolution_roi import get_rolling_roi
-        roi = get_rolling_roi(days=window_days)
+        from app.self_improvement.history import cr_rollback_stats
+        stats = cr_rollback_stats(window_days=window_days)
         if (
-            roi.real_improvements > 5
-            and roi.rollback_rate < 0.02
+            stats["applied"] > 5
+            and stats["rollback_rate"] < 0.02
             and kept_ratio > 0.50
         ):
             signals.append(GamingSignal(
                 signal_type="rollback_silence",
                 severity="low",
                 description=(
-                    f"{roi.real_improvements} kept improvements with {roi.rollback_rate:.1%} "
-                    f"rollback rate — verify post-deploy monitoring is sensitive enough"
+                    f"{stats['applied']} applied self-modifications with "
+                    f"{stats['rollback_rate']:.1%} rollback rate — verify "
+                    f"post-apply monitoring is sensitive enough"
                 ),
-                metric_value=roi.rollback_rate,
+                metric_value=stats["rollback_rate"],
                 threshold=0.02,
                 detected_at=time.time(),
             ))

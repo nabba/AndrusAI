@@ -132,7 +132,6 @@ TIER_IMMUTABLE = frozenset({
     "app/fault_isolator.py",
     # General improvements pass — safety-critical infrastructure
     "app/self_model.py",
-    "app/evolution_roi.py",
     "app/goodhart_guard.py",
     "app/tier_graduation.py",
     "app/alignment_audit.py",
@@ -988,17 +987,11 @@ def _post_deploy_monitor(deployed_files: list[str], backup_dir: Path, reason: st
             except Exception as exc:
                 logger.debug(f"auto_deployer: tier_graduation record_rollback failed: {exc}")
 
-            # Mark ROI ledger entry as rolled_back (drives throttle decisions)
-            try:
-                from app.evolution_roi import mark_rollback
-                # The reason field carries the experiment_id (e.g. "evolution-keep-exp_..._abc")
-                if "exp_" in reason:
-                    import re as _re
-                    match = _re.search(r"exp_[a-zA-Z0-9_]+", reason)
-                    if match:
-                        mark_rollback(match.group(0))
-            except Exception as exc:
-                logger.debug(f"auto_deployer: evolution_roi mark_rollback failed: {exc}")
+            # (Rollback is recorded via tier_graduation.record_rollback above
+            # and the change-request ROLLED_BACK status; the parallel
+            # evolution_roi ledger was retired in the round-5 consolidation
+            # 2026-06-03 — its only writer here keyed off legacy `exp_` ids
+            # that the deleted evolution loop produced.)
 
             # Notify user via Signal
             try:

@@ -132,13 +132,13 @@ def _build_evolution_context() -> str:
         )
     errors_text = "\n".join(error_lines) if error_lines else "  No fresh undiagnosed errors (all known errors addressed)."
 
-    # Variant archive context (DGM genealogy)
+    # Recent verified self-modifications (sourced from the canonical CR audit)
     try:
-        from app.variant_archive import format_archive_context, get_drift_score
-        archive_ctx = format_archive_context()
-        drift = get_drift_score()
+        from app.self_improvement.history import format_modifications, drift_score
+        archive_ctx = format_modifications()
+        drift = drift_score()
     except Exception:
-        archive_ctx = "No variant archive available."
+        archive_ctx = "No self-modification history available."
         drift = 0
 
     # Tech radar discoveries (if any)

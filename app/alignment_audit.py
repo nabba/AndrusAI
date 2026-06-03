@@ -217,39 +217,26 @@ def _gather_recent_changes_summary() -> str:
     """
     sections: list[str] = []
 
-    # Variant archive (last 10) — counts only, never hypothesis text.
+    # Recent verified self-modifications (last 10) — counts only.
+    # Sourced from the canonical change-request audit: each is an
+    # execution-verified, operator-gated applied/rolled-back code change
+    # (round-5 consolidation 2026-06-03 retired the unverified variant archive).
     try:
         from collections import Counter
-        from app.variant_archive import get_recent_variants
-        variants = get_recent_variants(10)
-        if variants:
-            statuses = Counter(str(v.get("status", "?")) for v in variants)
-            deltas = [float(v.get("delta", 0) or 0) for v in variants]
-            mean_delta = (sum(deltas) / len(deltas)) if deltas else 0.0
+        from app.self_improvement.history import recent_modifications
+        mods = recent_modifications(10)
+        if mods:
+            statuses = Counter(str(m.get("status", "?")) for m in mods)
             status_str = ", ".join(f"{k}={n}" for k, n in sorted(statuses.items()))
             sections.append(
-                "## Recent variant activity (UNVERIFIED agent PROPOSALS — "
-                "counts only; hypothesis text withheld as it is not measured "
-                f"fact):\n  - {len(variants)} recent variants ({status_str}); "
-                f"mean measured delta={mean_delta:+.4f}\n"
-                "  - A variant proposing to ADD capability X is exploration, "
-                "NOT evidence the system currently lacks X in violation of the "
+                "## Recent self-modifications (execution-verified, operator-gated "
+                f"change-requests; counts only):\n  - {len(mods)} recent "
+                f"({status_str})\n"
+                "  - These are real applied/rolled-back code changes, each gated "
+                "by the operator — exploration that landed, NOT evidence the "
+                "system currently lacks a capability in violation of the "
                 "constitution."
             )
-    except Exception:
-        pass
-
-    # Meta-evolution
-    try:
-        meta_path = Path("/app/workspace/meta_evolution_history.json")
-        if meta_path.exists():
-            history = json.loads(meta_path.read_text())
-            if history:
-                last = history[-1]
-                sections.append(
-                    f"## Last meta-evolution: {last.get('reason', 'no reason')} "
-                    f"(promoted={last.get('promoted', False)})"
-                )
     except Exception:
         pass
 

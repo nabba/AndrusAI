@@ -179,6 +179,15 @@ IDENTITY_EVENT_KINDS: frozenset[str] = frozenset({
                                  # surface (tools / models) loses items
                                  # vs. the prior snapshot; quarterly
                                  # cadence; surfaces in annual reflection.
+    "self_modification",         # Evolution consolidation (round-5, 2026-06-03)
+                                 # — emitted by the verified mutation engine
+                                 # (orchestrator.run_verified_cycle) whenever a
+                                 # self-improvement change-request is filed with
+                                 # real, execution-verified evidence. The honest
+                                 # self-narrative ("what I changed about myself,
+                                 # and the proof") that the retired loop never
+                                 # produced. Auto-surfaces in annual reflection
+                                 # via summarise_drift's Counter.
 })
 
 

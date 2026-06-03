@@ -76,7 +76,7 @@ def _present_constitution(tmp_path, monkeypatch):
 def test_recent_changes_summary_is_counts_only(monkeypatch):
     leak = "the response time is 145.5s average and the 50% success rate"
     monkeypatch.setattr(
-        "app.variant_archive.get_recent_variants",
+        "app.self_improvement.history.recent_modifications",
         lambda n: [{"status": "keep", "delta": 0.0, "hypothesis": leak}],
     )
     text = aa._gather_recent_changes_summary()

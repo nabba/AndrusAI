@@ -235,10 +235,10 @@ def _count_skill_references(skill_name: str) -> int:
     count = 0
     pattern = re.escape(skill_name.replace("_", " ").lower())
 
-    # Scan variant archive
+    # Scan recent self-modifications (sourced from the canonical CR audit)
     try:
-        from app.variant_archive import get_recent_variants
-        for v in get_recent_variants(200):
+        from app.self_improvement.history import recent_modifications
+        for v in recent_modifications(200):
             text = (v.get("hypothesis", "") + " " + v.get("mutation_summary", "")).lower()
             if re.search(pattern, text):
                 count += 1

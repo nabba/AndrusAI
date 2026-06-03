@@ -28,7 +28,6 @@ ERROR_JOURNAL = WORKSPACE_ROOT / "error_journal.json"
 ERROR_TRACKER = WORKSPACE_ROOT / "error_tracker.json"
 AUDIT_JOURNAL = WORKSPACE_ROOT / "audit_journal.json"
 AGENT_STATE = WORKSPACE_ROOT / "agent_state.json"
-VARIANT_ARCHIVE = WORKSPACE_ROOT / "variant_archive.json"
 BENCHMARKS = WORKSPACE_ROOT / "benchmarks.json"
 SELF_KNOWLEDGE_HASHES = WORKSPACE_ROOT / ".self_knowledge_hashes.json"
 

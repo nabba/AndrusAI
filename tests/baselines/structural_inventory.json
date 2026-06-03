@@ -887,12 +887,6 @@
       "path": "/embedding-migration"
     },
     {
-      "handler": "get_engine_info",
-      "method": "GET",
-      "module": "app/api/evolution_api.py",
-      "path": "/engine"
-    },
-    {
       "handler": "error_audit",
       "method": "GET",
       "module": "app/control_plane/dashboard_routes_governance_ops.py",
@@ -1059,12 +1053,6 @@
       "method": "GET",
       "module": "app/forge/api.py",
       "path": "/maintenance/integrity"
-    },
-    {
-      "handler": "get_meta_evolution_history",
-      "method": "GET",
-      "module": "app/api/evolution_api.py",
-      "path": "/meta"
     },
     {
       "handler": "get_meta_agent_settings",

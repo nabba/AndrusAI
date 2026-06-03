@@ -107,69 +107,6 @@ class TestSelfModel:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# evolution_roi
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestEvolutionROI:
-    def test_record_and_load(self, tmp_path, monkeypatch):
-        import app.evolution_roi as roi
-        monkeypatch.setattr(roi, "ROI_LEDGER_PATH", tmp_path / "roi.json")
-        roi.record_evolution_cost(
-            experiment_id="exp_1", engine="avo", cost_usd=0.10,
-            delta=0.02, status="keep", deployed=True,
-        )
-        snapshot = roi.get_rolling_roi(days=1)
-        assert snapshot.sample_size == 1
-        assert snapshot.total_cost_usd == 0.10
-        assert snapshot.real_improvements == 1
-
-    def test_throttle_no_improvements(self, tmp_path, monkeypatch):
-        import app.evolution_roi as roi
-        monkeypatch.setattr(roi, "ROI_LEDGER_PATH", tmp_path / "roi.json")
-        # Simulate 10 experiments over the last 14 days with no improvements
-        now = time.time()
-        for i in range(10):
-            roi.record_evolution_cost(
-                experiment_id=f"exp_{i}", engine="avo", cost_usd=0.10,
-                delta=0.0, status="discard",
-            )
-        throttled, reason, factor = roi.should_throttle()
-        assert throttled is True
-        assert factor < 1.0
-        assert "No real improvements" in reason or "No improvements" in reason or "improvements" in reason
-
-    def test_throttle_healthy_state(self, tmp_path, monkeypatch):
-        import app.evolution_roi as roi
-        monkeypatch.setattr(roi, "ROI_LEDGER_PATH", tmp_path / "roi.json")
-        # Simulate 5 experiments with real improvements
-        for i in range(5):
-            roi.record_evolution_cost(
-                experiment_id=f"exp_{i}", engine="avo", cost_usd=0.10,
-                delta=0.05, status="keep", deployed=True,
-            )
-        throttled, reason, factor = roi.should_throttle()
-        assert throttled is False
-        assert factor == 1.0
-
-    def test_engine_recommendation(self, tmp_path, monkeypatch):
-        import app.evolution_roi as roi
-        monkeypatch.setattr(roi, "ROI_LEDGER_PATH", tmp_path / "roi.json")
-        # AVO: 3 successes at $0.10 each → $0.033/improvement
-        for i in range(3):
-            roi.record_evolution_cost(
-                experiment_id=f"avo_{i}", engine="avo", cost_usd=0.10,
-                delta=0.05, status="keep",
-            )
-        # Shinka: 1 success at $1.00 → $1.00/improvement
-        roi.record_evolution_cost(
-            experiment_id="shinka_1", engine="shinka", cost_usd=1.00,
-            delta=0.05, status="keep",
-        )
-        rec = roi.get_engine_recommendation()
-        assert rec == "avo"  # better cost-per-improvement
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # pattern_library
 # ─────────────────────────────────────────────────────────────────────────────
 

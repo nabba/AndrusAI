@@ -5,9 +5,8 @@ Numbers in a dashboard tell *what* happened. Stories tell *why it matters*.
 This module generates a daily narrative from the union of:
 
   - results.tsv (kept/discarded experiments)
-  - variant_archive.json (genealogy + deltas)
+  - change-request audit (verified self-modifications: applied / rolled-back)
   - error_journal.json (errors and healing)
-  - evolution_roi.json (cost / value)
   - alignment_audits.json (drift)
   - goodhart_reports.json (gaming signals)
 
@@ -101,10 +100,16 @@ def _gather_yesterday_data() -> dict:
     except Exception:
         data["errors"] = []
 
-    # ROI
+    # Self-modification outcomes (from the canonical CR audit; per-call cost is
+    # tracked separately in the LLM cost ledger, not surfaced in this narrative)
     try:
-        from app.evolution_roi import get_rolling_roi
-        data["roi"] = get_rolling_roi(days=1).to_dict()
+        from app.self_improvement.history import cr_rollback_stats
+        s = cr_rollback_stats(window_days=1)
+        data["roi"] = {
+            "real_improvements": s["applied"],
+            "rollbacks": s["rolled_back"],
+            "total_cost_usd": 0.0,
+        }
     except Exception:
         data["roi"] = {}
 
@@ -126,13 +131,10 @@ def _gather_yesterday_data() -> dict:
     except Exception:
         data["goodhart_signals"] = []
 
-    # Throttle status
-    try:
-        from app.evolution_roi import should_throttle
-        throttled, reason, factor = should_throttle()
-        data["throttle"] = {"active": throttled, "reason": reason, "factor": factor}
-    except Exception:
-        data["throttle"] = {"active": False, "reason": "", "factor": 1.0}
+    # Throttle status — the legacy ROI-based throttle retired with the evolution
+    # loop; the verified engine is gated by the operator + the idle-scheduler
+    # resource brake, not a ROI throttle.
+    data["throttle"] = {"active": False, "reason": "", "factor": 1.0}
 
     return data
 
@@ -329,7 +331,7 @@ def _emit_l2_narrative_claim(data: dict, date_str: str) -> None:
     The narrative makes a Pearl-L2 (interventional) statement —
     "yesterday's experiments produced K meaningful improvements" — and
     that statement is grounded in real controlled interventions: the
-    keep gate inside ``app.experiment_runner`` (TIER_IMMUTABLE).
+    immutable judge ``app.self_improvement.worktree_eval`` (TIER_IMMUTABLE).
     Tagging the claim ``causal_evidence_kinds=("controlled_experiment",)``
     is what tells :class:`CausalLayerOverreachDetector` the L2 framing
     is licensed.
