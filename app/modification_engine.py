@@ -33,14 +33,20 @@ TIER2_MAX_PER_WEEK = 10
 REJECTION_COOLDOWN_HOURS = 1
 
 # ── IMMUTABLE: Tier routing rules ─────────────────────────────────────────
-# Parameters that can be modified autonomously (Tier 1)
+# Parameters that can be modified autonomously (Tier 1).
+# NOTE (2026-06-03): ``system_prompt`` + ``few_shot_examples`` were moved to
+# Tier 2 (owner-Signal-gated). An agent's LIVE prompt must never be
+# auto-promoted to active.txt without the operator gate — this closes the same
+# ungated live-prompt-mutation path the evolution consolidation removed from
+# island_evolution (which the round-5 plan flagged for this review). Tier 1
+# now holds only genuinely-autonomous, sandbox-verifiable knobs.
 TIER1_PARAMETERS = frozenset({
-    "system_prompt", "few_shot_examples", "style_params",
-    "knowledge_base", "tool_defaults",
+    "style_params", "knowledge_base", "tool_defaults",
 })
 
-# Parameters that require human approval (Tier 2)
+# Parameters that require human approval (Tier 2 — owner Signal gate)
 TIER2_PARAMETERS = frozenset({
+    "system_prompt", "few_shot_examples",
     "workflow_graph", "agent_roles", "tool_permissions",
     "delegation_policies", "inter_agent_communication",
 })

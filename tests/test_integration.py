@@ -226,9 +226,12 @@ def _():
     engine = ModificationEngine(s.mem0_postgres_url, registry, pipeline, sandbox)
     assert engine is not None
 
-    # Verify tier routing is correct
-    assert engine._determine_tier("system_prompt") == "tier1"
+    # Verify tier routing is correct. system_prompt is Tier 2 (owner-gated) as
+    # of 2026-06-03 — live agent prompts are never auto-promoted without the
+    # operator Signal gate (round-5 consolidation safety closure).
+    assert engine._determine_tier("system_prompt") == "tier2"
     assert engine._determine_tier("workflow_graph") == "tier2"
+    assert engine._determine_tier("style_params") == "tier1"
     return True
 
 @test("health monitor → self healer → version manifest → rollback")
