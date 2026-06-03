@@ -110,16 +110,22 @@ class TestYouTubeVideoIdExtraction(unittest.TestCase):
 
 
 class TestFirebaseReporterThreadPool(unittest.TestCase):
-    """Verify firebase_reporter uses bounded thread pool."""
+    """Verify firebase uses a bounded thread pool (not unbounded per-call threads).
+
+    The executor was extracted from the firebase_reporter.py monolith into the
+    app/firebase/ package (infra.py owns it); these greps follow it there.
+    """
 
     def test_uses_thread_pool_executor(self):
-        with open("app/firebase_reporter.py") as f:
+        with open("app/firebase/infra.py") as f:
             source = f.read()
         self.assertIn("ThreadPoolExecutor", source)
-        self.assertIn("max_workers=4", source)
+        # Bounded pool — assert an explicit worker cap without pinning the exact
+        # count (it has been 4 then 8; the invariant is "bounded", not the value).
+        self.assertIn("max_workers=", source)
 
     def test_fire_uses_submit(self):
-        with open("app/firebase_reporter.py") as f:
+        with open("app/firebase/infra.py") as f:
             source = f.read()
         self.assertIn("_executor.submit(fn)", source)
         # Should NOT use threading.Thread for _fire anymore
@@ -147,7 +153,9 @@ class TestCostPerCrewTracking(unittest.TestCase):
         self.assertIn("tracker.crew_name", source)
 
     def test_firebase_reports_crew_costs(self):
-        with open("app/firebase_reporter.py") as f:
+        # Crew-cost reporting moved from the firebase_reporter.py monolith into
+        # the app/firebase/ package (publish.py composes the per-crew breakdown).
+        with open("app/firebase/publish.py") as f:
             source = f.read()
         self.assertIn("get_crew_cost_stats", source)
         self.assertIn("by_crew", source)
@@ -180,23 +188,24 @@ class TestErrorRateTrending(unittest.TestCase):
 
 
 class TestPolicyApplication(unittest.TestCase):
-    """Verify policies are loaded and injected in all crews."""
+    """Verify policies are loaded and injected for crews.
 
-    def test_research_crew_loads_policies(self):
-        with open("app/crews/research_crew.py") as f:
+    Policy injection was centralized: instead of each crew calling the loader,
+    the commander context layer loads relevant policies per crew/role
+    (app/agents/commander/context.py:_load_policies_for_crew) from the shared
+    loader in app/policies/policy_loader.py.
+    """
+
+    def test_policy_loader_defined(self):
+        with open("app/policies/policy_loader.py") as f:
+            source = f.read()
+        self.assertIn("def load_relevant_policies", source)
+
+    def test_policies_loaded_for_crews_centrally(self):
+        with open("app/agents/commander/context.py") as f:
             source = f.read()
         self.assertIn("load_relevant_policies", source)
-        self.assertIn("policies_block", source)
-
-    def test_coding_crew_loads_policies(self):
-        with open("app/crews/coding_crew.py") as f:
-            source = f.read()
-        self.assertIn("load_relevant_policies", source)
-
-    def test_writing_crew_loads_policies(self):
-        with open("app/crews/writing_crew.py") as f:
-            source = f.read()
-        self.assertIn("load_relevant_policies", source)
+        self.assertIn("_load_policies_for_crew", source)
 
 
 class TestRetrospectiveNotVerbose(unittest.TestCase):
