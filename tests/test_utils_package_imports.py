@@ -124,18 +124,6 @@ class TestTopLevelImportSitesLoad:
     ``from app.utils import now_iso`` (not lazy / try-except).
     Confirm both modules now import cleanly."""
 
-    def test_variant_archive_imports(self) -> None:
-        # variant_archive.py:17 had: from app.utils import now_iso
-        # at module top-level → broke at import time, breaking the
-        # Evolution Monitor.
-        import importlib
-        # Reload to make sure we're testing the actual import path,
-        # not a cached module.
-        if "app.variant_archive" in __import__("sys").modules:
-            importlib.reload(__import__("sys").modules["app.variant_archive"])
-        else:
-            import app.variant_archive  # noqa: F401
-
     def test_firebase_infra_module_loads(self) -> None:
         # firebase/infra.py:82 has `from app.utils import now_iso`
         # inside a function (lazy). The module itself must still

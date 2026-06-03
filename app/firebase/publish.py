@@ -514,21 +514,17 @@ def report_evolution_stats() -> None:
     if not db:
         return
     try:
-        import os
-        if os.environ.get("EVOLUTION_USE_DGM_DB", "false").lower() != "true":
-            return
-        from app.evolution_db.archive_db import get_evolution_stats
-        stats = get_evolution_stats()
-        # Serialize recent variants for Firestore (UUIDs -> strings, datetimes -> ISO)
+        from app.self_improvement.history import modification_stats
+        stats = modification_stats()
         recent = []
         for v in stats.get("recent", []):
             recent.append({
                 "id": str(v.get("id", "")),
-                "agent_name": v.get("agent_name", ""),
+                "agent_name": "self_improver",
                 "generation": v.get("generation", 0),
-                "composite_score": v.get("composite_score") or 0.0,
-                "passed": v.get("passed_threshold", False),
-                "reasoning": (v.get("modification_reasoning") or "")[:100],
+                "composite_score": v.get("delta") or 0.0,
+                "passed": v.get("status") == "keep",
+                "reasoning": (v.get("hypothesis") or "")[:100],
             })
         db.collection("status").document("evolution").set({
             "total_variants": stats.get("total_variants", 0),
@@ -949,9 +945,9 @@ def report_variants() -> None:
         if not db:
             return
         try:
-            from app.variant_archive import get_recent_variants, get_drift_score
-            recent = get_recent_variants(20, raw=True)  # operator surface: verbatim
-            drift = get_drift_score()
+            from app.self_improvement.history import recent_modifications, drift_score
+            recent = recent_modifications(20, raw=True)  # operator surface: verbatim
+            drift = drift_score()
             max_gen = max((v.get("generation", 0) for v in recent), default=0) if recent else 0
             db.collection("status").document("variants").set({
                 "recent": recent,

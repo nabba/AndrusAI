@@ -176,6 +176,32 @@ def run_verified_cycle(
         except Exception as exc:
             logger.warning("orchestrator: CR filing failed for %s: %s", path, exc)
 
+    # Honest self-narrative: record the self-modification in the identity
+    # continuity ledger (the verified engine's CR is the proof). Failure-
+    # isolated — the consciousness boundary is observational, never blocking.
+    if filed:
+        try:
+            from app.identity.continuity_ledger import record_event
+
+            evidence = verdict.get("evidence")
+            record_event(
+                kind="self_modification",
+                actor="self_improver",
+                summary=(
+                    f"Verified self-modification to {_norm_target(target_file)} "
+                    f"({vname}); filed {len(filed)} change-request(s) for operator review"
+                ),
+                detail={
+                    "target_file": _norm_target(target_file),
+                    "approach": approach,
+                    "verdict": vname,
+                    "cr_ids": filed,
+                    "evidence": evidence,
+                },
+            )
+        except Exception as exc:  # pragma: no cover - observational
+            logger.debug("orchestrator: self_modification ledger emit failed: %s", exc)
+
     return {"ok": True, "verdict": vname, "filed": filed, "evidence": verdict.get("evidence")}
 
 

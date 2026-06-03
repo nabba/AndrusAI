@@ -12,9 +12,36 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_engine = None
+
+
 def _get_engine():
-    from app.evolution_db.archive_db import _get_engine
-    return _get_engine()
+    """Lazy-init the SQLAlchemy engine for the ``evolution`` Postgres schema.
+
+    Inlined here (round-5 consolidation 2026-06-03) when the orphaned
+    ``archive_db`` variant store was deleted — ``eval_sets`` was its only
+    remaining consumer, and only of this engine factory.
+    """
+    global _engine
+    if _engine is None:
+        from sqlalchemy import create_engine
+        from sqlalchemy.pool import QueuePool
+        from app.config import get_settings
+
+        url = get_settings().mem0_postgres_url
+        if not url:
+            raise RuntimeError(
+                "PostgreSQL URL not configured (MEM0_POSTGRES_PASSWORD missing)"
+            )
+        _engine = create_engine(
+            url,
+            pool_size=3,
+            max_overflow=2,
+            pool_pre_ping=True,
+            pool_recycle=600,
+            poolclass=QueuePool,
+        )
+    return _engine
 
 def create_eval_set(
     agent_name: str,

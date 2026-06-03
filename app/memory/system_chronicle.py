@@ -328,7 +328,8 @@ def generate_and_save() -> str:
     try:
         errors = _load_json("error_journal.json")
         audits = audit_journal.read_recent(2000)
-        variants = _load_json("variant_archive.json")
+        from app.self_improvement.history import recent_modifications
+        variants = recent_modifications(50, raw=True)
         skill_count = _count_skills()
         topic_counts = _extract_skill_topics()
 
@@ -411,7 +412,8 @@ def get_live_stats() -> dict:
             audit_stats.get("n_entries_closed", 0)
             + audit_stats.get("n_entries_current", 0)
         )
-        variants = _load_json("variant_archive.json")
+        from app.self_improvement.history import recent_modifications
+        variants = recent_modifications(50, raw=True)
         stats["variants_count"] = len(variants)
         if _CHRONICLE_PATH.exists():
             mtime = _CHRONICLE_PATH.stat().st_mtime

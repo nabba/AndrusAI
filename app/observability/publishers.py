@@ -381,21 +381,18 @@ def _compute_evolution_stats_snapshot():
     the old function did by early-return.
     """
     from app.observability.snapshots import Snapshot
-    import os
-    if os.environ.get("EVOLUTION_USE_DGM_DB", "false").lower() != "true":
-        return None
     try:
-        from app.evolution_db.archive_db import get_evolution_stats
-        stats = get_evolution_stats()
+        from app.self_improvement.history import modification_stats
+        stats = modification_stats()
         recent = []
         for v in stats.get("recent", []):
             recent.append({
                 "id": str(v.get("id", "")),
-                "agent_name": v.get("agent_name", ""),
+                "agent_name": "self_improver",
                 "generation": v.get("generation", 0),
-                "composite_score": v.get("composite_score") or 0.0,
-                "passed": v.get("passed_threshold", False),
-                "reasoning": (v.get("modification_reasoning") or "")[:100],
+                "composite_score": v.get("delta") or 0.0,
+                "passed": v.get("status") == "keep",
+                "reasoning": (v.get("hypothesis") or "")[:100],
             })
         return Snapshot(kind="evolution_stats", payload={
             "total_variants":  stats.get("total_variants", 0),
@@ -459,9 +456,9 @@ def _compute_variants_snapshot():
     generation observed so far."""
     from app.observability.snapshots import Snapshot
     try:
-        from app.variant_archive import get_recent_variants, get_drift_score
-        recent = get_recent_variants(20, raw=True) or []  # operator surface: verbatim
-        drift = get_drift_score()
+        from app.self_improvement.history import recent_modifications, drift_score
+        recent = recent_modifications(20, raw=True) or []  # operator surface: verbatim
+        drift = drift_score()
         max_gen = max((v.get("generation", 0) for v in recent), default=0) if recent else 0
         return Snapshot(kind="variants", payload={
             "recent": recent,

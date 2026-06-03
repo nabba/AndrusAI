@@ -545,10 +545,10 @@ def try_command(user_input: str, sender: str, commander) -> str | None:
             lines.append(f"  [{a['ts'][:16]}] {a['type']}: {a['metric']}={a['value']} ({a['sigma']}σ {a['direction']})")
         return "\n".join(lines)
 
-    # Step 2: Variant archive command
-    if lower in ("variants", "archive", "genealogy"):
-        from app.variant_archive import format_archive_context
-        return format_archive_context(15)
+    # Step 2: Self-modification history command
+    if lower in ("variants", "archive", "genealogy", "modifications"):
+        from app.self_improvement.history import format_modifications
+        return format_modifications(15)
 
     if lower in ("proposals", "show proposals"):
         from app.proposals import list_proposals

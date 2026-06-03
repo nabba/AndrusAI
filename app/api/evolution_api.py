@@ -140,64 +140,27 @@ def get_evolution_metrics():
     }
 
 
-# ── Variant archive (genealogy) ────────────────────────────────────────────
+# ── Self-modification history (verified change-requests) ────────────────────
 
 @router.get("/variants")
 def get_variants(n: int = Query(30, ge=1, le=200)):
-    """Return recent variants from the genealogy archive."""
+    """Recent verified self-modifications (applied/rolled-back change-requests),
+    sourced from the canonical CR audit (round-5 consolidation 2026-06-03 —
+    the population-era variant archive was retired)."""
     try:
-        from app.variant_archive import get_recent_variants, get_drift_score
-        variants = get_recent_variants(n, raw=True)  # operator surface: verbatim
-        drift = get_drift_score()
-        return {"variants": variants, "drift_score": drift}
+        from app.self_improvement.history import recent_modifications, drift_score
+        variants = recent_modifications(n, raw=True)  # operator surface: verbatim
+        return {"variants": variants, "drift_score": drift_score()}
     except Exception as e:
         return {"variants": [], "drift_score": 0, "error": str(e)[:200]}
 
 
 @router.get("/variants/{variant_id}/lineage")
 def get_variant_lineage(variant_id: str):
-    """Return the full ancestry chain for a variant."""
-    try:
-        from app.variant_archive import get_lineage
-        lineage = get_lineage(variant_id)
-        return {"lineage": lineage}
-    except Exception as e:
-        return {"lineage": [], "error": str(e)[:200]}
-
-
-# ── Meta-evolution history ──────────────────────────────────────────────────
-
-@router.get("/meta")
-def get_meta_evolution_history():
-    """Return meta-evolution cycle history."""
-    # Meta-evolution was retired in the 2026-06-02 consolidation (it evolved the
-    # legacy engine's own prompts — a path the immutable-judge verified engine
-    # deliberately does not have). No history surface remains.
-    return {"history": [], "effectiveness": {}, "total_cycles": 0, "promoted": 0}
-
-
-# ── Engine selection info ───────────────────────────────────────────────────
-
-@router.get("/engine")
-def get_engine_info():
-    """Return current engine selection details and reasoning."""
-    from app.config import get_settings
-
-    config_engine = "auto"
-    try:
-        config_engine = get_settings().evolution_engine
-    except AttributeError:
-        pass
-
-    # Single verified engine now (legacy AVO/shinka selection retired 2026-06-02).
-    selected = "verified"
-    shinka_available = False
-
-    return {
-        "config_mode": config_engine,
-        "selected_engine": selected,
-        "shinka_available": shinka_available,
-    }
+    """Genealogy was a population-era concept; the verified engine has no
+    parent-chain, so this is always empty. Kept so the dashboard route
+    never 404s."""
+    return {"lineage": []}
 
 
 # ── Snapshot archive (historical tags) ──────────────────────────────────────
