@@ -1,7 +1,7 @@
 """Evolution monitoring API routes.
 
-Exposes the results ledger, variant archive, metrics, and engine selection
-data for the React dashboard's Evolution Monitor page.
+Exposes the results ledger, self-modification history, and metrics for the
+React dashboard's Evolution Monitor page.
 
 All routes prefixed with /api/cp/evolution/.
 """
@@ -14,39 +14,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cp/evolution", tags=["evolution"])
 
 
-def _infer_engine(result: dict) -> str:
-    """Infer which evolution engine produced a result."""
-    detail = (result.get("detail") or "").lower()
-    hypothesis = (result.get("hypothesis") or "").lower()
-    if "shinkaevolve" in detail or "shinka" in detail or "shinka" in hypothesis:
-        return "shinka"
-    if "meta-evolution" in detail or "meta_evolution" in hypothesis:
-        return "meta"
-    return "avo"
-
-
 # ── Results (experiment history) ────────────────────────────────────────────
 
 @router.get("/results")
 def get_evolution_results(
     limit: int = Query(50, ge=1, le=500),
     status: str = Query("", description="Filter by status: keep, discard, crash"),
-    engine: str = Query("", description="Filter by engine: avo, shinka, meta"),
 ):
-    """Return recent experiment results with engine inference."""
+    """Return recent experiment results."""
     from app.results_ledger import get_recent_results
 
     results = get_recent_results(limit)
 
-    # Enrich with engine field
-    for r in results:
-        r["engine"] = _infer_engine(r)
-
-    # Apply filters
     if status:
         results = [r for r in results if r["status"] == status]
-    if engine:
-        results = [r for r in results if r["engine"] == engine]
 
     return {"results": results, "total": len(results)}
 
@@ -66,23 +47,8 @@ def get_evolution_summary():
     discarded = sum(1 for r in results if r["status"] == "discard")
     crashed = sum(1 for r in results if r["status"] == "crash")
 
-    # Engine breakdown
-    engine_counts = {"avo": 0, "shinka": 0, "meta": 0}
-    engine_kept = {"avo": 0, "shinka": 0, "meta": 0}
-    for r in results:
-        eng = _infer_engine(r)
-        engine_counts[eng] = engine_counts.get(eng, 0) + 1
-        if r["status"] == "keep":
-            engine_kept[eng] = engine_kept.get(eng, 0) + 1
-
     # Recent trend (last 20 kept experiments)
     trend = get_improvement_trend(20)
-
-    # One self-modification engine now — the verified mutation engine. The
-    # legacy AVO/shinka engine-selection was retired in the 2026-06-02
-    # consolidation.
-    current_engine = "verified"
-    subia_safety = 0.8
 
     return {
         "total_experiments": total,
@@ -93,18 +59,6 @@ def get_evolution_summary():
         "best_score": round(get_best_score(), 4),
         "current_score": round(composite_score(), 4),
         "score_trend": [round(s, 4) for s in trend],
-        "current_engine": current_engine,
-        "subia_safety": round(subia_safety, 3),
-        "engines": {
-            name: {
-                "total": engine_counts.get(name, 0),
-                "kept": engine_kept.get(name, 0),
-                "kept_ratio": round(
-                    engine_kept.get(name, 0) / max(1, engine_counts.get(name, 0)), 3
-                ),
-            }
-            for name in ["avo", "shinka", "meta"]
-        },
     }
 
 

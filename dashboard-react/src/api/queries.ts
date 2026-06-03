@@ -45,8 +45,7 @@ export const keys = {
   ) => ['costs', 'trends', historyMonths, forecastMonths, anomalyWindow, anomalyZ] as const,
   health: ['health'] as const,
   evolutionSummary: ['evolution', 'summary'] as const,
-  evolutionResults: (engine: string, status: string) => ['evolution', 'results', engine, status] as const,
-  evolutionEngine: ['evolution', 'engine'] as const,
+  evolutionResults: (status: string) => ['evolution', 'results', status] as const,
   workspaces: ['workspaces'] as const,
   workspaceItems: (projectId: string) => ['workspaces', projectId, 'items'] as const,
   workspacesMeta: ['workspaces', 'meta'] as const,
@@ -403,14 +402,7 @@ export interface EvolutionResult {
   metric_before: number;
   metric_after: number;
   detail: string;
-  engine: string;
   files_changed: string[];
-}
-
-export interface EngineStat {
-  total: number;
-  kept: number;
-  kept_ratio: number;
 }
 
 export interface EvolutionSummary {
@@ -422,15 +414,6 @@ export interface EvolutionSummary {
   best_score: number;
   current_score: number;
   score_trend: number[];
-  current_engine: string;
-  subia_safety: number;
-  engines: Record<string, EngineStat>;
-}
-
-export interface EngineInfo {
-  config_mode: string;
-  selected_engine: string;
-  shinka_available: boolean;
 }
 
 export function useEvolutionSummaryQuery() {
@@ -441,22 +424,14 @@ export function useEvolutionSummaryQuery() {
   });
 }
 
-export function useEvolutionResultsQuery(engine: string, status: string) {
+export function useEvolutionResultsQuery(status: string) {
   return useQuery({
-    queryKey: keys.evolutionResults(engine, status),
+    queryKey: keys.evolutionResults(status),
     queryFn: () =>
       api<{ results: EvolutionResult[] }>(
-        endpoints.evolutionResults({ limit: 100, engine: engine || undefined, status: status || undefined }),
+        endpoints.evolutionResults({ limit: 100, status: status || undefined }),
       ),
     refetchInterval: POLL.slow,
-  });
-}
-
-export function useEvolutionEngineQuery() {
-  return useQuery({
-    queryKey: keys.evolutionEngine,
-    queryFn: () => api<EngineInfo>(endpoints.evolutionEngine()),
-    refetchInterval: POLL.verySlow,
   });
 }
 

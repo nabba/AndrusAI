@@ -181,14 +181,12 @@ export const endpoints = {
 
   // Evolution (prefix /api/cp/evolution)
   evolutionSummary: () => `${CP}/evolution/summary`,
-  evolutionResults: (params: { limit?: number; engine?: string; status?: string } = {}) => {
+  evolutionResults: (params: { limit?: number; status?: string } = {}) => {
     const p = new URLSearchParams();
     p.set('limit', String(params.limit ?? 100));
-    if (params.engine) p.set('engine', params.engine);
     if (params.status) p.set('status', params.status);
     return `${CP}/evolution/results?${p.toString()}`;
   },
-  evolutionEngine: () => `${CP}/evolution/engine`,
 
   // Workspaces (prefix /api — NOT /api/cp)
   workspaces: () => `/api/workspaces`,
