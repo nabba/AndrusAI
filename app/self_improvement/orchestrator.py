@@ -118,6 +118,51 @@ def _default_cr_filer(**kwargs: Any) -> Any:
     return create_request(**kwargs)
 
 
+def _record_evo_outcome(
+    approach: str,
+    target_file: str,
+    *,
+    success: bool,
+    verdict: Optional[dict] = None,
+    reason: str = "",
+) -> None:
+    """Feed evo_memory so the planner learns across runs.
+
+    Round-5: evo_memory is the verified engine's memory — the planner reads
+    ``recall_similar_failures`` (planning.py) to skip re-trying a failed
+    approach, so the engine MUST record each genuine verdict here (a
+    not-proposable run is a real "this didn't improve" signal; a filed run is
+    a success). Keyed on the approach text the planner recalls on. Infra
+    failures (no verdict) never reach this. Failure-isolated.
+    """
+    try:
+        from app import evo_memory
+
+        target = _norm_target(target_file)
+        key = approach or target
+        if success:
+            v = verdict or {}
+            try:
+                delta = float(v.get("quality_delta") or v.get("correctness_delta") or 0.0)
+            except (TypeError, ValueError):
+                delta = 0.0
+            evo_memory.store_success(
+                hypothesis=key,
+                change_type="code",
+                delta=delta,
+                files=[target],
+                detail=reason[:500],
+            )
+        else:
+            evo_memory.store_failure(
+                hypothesis=key,
+                change_type="code",
+                reason=reason[:500],
+            )
+    except Exception as exc:  # pragma: no cover - observational
+        logger.debug("orchestrator: evo_memory record failed: %s", exc)
+
+
 @_single_run(lambda: {"ok": False, "skipped": True, "error": "another verified run is in progress"})
 def run_verified_cycle(
     target_file: str,
@@ -154,6 +199,12 @@ def run_verified_cycle(
     vname = verdict.get("verdict")
 
     if not result.get("proposable"):
+        # Genuine "this approach didn't improve" — record so the planner won't
+        # re-try it (recall_similar_failures).
+        _record_evo_outcome(
+            approach, target_file, success=False,
+            reason=f"verified engine: {vname or 'not proposable'} — not an improvement",
+        )
         return {"ok": True, "verdict": vname, "filed": [], "note": "not proposable"}
 
     contents = result.get("changed_file_contents") or {}
@@ -180,6 +231,9 @@ def run_verified_cycle(
     # continuity ledger (the verified engine's CR is the proof). Failure-
     # isolated — the consciousness boundary is observational, never blocking.
     if filed:
+        # A filed CR = the engine found a real, verified improvement worth
+        # proposing — record it as a success the planner can learn from.
+        _record_evo_outcome(approach, target_file, success=True, verdict=verdict, reason=reason)
         try:
             from app.identity.continuity_ledger import record_event
 
