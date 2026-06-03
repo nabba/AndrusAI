@@ -28,8 +28,11 @@ import threading
 from pathlib import Path
 from datetime import datetime, timezone
 
-sys.path.insert(0, "/app")
-os.chdir("/app")
+# Resolve the repo root from this file's location so the script is portable:
+# inside the container this is ``/app``; on the host it is the checkout root.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
+os.chdir(_REPO_ROOT)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Test framework

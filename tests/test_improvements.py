@@ -11,6 +11,18 @@ Tests verify:
   - Retrospective crew is not verbose in production
 """
 import unittest
+from pathlib import Path
+
+
+def _read_commander_source() -> str:
+    """Concatenate every module in the ``app/agents/commander`` package.
+
+    Commander was once a single ``commander.py`` module; it is now a package.
+    These behavioural greps scan the whole package so an internal refactor
+    (moving code between package modules) can never silently re-break them.
+    """
+    pkg = Path("app/agents/commander")
+    return "\n".join(p.read_text() for p in sorted(pkg.glob("*.py")))
 
 
 class TestSafeJsonParse(unittest.TestCase):
@@ -131,8 +143,7 @@ class TestCostPerCrewTracking(unittest.TestCase):
         self.assertIn("get_crew_cost_stats", source)
 
     def test_commander_sets_crew_name(self):
-        with open("app/agents/commander.py") as f:
-            source = f.read()
+        source = _read_commander_source()
         self.assertIn("tracker.crew_name", source)
 
     def test_firebase_reports_crew_costs(self):
@@ -214,8 +225,7 @@ class TestSafeJsonParseAdoption(unittest.TestCase):
         self.assertIn("safe_json_parse", source)
 
     def test_commander_uses_safe_parse(self):
-        with open("app/agents/commander.py") as f:
-            source = f.read()
+        source = _read_commander_source()
         self.assertIn("safe_json_parse", source)
 
     def test_research_crew_uses_safe_parse(self):
