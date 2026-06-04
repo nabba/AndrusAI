@@ -542,7 +542,7 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Invalid ERROR_FIX_CRON: {error_fix_cron}")
 
     # Verified self-improvement runs via the single resource-aware idle job
-    # ("evolution" in idle_scheduler), not a fixed cron — the idle scheduler
+    # ("self-improvement" in idle_scheduler), not a fixed cron — the idle scheduler
     # yields to user tasks and backs off under the §82 memory ceiling, which a
     # blunt 6h timer cannot, and the orchestrator's _single_run lock prevents
     # concurrent evolver spawns. Do NOT re-add an APScheduler evolution cron.

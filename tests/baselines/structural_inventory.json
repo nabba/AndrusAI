@@ -12,6 +12,202 @@
       "exists": true,
       "public_defs": []
     },
+    "app/control_plane/dashboard_routes_budgets_costs.py": {
+      "classes": [
+        "BudgetOverride",
+        "BudgetPauseToggle",
+        "BudgetSet",
+        "CreditAlertDismiss"
+      ],
+      "exists": true,
+      "public_defs": [
+        "audit_costs",
+        "budgets_forecast",
+        "budgets_total",
+        "costs_by_agent",
+        "costs_by_crew",
+        "costs_by_internal_agent",
+        "costs_daily",
+        "costs_trends",
+        "credit_alerts",
+        "dismiss_credit_alert",
+        "embedding_migration_status",
+        "get_audit_log",
+        "get_budgets",
+        "get_discovery_funnel",
+        "override_budget",
+        "set_budget",
+        "source_ledger_state",
+        "toggle_budget_pause",
+        "token_usage"
+      ]
+    },
+    "app/control_plane/dashboard_routes_companion.py": {
+      "classes": [
+        "DissolveBody",
+        "PairMuteBody",
+        "PathQueryBody",
+        "PersonAction",
+        "TensionCreate",
+        "TensionResolve"
+      ],
+      "exists": true,
+      "public_defs": [
+        "companion_cross_modal_patterns",
+        "companion_people",
+        "companion_people_centrality",
+        "companion_people_forget",
+        "companion_people_forget_all",
+        "companion_people_graph",
+        "companion_people_graph_communities",
+        "companion_people_graph_dissolve",
+        "companion_people_graph_forget",
+        "companion_people_graph_mute_pair",
+        "companion_people_graph_path",
+        "companion_people_graph_path_optout",
+        "companion_people_graph_structural",
+        "companion_people_mute",
+        "companion_people_mute_sug",
+        "companion_people_suggestions",
+        "companion_people_unmute",
+        "companion_tensions",
+        "companion_tensions_create",
+        "companion_tensions_resolve",
+        "notify_fatigue"
+      ]
+    },
+    "app/control_plane/dashboard_routes_governance_ops.py": {
+      "classes": [
+        "DelegationUpdate",
+        "MetaAgentUpdate",
+        "ProposalAction"
+      ],
+      "exists": true,
+      "public_defs": [
+        "acknowledge_anomaly",
+        "apply_proposal_action",
+        "approve_governance",
+        "error_audit",
+        "get_delegation_settings",
+        "get_meta_agent_settings",
+        "pending_governance",
+        "recent_anomalies",
+        "recent_deploys",
+        "recent_errors",
+        "reject_governance",
+        "set_delegation_setting",
+        "set_meta_agent_setting"
+      ]
+    },
+    "app/control_plane/dashboard_routes_llms.py": {
+      "classes": [
+        "DemoteRequest",
+        "DiscoveryRun",
+        "JudgePinRequest",
+        "JudgeUnpinRequest",
+        "PinRequest",
+        "PromoteRequest",
+        "UnpinRequest"
+      ],
+      "exists": true,
+      "public_defs": [
+        "llm_catalog",
+        "llm_demote_endpoint",
+        "llm_discovery_run",
+        "llm_discovery_status",
+        "llm_judge_evaluations_endpoint",
+        "llm_judges_endpoint",
+        "llm_judges_pin_endpoint",
+        "llm_judges_unpin_endpoint",
+        "llm_pin_endpoint",
+        "llm_pins_endpoint",
+        "llm_promote_endpoint",
+        "llm_promotions_endpoint",
+        "llm_role_assignments_endpoint",
+        "llm_unpin_endpoint"
+      ]
+    },
+    "app/control_plane/dashboard_routes_ops_misc.py": {
+      "classes": [
+        "ChatSendBody"
+      ],
+      "exists": true,
+      "public_defs": [
+        "chat_messages",
+        "chat_send",
+        "control_plane_health",
+        "get_crew_tasks",
+        "get_org_chart_api",
+        "get_task_timeline",
+        "list_idle_jobs",
+        "observability_snapshot_kinds",
+        "observability_snapshot_latest",
+        "observability_snapshot_recent",
+        "pool_diagnostics",
+        "research_adapter_status",
+        "signal_commands",
+        "system_status",
+        "tech_radar"
+      ]
+    },
+    "app/control_plane/dashboard_routes_projects_tickets.py": {
+      "classes": [
+        "CommentCreate",
+        "ProjectCreate",
+        "TicketCreate",
+        "TicketUpdate"
+      ],
+      "exists": true,
+      "public_defs": [
+        "add_comment",
+        "create_project",
+        "create_ticket",
+        "get_project",
+        "get_ticket",
+        "list_projects",
+        "list_tickets",
+        "project_status",
+        "ticket_board",
+        "update_ticket"
+      ]
+    },
+    "app/control_plane/dashboard_routes_sentience_drills.py": {
+      "classes": [],
+      "exists": true,
+      "public_defs": [
+        "consciousness_indicators",
+        "drill_detail",
+        "drills_audit",
+        "drills_mute",
+        "drills_posture",
+        "drills_ratify_baseline",
+        "drills_registry",
+        "drills_run",
+        "drills_unmute",
+        "drills_unquarantine",
+        "sentience_ae2_associations",
+        "sentience_hot1_patterns",
+        "sentience_hot4_flagged",
+        "sentience_rpt1_calibration",
+        "sentience_scorecard_pinning"
+      ]
+    },
+    "app/control_plane/dashboard_routes_transfer_memory.py": {
+      "classes": [],
+      "exists": true,
+      "public_defs": [
+        "transfer_memory_by_source_kind",
+        "transfer_memory_negative_transfer",
+        "transfer_memory_overview",
+        "transfer_memory_promote",
+        "transfer_memory_promotion_candidates",
+        "transfer_memory_recent",
+        "transfer_memory_sanitizer_stats",
+        "transfer_memory_source_target_matrix",
+        "transfer_memory_top",
+        "transfer_memory_worst"
+      ]
+    },
     "app/crews/base_crew.py": {
       "classes": [],
       "exists": true,
@@ -89,6 +285,10 @@
       "weight": "medium"
     },
     {
+      "name": "autonomous-executor",
+      "weight": "heavy"
+    },
+    {
       "name": "backward-counterfactual-replay",
       "weight": "light"
     },
@@ -105,7 +305,19 @@
       "weight": "light"
     },
     {
+      "name": "benchmarks-refresh",
+      "weight": "heavy"
+    },
+    {
+      "name": "capability-regression",
+      "weight": "light"
+    },
+    {
       "name": "chaos-testing",
+      "weight": "heavy"
+    },
+    {
+      "name": "code-intel-refresh",
       "weight": "heavy"
     },
     {
@@ -126,7 +338,7 @@
     },
     {
       "name": "data-retention",
-      "weight": "light"
+      "weight": "heavy"
     },
     {
       "name": "dead-letter-retry",
@@ -161,10 +373,6 @@
       "weight": "light"
     },
     {
-      "name": "evolution",
-      "weight": "heavy"
-    },
-    {
       "name": "feedback-aggregate",
       "weight": "light"
     },
@@ -195,10 +403,6 @@
     {
       "name": "improvement-scan",
       "weight": "medium"
-    },
-    {
-      "name": "island-evolution",
-      "weight": "heavy"
     },
     {
       "name": "judge-eval-retention",
@@ -241,10 +445,6 @@
       "weight": "light"
     },
     {
-      "name": "meta-evolution",
-      "weight": "heavy"
-    },
-    {
       "name": "meta-workspace-promotion",
       "weight": "light"
     },
@@ -255,10 +455,6 @@
     {
       "name": "ollama-memory",
       "weight": "light"
-    },
-    {
-      "name": "parallel-evolution",
-      "weight": "heavy"
     },
     {
       "name": "pattern-library-extract",
@@ -279,6 +475,10 @@
     {
       "name": "safety-health-check",
       "weight": "light"
+    },
+    {
+      "name": "self-improvement",
+      "weight": "heavy"
     },
     {
       "name": "self-knowledge-ingest",
@@ -318,7 +518,7 @@
     },
     {
       "name": "training-curate",
-      "weight": "light"
+      "weight": "heavy"
     },
     {
       "name": "training-pipeline",
@@ -351,6 +551,10 @@
     {
       "name": "viability-goal-emitter",
       "weight": "light"
+    },
+    {
+      "name": "widening-proposer-scan",
+      "weight": "heavy"
     },
     {
       "name": "wiki-hot-cache",
@@ -443,6 +647,12 @@
       "path": ""
     },
     {
+      "handler": "list_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/reviews_api.py",
+      "path": ""
+    },
+    {
       "handler": "list_files_endpoint",
       "method": "GET",
       "module": "app/api/files_api.py",
@@ -455,9 +665,21 @@
       "path": ""
     },
     {
+      "handler": "list_pending",
+      "method": "GET",
+      "module": "app/control_plane/widening_api.py",
+      "path": ""
+    },
+    {
       "handler": "list_proposals",
       "method": "GET",
       "module": "app/control_plane/proposals_api.py",
+      "path": ""
+    },
+    {
+      "handler": "list_runs",
+      "method": "GET",
+      "module": "app/control_plane/delegate_api.py",
       "path": ""
     },
     {
@@ -495,6 +717,12 @@
       "method": "GET",
       "module": "app/control_plane/migrate_api.py",
       "path": "/accounts"
+    },
+    {
+      "handler": "list_all_proposals",
+      "method": "GET",
+      "module": "app/control_plane/widening_api.py",
+      "path": "/all"
     },
     {
       "handler": "get_allowlist",
@@ -557,6 +785,12 @@
       "path": "/audit/costs"
     },
     {
+      "handler": "audit_subject_endpoint",
+      "method": "GET",
+      "module": "app/api/privacy_api.py",
+      "path": "/audit/{subject_type}/{subject_id:path}"
+    },
+    {
       "handler": "get_background_tasks_endpoint",
       "method": "GET",
       "module": "app/api/config_api.py",
@@ -585,6 +819,12 @@
       "method": "GET",
       "module": "app/control_plane/dashboard_routes_budgets_costs.py",
       "path": "/budgets/forecast"
+    },
+    {
+      "handler": "budgets_total",
+      "method": "GET",
+      "module": "app/control_plane/dashboard_routes_budgets_costs.py",
+      "path": "/budgets/total"
     },
     {
       "handler": "business_kb_status",
@@ -621,6 +861,12 @@
       "method": "GET",
       "module": "app/affect/api.py",
       "path": "/care-ledger"
+    },
+    {
+      "handler": "catalog_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/benchmarks_api.py",
+      "path": "/catalog"
     },
     {
       "handler": "get_categories",
@@ -875,10 +1121,28 @@
       "path": "/drills/registry"
     },
     {
+      "handler": "drill_detail",
+      "method": "GET",
+      "module": "app/control_plane/dashboard_routes_sentience_drills.py",
+      "path": "/drills/{name}"
+    },
+    {
       "handler": "ecological",
       "method": "GET",
       "module": "app/affect/api.py",
       "path": "/ecological"
+    },
+    {
+      "handler": "ecosystem_snapshots",
+      "method": "GET",
+      "module": "app/control_plane/upgrade_lifecycle_api.py",
+      "path": "/ecosystem/snapshots"
+    },
+    {
+      "handler": "ecosystem_snapshot_get",
+      "method": "GET",
+      "module": "app/control_plane/upgrade_lifecycle_api.py",
+      "path": "/ecosystem/snapshots/{year}"
     },
     {
       "handler": "embedding_migration_status",
@@ -917,6 +1181,12 @@
       "path": "/flags"
     },
     {
+      "handler": "get_discovery_funnel",
+      "method": "GET",
+      "module": "app/control_plane/dashboard_routes_budgets_costs.py",
+      "path": "/funnel"
+    },
+    {
       "handler": "pending_governance",
       "method": "GET",
       "module": "app/control_plane/dashboard_routes_governance_ops.py",
@@ -941,6 +1211,12 @@
       "path": "/graph"
     },
     {
+      "handler": "get_hardening_preview",
+      "method": "GET",
+      "module": "app/control_plane/migrate_api.py",
+      "path": "/hardening-preview"
+    },
+    {
       "handler": "control_plane_health",
       "method": "GET",
       "module": "app/control_plane/dashboard_routes_ops_misc.py",
@@ -951,6 +1227,12 @@
       "method": "GET",
       "module": "app/api/health.py",
       "path": "/health"
+    },
+    {
+      "handler": "history_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/capability_regression_api.py",
+      "path": "/history"
     },
     {
       "handler": "list_ideas",
@@ -987,6 +1269,12 @@
       "method": "GET",
       "module": "app/api/qos_api.py",
       "path": "/latency"
+    },
+    {
+      "handler": "leaderboard_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/benchmarks_api.py",
+      "path": "/leaderboard"
     },
     {
       "handler": "get_life_companion_state_endpoint",
@@ -1229,6 +1517,12 @@
       "path": "/reflections/{date}"
     },
     {
+      "handler": "regressions_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/capability_regression_api.py",
+      "path": "/regressions"
+    },
+    {
       "handler": "research_adapter_status",
       "method": "GET",
       "module": "app/control_plane/dashboard_routes_ops_misc.py",
@@ -1274,6 +1568,12 @@
       "handler": "list_all_runs",
       "method": "GET",
       "module": "app/control_plane/workflows_api.py",
+      "path": "/runs"
+    },
+    {
+      "handler": "runs_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/benchmarks_api.py",
       "path": "/runs"
     },
     {
@@ -1367,6 +1667,18 @@
       "path": "/settings"
     },
     {
+      "handler": "get_settings_genealogy_alias",
+      "method": "GET",
+      "module": "app/control_plane/settings_alias_api.py",
+      "path": "/settings/genealogy"
+    },
+    {
+      "handler": "get_settings_genealogy",
+      "method": "GET",
+      "module": "app/api/config_api.py",
+      "path": "/settings_genealogy"
+    },
+    {
       "handler": "signal_commands",
       "method": "GET",
       "module": "app/control_plane/dashboard_routes_ops_misc.py",
@@ -1377,6 +1689,12 @@
       "method": "GET",
       "module": "app/api/evolution_api.py",
       "path": "/snapshots"
+    },
+    {
+      "handler": "source_ledger_state",
+      "method": "GET",
+      "module": "app/control_plane/dashboard_routes_budgets_costs.py",
+      "path": "/source-ledger/state"
     },
     {
       "handler": "list_workspace_sources",
@@ -1412,6 +1730,24 @@
       "handler": "get_state",
       "method": "GET",
       "module": "app/forge/api.py",
+      "path": "/state"
+    },
+    {
+      "handler": "state_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/anthropic_budget_api.py",
+      "path": "/state"
+    },
+    {
+      "handler": "state_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/capability_regression_api.py",
+      "path": "/state"
+    },
+    {
+      "handler": "state_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/connector_budget_api.py",
       "path": "/state"
     },
     {
@@ -1457,10 +1793,28 @@
       "path": "/stats"
     },
     {
+      "handler": "stats_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/benchmarks_api.py",
+      "path": "/stats"
+    },
+    {
+      "handler": "stats_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/code_intel_api.py",
+      "path": "/stats"
+    },
+    {
       "handler": "tool_stats",
       "method": "GET",
       "module": "app/control_plane/tools_api.py",
       "path": "/stats"
+    },
+    {
+      "handler": "stats_summary",
+      "method": "GET",
+      "module": "app/control_plane/reviews_api.py",
+      "path": "/stats/summary"
     },
     {
       "handler": "fiction_status",
@@ -1679,6 +2033,18 @@
       "path": "/unresolved"
     },
     {
+      "handler": "upgrade_lifecycle_capabilities",
+      "method": "GET",
+      "module": "app/control_plane/upgrade_lifecycle_api.py",
+      "path": "/upgrade-lifecycle/capabilities/{package}"
+    },
+    {
+      "handler": "upgrade_lifecycle_state",
+      "method": "GET",
+      "module": "app/control_plane/upgrade_lifecycle_api.py",
+      "path": "/upgrade-lifecycle/state"
+    },
+    {
       "handler": "get_vapid_public_key",
       "method": "GET",
       "module": "app/api/config_api.py",
@@ -1787,6 +2153,12 @@
       "path": "/{name}"
     },
     {
+      "handler": "get_proposal",
+      "method": "GET",
+      "module": "app/control_plane/widening_api.py",
+      "path": "/{proposal_id}"
+    },
+    {
       "handler": "get_action_request",
       "method": "GET",
       "module": "app/control_plane/action_requests_api.py",
@@ -1811,10 +2183,46 @@
       "path": "/{request_id}/audit"
     },
     {
+      "handler": "get_change_review",
+      "method": "GET",
+      "module": "app/control_plane/changes_api.py",
+      "path": "/{request_id}/review"
+    },
+    {
       "handler": "get_scaffold_manifest",
       "method": "GET",
       "module": "app/control_plane/architecture_requests_api.py",
       "path": "/{request_id}/scaffold/manifest"
+    },
+    {
+      "handler": "get_change_type_errors",
+      "method": "GET",
+      "module": "app/control_plane/changes_api.py",
+      "path": "/{request_id}/type-errors"
+    },
+    {
+      "handler": "get_endpoint",
+      "method": "GET",
+      "module": "app/control_plane/reviews_api.py",
+      "path": "/{review_id}"
+    },
+    {
+      "handler": "get_run",
+      "method": "GET",
+      "module": "app/control_plane/delegate_api.py",
+      "path": "/{run_id}"
+    },
+    {
+      "handler": "research_dossier",
+      "method": "GET",
+      "module": "app/control_plane/delegate_api.py",
+      "path": "/{run_id}/research-dossier"
+    },
+    {
+      "handler": "research_summary",
+      "method": "GET",
+      "module": "app/control_plane/delegate_api.py",
+      "path": "/{run_id}/research-summary"
     },
     {
       "handler": "get_coding_session",
@@ -1847,6 +2255,12 @@
       "path": ""
     },
     {
+      "handler": "create_run",
+      "method": "POST",
+      "module": "app/control_plane/delegate_api.py",
+      "path": ""
+    },
+    {
       "handler": "create_template",
       "method": "POST",
       "module": "app/control_plane/workflows_api.py",
@@ -1875,6 +2289,18 @@
       "method": "POST",
       "module": "app/api/config_api.py",
       "path": "/background_tasks"
+    },
+    {
+      "handler": "post_bootstrap_aws_account",
+      "method": "POST",
+      "module": "app/control_plane/migrate_api.py",
+      "path": "/bootstrap-aws-account"
+    },
+    {
+      "handler": "post_bootstrap_project",
+      "method": "POST",
+      "module": "app/control_plane/migrate_api.py",
+      "path": "/bootstrap-project"
     },
     {
       "handler": "set_budget",
@@ -1911,6 +2337,12 @@
       "method": "POST",
       "module": "app/api/kb.py",
       "path": "/business/{business_id}/upload"
+    },
+    {
+      "handler": "set_cap_endpoint",
+      "method": "POST",
+      "module": "app/control_plane/anthropic_budget_api.py",
+      "path": "/cap"
     },
     {
       "handler": "chat_send",
@@ -2045,6 +2477,42 @@
       "path": "/drills/run/{name}"
     },
     {
+      "handler": "drills_mute",
+      "method": "POST",
+      "module": "app/control_plane/dashboard_routes_sentience_drills.py",
+      "path": "/drills/{name}/mute"
+    },
+    {
+      "handler": "drills_ratify_baseline",
+      "method": "POST",
+      "module": "app/control_plane/dashboard_routes_sentience_drills.py",
+      "path": "/drills/{name}/ratify-baseline"
+    },
+    {
+      "handler": "drills_unmute",
+      "method": "POST",
+      "module": "app/control_plane/dashboard_routes_sentience_drills.py",
+      "path": "/drills/{name}/unmute"
+    },
+    {
+      "handler": "drills_unquarantine",
+      "method": "POST",
+      "module": "app/control_plane/dashboard_routes_sentience_drills.py",
+      "path": "/drills/{name}/unquarantine"
+    },
+    {
+      "handler": "ecosystem_accept_major",
+      "method": "POST",
+      "module": "app/control_plane/upgrade_lifecycle_api.py",
+      "path": "/ecosystem/major-upgrades/accept"
+    },
+    {
+      "handler": "ecosystem_generate_snapshot",
+      "method": "POST",
+      "module": "app/control_plane/upgrade_lifecycle_api.py",
+      "path": "/ecosystem/snapshots/generate"
+    },
+    {
       "handler": "engage_endpoint",
       "method": "POST",
       "module": "app/api/vacation_api.py",
@@ -2061,6 +2529,12 @@
       "method": "POST",
       "module": "app/api/companion_api.py",
       "path": "/feedback"
+    },
+    {
+      "handler": "forget_subject_endpoint",
+      "method": "POST",
+      "module": "app/api/privacy_api.py",
+      "path": "/forget"
     },
     {
       "handler": "post_forget",
@@ -2195,6 +2669,12 @@
       "path": "/phase5-proposals/{feature_name}/review"
     },
     {
+      "handler": "pre_check_endpoint",
+      "method": "POST",
+      "module": "app/control_plane/anthropic_budget_api.py",
+      "path": "/pre-check"
+    },
+    {
       "handler": "create_project",
       "method": "POST",
       "module": "app/control_plane/dashboard_routes_projects_tickets.py",
@@ -2211,6 +2691,12 @@
       "method": "POST",
       "module": "app/control_plane/dashboard_routes_governance_ops.py",
       "path": "/proposals/{proposal_id}/action"
+    },
+    {
+      "handler": "refresh_endpoint",
+      "method": "POST",
+      "module": "app/control_plane/benchmarks_api.py",
+      "path": "/refresh"
     },
     {
       "handler": "reingest",
@@ -2351,6 +2837,12 @@
       "path": "/signal/inbound"
     },
     {
+      "handler": "force_snapshot_endpoint",
+      "method": "POST",
+      "module": "app/control_plane/capability_regression_api.py",
+      "path": "/snapshot"
+    },
+    {
       "handler": "add_workspace_source",
       "method": "POST",
       "module": "app/api/companion_api.py",
@@ -2433,6 +2925,12 @@
       "method": "POST",
       "module": "app/epistemic/api.py",
       "path": "/tuning/run"
+    },
+    {
+      "handler": "run_capability_adoption_pass",
+      "method": "POST",
+      "module": "app/control_plane/upgrade_lifecycle_api.py",
+      "path": "/upgrade-lifecycle/capability-adoption/run-pass"
     },
     {
       "handler": "kb_upload",
@@ -2531,6 +3029,18 @@
       "path": "/{name}/run"
     },
     {
+      "handler": "approve_proposal",
+      "method": "POST",
+      "module": "app/control_plane/widening_api.py",
+      "path": "/{proposal_id}/approve"
+    },
+    {
+      "handler": "reject_proposal",
+      "method": "POST",
+      "module": "app/control_plane/widening_api.py",
+      "path": "/{proposal_id}/reject"
+    },
+    {
       "handler": "abandon_architecture_request",
       "method": "POST",
       "module": "app/control_plane/architecture_requests_api.py",
@@ -2553,6 +3063,12 @@
       "method": "POST",
       "module": "app/control_plane/changes_api.py",
       "path": "/{request_id}/approve"
+    },
+    {
+      "handler": "check_types_now",
+      "method": "POST",
+      "module": "app/control_plane/changes_api.py",
+      "path": "/{request_id}/check-types"
     },
     {
       "handler": "mark_arch_complete",
@@ -2607,6 +3123,18 @@
       "method": "POST",
       "module": "app/control_plane/architecture_requests_api.py",
       "path": "/{request_id}/scaffold"
+    },
+    {
+      "handler": "abort_run",
+      "method": "POST",
+      "module": "app/control_plane/delegate_api.py",
+      "path": "/{run_id}/abort"
+    },
+    {
+      "handler": "resume_run",
+      "method": "POST",
+      "module": "app/control_plane/delegate_api.py",
+      "path": "/{run_id}/resume"
     },
     {
       "handler": "start_run",

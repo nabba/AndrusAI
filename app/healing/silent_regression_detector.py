@@ -68,7 +68,9 @@ _CRON_LIKE_EVENTS: tuple[str, ...] = (
     "error_resolution",
     "code_audit",
     "self_improve",
-    "evolution",
+    # "evolution" removed 2026-06-03: the legacy evolution loop that emitted
+    # this cadence event was retired in the consolidation; nothing emits it
+    # now, so keeping it would raise a false "evolution stopped" alert.
     "retrospective",
     "benchmark_snapshot",
     "workspace_sync",

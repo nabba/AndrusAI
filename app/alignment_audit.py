@@ -9,8 +9,8 @@ with the constitution.
 The audit reads:
   - The constitution: app/souls/constitution.md
   - Current agent souls: app/souls/{commander,coder,researcher,writer}.md
-  - Recent capability-changing mutations: variant_archive.json (drift > 5)
-  - Recent meta-evolution changes: workspace/meta_evolution_history.json
+  - Recent self-modifications: verified change-requests (the CR audit —
+    applied/rolled-back; sourced via self_improvement.history)
 
 It produces an alignment report:
   - Drift score (0.0 = perfect alignment, 1.0 = unrecognizable)
