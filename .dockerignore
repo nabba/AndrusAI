@@ -1,0 +1,36 @@
+# Build-context excludes for the gateway image.
+#
+# Root cause this fixes: with no .dockerignore, `COPY app/ app/` (and the other
+# COPYs) baked in every __pycache__ dir — so deleted packages survived in the
+# image as empty PEP-420 namespace dirs (stale *.pyc), and the build context
+# shipped the entire multi-GB workspace/ to the daemon on every build.
+#
+# Safe by construction: the Dockerfile COPYs only specific paths
+# (requirements.txt, app/, wiki/, raw/, wiki_schema/, dashboard/{public,build},
+# scripts/, tests/, entrypoint.sh). Nothing below is among them — `git` is
+# apt-installed and shinka-evolve is pulled from a remote URL, so the local
+# .git is unused at build; workspace/ is only `mkdir`'d in-image then
+# bind-mounted at runtime.
+
+# Python bytecode / packaging / tool caches
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# VCS
+.git/
+.gitignore
+
+# Runtime data — never COPY'd (bind-mounted at runtime)
+workspace/
+
+# JS deps + local dev cruft (dashboard/build is COPY'd; the React source tree is not)
+node_modules/
+dashboard-react/node_modules/
+.venv/
+venv/
+*.log
+.DS_Store
