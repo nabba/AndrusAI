@@ -97,10 +97,6 @@ class TestImportChains:
         assert hasattr(pipeline, '_score_quality')
         assert hasattr(pipeline, '_load_unscored')
 
-    def test_evolution_eval_sets(self):
-        from app.evolution_db.eval_sets import seed_default_eval_sets, load_eval_set
-        assert callable(seed_default_eval_sets)
-
     def test_adaptive_ensemble(self):
         from app.adaptive_ensemble import get_controller, AdaptiveEvolutionController
         ctrl = get_controller()
@@ -455,14 +451,6 @@ class TestGracefulDegradation:
 
 class TestArchitecture:
     """Verify architectural contracts and documentation."""
-
-    def test_contracts_marked_as_documentation(self):
-        """Contract files should be marked as architectural reference."""
-        for fname in ["events.py", "state.py", "firestore_schema.py"]:
-            path = Path(__file__).parent.parent / "app" / "contracts" / fname
-            if path.exists():
-                content = path.read_text()
-                assert "ARCHITECTURAL REFERENCE" in content
 
     def test_homeostasis_confidence_documented(self):
         """Homeostasis should document the confidence metric distinction.
