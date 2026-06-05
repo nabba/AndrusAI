@@ -496,30 +496,6 @@ class TestAPIRoutes:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 8. CONSTITUTIONAL COMPLIANCE TESTS
-# ════════════════════════════════════════════════════════════════════════════════
-
-class TestConstitutionalCompliance:
-    """Evolution judge uses philosophy KB for humanist alignment scoring."""
-
-    def test_judge_imports_philosophy(self):
-        src = inspect.getsource(__import__("app.evolution_db.judge", fromlist=["_"]))
-        assert "philosophy" in src.lower()
-
-    def test_judge_has_evaluation_methods(self):
-        from app.evolution_db.judge import LLMJudge
-        # Judge class evaluates outputs using philosophy KB
-        judge_methods = [m for m in dir(LLMJudge) if "evaluat" in m.lower()]
-        assert len(judge_methods) >= 1, f"LLMJudge has no evaluate methods: {dir(LLMJudge)}"
-
-    def test_compliance_fail_open(self):
-        """Constitutional compliance should default to 1.0 (pass) on errors."""
-        src = inspect.getsource(__import__("app.evolution_db.judge", fromlist=["_"]))
-        # Should return 1.0 as default on any failure path
-        assert "1.0" in src
-
-
-# ════════════════════════════════════════════════════════════════════════════════
 # 9. LIFECYCLE HOOK TESTS
 # ════════════════════════════════════════════════════════════════════════════════
 
@@ -567,10 +543,6 @@ class TestSystemWiring:
     def test_critic_agent_has_tool(self):
         src = inspect.getsource(__import__("app.agents.critic", fromlist=["_"]))
         assert "PhilosophyRAGTool" in src
-
-    def test_evolution_judge_uses_philosophy(self):
-        src = inspect.getsource(__import__("app.evolution_db.judge", fromlist=["_"]))
-        assert "philosophy" in src.lower()
 
     def test_lifecycle_hooks_use_philosophy(self):
         src = inspect.getsource(__import__("app.lifecycle_hooks", fromlist=["_"]))

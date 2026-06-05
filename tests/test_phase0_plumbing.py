@@ -5,7 +5,6 @@ Covers:
   - app.paths (constants, ensure_dirs, under_workspace)
   - app.json_store (load, save, update, append, retention, default)
   - app.thread_pools (get_pool idempotency, named helpers, shutdown)
-  - app.lazy_imports (settings caching)
 """
 
 from __future__ import annotations
@@ -183,18 +182,3 @@ class TestThreadPools:
         assert len(_pools) == 2
         shutdown_all(wait=False)
         assert len(_pools) == 0
-
-
-# ── app.lazy_imports ────────────────────────────────────────────────
-
-class TestLazyImports:
-    def test_settings_caches(self):
-        from app import lazy_imports
-        lazy_imports.settings.cache_clear()
-        with patch("app.config.get_settings") as mock_gs:
-            mock_gs.return_value = {"ok": True}
-            r1 = lazy_imports.settings()
-            r2 = lazy_imports.settings()
-            assert r1 is r2
-            # Called exactly once thanks to lru_cache
-            assert mock_gs.call_count == 1

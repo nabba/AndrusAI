@@ -560,12 +560,6 @@ class TestSystemWiring:
         src = inspect.getsource(__import__("app.main", fromlist=["_"]))
         assert "kb" in src.lower()
 
-    def test_firestore_schema_has_kb(self):
-        src = inspect.getsource(
-            __import__("app.contracts.firestore_schema", fromlist=["_"])
-        )
-        assert "knowledge_base" in src
-
 
 # ════════════════════════════════════════════════════════════════════════════════
 # 13. INJECTION DEFENSE TESTS

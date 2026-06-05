@@ -292,6 +292,12 @@ def _run_user_script(script: str, timeout_s: int = 60) -> dict[str, Any]:
         "render_map": _make_render_map(rendered_paths),
         "result": None,
     }
+    # Restrict __builtins__ before running agent-authored code in-process —
+    # blocks egress/process-spawn imports + os.system/open('/proc/...') etc.
+    # (whole-project review 2026-06-04). The pre-bound `ee` client keeps its
+    # own network access; the script just can't import socket/subprocess/os.
+    from app.tools._safe_exec import harden
+    harden(sandbox)
     stdout = StringIO()
     try:
         with redirect_stdout(stdout):

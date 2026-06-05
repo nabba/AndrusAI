@@ -229,6 +229,11 @@ def _run_user_script(script: str, timeout_s: int = 60) -> dict[str, Any]:
       * ``error``: short exception message when ``ok=False``.
     """
     sandbox = _build_sandbox()
+    # Restrict __builtins__ before running agent-authored code in-process —
+    # blocks egress/process-spawn imports + os.system/open('/proc/...') etc.
+    # (whole-project review 2026-06-04). See app/tools/_safe_exec.py.
+    from app.tools._safe_exec import harden
+    harden(sandbox)
     stdout = StringIO()
     stderr = StringIO()
 

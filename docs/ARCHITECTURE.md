@@ -117,13 +117,17 @@ Evaluation functions MUST be external to the entity being evaluated:
 
 ## Package Boundaries
 
-```
-app/request/     → Synchronous request path (Commander, crews, vetting)
-app/control/     → Background scheduling (idle_scheduler, APScheduler)
-app/adaptation/  → Improvement systems (governance, evolution, feedback, training)
-```
+The codebase imports concrete packages directly — `app/agents/`, `app/crews/`,
+`app/idle_scheduler.py`, `app/self_improvement/`, the control-plane under
+`app/control_plane/`, etc.
 
-These are facade packages providing clean import boundaries. All existing import paths continue working.
+An earlier set of re-export façade packages (`app/request/`, `app/control/`,
+`app/adaptation/`, `app/llm_suite/`, `app/operations_suite/`) was intended to
+provide aspirational "clean import boundary" layers, but was never adopted —
+every consumer imported the real modules directly (0 importers each) — and was
+removed in the 2026-06 dead-code pass along with two orphaned stores
+(`app/contracts/` Firestore schema, `app/evolution_db/` legacy eval-set/judge,
+superseded by `eval_primitives` + `worktree_eval`).
 
 ## Subsystem deep-dives
 
