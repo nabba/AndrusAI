@@ -34,7 +34,8 @@ from app.life_companion._common import audit_event, background_enabled, feature_
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-haiku-4-5-20251001"
+# (model selected by the factory via chat_completion_for_role; the old pinned
+# _MODEL constant was dead — removed 2026-06-07)
 _MAX_IDEAS_PER_PASS = 3
 _CADENCE_SECONDS = 7 * 86400  # weekly
 _LEDGER_NAME = "proposed_ideas.jsonl"

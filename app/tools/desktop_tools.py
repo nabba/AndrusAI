@@ -123,7 +123,18 @@ def create_desktop_tools(agent_id: str) -> list:
         args_schema: Type[BaseModel] = _ScreenCaptureInput
 
         def _run(self, filename: str = "screenshot.png", region: str = "") -> str:
-            output_dir = "/Users/andrus/BotArmy/crewai-team/workspace/output/docs"
+            # `screencapture` runs HOST-side via the bridge, so the output dir
+            # must be a HOST path (NOT the container's /app/workspace). Prefer the
+            # configured host workspace (the same `workspace_host_path` setting
+            # signal_attachment uses to map artifacts back to the host); fall back
+            # to the legacy literal so an unset config can't regress. (#3 de-hardcode)
+            try:
+                from app.config import get_settings
+                _ws_host = (get_settings().workspace_host_path or "").rstrip("/")
+            except Exception:
+                _ws_host = ""
+            base = _ws_host or "/Users/andrus/BotArmy/crewai-team/workspace"
+            output_dir = f"{base}/output/docs"
             path = f"{output_dir}/{filename}"
             cmd = ["screencapture", "-x"]  # -x = no sound
             if region:

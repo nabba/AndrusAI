@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 
 _MAX_FILE_BYTES = 32 * 1024 * 1024  # 32 MB — Anthropic doc cap
-_MODEL = "claude-haiku-4-5-20251001"
+# (the model is selected by the factory via chat_completion_for_role; the old
+# pinned _MODEL constant was dead — removed 2026-06-07)
 _MAX_OUTPUT_TOKENS = 2000
 
 _SYSTEM = (
