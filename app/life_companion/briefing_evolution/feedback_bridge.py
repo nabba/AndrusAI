@@ -9,28 +9,27 @@ then dispatches to ``trial_state.mark_dropped`` / ``mark_adopted``.
 
 Why a sidecar JSON map (same rationale as governance_signal_bridge):
  * Briefing trial state lives in its own JSON store; adding a column
-   to a Postgres table for a 25h-TTL routing aid would be overkill.
+   to a Postgres table for a routing aid would be overkill.
  * Loss of the map only means the operator falls back to a future
    trial-section drop via /api/cp/briefing/sections POST, not data
    corruption.
+
+Storage is the shared :class:`app.signal_ts_bridge.SignalTsBridge`
+(2026-06-07 consolidation); public API, 8-day TTL, and on-disk schema
+(``{section_id, created_at_iso, created_at_epoch}``) unchanged.
 """
 from __future__ import annotations
 
-import json
 import logging
-import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.signal_ts_bridge import SignalTsBridge
+
 logger = logging.getLogger(__name__)
 
-# 25h matches the briefing cadence (one per morning) + a margin for
-# the auto-adopt 7d window — but entries this old should already have
-# been promoted to adopted, so 25h is the right scope for the reaction
-# routing map specifically.
-_MAX_AGE_SECONDS = 8 * 86400  # 8 days — slightly longer than auto-adopt 7d window
-
-_LOCK = threading.Lock()
+# 8 days — slightly longer than the auto-adopt 7d window.
+_MAX_AGE_SECONDS = 8 * 86400
 
 
 def _bridge_path() -> Path:
@@ -40,38 +39,7 @@ def _bridge_path() -> Path:
     return p / "feedback_bridge.json"
 
 
-def _load() -> dict:
-    p = _bridge_path()
-    if not p.exists():
-        return {}
-    try:
-        return json.loads(p.read_text() or "{}")
-    except Exception:
-        logger.warning("feedback_bridge: load failed", exc_info=True)
-        return {}
-
-
-def _save(data: dict) -> None:
-    p = _bridge_path()
-    try:
-        tmp = p.with_suffix(p.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, indent=2, sort_keys=True))
-        tmp.replace(p)
-    except Exception:
-        logger.warning("feedback_bridge: save failed", exc_info=True)
-
-
-def _purge_expired(data: dict) -> dict:
-    now = datetime.now(timezone.utc).timestamp()
-    kept = {}
-    for ts_key, entry in data.items():
-        try:
-            created = float((entry or {}).get("created_at_epoch") or 0)
-            if (now - created) <= _MAX_AGE_SECONDS:
-                kept[ts_key] = entry
-        except Exception:
-            continue
-    return kept
+_BRIDGE = SignalTsBridge(_bridge_path, max_age_seconds=_MAX_AGE_SECONDS)
 
 
 def register(signal_ts: str, section_id: str) -> None:
@@ -80,17 +48,13 @@ def register(signal_ts: str, section_id: str) -> None:
     the same pair is a no-op."""
     if not signal_ts or not section_id:
         return
-    with _LOCK:
-        data = _purge_expired(_load())
-        ts_key = str(signal_ts)
-        if data.get(ts_key, {}).get("section_id") == section_id:
-            return
-        data[ts_key] = {
-            "section_id": section_id,
-            "created_at_epoch": datetime.now(timezone.utc).timestamp(),
-            "created_at_iso": datetime.now(timezone.utc).isoformat(),
-        }
-        _save(data)
+    existing = _BRIDGE.get(str(signal_ts))
+    if existing and existing.get("section_id") == section_id:
+        return
+    _BRIDGE.put(str(signal_ts), {
+        "section_id": section_id,
+        "created_at_iso": datetime.now(timezone.utc).isoformat(),
+    })
 
 
 def find_section_for_ts(signal_ts: str) -> str | None:
@@ -100,9 +64,5 @@ def find_section_for_ts(signal_ts: str) -> str | None:
     person suggestion, …)."""
     if not signal_ts:
         return None
-    with _LOCK:
-        data = _purge_expired(_load())
-        # Save the purged form so old entries don't accumulate.
-        _save(data)
-        entry = data.get(str(signal_ts))
+    entry = _BRIDGE.get(str(signal_ts))
     return (entry or {}).get("section_id") or None

@@ -14,23 +14,23 @@ incoming reaction; ``find_run_id`` returns the run id when the reaction
 target matches a tracked interest-goal alert. When the reaction is 👎,
 the handler calls ``app.companion.interest_goal_emitter.decline`` which
 aborts the run + records a 30-day cooldown.
+
+Storage is the shared :class:`app.signal_ts_bridge.SignalTsBridge`
+(2026-06-07 consolidation); public API + on-disk schema unchanged.
 """
 from __future__ import annotations
 
-import json
 import logging
-import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.signal_ts_bridge import SignalTsBridge
+
 logger = logging.getLogger(__name__)
 
-# Entries older than this are purged on every access. 25h gives a small
-# margin over typical day-long reaction windows so we don't drop entries
-# the operator is actually intending to react to.
+# 25h gives a small margin over typical day-long reaction windows so we don't
+# drop entries the operator is actually intending to react to.
 _MAX_AGE_SECONDS = 25 * 3600
-
-_LOCK = threading.Lock()
 
 
 def _bridge_path() -> Path:
@@ -42,44 +42,7 @@ def _bridge_path() -> Path:
         return Path("/app/workspace/interest_goal_signal_bridge.json")
 
 
-def _load() -> dict:
-    p = _bridge_path()
-    if not p.exists():
-        return {}
-    try:
-        return json.loads(p.read_text() or "{}")
-    except Exception:
-        logger.debug(
-            "interest_goal_signal_bridge: load failed; starting fresh",
-            exc_info=True,
-        )
-        return {}
-
-
-def _save(data: dict) -> None:
-    p = _bridge_path()
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        tmp = p.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(data, indent=2, sort_keys=True))
-        tmp.replace(p)
-    except Exception:
-        logger.debug(
-            "interest_goal_signal_bridge: save failed", exc_info=True
-        )
-
-
-def _purge_expired(data: dict) -> dict:
-    now = datetime.now(timezone.utc).timestamp()
-    kept: dict = {}
-    for ts_str, entry in data.items():
-        try:
-            created = float(entry.get("created_at_epoch") or 0)
-            if (now - created) <= _MAX_AGE_SECONDS:
-                kept[ts_str] = entry
-        except Exception:
-            continue
-    return kept
+_BRIDGE = SignalTsBridge(_bridge_path, max_age_seconds=_MAX_AGE_SECONDS)
 
 
 def register(signal_ts: int | str, run_id: str) -> None:
@@ -91,19 +54,12 @@ def register(signal_ts: int | str, run_id: str) -> None:
     if not signal_ts or not run_id:
         return
     try:
-        with _LOCK:
-            data = _purge_expired(_load())
-            key = str(signal_ts)
-            data[key] = {
-                "run_id": str(run_id),
-                "created_at_epoch": datetime.now(timezone.utc).timestamp(),
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-            _save(data)
+        _BRIDGE.put(str(signal_ts), {
+            "run_id": str(run_id),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
     except Exception:
-        logger.debug(
-            "interest_goal_signal_bridge.register failed", exc_info=True
-        )
+        logger.debug("interest_goal_signal_bridge.register failed", exc_info=True)
 
 
 def find_run_id(signal_ts: int | str) -> str | None:
@@ -116,18 +72,11 @@ def find_run_id(signal_ts: int | str) -> str | None:
     if not signal_ts:
         return None
     try:
-        with _LOCK:
-            raw = _load()
-            kept = _purge_expired(raw)
-            if len(kept) != len(raw):
-                _save(kept)
-            entry = kept.get(str(signal_ts))
-            if entry:
-                return str(entry.get("run_id") or "") or None
+        entry = _BRIDGE.get(str(signal_ts))
+        if entry:
+            return str(entry.get("run_id") or "") or None
     except Exception:
-        logger.debug(
-            "interest_goal_signal_bridge.find_run_id failed", exc_info=True
-        )
+        logger.debug("interest_goal_signal_bridge.find_run_id failed", exc_info=True)
     return None
 
 
@@ -135,17 +84,4 @@ def unregister(run_id: str) -> None:
     """Drop any entries pointing at this run_id (post-resolution)."""
     if not run_id:
         return
-    try:
-        with _LOCK:
-            data = _load()
-            kept = {
-                ts: entry
-                for ts, entry in data.items()
-                if str(entry.get("run_id") or "") != str(run_id)
-            }
-            if len(kept) != len(data):
-                _save(kept)
-    except Exception:
-        logger.debug(
-            "interest_goal_signal_bridge.unregister failed", exc_info=True
-        )
+    _BRIDGE.remove_where(lambda v: str(v.get("run_id") or "") == str(run_id))
