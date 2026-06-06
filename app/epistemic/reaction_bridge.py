@@ -6,7 +6,10 @@ read the result, and nothing fed back into the bias library or
 calibration. With this bridge, a 👎 reaction on a reply becomes a
 structured signal the system learns from.
 
-Architecture (mirrors :mod:`app.governance_signal_bridge` exactly):
+Architecture (the ts→context map is the shared
+:class:`app.signal_ts_bridge.SignalTsBridge`, 2026-06-07 consolidation —
+configured with ``ts_field="registered_at"``, a 5,000-entry cap, and
+``persist_on_get=False`` to preserve this bridge's original behaviour):
 
 * JSON sidecar at ``workspace/epistemic_reaction_bridge.json``.
 * Threading-locked read/write.
@@ -22,14 +25,6 @@ Used by:
   * ``app.main`` reply dispatch — calls :func:`register` immediately
     after ``send_durable`` returns the Signal timestamp.
 
-Why a JSON sidecar instead of a Postgres column:
-  * No new schema migration (Postgres migrations aren't auto-applied
-    at boot — same constraint that drove the governance bridge design).
-  * Map is purely a routing aid; loss of the file just means a 👎
-    silently no-ops (the user can re-engage via slash command).
-  * 25h TTL keeps the file small and load fast — no compaction logic
-    needed.
-
 When :func:`handle_reaction` is called with ``"👎"``:
 
   * If the gate revised/blocked this reply →
@@ -44,16 +39,16 @@ from __future__ import annotations
 
 import json
 import logging
-import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
+
+from app.signal_ts_bridge import SignalTsBridge
 
 logger = logging.getLogger(__name__)
 
 _MAX_AGE_SECONDS = 25 * 3600
 _MAX_ENTRIES = 5_000
-_LOCK = threading.Lock()
 
 
 def _bridge_path() -> Path:
@@ -66,44 +61,15 @@ def _disagreement_path() -> Path:
     return WORKSPACE_ROOT / "epistemic" / "operator_disagreements.jsonl"
 
 
-def _load() -> dict[str, dict[str, Any]]:
-    p = _bridge_path()
-    if not p.exists():
-        return {}
-    try:
-        raw = json.loads(p.read_text() or "{}")
-    except Exception:
-        logger.debug("reaction_bridge: load failed; starting fresh", exc_info=True)
-        return {}
-    if not isinstance(raw, dict):
-        return {}
-    # Purge stale entries while we're here.
-    cutoff = time.time() - _MAX_AGE_SECONDS
-    purged = {
-        k: v for k, v in raw.items()
-        if isinstance(v, dict) and float(v.get("registered_at", 0)) >= cutoff
-    }
-    return purged
-
-
-def _save(state: dict[str, dict[str, Any]]) -> None:
-    p = _bridge_path()
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        # Bound the size on the way out — keeps the JSON load cheap.
-        if len(state) > _MAX_ENTRIES:
-            # Drop oldest by registered_at.
-            items = sorted(
-                state.items(),
-                key=lambda kv: float(kv[1].get("registered_at", 0)),
-                reverse=True,
-            )
-            state = dict(items[:_MAX_ENTRIES])
-        tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state, default=str))
-        tmp.replace(p)
-    except Exception:
-        logger.debug("reaction_bridge: save failed", exc_info=True)
+# The original bridge stamped/purged on ``registered_at`` and persisted only on
+# register (find_context did not rewrite). persist_on_get=False preserves that.
+_BRIDGE = SignalTsBridge(
+    _bridge_path,
+    max_age_seconds=_MAX_AGE_SECONDS,
+    ts_field="registered_at",
+    max_entries=_MAX_ENTRIES,
+    persist_on_get=False,
+)
 
 
 def register(
@@ -120,19 +86,12 @@ def register(
     Signal-message timestamp the operator's reaction will reference."""
     if not signal_ts or not task_id:
         return
-    try:
-        with _LOCK:
-            state = _load()
-            state[str(signal_ts)] = {
-                "task_id": task_id[:128],
-                "gate_action": gate_action,
-                "user_visible_reason": (user_visible_reason or "")[:300],
-                "reply_preview": (reply_preview or "")[:300],
-                "registered_at": time.time(),
-            }
-            _save(state)
-    except Exception:
-        logger.debug("reaction_bridge: register failed", exc_info=True)
+    _BRIDGE.put(str(signal_ts), {
+        "task_id": task_id[:128],
+        "gate_action": gate_action,
+        "user_visible_reason": (user_visible_reason or "")[:300],
+        "reply_preview": (reply_preview or "")[:300],
+    })
 
 
 def find_context(signal_ts: int) -> Optional[dict[str, Any]]:
@@ -140,14 +99,7 @@ def find_context(signal_ts: int) -> Optional[dict[str, Any]]:
     ``None`` if the entry is missing or has expired."""
     if not signal_ts:
         return None
-    try:
-        with _LOCK:
-            state = _load()
-            entry = state.get(str(signal_ts))
-            return dict(entry) if entry else None
-    except Exception:
-        logger.debug("reaction_bridge: find_context failed", exc_info=True)
-        return None
+    return _BRIDGE.get(str(signal_ts))
 
 
 def record_disagreement(

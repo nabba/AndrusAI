@@ -24,6 +24,32 @@ services:
     tmpfs:
       - /run
 
+  # ── Opt-in Docker create-body filter (security review 2026-06-06, finding S2) ─
+  # Chain: gateway → docker-broker → docker-proxy → /var/run/docker.sock.
+  # docker-proxy gates which API *paths* are reachable but cannot inspect request
+  # *bodies*, so POST /containers/create can carry an arbitrary HostConfig
+  # (Binds:["/:/host"], Privileged, PidMode:host, …) and escape to the host. This
+  # broker validates that one body against app.docker_broker.policy and forwards
+  # everything else unchanged. It holds NO docker socket and is unprivileged → a
+  # bug fails CLOSED (gateway can't reach Docker), never opens a new escape.
+  #
+  # INERT by default: starts only under `--profile docker-broker`, and the
+  # gateway keeps using docker-proxy until you set
+  # GATEWAY_DOCKER_HOST=tcp://docker-broker:2375. See docs/DOCKER_BROKER.md.
+  docker-broker:
+    build: .
+    profiles: ["docker-broker"]
+    restart: unless-stopped
+    command: ["python", "-m", "app.docker_broker"]
+    environment:
+      DOCKER_BROKER_UPSTREAM: http://docker-proxy:2375
+      DOCKER_BROKER_LISTEN: 0.0.0.0:2375
+      # DOCKER_BROKER_IMAGE_ALLOWLIST: botarmy-evolver,ollama/ollama  # default
+    depends_on:
+      - docker-proxy
+    networks:
+      - internal
+
   gateway:
     build: .
     restart: unless-stopped
@@ -31,7 +57,11 @@ services:
     ports:
       - '127.0.0.1:${GATEWAY_PORT}:${GATEWAY_PORT}'
     environment:
-      DOCKER_HOST: tcp://docker-proxy:2375
+      # Default unchanged (docker-proxy). Set GATEWAY_DOCKER_HOST=tcp://docker-broker:2375
+      # (+ `--profile docker-broker`) to route container-create through the body filter.
+      # NB: a DEDICATED var, not DOCKER_HOST, to avoid colliding with the operator's
+      # shell DOCKER_HOST. See docs/DOCKER_BROKER.md.
+      DOCKER_HOST: ${GATEWAY_DOCKER_HOST:-tcp://docker-proxy:2375}
       # litellm logs WARNING noise at import when botocore is absent (we don't
       # route to Bedrock/SageMaker, so its AWS stream-shape preload always fails).
       # ERROR silences that; genuine litellm errors still surface.
@@ -173,7 +203,11 @@ services:
     env_file: .env
     environment:
       IDLE_SCHEDULER_ROLE: worker
-      DOCKER_HOST: tcp://docker-proxy:2375
+      # Default unchanged (docker-proxy). Set GATEWAY_DOCKER_HOST=tcp://docker-broker:2375
+      # (+ `--profile docker-broker`) to route container-create through the body filter.
+      # NB: a DEDICATED var, not DOCKER_HOST, to avoid colliding with the operator's
+      # shell DOCKER_HOST. See docs/DOCKER_BROKER.md.
+      DOCKER_HOST: ${GATEWAY_DOCKER_HOST:-tcp://docker-proxy:2375}
       LITELLM_LOG: ERROR
       CREWAI_STORAGE_DIR: /app/workspace/crewai_storage
       FIRECRAWL_API_URL: http://firecrawl-api:3002

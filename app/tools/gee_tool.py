@@ -263,6 +263,15 @@ def _make_render_map(rendered_paths: list[str]):
     return render_map
 
 
+# NOTE (#5): by default this tool runs the agent-authored EE script IN-PROCESS,
+# with the _safe_exec hardening below as defence-in-depth (see
+# app/tools/_safe_exec.py). An OPT-IN sandboxed path (default OFF) routes exec()
+# to the evolver container when `sandboxed_gee_exec_enabled` is ON — see
+# `_run_user_script_sandboxed` below. It's gated separately from pdf_compose's
+# sandbox because Earth Engine needs its service-account JSON
+# (GOOGLE_APPLICATION_CREDENTIALS) and outbound network: the sandboxed runner
+# forwards the SA-key content over env and opens network=bridge, a deliberate
+# secret-exposure tradeoff the operator opts into by flipping the switch.
 def _run_user_script(script: str, timeout_s: int = 60) -> dict[str, Any]:
     """Execute the user's GEE Python snippet.
 

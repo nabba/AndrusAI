@@ -176,17 +176,23 @@ def validate(
             ),
         )
 
+    # Case-insensitive comparison key for the protection checks below. The host
+    # filesystem is case-insensitive, so without casefolding a path like
+    # ``app/Auto_deployer.py`` or ``app/Subia/…`` slips checks 5–7 yet still
+    # resolves to the protected file on write. (Security review 2026-06-06.)
+    cf = path.casefold()
+
     # 5. Blocked-name patterns (independent of root)
     for pat in _BLOCKED_NAME_PATTERNS:
-        if pat in path:
+        if pat.casefold() in cf:
             return ValidationResult(
                 ok=False,
                 reason=f"path matches blocked pattern {pat!r} (likely sensitive)",
             )
 
-    # 6. TIER_IMMUTABLE — the absolute rule
+    # 6. TIER_IMMUTABLE — the absolute rule (case-insensitive; see ``cf`` above)
     tier_immutable = _load_tier_immutable()
-    if path in tier_immutable:
+    if cf in {p.casefold() for p in tier_immutable}:
         return ValidationResult(
             ok=False,
             reason=(
@@ -204,7 +210,7 @@ def validate(
     # Edits under these paths route through Tier-3 amendment, not the
     # standard change-request gate.
     for forbidden in _FORBIDDEN_PATH_PREFIXES:
-        if path.startswith(forbidden):
+        if cf.startswith(forbidden.casefold()):
             return ValidationResult(
                 ok=False,
                 reason=(
@@ -215,7 +221,7 @@ def validate(
                 ),
                 is_tier_immutable=True,
             )
-    if path in _FORBIDDEN_INDIVIDUAL_FILES:
+    if cf in {p.casefold() for p in _FORBIDDEN_INDIVIDUAL_FILES}:
         return ValidationResult(
             ok=False,
             reason=(
@@ -231,8 +237,10 @@ def validate(
 
 def is_protected(path: str) -> bool:
     """Quick yes/no for "is this path TIER_IMMUTABLE?". Used by the
-    React UI to disable approve/override buttons for protected paths."""
-    return path in _load_tier_immutable()
+    React UI to disable approve/override buttons for protected paths.
+    Case-insensitive (the host FS is) so case variants can't fool the UI."""
+    cf = path.casefold()
+    return cf in {p.casefold() for p in _load_tier_immutable()}
 
 
 # ── Auto-apply validation ────────────────────────────────────────────
