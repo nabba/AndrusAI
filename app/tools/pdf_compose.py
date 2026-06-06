@@ -48,6 +48,7 @@ Safety properties
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -267,6 +268,112 @@ def _run_user_script(script: str, timeout_s: int = 60) -> dict[str, Any]:
     }
 
 
+# ── Sandboxed (out-of-process) execution — #5, 2026-06-06 ────────────────────
+# When ``sandboxed_tool_exec_enabled`` is ON, the LLM-authored script runs in an
+# ephemeral evolver CONTAINER instead of the gateway process. The container is
+# the real isolation boundary (the in-process ``_safe_exec`` hardening is only
+# defence-in-depth — its own docstring concedes a crafted payload can escape).
+# A container, unlike a host subprocess, does NOT share the gateway's chromadb
+# files, so it cannot reintroduce the §77/§55 dual-writer corruption. Artifacts
+# come back base64 over the stdout sentinel (``VOLUMES: 0`` → no shared fs) and
+# are re-written here to the real output dir. Default OFF; on ANY infrastructure
+# failure (image not built / transport) this returns ``None`` so the caller
+# falls back to the in-process path and the tool keeps working.
+
+_SANDBOX_ENTRYPOINT = ["python3", "-m", "app.tools.pdf_compose_job"]
+_SANDBOX_MEMORY_BYTES = 2 * 1024**3
+
+
+def _run_user_script_sandboxed(
+    script: str,
+    *,
+    timeout_s: int = 60,
+    run_job=None,
+    image: str | None = None,
+) -> dict[str, Any] | None:
+    """Run the PDF-compose script in an ephemeral container.
+
+    Returns a dict shaped like ``_run_user_script`` (ok/stdout/stderr/files/
+    result/error) on success — ``files`` are paths written under the REAL
+    output dir from the container's base64 artifacts.
+
+    Returns ``None`` on INFRASTRUCTURE failure ONLY (evolver image absent,
+    spawn/transport/parse error) so the caller can fall back to in-process. A
+    script that merely errored still ran in the container and returns a normal
+    ``ok=False`` dict — never ``None`` — so a malicious script cannot force the
+    insecure in-process fallback.
+    """
+    _log = logging.getLogger(__name__)
+    try:
+        from app.self_improvement import evolver_spawn
+        from app.tools import pdf_compose_job
+    except Exception as exc:  # pragma: no cover - import guard
+        _log.warning("pdf_compose sandbox: import failed (%s) — falling back", exc)
+        return None
+
+    img = image or os.environ.get("EVOLVER_IMAGE", "botarmy-evolver:latest")
+    runner = run_job or evolver_spawn.run_container_job
+
+    # Gate on image presence only for the REAL runner (tests inject run_job).
+    if run_job is None:
+        try:
+            if not evolver_spawn.image_exists(img):
+                _log.warning(
+                    "pdf_compose sandbox: evolver image %s not built — falling back to "
+                    "in-process (run: docker compose --profile evolver build evolver)", img,
+                )
+                return None
+        except Exception:
+            return None
+
+    try:
+        envelope = runner(
+            {"script": script, "timeout_s": int(timeout_s)},
+            image=img,
+            job_env_var="AAI_PDF_COMPOSE_JOB",
+            entrypoint=_SANDBOX_ENTRYPOINT,
+            extract_fn=pdf_compose_job.extract_result,
+            memory_bytes=_SANDBOX_MEMORY_BYTES,
+            network_mode="none",  # PDF rendering needs no network — enforce it
+            timeout_s=int(timeout_s) + 30,  # container/spawn overhead beyond the script budget
+        )
+    except Exception as exc:  # run_container_job shouldn't raise; belt-and-suspenders
+        _log.warning("pdf_compose sandbox: spawn raised (%s) — falling back", exc)
+        return None
+
+    if not isinstance(envelope, dict) or not envelope.get("ok"):
+        _log.warning(
+            "pdf_compose sandbox: no container result (%s) — falling back",
+            (envelope or {}).get("error") if isinstance(envelope, dict) else envelope,
+        )
+        return None
+
+    inner = envelope.get("result") or {}
+    written: list[str] = []
+    for art in inner.get("artifacts") or []:
+        try:
+            data = base64.b64decode(art["b64"])
+            dest = _safe_output_path(art.get("name") or "output.pdf")
+            dest.write_bytes(data)
+            written.append(str(dest))
+        except Exception as exc:
+            _log.warning("pdf_compose sandbox: failed to write artifact %s: %s",
+                         art.get("name"), exc)
+    stderr = inner.get("stderr") or ""
+    rejected = inner.get("rejected_artifacts") or []
+    if rejected:
+        notes = "; ".join(f"{r.get('name')} ({r.get('reason')})" for r in rejected)
+        stderr = (stderr + f"\n[sandbox dropped {len(rejected)} oversize artifact(s): {notes}]").strip()
+    return {
+        "ok": bool(inner.get("ok")),
+        "stdout": inner.get("stdout") or "",
+        "stderr": stderr,
+        "files": written,
+        "result": inner.get("result"),
+        "error": inner.get("error"),
+    }
+
+
 # ── Public factory ──────────────────────────────────────────────────
 
 def create_pdf_tools(agent_id: str = "coder") -> list:
@@ -344,7 +451,18 @@ def create_pdf_tools(agent_id: str = "coder") -> list:
         args_schema: Type[BaseModel] = _PdfComposeInput
 
         def _run(self, script: str, timeout_s: int = 60) -> str:
-            out = _run_user_script(script, timeout_s=timeout_s)
+            out = None
+            try:
+                from app.runtime_settings import get_sandboxed_tool_exec_enabled
+
+                if get_sandboxed_tool_exec_enabled():
+                    # Isolated container path (default OFF). Returns None on infra
+                    # failure (image not built / transport) → fall back in-process.
+                    out = _run_user_script_sandboxed(script, timeout_s=timeout_s)
+            except Exception:
+                out = None
+            if out is None:
+                out = _run_user_script(script, timeout_s=timeout_s)
             if not out["ok"]:
                 return (
                     f"PDF compose failed: {out['error']}\n\n"

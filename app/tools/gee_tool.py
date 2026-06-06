@@ -261,6 +261,15 @@ def _make_render_map(rendered_paths: list[str]):
     return render_map
 
 
+# NOTE (#5, 2026-06-06): unlike pdf_compose, this tool deliberately stays
+# IN-PROCESS rather than routing its exec() to the evolver container. Earth
+# Engine auth is a bind-mounted service-account JSON (GOOGLE_APPLICATION_
+# CREDENTIALS → /app/secrets/...) that the VOLUMES:0 evolver container cannot
+# see, and EE requires outbound network (network=bridge). Containerizing gee
+# would mean forwarding the SA key content over env + opening network=bridge —
+# a separate, operator-approved secret-exposure decision. Until then the
+# in-process _safe_exec hardening applies (defence-in-depth only; see
+# app/tools/_safe_exec.py).
 def _run_user_script(script: str, timeout_s: int = 60) -> dict[str, Any]:
     """Execute the user's GEE Python snippet.
 

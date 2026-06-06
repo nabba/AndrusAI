@@ -803,6 +803,12 @@ def _defaults() -> dict[str, Any]:
         # run LLM-authored code is the highest-trust action in the research
         # pipeline, so it gets its own switch. Read failure-closed.
         "research_experiments_enabled": False,
+        # When ON, pdf_compose runs its LLM-authored script in an ephemeral
+        # evolver CONTAINER (network=none) instead of the gateway process — the
+        # container is the real isolation boundary (the in-process _safe_exec
+        # hardening is only defence-in-depth). Default OFF; the tool falls back
+        # to in-process if the evolver image isn't built. Read failure-closed.
+        "sandboxed_tool_exec_enabled": False,
         # Bounded design→run→repair for the experiment step: a failed/empty
         # measurement is rewritten and re-run (network=none container each
         # round; repair completion runs gateway-side), instead of one-shot.
@@ -1702,6 +1708,23 @@ def set_research_experiments_enabled(value: bool) -> None:
     _update({"research_experiments_enabled": bool(value)})
     logger.info(
         "runtime_settings: research_experiments_enabled set to %s",
+        bool(value),
+    )
+
+
+def get_sandboxed_tool_exec_enabled() -> bool:
+    """When ON, ``pdf_compose`` runs its LLM-authored script in an ephemeral
+    evolver container instead of the gateway process (the container is the real
+    isolation boundary; the in-process ``_safe_exec`` hardening is only
+    defence-in-depth). Default OFF — read failure-closed; the tool falls back
+    to the in-process path if the evolver image isn't built."""
+    return bool(_ensure_initialized().get("sandboxed_tool_exec_enabled", False))
+
+
+def set_sandboxed_tool_exec_enabled(value: bool) -> None:
+    _update({"sandboxed_tool_exec_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: sandboxed_tool_exec_enabled set to %s",
         bool(value),
     )
 
