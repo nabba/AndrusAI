@@ -42,9 +42,11 @@ gracefully (the coding crew still works, just without the GEE tool).
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
+import re
 from io import StringIO
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -336,6 +338,107 @@ def _run_user_script(script: str, timeout_s: int = 60) -> dict[str, Any]:
     }
 
 
+# ── Sandboxed (out-of-process) execution — #5 follow-up, 2026-06-06 ──────────
+# When ``sandboxed_gee_exec_enabled`` is ON, the LLM-authored EE script runs in
+# an ephemeral evolver CONTAINER instead of the gateway process. Earth Engine
+# needs the service-account credential + outbound network, so the gateway
+# forwards the SA-JSON *content* inside the job dict and the container runs with
+# ``network_mode="bridge"``. This STRICTLY shrinks the blast radius vs in-process
+# (a sandbox escape sees only the EE key + internet — not the gateway's other
+# secrets, chromadb, or the docker-proxy → host root). It's a DISTINCT switch
+# (default OFF) because it forwards a GCP key into the sandbox — an explicit
+# operator opt-in. Returns ``None`` on infra failure → fall back to in-process.
+
+_GEE_SANDBOX_ENTRYPOINT = ["python3", "-m", "app.tools.gee_compose_job"]
+_GEE_MAPS_DIR = Path("/app/workspace/output/maps")
+_GEE_SANDBOX_MEMORY_BYTES = 2 * 1024**3
+
+
+def _run_user_script_sandboxed(
+    script: str,
+    *,
+    timeout_s: int = 60,
+    run_job=None,
+    image: str | None = None,
+) -> dict[str, Any] | None:
+    """Run the GEE script in an ephemeral container; return the same shape as
+    ``_run_user_script`` (ok/stdout/result/error/rendered_maps) where
+    ``rendered_maps`` are paths written under the REAL maps dir from the
+    container's base64 artifacts. ``None`` on infrastructure failure only (image
+    absent / no creds to forward / spawn / parse) → caller falls back."""
+    _log = logging.getLogger(__name__)
+    try:
+        from app.self_improvement import evolver_spawn
+        from app.tools import gee_compose_job
+    except Exception as exc:  # pragma: no cover
+        _log.warning("gee sandbox: import failed (%s) — falling back", exc)
+        return None
+
+    img = image or os.environ.get("EVOLVER_IMAGE", "botarmy-evolver:latest")
+    runner = run_job or evolver_spawn.run_container_job
+    if run_job is None:
+        try:
+            if not evolver_spawn.image_exists(img):
+                _log.warning("gee sandbox: evolver image %s not built — falling back", img)
+                return None
+        except Exception:
+            return None
+
+    # Forward the EE credential CONTENT (the container has no /app/secrets mount).
+    sa_path = _gee_credentials_path()
+    if not sa_path:
+        return None  # no creds to forward → let the in-process path report it
+    try:
+        sa_json = Path(sa_path).read_text()
+        project = _gee_project_id(json.loads(sa_json))
+    except Exception as exc:
+        _log.warning("gee sandbox: could not read SA creds (%s) — falling back", exc)
+        return None
+
+    job = {"script": script, "timeout_s": int(timeout_s), "sa_json": sa_json, "project": project}
+    try:
+        envelope = runner(
+            job,
+            image=img,
+            job_env_var="AAI_GEE_JOB",
+            entrypoint=_GEE_SANDBOX_ENTRYPOINT,
+            extract_fn=gee_compose_job.extract_result,
+            memory_bytes=_GEE_SANDBOX_MEMORY_BYTES,
+            network_mode="bridge",  # Earth Engine needs earthengine.googleapis.com
+            timeout_s=int(timeout_s) + 60,
+        )
+    except Exception as exc:
+        _log.warning("gee sandbox: spawn raised (%s) — falling back", exc)
+        return None
+
+    if not isinstance(envelope, dict) or not envelope.get("ok"):
+        _log.warning("gee sandbox: no container result — falling back")
+        return None
+
+    inner = envelope.get("result") or {}
+    written: list[str] = []
+    try:
+        _GEE_MAPS_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    for art in inner.get("artifacts") or []:
+        try:
+            data = base64.b64decode(art["b64"])
+            safe = re.sub(r"[^A-Za-z0-9._-]", "_", art.get("name") or "map.png")
+            dest = _GEE_MAPS_DIR / safe
+            dest.write_bytes(data)
+            written.append(str(dest))
+        except Exception as exc:
+            _log.warning("gee sandbox: failed to write map %s: %s", art.get("name"), exc)
+    return {
+        "ok": bool(inner.get("ok")),
+        "stdout": inner.get("stdout") or "",
+        "result": inner.get("result"),
+        "error": inner.get("error"),
+        "rendered_maps": written,
+    }
+
+
 # ── Public factory ──────────────────────────────────────────────────
 
 def create_gee_tools(agent_id: str = "coder") -> list:
@@ -438,15 +541,26 @@ def create_gee_tools(agent_id: str = "coder") -> list:
         args_schema: Type[BaseModel] = _GeeRunScriptInput
 
         def _run(self, script: str, timeout_s: int = 60) -> str:
-            ok, err = _ensure_initialised()
-            if not ok:
-                return (
-                    f"GEE not initialised: {err}\n\n"
-                    "Once configured, ALL EE calls go through this tool — "
-                    "do NOT try to import google.cloud or reach Google "
-                    "directly from agent code."
-                )
-            out = _run_user_script(script, timeout_s=timeout_s)
+            out = None
+            try:
+                from app.runtime_settings import get_sandboxed_gee_exec_enabled
+
+                if get_sandboxed_gee_exec_enabled():
+                    # Isolated container path (default OFF). The container does its
+                    # own EE init; None on infra failure → fall back in-process.
+                    out = _run_user_script_sandboxed(script, timeout_s=timeout_s)
+            except Exception:
+                out = None
+            if out is None:
+                ok, err = _ensure_initialised()
+                if not ok:
+                    return (
+                        f"GEE not initialised: {err}\n\n"
+                        "Once configured, ALL EE calls go through this tool — "
+                        "do NOT try to import google.cloud or reach Google "
+                        "directly from agent code."
+                    )
+                out = _run_user_script(script, timeout_s=timeout_s)
             # Compact the output for LLM consumption — keep both
             # machine-parseable JSON and a human-readable summary.
             if out["ok"]:

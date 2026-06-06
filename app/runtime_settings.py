@@ -809,6 +809,12 @@ def _defaults() -> dict[str, Any]:
         # Default OFF — additional to ``research_experiments_enabled``; off
         # keeps the one-shot ``run_experiment`` behaviour byte-for-byte.
         "research_experiment_repair_enabled": False,
+        # When ON, gee_run_script runs its LLM-authored Earth Engine script in an
+        # ephemeral evolver CONTAINER (network=bridge) instead of the gateway
+        # process. DISTINCT from sandboxed_tool_exec_enabled because it forwards
+        # the EE service-account credential into the sandbox — a deliberate
+        # operator opt-in. Default OFF; falls back to in-process. Read failure-closed.
+        "sandboxed_gee_exec_enabled": False,
         # Phase-B anti-fabrication verification step: verify the draft's
         # citations against authoritative sources (dropping fabricated ones)
         # and block a draft whose empirical claims trace to neither a recorded
@@ -1684,6 +1690,20 @@ def set_autonomous_executor_enabled(value: bool) -> None:
         "runtime_settings: autonomous_executor_enabled set to %s",
         bool(value),
     )
+
+
+def get_sandboxed_gee_exec_enabled() -> bool:
+    """When ON, ``gee_run_script`` runs its LLM-authored Earth Engine script in
+    an ephemeral evolver container (network=bridge; the EE service-account
+    credential is forwarded into the sandbox) instead of the gateway process.
+    Default OFF — read failure-closed; the tool falls back to in-process if the
+    evolver image isn't built or no credential is available to forward."""
+    return bool(_ensure_initialized().get("sandboxed_gee_exec_enabled", False))
+
+
+def set_sandboxed_gee_exec_enabled(value: bool) -> None:
+    _update({"sandboxed_gee_exec_enabled": bool(value)})
+    logger.info("runtime_settings: sandboxed_gee_exec_enabled set to %s", bool(value))
 
 
 def get_research_experiments_enabled() -> bool:
