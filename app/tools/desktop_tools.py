@@ -158,8 +158,24 @@ def create_desktop_tools(agent_id: str) -> list:
                     return f"Error: {result.get('detail', result['error'])}"
                 return result.get("stdout", "(clipboard empty)")
             elif action == "write":
-                # Use osascript to set clipboard (pbcopy needs stdin)
-                script = f'set the clipboard to "{content}"'
+                # SECURITY (2026-06-06 review): `content` is LLM/attacker-
+                # controlled. The previous f-string interpolated it raw into an
+                # AppleScript string literal, so a value containing `"` could
+                # close the quote and inject arbitrary AppleScript — e.g.
+                # `do shell script "..."` — reaching the host shell and
+                # bypassing the external-action gate its sibling tools use.
+                # The bridge exposes no stdin (so pbcopy-via-stdin isn't an
+                # option); instead escape the AppleScript metacharacters. Order
+                # matters: backslash first, then the quote, then map control
+                # whitespace to its escapes (preserves clipboard fidelity).
+                _esc = (
+                    content.replace("\\", "\\\\")
+                    .replace('"', '\\"')
+                    .replace("\r", "\\r")
+                    .replace("\n", "\\n")
+                    .replace("\t", "\\t")
+                )
+                script = f'set the clipboard to "{_esc}"'
                 result = bridge.execute(["osascript", "-e", script])
                 if "error" in result:
                     return f"Error: {result.get('detail', result['error'])}"

@@ -590,23 +590,10 @@ class TestContextInjectionWiring:
 # PHASE 3: EVOLUTION WIRING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestEvolutionWiring:
-    """New KBs wired into evolution pipeline."""
-
-    def test_evolution_context_includes_episteme(self):
-        src = _read_src("evolution.py")
-        assert "app.episteme.vectorstore" in src
-        assert "Research Insights" in src
-
-    def test_evolution_context_includes_experiential(self):
-        src = _read_src("evolution.py")
-        assert "app.experiential.vectorstore" in src
-        assert "Past Experiences" in src
-
-    def test_evolution_context_includes_tensions(self):
-        src = _read_src("evolution.py")
-        assert "app.tensions.vectorstore" in src
-        assert "Growth Edges" in src
+# TestEvolutionWiring removed 2026-06-06 — these tests pinned the source text of
+# the deleted app/evolution.py (Phase-3 self-improvement consolidation). The
+# verified mutation engine lives in app/self_improvement/; KB-context injection
+# for the live chat path is covered by the context.py tests above.
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
