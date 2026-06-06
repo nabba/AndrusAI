@@ -45,20 +45,33 @@ def test_build_create_payload_includes_job_and_keys(monkeypatch):
     assert not any(e.startswith("OPENAI_API_KEY=") for e in env)
 
 
-def test_build_create_payload_forwards_required_settings_keys(monkeypatch):
-    # Regression for the 2026-05-29 bug: the app's Settings() requires these
-    # non-LLM keys, so without forwarding them the container ValidationErrors
-    # at import before the job runs.
+def test_build_create_payload_does_not_leak_real_secrets(monkeypatch):
+    # SECURITY (2026-06-06): the sandbox runs LLM-authored code, so the REAL
+    # gateway/Brave secrets must NOT be forwarded (a malicious/injected
+    # candidate could read os.environ and exfiltrate). The Settings()-required
+    # keys are still PRESENT — with inert placeholders — so the app imports
+    # cleanly inside the container (the 2026-05-29 ValidationError regression
+    # stays fixed).
     monkeypatch.setenv("BRAVE_API_KEY", "brave-x")
     monkeypatch.setenv("SIGNAL_BOT_NUMBER", "+100")
     monkeypatch.setenv("SIGNAL_OWNER_NUMBER", "+200")
     monkeypatch.setenv("GATEWAY_SECRET", "gw-secret")
     payload = es.build_create_payload("img:1", {"target_file": "app/x.py"})
     env = payload["Env"]
-    assert "BRAVE_API_KEY=brave-x" in env
-    assert "SIGNAL_BOT_NUMBER=+100" in env
-    assert "SIGNAL_OWNER_NUMBER=+200" in env
-    assert "GATEWAY_SECRET=gw-secret" in env
+    # Real secrets are NOT present:
+    assert "GATEWAY_SECRET=gw-secret" not in env
+    assert "BRAVE_API_KEY=brave-x" not in env
+    # …but the keys ARE present (so Settings() validation passes in-container):
+    assert any(e.startswith("GATEWAY_SECRET=") for e in env)
+    assert any(e.startswith("BRAVE_API_KEY=") for e in env)
+    assert any(e.startswith("SIGNAL_BOT_NUMBER=") for e in env)
+    assert any(e.startswith("SIGNAL_OWNER_NUMBER=") for e in env)
+    # operator escape hatch: extra_env wins (Docker last-occurrence semantics)
+    payload2 = es.build_create_payload(
+        "img:1", {}, extra_env={"GATEWAY_SECRET": "explicit"}
+    )
+    gw = [e for e in payload2["Env"] if e.startswith("GATEWAY_SECRET=")]
+    assert gw[-1] == "GATEWAY_SECRET=explicit"
 
 
 def test_build_create_payload_makes_evolver_the_oom_victim():
@@ -244,5 +257,9 @@ def test_http_transport_end_to_end_against_loopback_proxy(monkeypatch):
         "ok": True,
         "result": {"ok": True, "returncode": 0, "stdout": "m=1", "stderr": "", "timed_out": False},
     }
-    # §76 regression fence: the required Settings key reached the create wire.
-    assert "GATEWAY_SECRET=gw-xyz" in captured["create_body"]["Env"]
+    # §76 regression fence: the required Settings key reaches the create wire so
+    # the container's Settings() validates. 2026-06-06 security update: it must
+    # reach the wire as an INERT PLACEHOLDER, never the operator's real secret.
+    _wire_env = captured["create_body"]["Env"]
+    assert any(e.startswith("GATEWAY_SECRET=") for e in _wire_env)
+    assert "GATEWAY_SECRET=gw-xyz" not in _wire_env

@@ -13,32 +13,36 @@ Cached per minute (temporal data changes slowly).
 import calendar
 import math
 import time as _time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 
 _cache: dict = {}
 _cache_ts: float = 0.0
 _CACHE_TTL = 60  # seconds
 
 
-def _helsinki_tz() -> timezone:
-    """Return current Helsinki offset (EET UTC+2 or EEST UTC+3).
+def _helsinki_tz() -> tzinfo:
+    """Return the Europe/Helsinki timezone (EET/EEST, DST handled correctly).
 
-    DST: last Sunday of March 03:00 → last Sunday of October 04:00.
+    Uses the IANA database via ``zoneinfo`` — the authoritative source for DST
+    transition rules, matching the siblings in life_companion.sun_times,
+    affect.hooks, and companion.scheduler. This replaces a hand-rolled
+    last-Sunday offset heuristic and is the consolidation the ``tz_drift``
+    healing monitor exists to request. Falls back to the hand-computed offset
+    ONLY if the tz database is unavailable, so a temporal lookup never crashes.
     """
-    now_utc = datetime.now(timezone.utc)
-    year = now_utc.year
+    try:
+        from zoneinfo import ZoneInfo
 
-    # Last Sunday of March
-    mar31 = datetime(year, 3, 31, 3, 0, tzinfo=timezone.utc)
-    dst_start = mar31 - timedelta(days=(mar31.weekday() + 1) % 7)
-
-    # Last Sunday of October
-    oct31 = datetime(year, 10, 31, 4, 0, tzinfo=timezone.utc)
-    dst_end = oct31 - timedelta(days=(oct31.weekday() + 1) % 7)
-
-    if dst_start <= now_utc < dst_end:
-        return timezone(timedelta(hours=3))  # EEST
-    return timezone(timedelta(hours=2))  # EET
+        return ZoneInfo("Europe/Helsinki")
+    except Exception:
+        now_utc = datetime.now(timezone.utc)
+        year = now_utc.year
+        mar31 = datetime(year, 3, 31, 3, 0, tzinfo=timezone.utc)
+        dst_start = mar31 - timedelta(days=(mar31.weekday() + 1) % 7)
+        oct31 = datetime(year, 10, 31, 4, 0, tzinfo=timezone.utc)
+        dst_end = oct31 - timedelta(days=(oct31.weekday() + 1) % 7)
+        hours = 3 if dst_start <= now_utc < dst_end else 2
+        return timezone(timedelta(hours=hours))
 
 
 def _moon_phase(dt: datetime) -> tuple[str, int]:
@@ -231,8 +235,9 @@ def get_temporal_context(lat: float | None = None, lon: float | None = None) -> 
     sunrise, sunset, daylight_h = _sunrise_sunset(lat, lon, now)
     trend = _daylight_trend(now.month, now.day, lat)
 
-    # Timezone name
-    offset_h = tz.utcoffset(None).total_seconds() / 3600
+    # Timezone name (ask the aware `now`, not the tz with a None datetime —
+    # ZoneInfo.utcoffset(None) is None; an aware datetime resolves DST correctly).
+    offset_h = now.utcoffset().total_seconds() / 3600
     tz_name = "EEST" if offset_h == 3 else "EET"
 
     # Daylight description
