@@ -4,7 +4,6 @@ Tests for Phase 0 plumbing utilities.
 Covers:
   - app.paths (constants, ensure_dirs, under_workspace)
   - app.json_store (load, save, update, append, retention, default)
-  - app.thread_pools (get_pool idempotency, named helpers, shutdown)
 """
 
 from __future__ import annotations
@@ -146,39 +145,7 @@ class TestJsonStore:
 
 # ── app.thread_pools ─────────────────────────────────────────────────
 
-class TestThreadPools:
-    def setup_method(self):
-        # Reset pool registry so each test starts fresh.
-        from app.thread_pools import _pools
-        _pools.clear()
-
-    def teardown_method(self):
-        from app.thread_pools import shutdown_all
-        shutdown_all(wait=False)
-
-    def test_get_pool_is_idempotent(self):
-        from app.thread_pools import get_pool
-        p1 = get_pool("test", max_workers=2)
-        p2 = get_pool("test", max_workers=99)  # Second call's sizing ignored.
-        assert p1 is p2
-
-    def test_named_helpers_return_consistent_instances(self):
-        from app.thread_pools import commander_pool, ctx_pool, firebase_pool
-        assert commander_pool() is commander_pool()
-        assert ctx_pool() is ctx_pool()
-        assert firebase_pool() is firebase_pool()
-        assert commander_pool() is not ctx_pool()
-
-    def test_pool_executes_work(self):
-        from app.thread_pools import get_pool
-        pool = get_pool("test-exec", max_workers=2)
-        fut = pool.submit(lambda x: x * 2, 21)
-        assert fut.result(timeout=2) == 42
-
-    def test_shutdown_clears_registry(self):
-        from app.thread_pools import get_pool, _pools, shutdown_all
-        get_pool("a")
-        get_pool("b")
-        assert len(_pools) == 2
-        shutdown_all(wait=False)
-        assert len(_pools) == 0
+# TestThreadPools removed 2026-06-06 — app/thread_pools.py was an unadopted
+# "Phase 0 plumbing" module (0 production importers; only this test exercised
+# it) and was deleted in the same change. app.paths + app.json_store above
+# remain live and tested.
