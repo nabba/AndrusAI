@@ -100,8 +100,9 @@ def _validate_package_path(package_path: str) -> tuple[list[str], bool]:
             f"package_path {package_path!r} is outside the allowed roots "
             f"{sorted(_ALLOWED_PACKAGE_ROOTS)}"
         )
+    _pp_cf = package_path.casefold()
     for forbidden in _FORBIDDEN_PACKAGE_PREFIXES:
-        if package_path.startswith(forbidden):
+        if _pp_cf.startswith(forbidden.casefold()):
             errors.append(
                 f"package_path {package_path!r} touches the consciousness layer "
                 f"({forbidden}) — requires Tier-3 amendment, not architecture-request"
@@ -122,12 +123,14 @@ def _validate_file_layout(
         if fs.path in seen_paths:
             errors.append(f"file_layout has duplicate path {fs.path!r}")
         seen_paths.add(fs.path)
-        if fs.path in tier_immutable:
+        # Case-insensitive protection membership (host FS is case-insensitive).
+        _fp_cf = fs.path.casefold()
+        if _fp_cf in {p.casefold() for p in tier_immutable}:
             errors.append(
                 f"file_layout entry {fs.path!r} is in TIER_IMMUTABLE — refused"
             )
             hit_tier_immutable = True
-        if fs.path in _FORBIDDEN_INDIVIDUAL_FILES:
+        if _fp_cf in {p.casefold() for p in _FORBIDDEN_INDIVIDUAL_FILES}:
             errors.append(
                 f"file_layout entry {fs.path!r} requires Tier-3 amendment, "
                 f"not architecture-request"
@@ -157,7 +160,7 @@ def _validate_integration_points(
                 f"integration_point kind {ip.kind!r} not in "
                 f"{sorted(VALID_INTEGRATION_KINDS)}"
             )
-        if ip.target_module in tier_immutable:
+        if ip.target_module.casefold() in {p.casefold() for p in tier_immutable}:
             # Architecture-requests cannot mutate TIER_IMMUTABLE files,
             # but reading them is fine. The kinds we accept (idle_job_
             # registration etc.) all imply a write to the target module.
@@ -242,9 +245,11 @@ def validate(req: ArchitectureRequest) -> ValidationResult:
 
 
 def is_protected_path(path: str) -> bool:
-    """True iff the path requires Tier-3 amendment instead of architecture-request."""
-    if path in _FORBIDDEN_INDIVIDUAL_FILES:
+    """True iff the path requires Tier-3 amendment instead of architecture-request.
+    Case-insensitive (host FS is) so case variants can't slip the gate."""
+    cf = path.casefold()
+    if cf in {p.casefold() for p in _FORBIDDEN_INDIVIDUAL_FILES}:
         return True
-    if any(path.startswith(p) for p in _FORBIDDEN_PACKAGE_PREFIXES):
+    if any(cf.startswith(p.casefold()) for p in _FORBIDDEN_PACKAGE_PREFIXES):
         return True
-    return path in _load_tier_immutable()
+    return cf in {p.casefold() for p in _load_tier_immutable()}

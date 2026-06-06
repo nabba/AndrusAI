@@ -237,6 +237,15 @@ TIER_GATED = frozenset({
 # Backward compatibility — union of IMMUTABLE + GATED
 PROTECTED_FILES = TIER_IMMUTABLE | TIER_GATED
 
+# Case-insensitive shadows of the protection sets. The host filesystem is
+# case-insensitive (APFS / default Docker-Desktop volume), so an exact-case
+# membership test let a write to ``app/Auto_deployer.py`` miss the set while
+# still resolving to the real ``app/auto_deployer.py`` inode on disk — a bypass
+# of the absolute TIER_IMMUTABLE rule. Protection membership is tested against
+# the casefolded path. (Security review 2026-06-06; operator-approved.)
+_TIER_IMMUTABLE_CF = frozenset(p.casefold() for p in TIER_IMMUTABLE)
+_TIER_GATED_CF = frozenset(p.casefold() for p in TIER_GATED)
+
 
 def get_protection_tier(filepath: str) -> ProtectionTier:
     """Determine the protection tier for a given file.
@@ -250,10 +259,13 @@ def get_protection_tier(filepath: str) -> ProtectionTier:
     if normalized.startswith("/"):
         normalized = normalized[1:]
 
-    # Static tier (this module's authoritative definition)
-    if normalized in TIER_IMMUTABLE:
+    # Static tier (this module's authoritative definition). Case-insensitive
+    # membership: the host FS is case-insensitive, so ``app/Auto_deployer.py``
+    # must resolve to IMMUTABLE exactly like ``app/auto_deployer.py``.
+    _cf = normalized.casefold()
+    if _cf in _TIER_IMMUTABLE_CF:
         static = ProtectionTier.IMMUTABLE
-    elif normalized in TIER_GATED:
+    elif _cf in _TIER_GATED_CF:
         static = ProtectionTier.GATED
     elif normalized.startswith("workspace/meta/"):
         static = ProtectionTier.GATED

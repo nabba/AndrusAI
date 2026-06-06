@@ -773,16 +773,8 @@ class TestMigrationVerification:
         except Exception:
             pytest.skip("prompt_registry not readable")
 
-    def test_parallel_evolution_uses_safe_io(self):
-        src = Path(os.path.join(os.path.dirname(__file__), "..", "app", "parallel_evolution.py")).read_text()
-        assert "safe_write_json" in src
-
-    def test_evolution_uses_workspace_lock(self):
-        src = Path(os.path.join(os.path.dirname(__file__), "..", "app", "evolution.py")).read_text()
-        assert "WorkspaceLock" in src
-        assert "workspace_commit" in src
-
-    def test_island_evolution_uses_workspace_lock(self):
-        src = Path(os.path.join(os.path.dirname(__file__), "..", "app", "island_evolution.py")).read_text()
-        assert "WorkspaceLock" in src
-        assert "workspace_commit" in src
+    # Removed 2026-06-06: test_parallel_evolution_uses_safe_io /
+    # test_evolution_uses_workspace_lock / test_island_evolution_uses_workspace_lock
+    # pinned the source text of app/{parallel_evolution,evolution,island_evolution}.py,
+    # which were deleted in the Phase-3 self-improvement consolidation. The verified
+    # mutation engine (app/self_improvement/) is the live path.

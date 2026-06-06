@@ -48,13 +48,28 @@ _LLM_ENV_KEYS = (
 # Non-LLM env that the app's pydantic ``Settings()`` marks as REQUIRED. Without
 # these, the app raises ``ValidationError`` at import INSIDE the sandbox — before
 # the job can do any work. That was the bug that left the verified engine with
-# zero completed runs (discovered 2026-05-29). Forwarded only when present.
+# zero completed runs (discovered 2026-05-29).
 _REQUIRED_SETTINGS_KEYS = (
     "BRAVE_API_KEY",
     "SIGNAL_BOT_NUMBER",
     "SIGNAL_OWNER_NUMBER",
     "GATEWAY_SECRET",
 )
+
+# SECURITY (2026-06-06 review): the sandbox needs the keys above ONLY to satisfy
+# Settings() validation at import — it never authenticates to the gateway,
+# Signal, or Brave from inside the container (the verdict returns via stdout;
+# research repair LLM calls happen gateway-side). Forwarding the REAL
+# GATEWAY_SECRET / BRAVE_API_KEY into LLM-authored sandbox code is a secret-
+# exposure path: a malicious or prompt-injected candidate can read os.environ
+# and exfiltrate over the bridge network. So we inject inert placeholders that
+# pass pydantic validation but carry no real credential.
+_SANDBOX_SETTINGS_PLACEHOLDERS: dict[str, str] = {
+    "BRAVE_API_KEY": "sandbox-unused",
+    "SIGNAL_BOT_NUMBER": "+10000000000",
+    "SIGNAL_OWNER_NUMBER": "+10000000000",
+    "GATEWAY_SECRET": "sandbox-no-secret",
+}
 
 # transport(method, path, body=None, timeout=None) -> (status_code, body_bytes)
 Transport = Callable[..., tuple[int, bytes]]
@@ -114,10 +129,18 @@ def build_create_payload(
     isolation the design prompt only requests.
     """
     env = [f"{job_env_var}={json.dumps(job)}"]
-    for key in (*_LLM_ENV_KEYS, *_REQUIRED_SETTINGS_KEYS):
+    # LLM provider keys: the in-container editor + judge make real LLM calls,
+    # so forward the real keys that are present in the gateway env.
+    for key in _LLM_ENV_KEYS:
         val = os.environ.get(key)
         if val:
             env.append(f"{key}={val}")
+    # Settings()-required keys: inert placeholders, NOT the real secrets — see
+    # _SANDBOX_SETTINGS_PLACEHOLDERS. An operator who genuinely needs a real
+    # value in-container can still pass it via extra_env (applied last → wins
+    # under Docker's last-occurrence env semantics).
+    for key, placeholder in _SANDBOX_SETTINGS_PLACEHOLDERS.items():
+        env.append(f"{key}={placeholder}")
     for key, val in (extra_env or {}).items():
         env.append(f"{key}={val}")
     payload: dict[str, Any] = {
