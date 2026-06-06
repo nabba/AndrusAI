@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 _MAX_FILE_BYTES = 20 * 1024 * 1024  # 20 MB — Claude vision cap
-_MODEL = "claude-haiku-4-5-20251001"
+# (the model is selected by the factory via chat_completion_for_role; the old
+# pinned _MODEL constant was dead — removed 2026-06-07)
 _MAX_OUTPUT_TOKENS = 1500
 
 _SYSTEM = (
