@@ -1,11 +1,25 @@
 #!/usr/bin/env bash
 # AndrusAI quarterly restore drill (Phase H #1, 2026-05-10).
 #
-# Spins up scratch Postgres + Neo4j + ChromaDB containers in a
-# separate compose project, restores the freshest "all_ok" backup
-# set into them, runs smoke checks, tears down. Updates the
-# manifest at workspace/backups/restore_drill_manifest.json so the
-# `restore_drill` healing monitor can alert on stale drills.
+# Spins up scratch Postgres + Neo4j containers in a separate compose
+# project, restores the freshest "all_ok" backup set into them, runs
+# smoke checks, tears down. Updates the manifest at
+# workspace/backups/restore_drill_manifest.json so the `restore_drill`
+# healing monitor can alert on stale drills.
+#
+# ── Why ChromaDB is NOT drilled here ────────────────────────────────────
+# As of PROGRAM §55 (2026-05-17) ChromaDB is no longer a compose
+# service — it runs only as an embedded PersistentClient library inside
+# the gateway, so there is no chromadb container to restore into. The
+# ChromaDB restore/recovery path is instead "replay the hash-chained
+# source ledger into a fresh KB" (PROGRAM §56), exercised against the
+# live embedded library by the `source_ledger_replay` and
+# `embedding_rotation` resilience drills + the boot integrity scan
+# (app/memory/chromadb_integrity.py) — far more faithful than restoring
+# the legacy chromadb tarball into a standalone chromadb/chroma HTTP
+# container would be. (Backup freshness of every store, including the
+# chromadb snapshots, is watched separately by the `db_backup` /
+# `backup_freshness` healing monitors.)
 #
 # Run quarterly from cron / launchd (or manually):
 #     bash deploy/scripts/restore-drill.sh
@@ -26,9 +40,9 @@ fi
 
 # --- Isolation overlay (required) ----------------------------------------
 # Without this overlay the drill stack mounts the same host paths as
-# the live stack (./workspace/mem0_pgdata, ./workspace/mem0_neo4j,
-# ./workspace/memory) and corrupts the live databases when both run
-# at once. See header comment in the overlay file for the full story.
+# the live stack (./workspace/mem0_pgdata, ./workspace/mem0_neo4j) and
+# corrupts the live databases when both run at once. See header comment
+# in the overlay file for the full story.
 DRILL_OVERLAY="docker-compose.drill-isolation.yml"
 if [[ ! -f "$DRILL_OVERLAY" ]]; then
     echo "ERROR: drill overlay missing: $DRILL_OVERLAY" >&2
@@ -54,9 +68,9 @@ fi
 # --- Pre-flight: refuse if any live container exists ---------------------
 # Belt-and-suspenders with the overlay. If a future operator removes or
 # breaks the overlay, the bind-mount race is back; refuse to start if
-# any of the three live containers exists in any state so the same
-# 2026-05-16 corruption incident can't recur.
-for live in crewai-team-postgres-1 crewai-team-neo4j-1 crewai-team-chromadb-1; do
+# either live data container exists in any state so the same 2026-05-16
+# corruption incident can't recur.
+for live in crewai-team-postgres-1 crewai-team-neo4j-1; do
     if docker inspect "$live" >/dev/null 2>&1; then
         live_state="$(docker inspect "$live" \
             --format '{{.State.Status}}' 2>/dev/null || echo unknown)"
@@ -122,9 +136,8 @@ fi
 
 PG_ARCHIVE="${REPO_ROOT}/workspace/backups/postgres/postgres-${SET_TS}.sql.gz"
 NEO_ARCHIVE="${REPO_ROOT}/workspace/backups/neo4j/neo4j-${SET_TS}.dump"
-CHR_ARCHIVE="${REPO_ROOT}/workspace/backups/chromadb/chromadb-${SET_TS}.tar.gz"
 
-for archive in "$PG_ARCHIVE" "$NEO_ARCHIVE" "$CHR_ARCHIVE"; do
+for archive in "$PG_ARCHIVE" "$NEO_ARCHIVE"; do
     if [[ ! -f "$archive" ]]; then
         echo "ERROR: archive missing: $archive" | tee -a "$DRILL_LOG"
         exit 4
@@ -134,14 +147,13 @@ echo "Drilling backup set: $SET_TS" | tee -a "$DRILL_LOG"
 
 # --- Bring up drill stack -------------------------------------------------
 echo ">> Bringing up drill stack" | tee -a "$DRILL_LOG"
-$COMPOSE -p "$DRILL_PROJECT" up -d postgres neo4j chromadb 2>>"$DRILL_LOG"
+$COMPOSE -p "$DRILL_PROJECT" up -d postgres neo4j 2>>"$DRILL_LOG"
 sleep 15  # let the services finish init
 
 PG_CT=$($COMPOSE -p "$DRILL_PROJECT" ps -q postgres)
 NEO_CT=$($COMPOSE -p "$DRILL_PROJECT" ps -q neo4j)
-CHR_CT=$($COMPOSE -p "$DRILL_PROJECT" ps -q chromadb)
 
-if [[ -z "$PG_CT" || -z "$NEO_CT" || -z "$CHR_CT" ]]; then
+if [[ -z "$PG_CT" || -z "$NEO_CT" ]]; then
     echo "ERROR: drill stack failed to start" | tee -a "$DRILL_LOG"
     exit 5
 fi
@@ -178,59 +190,18 @@ NEO_NODES=$(docker exec -u neo4j "$NEO_CT" cypher-shell \
     "MATCH (n) RETURN count(n) AS n;" 2>>"$DRILL_LOG" | tail -1 || echo "0")
 echo "  Neo4j node count: $NEO_NODES" | tee -a "$DRILL_LOG"
 
-# --- Restore ChromaDB -----------------------------------------------------
-# Two corrections vs the original implementation:
-#
-#   1. We resolve the chroma volume's actual name from the running
-#      container instead of hardcoding `${DRILL_PROJECT}_chroma`. The
-#      isolation overlay (docker-compose.drill-isolation.yml) declares
-#      `drill_chroma`, which compose namespaces to
-#      `${DRILL_PROJECT}_drill_chroma`. Asking the container is the
-#      robust way — survives future overlay renames.
-#
-#   2. The backup tar is created with `tar -czf ... -C ./workspace memory`
-#      so it has a leading `memory/` directory. Extracting without
-#      --strip-components=1 produced `/chroma/chroma/memory/<uuid>/...`
-#      and chroma silently came up empty. We strip the prefix and
-#      clear the volume first so the restore is deterministic.
-echo ">> Restoring ChromaDB" | tee -a "$DRILL_LOG"
-CHR_VOL=$(docker inspect "$CHR_CT" --format \
-    '{{range .Mounts}}{{if eq .Destination "/chroma/chroma"}}{{.Name}}{{end}}{{end}}' \
-    2>>"$DRILL_LOG")
-if [[ -z "$CHR_VOL" ]]; then
-    echo "ERROR: could not resolve chromadb volume from container" | tee -a "$DRILL_LOG" >&2
-    exit 6
-fi
-# Stop chroma so we can swap its persistent volume contents.
-$COMPOSE -p "$DRILL_PROJECT" stop chromadb 2>>"$DRILL_LOG"
-docker run --rm \
-    -v "${CHR_VOL}:/chroma/chroma" \
-    -v "$(dirname "$CHR_ARCHIVE"):/backup:ro" \
-    alpine:3 sh -c "cd /chroma/chroma && find . -mindepth 1 -delete && tar -xzf /backup/$(basename "$CHR_ARCHIVE") --strip-components=1" \
-    2>>"$DRILL_LOG" || true
-$COMPOSE -p "$DRILL_PROJECT" start chromadb 2>>"$DRILL_LOG"
-sleep 5
-CHR_PORT=$(docker port "$CHR_CT" 8000 2>/dev/null | head -1 | cut -d: -f2 || echo "")
-if [[ -n "$CHR_PORT" ]]; then
-    CHR_HEALTH=$(curl -fs "http://localhost:${CHR_PORT}/api/v1/heartbeat" 2>/dev/null || echo "FAIL")
-else
-    CHR_HEALTH="(no port mapping)"
-fi
-echo "  ChromaDB heartbeat: $CHR_HEALTH" | tee -a "$DRILL_LOG"
-
 # --- Manifest update ------------------------------------------------------
 COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%S+00:00)"
 ALL_OK=$([[ "$PG_ROWS" =~ ^[0-9]+$ ]] && [[ "$PG_ROWS" -gt 0 ]] \
-    && [[ "$CHR_HEALTH" != "FAIL" ]] \
     && echo true || echo false)
 
 python3 - "$MANIFEST_PATH" "$COMPLETED_AT" "$SET_TS" "$ALL_OK" \
-    "$PG_ROWS" "$NEO_NODES" "$CHR_HEALTH" "$DRILL_LOG" <<'PYEOF'
+    "$PG_ROWS" "$NEO_NODES" "$DRILL_LOG" <<'PYEOF'
 import json
 import sys
 from pathlib import Path
 
-manifest_path, completed_at, set_ts, all_ok, pg_rows, neo_nodes, chr_health, log_path = sys.argv[1:9]
+manifest_path, completed_at, set_ts, all_ok, pg_rows, neo_nodes, log_path = sys.argv[1:8]
 new_entry = {
     "ts": completed_at,
     "drilled_set_ts": set_ts,
@@ -238,7 +209,6 @@ new_entry = {
     "smoke": {
         "postgres_audit_log_rows": pg_rows,
         "neo4j_node_count": neo_nodes,
-        "chromadb_heartbeat": chr_health,
     },
     "log": log_path,
 }

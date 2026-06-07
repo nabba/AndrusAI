@@ -2,22 +2,37 @@
 # AndrusAI quarterly version-upgrade drill (§2.5).
 #
 # Restores the freshest "all_ok" backup set into NEWER versions of
-# Postgres + Neo4j + ChromaDB, runs whatever migrations the new
-# versions require (pg_upgrade / neo4j-admin migrate / Chroma's
-# own migration tooling), and smoke-tests. Catches the risky
-# version-bump migrations BEFORE they happen on the live stack.
+# Postgres + Neo4j, runs whatever migrations the new versions require
+# (pg_upgrade / neo4j-admin migrate), and smoke-tests. Catches the
+# risky version-bump migrations BEFORE they happen on the live stack.
 #
 # Distinct from restore-drill.sh (which proves the restore path
 # itself works against current versions): this drill proves the
 # *forward-version-migration* path works against the same backup.
 #
-# Image versions are operator-overrideable. If unset, defaults are
+# ── Why ChromaDB is NOT drilled here ────────────────────────────────────
+# As of PROGRAM §55 (2026-05-17) ChromaDB is no longer a compose
+# service — it runs only as an embedded PersistentClient *library*
+# inside the gateway. It is therefore version-bumped by rebuilding the
+# gateway image, not by a compose image tag, so there is no scratch
+# "newer ChromaDB" container to drill. And per PROGRAM §56 a ChromaDB
+# KB is a *derived* artifact: the forward-migration path is "replay the
+# hash-chained source ledger into a fresh KB with the current embedder
+# and current chromadb version", never an in-place on-disk-format
+# migration. That replay path is exercised — against the live embedded
+# library, which is far more faithful than a standalone chromadb/chroma
+# HTTP container of an arbitrary tag — by the `source_ledger_replay`
+# and `embedding_rotation` resilience drills plus the boot integrity
+# scan (app/memory/chromadb_integrity.py). The old leg here defaulted
+# to chromadb/chroma:1.0, which is OLDER than the gateway's pinned
+# chromadb (>=1.5.8) and would panic on the 1.5.8 on-disk format.
+#
+# Target versions are operator-overrideable. If unset, defaults are
 # the next-minor-version of whatever's currently in docker-compose.yml,
 # resolved at run time. To pin specific targets:
 #
 #     POSTGRES_TARGET_TAG=pgvector/pgvector:0.8.0-pg17 \
 #     NEO4J_TARGET_TAG=neo4j:5.21 \
-#     CHROMA_TARGET_TAG=chromadb/chroma:1.0.5 \
 #         bash deploy/scripts/version-upgrade-drill.sh
 #
 # Run quarterly from cron / launchd. Updates a separate manifest at
@@ -39,9 +54,9 @@ fi
 
 # --- Isolation overlay (required) ----------------------------------------
 # Without this overlay the drill stack mounts the same host paths as
-# the live stack (./workspace/mem0_pgdata, ./workspace/mem0_neo4j,
-# ./workspace/memory) and corrupts the live databases when both run
-# at once. See header comment in the overlay file for the full story.
+# the live stack (./workspace/mem0_pgdata, ./workspace/mem0_neo4j) and
+# corrupts the live databases when both run at once. See header comment
+# in the overlay file for the full story.
 DRILL_OVERLAY="docker-compose.drill-isolation.yml"
 if [[ ! -f "$DRILL_OVERLAY" ]]; then
     echo "ERROR: drill overlay missing: $DRILL_OVERLAY" >&2
@@ -67,9 +82,9 @@ fi
 # --- Pre-flight: refuse if any live container exists ---------------------
 # Belt-and-suspenders with the overlay. If a future operator removes or
 # breaks the overlay, the bind-mount race is back; refuse to start if
-# any of the three live containers exists in any state so the same
-# 2026-05-16 corruption incident can't recur.
-for live in crewai-team-postgres-1 crewai-team-neo4j-1 crewai-team-chromadb-1; do
+# either live data container exists in any state so the same 2026-05-16
+# corruption incident can't recur.
+for live in crewai-team-postgres-1 crewai-team-neo4j-1; do
     if docker inspect "$live" >/dev/null 2>&1; then
         live_state="$(docker inspect "$live" \
             --format '{{.State.Status}}' 2>/dev/null || echo unknown)"
@@ -87,7 +102,6 @@ done
 # --- Target versions -----------------------------------------------------
 POSTGRES_TARGET_TAG="${POSTGRES_TARGET_TAG:-pgvector/pgvector:0.8.0-pg17}"
 NEO4J_TARGET_TAG="${NEO4J_TARGET_TAG:-neo4j:5.21}"
-CHROMA_TARGET_TAG="${CHROMA_TARGET_TAG:-chromadb/chroma:1.0}"
 
 DRILL_PROJECT="andrusai-version-upgrade-drill"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -132,20 +146,19 @@ fi
 
 PG_ARCHIVE="${REPO_ROOT}/workspace/backups/postgres/postgres-${SET_TS}.sql.gz"
 NEO_ARCHIVE="${REPO_ROOT}/workspace/backups/neo4j/neo4j-${SET_TS}.dump"
-CHR_ARCHIVE="${REPO_ROOT}/workspace/backups/chromadb/chromadb-${SET_TS}.tar.gz"
 
-for archive in "$PG_ARCHIVE" "$NEO_ARCHIVE" "$CHR_ARCHIVE"; do
+for archive in "$PG_ARCHIVE" "$NEO_ARCHIVE"; do
     if [[ ! -f "$archive" ]]; then
         echo "ERROR: archive missing: $archive" | tee -a "$DRILL_LOG"
         exit 4
     fi
 done
 echo "Drilling backup set: $SET_TS" | tee -a "$DRILL_LOG"
-echo "Target versions: pg=$POSTGRES_TARGET_TAG  neo4j=$NEO4J_TARGET_TAG  chroma=$CHROMA_TARGET_TAG" \
+echo "Target versions: pg=$POSTGRES_TARGET_TAG  neo4j=$NEO4J_TARGET_TAG" \
     | tee -a "$DRILL_LOG"
 
 # --- Pull target images upfront so failures are caught early -------------
-for img in "$POSTGRES_TARGET_TAG" "$NEO4J_TARGET_TAG" "$CHROMA_TARGET_TAG"; do
+for img in "$POSTGRES_TARGET_TAG" "$NEO4J_TARGET_TAG"; do
     if ! docker pull "$img" >>"$DRILL_LOG" 2>&1; then
         echo "ERROR: failed to pull target image: $img" | tee -a "$DRILL_LOG"
         exit 5
@@ -160,15 +173,13 @@ done
 echo ">> Bringing up drill stack on target versions" | tee -a "$DRILL_LOG"
 POSTGRES_IMAGE="$POSTGRES_TARGET_TAG" \
 NEO4J_IMAGE="$NEO4J_TARGET_TAG" \
-CHROMA_IMAGE="$CHROMA_TARGET_TAG" \
-    $COMPOSE -p "$DRILL_PROJECT" up -d postgres neo4j chromadb 2>>"$DRILL_LOG"
+    $COMPOSE -p "$DRILL_PROJECT" up -d postgres neo4j 2>>"$DRILL_LOG"
 sleep 20  # services need extra time on first-boot version bump
 
 PG_CT=$($COMPOSE -p "$DRILL_PROJECT" ps -q postgres)
 NEO_CT=$($COMPOSE -p "$DRILL_PROJECT" ps -q neo4j)
-CHR_CT=$($COMPOSE -p "$DRILL_PROJECT" ps -q chromadb)
 
-if [[ -z "$PG_CT" || -z "$NEO_CT" || -z "$CHR_CT" ]]; then
+if [[ -z "$PG_CT" || -z "$NEO_CT" ]]; then
     echo "ERROR: drill stack failed to start on target versions" | tee -a "$DRILL_LOG"
     exit 6
 fi
@@ -219,49 +230,14 @@ NEO_NODES=$(docker exec -u neo4j "$NEO_CT" cypher-shell \
 echo "  Neo4j node count: $NEO_NODES" | tee -a "$DRILL_LOG"
 NEO_OK=${NEO_OK:-true}
 
-# --- Restore + migrate ChromaDB ------------------------------------------
-# See header comment in restore-drill.sh's equivalent block for the
-# two correctness fixes: (1) resolve volume name from container,
-# (2) strip leading `memory/` from tar + clear volume first.
-echo ">> Restoring ChromaDB into target version" | tee -a "$DRILL_LOG"
-CHR_VOL=$(docker inspect "$CHR_CT" --format \
-    '{{range .Mounts}}{{if eq .Destination "/chroma/chroma"}}{{.Name}}{{end}}{{end}}' \
-    2>>"$DRILL_LOG")
-if [[ -z "$CHR_VOL" ]]; then
-    echo "ERROR: could not resolve chromadb volume from container" | tee -a "$DRILL_LOG" >&2
-    CHR_OK="false"
-else
-    $COMPOSE -p "$DRILL_PROJECT" stop chromadb 2>>"$DRILL_LOG" || true
-    docker run --rm \
-        -v "${CHR_VOL}:/chroma/chroma" \
-        -v "$(dirname "$CHR_ARCHIVE"):/backup:ro" \
-        alpine:3 sh -c "cd /chroma/chroma && find . -mindepth 1 -delete && tar -xzf /backup/$(basename "$CHR_ARCHIVE") --strip-components=1" \
-        2>>"$DRILL_LOG" || true
-    $COMPOSE -p "$DRILL_PROJECT" start chromadb 2>>"$DRILL_LOG" || true
-fi
-sleep 8  # chroma migration on version bump can take longer than start
-CHR_PORT=$(docker port "$CHR_CT" 8000 2>/dev/null | head -1 | cut -d: -f2 || echo "")
-if [[ -n "$CHR_PORT" ]]; then
-    CHR_HEALTH=$(curl -fs "http://localhost:${CHR_PORT}/api/v1/heartbeat" \
-        2>/dev/null || curl -fs "http://localhost:${CHR_PORT}/api/v2/heartbeat" \
-        2>/dev/null || echo "FAIL")
-else
-    CHR_HEALTH="(no port mapping)"
-fi
-echo "  ChromaDB heartbeat: $CHR_HEALTH" | tee -a "$DRILL_LOG"
-# Inherit prior CHR_OK if already false (volume-resolve failure above)
-# — otherwise key off the heartbeat.
-CHR_OK="${CHR_OK:-true}"
-[[ "$CHR_HEALTH" == "FAIL" ]] && CHR_OK="false"
-
 # --- Manifest update -----------------------------------------------------
 COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%S+00:00)"
-ALL_OK=$([[ "$PG_OK" == "true" && "$NEO_OK" == "true" && "$CHR_OK" == "true" ]] \
+ALL_OK=$([[ "$PG_OK" == "true" && "$NEO_OK" == "true" ]] \
     && echo true || echo false)
 
 python3 - "$MANIFEST_PATH" "$COMPLETED_AT" "$SET_TS" "$ALL_OK" \
-    "$PG_ROWS" "$NEO_NODES" "$CHR_HEALTH" \
-    "$POSTGRES_TARGET_TAG" "$NEO4J_TARGET_TAG" "$CHROMA_TARGET_TAG" \
+    "$PG_ROWS" "$NEO_NODES" \
+    "$POSTGRES_TARGET_TAG" "$NEO4J_TARGET_TAG" \
     "$DRILL_LOG" <<'PYEOF'
 import json
 import sys
@@ -269,10 +245,10 @@ from pathlib import Path
 
 (
     manifest_path, completed_at, set_ts, all_ok,
-    pg_rows, neo_nodes, chr_health,
-    pg_target, neo_target, chr_target,
+    pg_rows, neo_nodes,
+    pg_target, neo_target,
     log_path,
-) = sys.argv[1:12]
+) = sys.argv[1:10]
 
 new_entry = {
     "ts": completed_at,
@@ -281,12 +257,10 @@ new_entry = {
     "target_versions": {
         "postgres": pg_target,
         "neo4j": neo_target,
-        "chromadb": chr_target,
     },
     "smoke": {
         "postgres_audit_log_rows": pg_rows,
         "neo4j_node_count": neo_nodes,
-        "chromadb_heartbeat": chr_health,
     },
     "log": log_path,
 }

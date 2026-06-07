@@ -8,7 +8,7 @@ Distinct from siblings:
   * :mod:`app.healing.monitors.restore_drill` — backup restores
     against CURRENT versions. Catches "can we restore at all?"
   * :mod:`app.healing.monitors.version_upgrade_drill` — backup
-    restores against NEWER versions of PG/Neo4j/Chroma. Catches
+    restores against NEWER versions of PG/Neo4j. Catches
     "does pg_upgrade work on real data?"
   * **THIS** — backup restores against current versions, then runs
     ``app.memory.startup_migrations.apply_all`` (the same code

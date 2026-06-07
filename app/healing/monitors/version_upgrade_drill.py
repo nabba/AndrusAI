@@ -2,10 +2,16 @@
 
 Companion to ``deploy/scripts/version-upgrade-drill.sh``. The drill
 proves that the freshest backup set can be restored into NEWER
-versions of Postgres + Neo4j + ChromaDB and survive whatever
-forward-version migrations those versions require. This module
-ensures the drill is run on cadence and alerts when it isn't or
-when its most recent run failed.
+versions of Postgres + Neo4j and survive whatever forward-version
+migrations those versions require. This module ensures the drill is
+run on cadence and alerts when it isn't or when its most recent run
+failed.
+
+(ChromaDB is no longer drilled here — since PROGRAM §55 it is an
+embedded library, not a compose service, and its forward-migration
+path is source-ledger replay, exercised by the ``source_ledger_replay``
+and ``embedding_rotation`` resilience drills. See the drill script
+header for the full rationale.)
 
 Distinct from :mod:`app.healing.monitors.restore_drill` — that
 monitor watches the *current-version* restore path; this one
@@ -176,8 +182,8 @@ def run(
             "🛑 Version-upgrade drill: no manifest found at "
             "`workspace/backups/version_upgrade_drill_manifest.json`. "
             "Backups exist but the *forward-version-migration* path has "
-            "never been tested — when you next bump Postgres / Neo4j / "
-            "ChromaDB you may discover the migration breaks on real data. "
+            "never been tested — when you next bump Postgres / Neo4j "
+            "you may discover the migration breaks on real data. "
             "Run `bash deploy/scripts/version-upgrade-drill.sh` and add "
             "it to cron (quarterly).",
         )
