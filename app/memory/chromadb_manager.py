@@ -246,8 +246,23 @@ def _guard_worker() -> None:
         )
 
 
+def _worker_proxy_or_none(kb: str):
+    """In the idle WORKER process, return a read+write proxy bound to ``kb``
+    instead of opening ChromaDB (§55): reads route to the gateway RAG API,
+    writes go ledger-first to the source ledger (the gateway reconciles). On the
+    gateway (role=all/gateway, the default) returns None so the caller opens
+    ChromaDB normally. Supersedes _guard_worker's raise for these 3 accessors."""
+    import os
+    if os.environ.get("IDLE_SCHEDULER_ROLE", "all").strip().lower() != "worker":
+        return None
+    from app.memory import kb_proxy
+    return kb_proxy.proxy_client_for_kb(kb)
+
+
 def get_client():
-    _guard_worker()
+    _p = _worker_proxy_or_none("memory")
+    if _p is not None:
+        return _p
     global _client
     if _client is not None:
         return _client
@@ -267,7 +282,9 @@ def get_kb_client(kb_name: str):
 
     All clients live until process exit; cache is process-local.
     """
-    _guard_worker()
+    _p = _worker_proxy_or_none((kb_name or "memory").strip() or "memory")
+    if _p is not None:
+        return _p
     name = (kb_name or "").strip()
     if not name or name == "memory":
         return get_client()
@@ -307,7 +324,9 @@ def get_client_for_path(persist_dir) -> object:
     long-lived store opens its own KB directory, so repeated instantiation
     reuses one Rust runtime instead of leaking one per call.
     """
-    _guard_worker()
+    _p = _worker_proxy_or_none(Path(persist_dir).resolve().name)
+    if _p is not None:
+        return _p
     key = str(Path(persist_dir).resolve())
     cached = _clients_by_path.get(key)
     if cached is not None:

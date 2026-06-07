@@ -1160,6 +1160,11 @@ app.include_router(philosophy_router)
 from app.api.fiction import fiction_router
 app.include_router(fiction_router)
 
+# Internal KB read-API (serving/compute split): the worker process routes its
+# RAG reads here instead of opening ChromaDB. Container-to-container only.
+from app.api.internal_kb_api import router as internal_kb_router
+app.include_router(internal_kb_router)
+
 # Mount new knowledge base API routes (Phase 2)
 try:
     from app.episteme.api import episteme_router

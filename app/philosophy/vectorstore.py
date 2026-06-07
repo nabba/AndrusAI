@@ -39,7 +39,12 @@ class PhilosophyStore:
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         self.collection_name = collection_name
 
-        self._client = chromadb.PersistentClient(path=str(self.persist_dir))
+        # Guarded, process-cached client (NOT a raw chromadb.PersistentClient):
+        # the IDLE_SCHEDULER_ROLE=worker guard fail-closes here so a worker job
+        # can't dual-write this KB (§55), and it caches one Rust client per KB
+        # path (§83 leak fix). Mirrors knowledge_base (migrated 2026-06-01).
+        from app.memory.chromadb_manager import get_client_for_path
+        self._client = get_client_for_path(str(self.persist_dir))
 
         col = self._client.get_or_create_collection(
             name=self.collection_name,

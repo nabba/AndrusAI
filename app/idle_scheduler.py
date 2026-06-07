@@ -61,8 +61,12 @@ INTER_JOB_PAUSE_SECONDS = 2  # Reduced from 5 — lightweight jobs don't need lo
 # loop can never hold the GIL across the heaviest work units back-to-back.
 # This turns the defer-then-stampede cliff into a paced drain (ramp).
 IDLE_SETTLING_SECONDS = 300       # ramp window AFTER warm-up exit
-IDLE_HEAVY_PACE_SETTLE_S = 3.0    # GIL-yield after MEDIUM/HEAVY during settling
-IDLE_HEAVY_PACE_STEADY_S = 1.0    # GIL-yield after MEDIUM/HEAVY in steady state
+# Env-tunable (2026-06-07) so the GIL-yield can be widened without a rebuild —
+# the interim wedge mitigation sets these high so /health is served in the gaps
+# between MEDIUM/HEAVY jobs (breaks the back-to-back burst). Reverts to the
+# original 3.0/1.0 when the env vars are unset.
+IDLE_HEAVY_PACE_SETTLE_S = float(os.environ.get("IDLE_HEAVY_PACE_SETTLE_S", "3.0"))  # GIL-yield after MEDIUM/HEAVY during settling
+IDLE_HEAVY_PACE_STEADY_S = float(os.environ.get("IDLE_HEAVY_PACE_STEADY_S", "1.0"))  # GIL-yield after MEDIUM/HEAVY in steady state
 
 # Local fallback if the lifespan never calls boot_state.mark_boot_complete().
 # Set deliberately long: the realistic recovery scenario is a refactor that
@@ -1249,7 +1253,42 @@ def _run_boot_prep() -> None:
 # fail-closed-guards it), so a job is added here only after it is verified
 # chromadb-free OR converted to ledger-first writes. Empty = nothing moves yet
 # (the mechanism is built; migration populates this allowlist per-job).
-_WORKER_ELIGIBLE_JOBS: set[str] = set()
+_WORKER_ELIGIBLE_JOBS: set[str] = {
+    # ChromaDB-free (Phase-1 audit: verified no chromadb open) — run trivially
+    # in the worker:
+    "benchmarks-refresh",
+    "widening-proposer-scan",
+    "modification-engine",
+    "personality-development",
+    # ChromaDB cognition jobs — run via the worker-mode proxy (reads→gateway RAG
+    # API, writes→source ledger). These are the multi-minute GIL holders behind
+    # the wedge; each verified to use only standard, proxy-covered collection
+    # methods (query by embedding / get / count / add / upsert / update) and to
+    # spawn no containers:
+    "consolidator",
+    "pattern-library-extract",
+    "self-knowledge-ingest",
+    "transfer-compile",
+    "transfer-promotion",
+    # Maintenance / observational jobs (bulk expansion, 2026-06-07) — classified
+    # proxy-safe + SAFE-TO-DEGRADE (empty fail-soft reads → skip / fewer
+    # candidates, never a wrong or destructive action) + no container spawns:
+    "knowledge-compactor",
+    "analogy-populator",
+    "tech-radar",
+    "llm-rebenchmark-incumbents",
+    "wiki-lint",
+    "wiki-synthesis",
+    # DEFERRED (stay gateway-side — paced via IDLE_HEAVY_PACE_*): decision-making
+    # / safety-sensitive jobs whose degraded reads could mis-assess or mis-act —
+    # all SubIA/consciousness jobs (subia-*, tsal_*, consciousness-*, cogito-cycle,
+    # *-probe, behavioral-assessment), audits (alignment-audit, goodhart-check),
+    # self-improvement (self-improvement/evolution, learn-queue, retrospective,
+    # improvement-scan), companion decisions, llm-discovery (auto-mutates the LLM
+    # catalog); DESTRUCTIVE (data-retention); host/container jobs (training-*,
+    # autonomous-executor, chaos-testing, code-intel-refresh, atlas-learning).
+    # cogito-cycle additionally needs a collections-list route first.
+}
 
 
 def _idle_role() -> str:
