@@ -49,7 +49,14 @@ mem0ai[nlp]>=2.0.1,<3.0.0
 # pre-flight gate that rejects every Ollama model regardless of whether
 # the actual call uses tools (mem0/llms/litellm.py:70).
 # See app/memory/mem0_manager.py for the provider-selection logic.
-ollama>=0.4.0
+# Floor bumped 0.4.0 -> 0.6.0 (2026-06-07); 0.6.2 is the current client.
+# NOTE: the real perf/stability lever is the HOST Ollama *server* (runs
+# natively on the host, not in this image) — keep it current. On macOS it's
+# the Ollama.app (self-updates via the menu bar, or re-download from
+# ollama.com/download); on Linux re-run the ollama.com install script. 2026
+# server builds add faster Apple-Silicon prefill/decode + a rewritten
+# scheduler that reduces OOM crashes. The pip client only tracks the API.
+ollama>=0.6.0
 # Google Earth Engine — satellite-imagery analysis surfaced to the
 # coding crew via app/tools/gee_tool.py. Requires
 # GOOGLE_APPLICATION_CREDENTIALS pointing at a service-account JSON

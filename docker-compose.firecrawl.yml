@@ -1,5 +1,16 @@
 name: firecrawl
 
+# ── Image digest pins (2026-06-07) ──────────────────────────────────────
+# Every image below is pinned to the @sha256 digest of the validated build
+# that was running at pin time — supply-chain hardening (substrate_radar
+# requires @sha256; floating :latest/:alpine allows silent substitution).
+# Firecrawl's GHCR images publish ONLY :latest (no semver tags), so a digest
+# is the only way to pin them at all. To bump: pull the new tag, capture the
+# digest with `docker inspect --format '{{index .RepoDigests 0}}' <image>`,
+# and replace below. Available-but-deferred (need a migration check, not a
+# blind bump): rabbitmq 3->4, redis -> valkey 8 or redis 8.
+# ─────────────────────────────────────────────────────────────────────────
+
 networks:
   firecrawl-backend:
     driver: bridge
@@ -29,7 +40,7 @@ x-common-env: &common-env
 
 services:
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:latest@sha256:6a89a150d0163877caab1982b7a20d0a03fd4b39401a0d3f26f61ad205949442
     networks:
       firecrawl-backend: {}
       # Also exposed to the crewai-team external network so app/tools/web_search.py
@@ -49,7 +60,7 @@ services:
     restart: unless-stopped
 
   firecrawl-api:
-    image: ghcr.io/firecrawl/firecrawl:latest
+    image: ghcr.io/firecrawl/firecrawl:latest@sha256:f4e4d526481976fc1f77a7f6ed7e3d45e5511f4b1cf78af3bf12b9ff31dca3a1
     env_file: .env
     # Run ONLY the API server — skip the harness which spawns 12+ worker processes
     # The separate firecrawl-worker container handles queue processing
@@ -88,7 +99,7 @@ services:
       start_period: 60s
 
   firecrawl-worker:
-    image: ghcr.io/firecrawl/firecrawl:latest
+    image: ghcr.io/firecrawl/firecrawl:latest@sha256:f4e4d526481976fc1f77a7f6ed7e3d45e5511f4b1cf78af3bf12b9ff31dca3a1
     env_file: .env
     environment:
       <<: *common-env
@@ -115,7 +126,7 @@ services:
     restart: unless-stopped
 
   playwright-service:
-    image: ghcr.io/firecrawl/playwright-service:latest
+    image: ghcr.io/firecrawl/playwright-service:latest@sha256:e8829fb3e87703d0834f0aa0a0965c7574210d7d23a1c58d0bfaf290a0417e6b
     environment:
       PORT: "3000"
       BLOCK_MEDIA: ${FC_BLOCK_MEDIA:-true}
@@ -130,7 +141,7 @@ services:
     restart: unless-stopped
 
   firecrawl-rabbitmq:
-    image: rabbitmq:3-alpine
+    image: rabbitmq:3-alpine@sha256:d7af1c87c5f1eda13fcfca06db452bf3aeab6619fc3358b68535c0c02c4e52bc
     networks:
       - firecrawl-backend
     healthcheck:
@@ -146,7 +157,7 @@ services:
     restart: unless-stopped
 
   firecrawl-postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
     environment:
       POSTGRES_USER: firecrawl
       POSTGRES_PASSWORD: firecrawl
@@ -167,7 +178,7 @@ services:
     restart: unless-stopped
 
   firecrawl-redis:
-    image: redis:alpine
+    image: redis:alpine@sha256:81b6f81d6a6c5b9019231a2e8eb10085e3a139a34f833dcc965a8a959b040b72
     networks:
       - firecrawl-backend
     command: redis-server --bind 0.0.0.0 --maxmemory 512mb --maxmemory-policy allkeys-lru

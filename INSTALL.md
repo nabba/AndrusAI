@@ -145,6 +145,7 @@ unrecoverable step (your Mem0 + ChromaDB memory).
 | Register a Signal phone number | Signal sends an SMS code, requires human | Run `signal-cli register` after install |
 | Tailscale auth | Browser-based OAuth | `tailscale up` after install |
 | Pull Ollama models | Optional + bandwidth-heavy (10–50 GB per model) | `ollama pull qwen3:30b-a3b` after install |
+| Keep host Ollama current | LLM + embedding server runs on the host (macOS `Ollama.app`), not in Docker | App self-updates (menu bar → Restart to update), or re-download from ollama.com/download — 2026 builds add faster Apple-Silicon inference + fewer OOM crashes |
 
 ---
 

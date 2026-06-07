@@ -1,8 +1,12 @@
 services:
   # Docker socket proxy — limits API access to only what's needed for sandbox
   # See https://github.com/Tecnativa/docker-socket-proxy
+  # Digest-pinned (2026-06-07) to the validated 0.2 image — supply-chain
+  # hardening per substrate_radar's "@sha256 required" policy. A newer 0.4.x
+  # exists, but bumping needs a CONTAINERS/IMAGES/POST/INFO/EXEC flag-behaviour
+  # re-verify first (this proxy is the docker-escape security boundary).
   docker-proxy:
-    image: tecnativa/docker-socket-proxy:0.2
+    image: tecnativa/docker-socket-proxy:0.2@sha256:083bd0ed8783e366d745f332f0e4489816dd35d984bef8f16e6d89484a22c082
     restart: unless-stopped
     privileged: true
     environment:
@@ -302,7 +306,12 @@ services:
     # override via env var (used by deploy/scripts/version-upgrade-drill.sh
     # to drill the forward-version-migration path against a newer image
     # without touching the live stack baseline).
-    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
+    # Digest-pinned (2026-06-07) to pg18 / 18.4 + pgvector 0.8.2 — migrated from
+    # pg16 the same day via deploy/POSTGRES_PG18_MIGRATION.md (logical dump/restore;
+    # vectors preserved, no re-embed). The PGDATA env above keeps the legacy
+    # /var/lib/postgresql/data mount working on pg18 (docker-library/postgres#1259).
+    # Re-pin when substrate_radar flags a newer digest.
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg18@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d}
     restart: unless-stopped
     shm_size: '1gb'
     command:
@@ -321,6 +330,13 @@ services:
       POSTGRES_USER: mem0
       POSTGRES_PASSWORD: ${MEM0_POSTGRES_PASSWORD:?MEM0_POSTGRES_PASSWORD must be set in .env}
       POSTGRES_DB: mem0
+      # Pin PGDATA to the legacy path. The postgres:18+ image moved its default
+      # data dir to /var/lib/postgresql/<major>/ and refuses a bind mount at
+      # /var/lib/postgresql/data (docker-library/postgres#1259). Setting PGDATA
+      # explicitly keeps the existing ./workspace/mem0_pgdata mount working across
+      # the pg16->18 bump (we migrate via logical dump/restore, not pg_upgrade
+      # --link, so the new layout buys nothing). Harmless no-op on pg16.
+      PGDATA: /var/lib/postgresql/data
     volumes:
       - ./workspace/mem0_pgdata:/var/lib/postgresql/data
     networks:
@@ -330,6 +346,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      # Grace for a fresh initdb on the macOS bind mount (e.g. first boot after a
+      # major-version migration) so early-init probe failures don't flap the
+      # container to "unhealthy" before the DB is actually up.
+      start_period: 60s
     security_opt:
       - no-new-privileges:true
     deploy:
@@ -340,7 +360,10 @@ services:
 
   neo4j:
     # Override-able via NEO4J_IMAGE (see postgres comment above).
-    image: ${NEO4J_IMAGE:-neo4j:5-community}
+    # Digest-pinned (2026-06-07) to the running 5.26.25-community (the 5.26 LTS
+    # line, supported to Nov 2028). Driver 6.2 <-> server 5.26 is a supported
+    # pairing. Re-pin when substrate_radar flags a newer digest.
+    image: ${NEO4J_IMAGE:-neo4j:5-community@sha256:b357872da95a164c5243ca8d9060601130717ff43cee3c829402fab46209a412}
     restart: unless-stopped
     environment:
       NEO4J_AUTH: neo4j/${MEM0_NEO4J_PASSWORD:?MEM0_NEO4J_PASSWORD must be set in .env}
