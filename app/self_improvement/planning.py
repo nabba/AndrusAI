@@ -192,36 +192,37 @@ def _build_evolution_context() -> str:
     # ── Knowledge-informed evolution (Phase 3B) ─────────────────────────────
     kb_evolution_ctx = ""
     try:
-        from app.episteme.vectorstore import get_store as get_episteme
-        epi_store = get_episteme()
-        if epi_store._collection.count() > 0:
-            epi_hits = epi_store.query(
-                query_text=f"improve multi-agent system {errors_text[:100]}",
-                n_results=2,
+        # kb_read routes to the gateway when run in the worker process (serving
+        # /compute split); identical to episteme.get_store().query() on the
+        # gateway. Empty-KB + error cases both yield [] internally.
+        from app.memory import kb_read
+        epi_hits = kb_read.query(
+            "episteme",
+            f"improve multi-agent system {errors_text[:100]}",
+            n_results=2,
+        )
+        if epi_hits:
+            epi_texts = [h["text"][:300] for h in epi_hits]
+            kb_evolution_ctx += (
+                "\n## Research Insights (episteme KB)\n"
+                + "\n".join(f"  - {t}" for t in epi_texts) + "\n"
             )
-            if epi_hits:
-                epi_texts = [h["text"][:300] for h in epi_hits]
-                kb_evolution_ctx += (
-                    "\n## Research Insights (episteme KB)\n"
-                    + "\n".join(f"  - {t}" for t in epi_texts) + "\n"
-                )
     except Exception:
         pass
 
     try:
-        from app.experiential.vectorstore import get_store as get_exp
-        exp_store = get_exp()
-        if exp_store._collection.count() > 0:
-            exp_hits = exp_store.query(
-                query_text="evolution improvement experiment outcome",
-                n_results=2,
+        from app.memory import kb_read
+        exp_hits = kb_read.query(
+            "experiential",
+            "evolution improvement experiment outcome",
+            n_results=2,
+        )
+        if exp_hits:
+            exp_texts = [h["text"][:300] for h in exp_hits]
+            kb_evolution_ctx += (
+                "\n## Past Experiences (journal)\n"
+                + "\n".join(f"  - {t}" for t in exp_texts) + "\n"
             )
-            if exp_hits:
-                exp_texts = [h["text"][:300] for h in exp_hits]
-                kb_evolution_ctx += (
-                    "\n## Past Experiences (journal)\n"
-                    + "\n".join(f"  - {t}" for t in exp_texts) + "\n"
-                )
     except Exception:
         pass
 
