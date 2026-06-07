@@ -57,6 +57,11 @@ services:
     ports:
       - '127.0.0.1:${GATEWAY_PORT}:${GATEWAY_PORT}'
     environment:
+      # Serving/compute split (2026-06-07): run all idle jobs EXCEPT the
+      # worker-eligible set (idle_scheduler._WORKER_ELIGIBLE_JOBS), which run in
+      # the `worker` service. Frees the gateway event loop from the multi-minute
+      # GIL-holding cognition jobs. "all" (unset) = single-process (legacy).
+      IDLE_SCHEDULER_ROLE: gateway
       # Default unchanged (docker-proxy). Set GATEWAY_DOCKER_HOST=tcp://docker-broker:2375
       # (+ `--profile docker-broker`) to route container-create through the body filter.
       # NB: a DEDICATED var, not DOCKER_HOST, to avoid colliding with the operator's

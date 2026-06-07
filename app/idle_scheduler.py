@@ -1249,7 +1249,29 @@ def _run_boot_prep() -> None:
 # fail-closed-guards it), so a job is added here only after it is verified
 # chromadb-free OR converted to ledger-first writes. Empty = nothing moves yet
 # (the mechanism is built; migration populates this allowlist per-job).
-_WORKER_ELIGIBLE_JOBS: set[str] = set()
+_WORKER_ELIGIBLE_JOBS: set[str] = {
+    # ChromaDB-free (Phase-1 audit: verified no chromadb open) — run trivially
+    # in the worker:
+    "benchmarks-refresh",
+    "widening-proposer-scan",
+    "modification-engine",
+    "personality-development",
+    # ChromaDB cognition jobs — run via the worker-mode proxy (reads→gateway RAG
+    # API, writes→source ledger). These are the multi-minute GIL holders behind
+    # the wedge; each verified to use only standard, proxy-covered collection
+    # methods (query by embedding / get / count / add / upsert / update) and to
+    # spawn no containers:
+    "consolidator",
+    "pattern-library-extract",
+    "self-knowledge-ingest",
+    "transfer-compile",
+    "transfer-promotion",
+    # DEFERRED (not yet eligible): "cogito-cycle" (its inspect path calls
+    # list_collections → [] via the proxy = degraded reflection; needs a
+    # collections-list route first), "self-improvement"/evolution (its evolver
+    # container spawns need worker docker wiring), "learn-queue" (LLM-crew;
+    # verify via the proxy before trusting). Add once this set proves out.
+}
 
 
 def _idle_role() -> str:
