@@ -16,7 +16,7 @@ kb_proxy = pytest.importorskip("app.memory.kb_proxy")
 @pytest.fixture(autouse=True)
 def _no_replay(monkeypatch):
     # Don't spawn real replay-trigger threads during unit tests.
-    monkeypatch.setattr(kb_proxy, "_trigger_replay", lambda kb: None)
+    monkeypatch.setattr(kb_proxy, "_trigger_replay", lambda kb, since_ts=None: None)
 
 
 def test_proxy_never_opens_chromadb():

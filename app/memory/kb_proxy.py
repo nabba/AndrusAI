@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import threading
+import time
 import urllib.request
 from typing import Any, Optional
 
@@ -59,14 +60,23 @@ def _internal_post(path: str, body: dict, *, timeout: int = 30) -> Optional[dict
         return json.loads(resp.read() or b"{}")
 
 
-def _trigger_replay(kb: str) -> None:
-    """Fire-and-forget prompt-sync: ask the gateway to replay the ledger tail
-    for ``kb`` into ChromaDB so a worker write becomes visible promptly. The
-    write is already durable in the ledger; the daily daemon is the backstop, so
-    any failure here is swallowed."""
+def _trigger_replay(kb: str, since_ts: Optional[float] = None) -> None:
+    """Fire-and-forget prompt-sync: ask the gateway to replay the RECENT ledger
+    tail for ``kb`` into ChromaDB so a worker write becomes visible promptly.
+
+    ``since_ts`` scopes the replay to the just-written rows. This matters: the
+    memory KB ledger is high-volume + mostly gateway-written, so replaying the
+    endpoint's default 600s window on every worker write would re-embed a huge
+    tail (slow + redundant). Passing the write's start time replays only the few
+    rows that write produced. The write is already durable in the ledger and the
+    daily daemon is the backstop, so any failure here is swallowed."""
+    body = {"kb": kb}
+    if since_ts is not None:
+        body["since_ts"] = since_ts
+
     def _go() -> None:
         try:
-            _internal_post("/internal/kb/replay", {"kb": kb}, timeout=120)
+            _internal_post("/internal/kb/replay", body, timeout=120)
         except Exception:
             logger.debug("kb_proxy: prompt-sync replay failed for kb=%s", kb, exc_info=True)
 
@@ -139,21 +149,24 @@ class _ProxyCollection:
     # ── writes (ledger-first; local + durable; never silently drop) ───────
     def add(self, *, ids=None, documents=None, metadatas=None, embeddings=None, **_ignored):
         from app.memory import source_ledger
+        t0 = time.time()
         source_ledger.hook_collection_add(self._kb, self.name, _as_list(ids), _as_list(documents), metadatas)
-        _trigger_replay(self._kb)
+        _trigger_replay(self._kb, since_ts=t0 - 2.0)
 
     def upsert(self, *, ids=None, documents=None, metadatas=None, embeddings=None, **_ignored):
         # Recorded as an add row: replay folds latest-add-wins per (collection,
         # doc_id) and re-applies via col.upsert, so the end state matches a
         # chromadb upsert. (chromadb upsert REPLACES, does not merge — unchanged.)
         from app.memory import source_ledger
+        t0 = time.time()
         source_ledger.hook_collection_add(self._kb, self.name, _as_list(ids), _as_list(documents), metadatas)
-        _trigger_replay(self._kb)
+        _trigger_replay(self._kb, since_ts=t0 - 2.0)
 
     def update(self, *, ids=None, documents=None, metadatas=None, **_ignored):
         from app.memory import source_ledger
+        t0 = time.time()
         source_ledger.hook_collection_update(self._kb, self.name, _as_list(ids), documents, metadatas)
-        _trigger_replay(self._kb)
+        _trigger_replay(self._kb, since_ts=t0 - 2.0)
 
     def delete(self, *, ids=None, where: Optional[dict] = None, **_ignored):
         from app.memory import source_ledger
@@ -169,8 +182,9 @@ class _ProxyCollection:
             if not target_ids:
                 return  # nothing matched
         if target_ids:
+            t0 = time.time()
             source_ledger.hook_collection_delete(self._kb, self.name, target_ids)
-            _trigger_replay(self._kb)
+            _trigger_replay(self._kb, since_ts=t0 - 2.0)
 
 
 class _ProxyClient:
