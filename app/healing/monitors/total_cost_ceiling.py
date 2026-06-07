@@ -159,29 +159,26 @@ def _month_progress(now: float) -> tuple[int, int]:
 
 
 def _query_mtd_total_cost(*, now: float) -> Optional[float]:
-    """Sum ``cost_usd`` from control_plane.audit_log for the current
-    calendar month. Returns None on query failure (test envs without
-    Postgres); the run path treats None as 'unknown' and skips.
+    """Sum ``cost_usd`` for the current calendar month from the canonical LLM
+    cost ledger (the SQLite ``token_usage`` table — the same source every
+    observed LLM call writes to). Returns None on read failure; the run path
+    treats None as 'unknown' and skips.
+
+    Repointed 2026-06-07: previously summed ``control_plane.audit_log``, which
+    is fed only by the ``ticket.completed`` path and so captured ~14% of real
+    spend (live: $0.08 vs token_usage's $9.98 for the same month). The one
+    active total-cost backstop was structurally blind to idle-job / training /
+    benchmark / healing spend. ``token_usage`` is authoritative.
     """
     try:
-        from app.control_plane.db import execute
+        from app.llm_cost_ledger import month_to_date_total_usd
     except Exception:
         return None
     try:
-        rows = execute(
-            """SELECT COALESCE(SUM(cost_usd), 0) AS total
-                 FROM control_plane.audit_log
-                WHERE cost_usd IS NOT NULL
-                  AND date_trunc('month', timestamp)
-                      = date_trunc('month', NOW())""",
-            (), fetch=True,
-        )
+        return month_to_date_total_usd(now=now)
     except Exception:
-        logger.debug("total_cost_ceiling: db query failed", exc_info=True)
+        logger.debug("total_cost_ceiling: mtd query failed", exc_info=True)
         return None
-    if not rows:
-        return 0.0
-    return float(rows[0].get("total") or 0.0)
 
 
 def _set_brake(value: bool) -> None:

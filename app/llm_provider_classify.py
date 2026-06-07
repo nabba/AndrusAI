@@ -87,6 +87,19 @@ def classify_provider(model_id: str) -> Optional[str]:
     if any(marker in lower for marker in _ANTHROPIC_MARKERS):
         return "anthropic"
 
+    # OpenRouter+Ollama-only stack (CLAUDE.md): the entire PAID surface is
+    # OpenRouter, and local Ollama models surface as bare ``name:tag`` ids
+    # (no slash). So any remaining vendor-prefixed id (``vendor/model``) that
+    # isn't ollama- or anthropic-native is, by construction, OpenRouter-routed.
+    # This catch-all closes the per-provider attribution gap where unlisted
+    # vendor prefixes (openai/, stepfun/, minimax/, moonshotai/, xiaomi/,
+    # baidu/, nvidia/, inclusionai/, …) returned None and were silently
+    # excluded from the OpenRouter daily-cap spend sum (~$61 / 16.5% of paid
+    # spend invisible, 2026-06-07 audit). Bare local ids (no slash) still
+    # return None — they're free, so the cap doesn't care.
+    if "/" in lower:
+        return "openrouter"
+
     return None
 
 

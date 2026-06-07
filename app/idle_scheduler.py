@@ -349,6 +349,24 @@ _HEAVY_MIN_CADENCE: dict[str, float] = {
     "trajectory-tips":         3600,
     "transfer-promotion":      3600,
     "personality-development": 3600,
+    # 2026-06-07 audit: these stay gateway-side (safety/host jobs, not
+    # worker-eligible) AND were absent from this map, so the round-robin ran
+    # them back-to-back. Measured GIL holds: training-curate 6m19s,
+    # llm-discovery 94s, self-improvement 42s. A single run is under the
+    # watchdog's 900s escalation, but 2-3 back-to-back sustain a >900s /health
+    # blackout → restart. Spacing them out breaks that accumulation. The real
+    # cure (out-of-process execution) is the serving-split worker migration;
+    # this is the interim that the existing cadence mechanism already supports.
+    "training-curate":        86400,   # heaviest holder (~6 min); daily is ample
+    "training-pipeline":      86400,
+    "self-improvement":        3600,   # job name for _evolution (the "evolution" key above never matched)
+    "retrospective":          86400,
+    "improvement-scan":       14400,
+    "atlas-learning":         21600,
+    "llm-discovery":          86400,   # catalog discovery; llm-refresh-catalog runs separately + fast
+    "adversarial-probes":     86400,
+    "chaos-testing":          86400,
+    "code-intel-refresh":     86400,
 }
 
 _heavy_job_last_run: dict[str, float] = {}
