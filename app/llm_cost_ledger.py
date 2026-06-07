@@ -187,6 +187,54 @@ def spend_for_provider(provider: str, hours: float = 24.0) -> float:
     return float(spend_by_provider(hours).get(provider, 0.0))
 
 
+# ── Calendar-month total (total-cost ceiling) ───────────────────────
+
+
+def _month_start_iso(now: Optional[float] = None) -> str:
+    """First instant of the current UTC calendar month, ISO-8601.
+    Matches the ``ts`` format written by ``record_tokens`` so a string
+    ``ts >=`` comparison selects the month (ISO-8601 sorts lexically)."""
+    dt = (
+        datetime.now(timezone.utc)
+        if now is None
+        else datetime.fromtimestamp(now, tz=timezone.utc)
+    )
+    return dt.replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    ).isoformat()
+
+
+def _mtd_total_uncached(now: Optional[float]) -> Optional[float]:
+    conn = _open_readonly()
+    if conn is None:
+        return None
+    try:
+        cur = conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) AS total FROM token_usage "
+            "WHERE cost_usd IS NOT NULL AND ts >= ?",
+            (_month_start_iso(now),),
+        )
+        row = cur.fetchone()
+        return float(row["total"] or 0.0) if row is not None else 0.0
+    except sqlite3.Error:
+        logger.debug("llm_cost_ledger: month-to-date query failed", exc_info=True)
+        return None
+    finally:
+        conn.close()
+
+
+def month_to_date_total_usd(now: Optional[float] = None) -> Optional[float]:
+    """Public: total ``cost_usd`` across ALL models/providers for the current
+    UTC calendar month, or ``None`` if the ledger can't be read.
+
+    Authoritative spend figure for the total-cost ceiling: reads the same
+    ``token_usage`` table every observed LLM call writes to, so the ceiling
+    sees 100% of spend — not the ~14% ``ticket.completed`` slice that
+    ``control_plane.audit_log`` captured."""
+    key = f"mtd_total_{int(now) if now is not None else 'live'}"
+    return _cached(key, lambda: _mtd_total_uncached(now))
+
+
 # ── Per-role spend ──────────────────────────────────────────────────
 
 

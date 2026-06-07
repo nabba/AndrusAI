@@ -190,6 +190,32 @@ def kb_replay(req: ReplayReq, authorization: Optional[str] = Header(default=None
         from app.memory import source_ledger
 
         res = source_ledger.replay_kb(req.kb, since_ts=since)
+        # 2026-06-07: the worker→gateway prompt-sync replay is high-frequency
+        # (one per worker write). If the gateway's cached chromadb client is
+        # wedged (SQLite code-26 on every collection op while the file is
+        # healthy), the daemon's recycle is up to 24h away — so every worker
+        # write re-triggers a replay that re-hits the wedged client (the live
+        # 66-error storm escalating to code-266 disk-I/O). Recover inline,
+        # mirroring source_ledger_daemon: recycle the client once and retry.
+        # Gated by the same master switch.
+        try:
+            from app.memory import source_ledger_daemon as _sld
+
+            if _sld._looks_client_wedged(res) and _sld._gate(
+                "chromadb_client_recycle_on_wedge_enabled"
+            ):
+                recycled = _sld._try_recycle_chromadb_client(req.kb)
+                if recycled:
+                    logger.warning(
+                        "internal kb replay: client wedge on kb=%s — recycled "
+                        "(%r); retrying", req.kb, recycled,
+                    )
+                    res = source_ledger.replay_kb(req.kb, since_ts=since)
+        except Exception:
+            logger.debug(
+                "internal kb replay: wedge-recovery failed for kb=%s",
+                req.kb, exc_info=True,
+            )
         return {"result": res.to_dict() if hasattr(res, "to_dict") else str(res)}
     except Exception:
         logger.warning("internal kb replay failed for kb=%s", req.kb, exc_info=True)
