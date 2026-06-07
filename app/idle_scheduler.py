@@ -1297,14 +1297,23 @@ _WORKER_ELIGIBLE_JOBS: set[str] = {
     "llm-rebenchmark-incumbents",
     "wiki-lint",
     "wiki-synthesis",
+    # Phase 2 (2026-06-08 audit) — heavy data-processing jobs verified worker-safe:
+    # no raw chromadb.PersistentClient reachable, no gateway-only in-process state,
+    # no degradable safety/value judgment. training-curate is the measured ~6m19s
+    # GIL holder (its only chromadb touch is embed()→Ollama HTTP, opens no client);
+    # code-intel-refresh is a pure-AST index rebuild → JSONL + Postgres (zero chromadb).
+    "training-curate",
+    "code-intel-refresh",
     # DEFERRED (stay gateway-side — paced via IDLE_HEAVY_PACE_*): decision-making
     # / safety-sensitive jobs whose degraded reads could mis-assess or mis-act —
     # all SubIA/consciousness jobs (subia-*, tsal_*, consciousness-*, cogito-cycle,
     # *-probe, behavioral-assessment), audits (alignment-audit, goodhart-check),
     # self-improvement (self-improvement/evolution, learn-queue, retrospective,
     # improvement-scan), companion decisions, llm-discovery (auto-mutates the LLM
-    # catalog); DESTRUCTIVE (data-retention); host/container jobs (training-*,
-    # autonomous-executor, chaos-testing, code-intel-refresh, atlas-learning).
+    # catalog); DESTRUCTIVE (data-retention); host/container or self-modifying jobs
+    # (training-pipeline [safety-gated model-promotion decision + process-local
+    # adapter registry], autonomous-executor, chaos-testing, atlas-learning
+    # [self-modifying learned state on fail-soft reads]).
     # cogito-cycle additionally needs a collections-list route first.
 }
 
