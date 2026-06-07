@@ -1270,11 +1270,24 @@ _WORKER_ELIGIBLE_JOBS: set[str] = {
     "self-knowledge-ingest",
     "transfer-compile",
     "transfer-promotion",
-    # DEFERRED (not yet eligible): "cogito-cycle" (its inspect path calls
-    # list_collections → [] via the proxy = degraded reflection; needs a
-    # collections-list route first), "self-improvement"/evolution (its evolver
-    # container spawns need worker docker wiring), "learn-queue" (LLM-crew;
-    # verify via the proxy before trusting). Add once this set proves out.
+    # Maintenance / observational jobs (bulk expansion, 2026-06-07) — classified
+    # proxy-safe + SAFE-TO-DEGRADE (empty fail-soft reads → skip / fewer
+    # candidates, never a wrong or destructive action) + no container spawns:
+    "knowledge-compactor",
+    "analogy-populator",
+    "tech-radar",
+    "llm-rebenchmark-incumbents",
+    "wiki-lint",
+    "wiki-synthesis",
+    # DEFERRED (stay gateway-side — paced via IDLE_HEAVY_PACE_*): decision-making
+    # / safety-sensitive jobs whose degraded reads could mis-assess or mis-act —
+    # all SubIA/consciousness jobs (subia-*, tsal_*, consciousness-*, cogito-cycle,
+    # *-probe, behavioral-assessment), audits (alignment-audit, goodhart-check),
+    # self-improvement (self-improvement/evolution, learn-queue, retrospective,
+    # improvement-scan), companion decisions, llm-discovery (auto-mutates the LLM
+    # catalog); DESTRUCTIVE (data-retention); host/container jobs (training-*,
+    # autonomous-executor, chaos-testing, code-intel-refresh, atlas-learning).
+    # cogito-cycle additionally needs a collections-list route first.
 }
 
 
