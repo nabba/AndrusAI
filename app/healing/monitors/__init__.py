@@ -890,6 +890,12 @@ def start() -> bool:
         ``False`` return distinguishes a clean decline from a crash for
         ``app.healing.watchdog``'s respawn contract.
     """
+    import os
+    if os.environ.get("IDLE_SCHEDULER_ROLE", "all").strip().lower() == "worker":
+        # Serving/compute split: the healing-monitors daemon is gateway
+        # observability (several monitors open ChromaDB). It must not run in the
+        # worker; clean decline like the disabled path.
+        return False
     global _driver_started
     if not _enabled():
         logger.info("healing.monitors: disabled via HEALING_MONITORS_ENABLED")

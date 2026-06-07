@@ -98,3 +98,16 @@ def test_delete_collection_is_suppressed():
     client = kb_proxy.proxy_client_for_kb("episteme")
     client.delete_collection("anything")  # must not raise / must not destroy
     assert client.list_collections() == []
+
+
+def test_gateway_daemons_guarded_in_worker_mode():
+    """The ChromaDB-replay reconciler + healing-monitors daemons must early-
+    return in the worker (serving/compute split) so the worker runs only the
+    idle loop — never opening ChromaDB or duplicating gateway reconciliation."""
+    import pathlib
+
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    for rel in ("app/memory/source_ledger_daemon.py", "app/healing/monitors/__init__.py"):
+        src = (repo / rel).read_text()
+        # The guard lives at the top of start(): if worker → return.
+        assert 'IDLE_SCHEDULER_ROLE' in src and '"worker"' in src, f"{rel}: missing worker guard"

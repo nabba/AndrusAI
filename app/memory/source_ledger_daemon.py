@@ -479,6 +479,13 @@ def start() -> None:
     app.healing.__init__ anchoring) so the daemon starts exactly once
     per process.
     """
+    import os
+    if os.environ.get("IDLE_SCHEDULER_ROLE", "all").strip().lower() == "worker":
+        # Serving/compute split: this ledger→ChromaDB replay daemon runs ONLY in
+        # the gateway (the sole ChromaDB writer). In the worker it would open
+        # ChromaDB (now via the proxy → re-append the ledger) = duplicate, wrong
+        # reconciliation. The gateway owns ledger→ChromaDB sync.
+        return
     global _DAEMON_STARTED
     with _DAEMON_LOCK:
         if _DAEMON_STARTED:
