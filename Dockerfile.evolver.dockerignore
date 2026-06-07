@@ -1,0 +1,35 @@
+# Build-context excludes for the EVOLVER image (Dockerfile.evolver).
+#
+# BuildKit uses THIS file in preference to the root .dockerignore for builds
+# that pass `-f Dockerfile.evolver` (e.g. `docker compose --profile evolver
+# build evolver`). It mirrors .dockerignore EXCEPT it does NOT exclude .git/.
+#
+# Why the difference: the evolver image runs the verified-mutation engine, which
+# does `git worktree add` IN-CONTAINER and therefore needs the repo's .git
+# (Dockerfile.evolver: `COPY .git .git`). The gateway image keeps excluding .git
+# via the root .dockerignore to stay slim (.git is ~2 GB). Without this file the
+# evolver build fails at `COPY .git .git` with `"/.git": not found` — a silent
+# regression introduced when the root .dockerignore was added (commit fec3ae84,
+# whose comment wrongly assumed ".git is unused at build").
+
+# Python bytecode / packaging / tool caches
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# VCS — .git/ deliberately NOT excluded here (needed by the worktree mechanism).
+.gitignore
+
+# Runtime data — never COPY'd (bind-mounted at runtime)
+workspace/
+
+# JS deps + local dev cruft (dashboard/build is COPY'd; the React source tree is not)
+node_modules/
+dashboard-react/node_modules/
+.venv/
+venv/
+*.log
+.DS_Store
