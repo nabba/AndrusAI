@@ -61,8 +61,12 @@ INTER_JOB_PAUSE_SECONDS = 2  # Reduced from 5 — lightweight jobs don't need lo
 # loop can never hold the GIL across the heaviest work units back-to-back.
 # This turns the defer-then-stampede cliff into a paced drain (ramp).
 IDLE_SETTLING_SECONDS = 300       # ramp window AFTER warm-up exit
-IDLE_HEAVY_PACE_SETTLE_S = 3.0    # GIL-yield after MEDIUM/HEAVY during settling
-IDLE_HEAVY_PACE_STEADY_S = 1.0    # GIL-yield after MEDIUM/HEAVY in steady state
+# Env-tunable (2026-06-07) so the GIL-yield can be widened without a rebuild —
+# the interim wedge mitigation sets these high so /health is served in the gaps
+# between MEDIUM/HEAVY jobs (breaks the back-to-back burst). Reverts to the
+# original 3.0/1.0 when the env vars are unset.
+IDLE_HEAVY_PACE_SETTLE_S = float(os.environ.get("IDLE_HEAVY_PACE_SETTLE_S", "3.0"))  # GIL-yield after MEDIUM/HEAVY during settling
+IDLE_HEAVY_PACE_STEADY_S = float(os.environ.get("IDLE_HEAVY_PACE_STEADY_S", "1.0"))  # GIL-yield after MEDIUM/HEAVY in steady state
 
 # Local fallback if the lifespan never calls boot_state.mark_boot_complete().
 # Set deliberately long: the realistic recovery scenario is a refactor that
