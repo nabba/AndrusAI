@@ -711,12 +711,20 @@ def ingest_library(library_dir: Path = FICTION_LIBRARY_DIR,
         if last_failed and last_failed > retry_threshold:
             skipped.append(filepath.name)
             continue
+        # Provisional quarantine BEFORE attempting, persisted immediately: if
+        # this book hangs the process and we're SIGKILLed mid-ingest (e.g. the
+        # host watchdog restarting a wedged gateway), the entry is already on
+        # disk so the next run skips it for the retry window instead of
+        # re-attempting the same book forever. A clean success clears it below.
+        # (2026-06-08: closes the restart-loop where Foundation_1 was re-ingested
+        #  on every boot because a kill leaves no catchable exception.)
+        skip[filepath.name] = now
+        _save_skip_list(library_dir, skip)
         try:
             result = ingest_book(filepath, extract_concepts=extract_concepts)
             results.append(result)
-            if filepath.name in skip:
-                skip.pop(filepath.name, None)
-                skip_dirty = True
+            skip.pop(filepath.name, None)
+            skip_dirty = True
         except Exception as e:
             logger.warning(f"fiction_inspiration: failed to ingest {filepath}: {e}")
             skip[filepath.name] = now

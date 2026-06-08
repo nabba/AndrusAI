@@ -1739,7 +1739,10 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
     # ── Proactive learning: discover and queue new topics ──────────────
     def _discover_topics() -> None:
         _auto_discover_topics()
-    jobs.append(("discover-topics", _discover_topics, JobWeight.LIGHT))
+    # MEDIUM, not LIGHT: makes an LLM call + topic clustering — not the
+    # "<30s monitoring/snapshot/indexing" the LIGHT pool is for. Belongs in the
+    # deferrable/paced lane. (2026-06-08 restart-loop fix)
+    jobs.append(("discover-topics", _discover_topics, JobWeight.MEDIUM))
 
     # ── MAP-Elites island migration: cross-pollinate top performers ─────
     # Multi-island MAP-Elites preserves separate populations to maintain
@@ -1915,7 +1918,10 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
             refresh_self_model()
         except Exception:
             logger.debug("idle_scheduler: self_model refresh failed", exc_info=True)
-    jobs.append(("self-model-refresh", _refresh_self_model, JobWeight.LIGHT))
+    # MEDIUM, not LIGHT: CPU-bound AST walk of ~1400 modules (~6s+ and growing),
+    # holds the GIL the whole time. In the parallel LIGHT pool it thrashed the
+    # GIL against the event loop. (2026-06-08 restart-loop fix)
+    jobs.append(("self-model-refresh", _refresh_self_model, JobWeight.MEDIUM))
 
     def _goodhart_check() -> None:
         try:
@@ -2211,7 +2217,13 @@ def _default_jobs() -> list[tuple[str, Callable[[], None]]]:
                                 f"{result.get('total_chunks', 0)} chunks")
         except Exception:
             logger.debug("idle_scheduler: fiction ingest failed", exc_info=True)
-    jobs.append(("fiction-ingest", _fiction_ingest, JobWeight.LIGHT))
+    # HEAVY, not LIGHT: embeds whole novels (hundreds of chunks → Ollama +
+    # chromadb upserts), routinely 3min+. As LIGHT it ran in the non-deferrable
+    # 3-way parallel pool with no warm-up deferral or GIL-yield pacing, so it
+    # wedged the event loop in the boot-burst (/health → 000 → watchdog kill →
+    # retry the same book forever). HEAVY → deferred during warm-up + under
+    # memory/disk pressure, run serially with pacing. (2026-06-08 restart-loop fix)
+    jobs.append(("fiction-ingest", _fiction_ingest, JobWeight.HEAVY))
 
     # ── Consciousness probe: Garland/Butlin-Chalmers indicator battery ──
     def _consciousness_probe() -> None:
