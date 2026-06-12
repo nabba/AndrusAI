@@ -12,6 +12,13 @@ logger = logging.getLogger(__name__)
 # Reusable HTTP session for signal-cli calls (connection pooling)
 _http_session = http_requests.Session()
 _http_session.headers["Content-Type"] = "application/json"
+# signal-cli 0.14.x validates the HTTP Host header (DNS-rebinding protection)
+# and returns "421 Misdirected Request" for any non-loopback Host. From inside
+# Docker we must connect to host.docker.internal, which would otherwise set
+# Host: host.docker.internal and be rejected. Pin the Host to a value signal-cli
+# accepts. (Regression surfaced 2026-06-12 after the signal-cli 0.14.1 -> 0.14.5
+# upgrade that was needed to fix an inbound "getServerGuid must not be null" NPE.)
+_http_session.headers["Host"] = "localhost"
 
 MAX_SIGNAL_LENGTH = 1500
 _MAX_RESPONSE_BYTES = 65536
