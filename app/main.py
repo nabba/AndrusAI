@@ -188,12 +188,31 @@ def _configure_audit_log() -> None:
         encoding="utf-8",
     )
     handler.setFormatter(logging.Formatter("%(message)s"))
-    audit_logger.addHandler(handler)
 
     # Also emit to stdout so Docker log drivers can capture it
     stdout_handler = logging.StreamHandler()
     stdout_handler.setFormatter(logging.Formatter("AUDIT %(message)s"))
-    audit_logger.addHandler(stdout_handler)
+
+    # Queue-decoupled emission (2026-06-12 loop-hygiene): audit rows are
+    # logged from async handlers ON the event loop thread, and audit.log
+    # lives on the macOS bind mount — a synchronous RotatingFileHandler
+    # write there can block the whole loop for seconds when the mount is
+    # under fsync pressure (the wedge class behind the watchdog restarts).
+    # With QueueHandler the emitting thread does a lock-free queue.put;
+    # a single QueueListener thread owns the actual disk/stdout writes.
+    # Rows carry their own "ts" field (set at emit), so latency pairing
+    # (latency_slo) is unaffected. Worst case on SIGKILL: ≤1 in-flight
+    # record lost — no worse than a mid-write kill before.
+    import atexit
+    import queue as _queue_mod
+
+    log_queue: _queue_mod.SimpleQueue = _queue_mod.SimpleQueue()
+    listener = logging.handlers.QueueListener(
+        log_queue, handler, stdout_handler, respect_handler_level=True
+    )
+    listener.start()
+    atexit.register(listener.stop)  # flushes remaining records on exit
+    audit_logger.addHandler(logging.handlers.QueueHandler(log_queue))
 
 MAX_MESSAGE_LENGTH = 4000  # Prevent abuse / token bombing
 
@@ -352,6 +371,19 @@ async def lifespan(app: FastAPI):
         logger.info("main: process-liveness heartbeat started (%s)", _hb_path)
     except Exception:
         logger.exception("main: liveness heartbeat failed to start (non-fatal)")
+
+    # Event-loop stall sentinel — sibling of the liveness heartbeat. The
+    # heartbeat proves the PROCESS is alive; this proves the LOOP is, and
+    # when it isn't, dumps every thread's stack to workspace/healing/
+    # loop_stalls/ so a wedge names its blocking call instead of vanishing
+    # with the watchdog restart. Feeds substrate back-pressure + the
+    # loop_stall healing monitor. See app/loop_sentinel.py.
+    try:
+        from app.loop_sentinel import start_loop_sentinel
+
+        start_loop_sentinel()
+    except Exception:
+        logger.exception("main: loop sentinel failed to start (non-fatal)")
 
     # ── Q3.3 (PROGRAM §40.3 Item 1) — Post-amendment restart claims FIRST.
     # Per FastAPI/uvicorn semantics, lifespan-startup runs BEFORE port-
@@ -2050,7 +2082,12 @@ async def receive_signal(request: Request):
     # 200 OK.  If the container crashes or is restarted mid-processing,
     # replay_pending_inbound() on the next startup will re-dispatch any
     # unfinished queue entries so the user's message isn't silently lost.
-    queue_id = enqueue_inbound(sender, text, timestamp, attachments)
+    # Off-loop (2026-06-12 loop-hygiene): this is a synchronous SQLite
+    # commit to the bind-mounted conversations.db — on the loop thread it
+    # wedges the whole gateway when the mount is under fsync pressure.
+    queue_id = await asyncio.to_thread(
+        enqueue_inbound, sender, text, timestamp, attachments
+    )
 
     asyncio.create_task(handle_task(sender, text, attachments, timestamp, queue_id))
     return {"status": "accepted", "queue_id": queue_id}

@@ -107,7 +107,27 @@ def setup_structured_logging(
         # Filter setup is best-effort — never block error logging.
         logger.debug("noise filter not installed", exc_info=True)
 
-    logging.getLogger().addHandler(handler)
+    # Queue-decoupled emission (2026-06-12 loop-hygiene): this handler sits
+    # on the ROOT logger, so any WARNING+ logged from async code wrote to
+    # the bind-mounted errors.jsonl ON the event loop thread — a wedge
+    # vector under mount fsync pressure. QueueHandler makes emission a
+    # lock-free queue.put; the listener thread owns the disk write. The
+    # queue handler carries the level + filter so DEBUG/INFO floods and
+    # known noise never even enqueue.
+    import atexit
+    import queue as _queue_mod
+    from logging.handlers import QueueHandler, QueueListener
+
+    log_queue: _queue_mod.SimpleQueue = _queue_mod.SimpleQueue()
+    listener = QueueListener(log_queue, handler, respect_handler_level=True)
+    listener.start()
+    atexit.register(listener.stop)
+    queue_handler = QueueHandler(log_queue)
+    queue_handler.setLevel(logging.WARNING)
+    for f in handler.filters:
+        queue_handler.addFilter(f)
+
+    logging.getLogger().addHandler(queue_handler)
     logger.info(f"Structured logging enabled: {log_path}")
 
 def report_error(

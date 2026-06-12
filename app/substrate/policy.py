@@ -46,6 +46,15 @@ class ResourcePolicy:
     SIGKILLs the 8 GB-capped gateway, then restarts it cold). ``None`` on the
     snapshot (non-Linux / no limit set) means this predicate is skipped."""
 
+    max_loop_stall_recency_s: float = 600.0
+    """If the event loop stalled (loop_sentinel) within this many seconds —
+    or is stalled right now — defer MEDIUM/HEAVY idle work. The serving
+    plane just proved it's under pressure; background work yields first."""
+
+    max_loop_lag_p95_ms: float = 500.0
+    """If the event loop's p95 scheduling lag exceeds this, defer MEDIUM/
+    HEAVY idle work — the loop is degraded even if not fully stalled."""
+
 
 _DEFAULT_POLICY = ResourcePolicy()
 
@@ -104,6 +113,25 @@ def should_defer_heavy_work(
             return (
                 f"cgroup_mem={mem_frac:.0%} >= max={pol.max_cgroup_mem_fraction:.0%} "
                 "(near container memory limit)"
+            )
+
+        # Event-loop degradation (loop_sentinel) — congestion control: the
+        # scheduler observes the serving plane and backs off while it is
+        # stalled, recently stalled, or schedule-lagging.
+        res = snapshot.resources or {}
+        if res.get("loop_in_stall"):
+            return "event_loop_degraded: stall in progress"
+        stall_age = res.get("loop_last_stall_age_s")
+        if stall_age is not None and stall_age < pol.max_loop_stall_recency_s:
+            return (
+                f"event_loop_degraded: stalled {stall_age:.0f}s ago "
+                f"(< {pol.max_loop_stall_recency_s:.0f}s recency window)"
+            )
+        lag_p95 = res.get("loop_lag_p95_ms")
+        if lag_p95 is not None and lag_p95 > pol.max_loop_lag_p95_ms:
+            return (
+                f"event_loop_degraded: lag_p95={lag_p95:.0f}ms "
+                f"> max={pol.max_loop_lag_p95_ms:.0f}ms"
             )
 
         # Host substrate alerts — if Q16 monitor recently fired a disk-horizon

@@ -322,6 +322,20 @@ def _probe_resources(snap: SubstrateStatus) -> None:
     except Exception as exc:
         snap.errors.append(f"resources.chroma_disk: {exc}")
 
+    # Event-loop health (loop_sentinel) — lets the idle scheduler's
+    # back-pressure policy defer MEDIUM/HEAVY work while the serving
+    # plane is degraded (congestion control: the scheduler observes its
+    # victim). Absent fields (sentinel not started) ⇒ predicates skipped.
+    try:
+        from app.loop_sentinel import get_stats
+        ls = get_stats()
+        out["loop_in_stall"] = ls.get("in_stall")
+        out["loop_last_stall_age_s"] = ls.get("last_stall_age_s")
+        out["loop_lag_p95_ms"] = ls.get("lag_p95_ms")
+        out["loop_stall_count"] = ls.get("stall_count")
+    except Exception as exc:
+        snap.errors.append(f"resources.loop_sentinel: {exc}")
+
     # Container cgroup memory — failure-isolated; absent files (non-Linux /
     # no limit set) simply leave the fields None.
     try:

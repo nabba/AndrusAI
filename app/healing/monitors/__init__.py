@@ -54,6 +54,7 @@ def _enabled() -> bool:
 # Per-monitor cadence. Slow defaults: monitors are alerts, not real-time.
 _DEFAULT_CADENCE_S = {
     "disk_quota": 300,           # 5 min — disk fills slow
+    "loop_stall": 300,           # 5 min — acute event; probe is in-process + free
     "listener_heartbeat": 600,   # 10 min — match the dashboard refresh
     "cron_liveness": 1800,       # 30 min — cron jobs are O(hour) cadence
     "vendor_sunset": 7 * 86400,  # weekly
@@ -223,6 +224,11 @@ def _driver() -> None:
         monitors.append(("signal_heartbeat", signal_heartbeat.run, _DEFAULT_CADENCE_S["signal_heartbeat"], 0.0))
     except Exception:
         logger.debug("monitors: signal_heartbeat import failed", exc_info=True)
+    try:
+        from app.healing.monitors import loop_stall
+        monitors.append(("loop_stall", loop_stall.run, _DEFAULT_CADENCE_S["loop_stall"], 0.0))
+    except Exception:
+        logger.debug("monitors: loop_stall import failed", exc_info=True)
     try:
         from app.healing.monitors import db_vacuum
         monitors.append(("db_vacuum", db_vacuum.run, _DEFAULT_CADENCE_S["db_vacuum"], 0.0))
