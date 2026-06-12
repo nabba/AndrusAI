@@ -74,6 +74,19 @@ def _workspace_root() -> Path:
         return Path("/app/workspace")
 
 
+def _chroma_data_root() -> Path:
+    """Chroma data root — the named volume when the split is active,
+    otherwise pass-through to ``_workspace_root()`` (keeps test harnesses
+    that patch the workspace resolver steering discovery)."""
+    try:
+        from app.paths import CHROMA_DATA_ROOT, chroma_split_active
+        if chroma_split_active():
+            return Path(CHROMA_DATA_ROOT)
+    except Exception:
+        pass
+    return _workspace_root()
+
+
 def _find_chroma_sqlites(root: Path) -> list[Path]:
     """Return every ``chroma.sqlite3`` directly under a workspace KB
     directory. Skips quarantined snapshots like ``memory.corrupt_*``."""
@@ -152,7 +165,7 @@ def run() -> None:
         return
     state["last_run_at"] = now
 
-    sqlites = _find_chroma_sqlites(_workspace_root())
+    sqlites = _find_chroma_sqlites(_chroma_data_root())
     if not sqlites:
         # No KBs yet — record the run and move on. (Don't tell the
         # operator: empty workspace is a normal early state.)

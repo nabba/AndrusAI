@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import os
 
+from app.paths import chroma_kb_dir
+
+# Chroma data dir (derived index — may live on the CHROMA_DATA_ROOT named
+# volume). The per-KB env override wins; entries stay on the workspace mount.
 CHROMA_PERSIST_DIR: str = os.environ.get(
-    "EXPERIENTIAL_CHROMA_DIR", "/app/workspace/experiential"
-)
+    "EXPERIENTIAL_CHROMA_DIR", ""
+) or str(chroma_kb_dir("experiential"))
 COLLECTION_NAME: str = "experiential_journal"
 ENTRIES_DIR: str = os.environ.get(
     "EXPERIENTIAL_ENTRIES_DIR", "/app/workspace/experiential/entries"

@@ -141,6 +141,16 @@ services:
     volumes:
       - ./workspace:/app/workspace
       - ./wiki:/app/wiki
+      # ChromaDB data volume (named, Docker-VM-native filesystem). ChromaDB is
+      # a DERIVED index — fully reconstructable from the per-KB source ledgers
+      # at workspace/<kb>/.source_ledger.jsonl (PROGRAM §56) — so it needs no
+      # host visibility, and the macOS bind-mount fsync amplification that
+      # gridlocked the gateway under heavy KB writes doesn't apply here.
+      # Activated by CHROMA_DATA_ROOT=/chroma (set during the Phase-1b
+      # migration); without the env the gateway keeps using workspace/<kb>/.
+      # The worker service deliberately gets NEITHER the mount nor the env —
+      # single-writer discipline (§55) enforced physically.
+      - chroma_data:/chroma
       # Signal socket mount disabled — forwarder.py runs on host and bridges via HTTP
       # - ${SIGNAL_SOCKET_PATH}:${SIGNAL_SOCKET_PATH}
       - ${SIGNAL_ATTACHMENT_PATH:-/dev/null}:/app/attachments:ro
@@ -411,4 +421,8 @@ networks:
     driver: bridge
     internal: true   # No internet access for ChromaDB or docker-proxy
 
-volumes: {}
+volumes:
+  # Derived chromadb data (see the gateway service's chroma_data mount
+  # comment). Rebuildable from source ledgers — but never `down -v` casually:
+  # a replay re-embeds every KB (minutes to hours of Ollama time).
+  chroma_data: {}

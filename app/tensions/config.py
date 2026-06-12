@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import os
 
+from app.paths import chroma_kb_dir
+
+# Chroma data dir (derived index — may live on the CHROMA_DATA_ROOT named
+# volume). The per-KB env override wins; entries stay on the workspace mount.
 CHROMA_PERSIST_DIR: str = os.environ.get(
-    "TENSIONS_CHROMA_DIR", "/app/workspace/tensions"
-)
+    "TENSIONS_CHROMA_DIR", ""
+) or str(chroma_kb_dir("tensions"))
 COLLECTION_NAME: str = "unresolved_tensions"
 ENTRIES_DIR: str = os.environ.get(
     "TENSIONS_ENTRIES_DIR", "/app/workspace/tensions/entries"

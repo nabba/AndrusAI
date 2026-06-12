@@ -233,8 +233,21 @@ def _resolve_workspace_root() -> Path:
         return Path("/app/workspace")
 
 
+def _resolve_chroma_root() -> Path:
+    """Chroma data root — the named volume when the split is active,
+    otherwise pass-through to ``_resolve_workspace_root()`` (keeps test
+    harnesses that patch the workspace resolver steering discovery)."""
+    try:
+        from app.paths import CHROMA_DATA_ROOT, chroma_split_active
+        if chroma_split_active():
+            return Path(CHROMA_DATA_ROOT)
+    except Exception:
+        pass
+    return _resolve_workspace_root()
+
+
 def _list_kb_dirs(workspace_root: Path) -> list[Path]:
-    """Every workspace/<kb>/ directory containing a chroma.sqlite3."""
+    """Every <chroma-root>/<kb>/ directory containing a chroma.sqlite3."""
     out: list[Path] = []
     if not workspace_root.exists():
         return out
@@ -385,7 +398,9 @@ def export(
     try:
         with tarfile.open(tarball_path, "w:gz") as tar:
             # 1. ChromaDB collections — one JSONL per collection per KB.
-            for kb_dir in _list_kb_dirs(ws_root):
+            # KB discovery walks the chroma data root (named volume when
+            # split); everything else in the export stays workspace-rooted.
+            for kb_dir in _list_kb_dirs(_resolve_chroma_root()):
                 kb_name = kb_dir.name
                 try:
                     import chromadb

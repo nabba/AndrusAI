@@ -5,6 +5,12 @@ set -e
 mkdir -p /app/workspace/output /app/workspace/skills /app/workspace/proposals /app/workspace/applied_code
 chown -R appuser:appuser /app/workspace 2>/dev/null || true
 
+# Chroma data volume (when mounted): make it writable by appuser. Mirrors
+# the workspace chown above; no-op when the volume isn't mounted.
+if [ -d /chroma ]; then
+    chown -R appuser:appuser /chroma 2>/dev/null || true
+fi
+
 # Ensure the signal-cli socket is accessible by appuser (host-mode only —
 # in k8s there's no socket, this loop is a no-op).
 SOCK="${SIGNAL_SOCKET_PATH:-/tmp/signal-cli.sock}"

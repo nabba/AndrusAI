@@ -23,6 +23,42 @@ WORKSPACE_ROOT: Path = Path(
     os.environ.get("WORKSPACE_ROOT", "/app/workspace")
 ).resolve()
 
+# ── ChromaDB data root (derived index; may live on a Docker named volume) ──
+# ChromaDB KBs are derived artifacts, fully reconstructable from the per-KB
+# source ledgers at workspace/<kb>/.source_ledger.jsonl (PROGRAM §56), so the
+# physical chroma.sqlite3 + HNSW segment dirs need no host visibility.
+# CHROMA_DATA_ROOT lets them live on a named volume (native VM filesystem —
+# none of the macOS bind-mount fsync amplification that gridlocks the gateway
+# under heavy KB writes) while ledgers, .sqlite_snapshots, texts/ and every
+# other workspace artifact stay on the bind mount. Defaults to WORKSPACE_ROOT
+# so host-native dev and tests behave exactly as before until the env is set.
+CHROMA_DATA_ROOT: Path = Path(
+    os.environ.get("CHROMA_DATA_ROOT", "") or str(WORKSPACE_ROOT)
+).resolve()
+
+
+def chroma_split_active() -> bool:
+    """True when chroma data lives on its own root (named volume).
+
+    Env-based on purpose: the single authoritative signal, robust against
+    test harnesses that monkeypatch WORKSPACE_ROOT as a module attribute.
+    """
+    return bool(os.environ.get("CHROMA_DATA_ROOT", "").strip())
+
+
+def chroma_root() -> Path:
+    """Root directory holding the per-KB chromadb data dirs."""
+    return CHROMA_DATA_ROOT
+
+
+def chroma_kb_dir(kb_name: str) -> Path:
+    """Physical chromadb data dir for a KB (chroma.sqlite3 + HNSW segments).
+
+    This is NOT the KB's workspace dir: source ledgers, snapshots and source
+    texts stay at WORKSPACE_ROOT/<kb>/ regardless of where chroma data lives.
+    """
+    return CHROMA_DATA_ROOT / kb_name
+
 # ── Journals & metric files (top-level workspace) ────────────────────────
 ERROR_JOURNAL = WORKSPACE_ROOT / "error_journal.json"
 ERROR_TRACKER = WORKSPACE_ROOT / "error_tracker.json"

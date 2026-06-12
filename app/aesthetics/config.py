@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import os
 
+from app.paths import chroma_kb_dir
+
+# Chroma data dir (derived index — may live on the CHROMA_DATA_ROOT named
+# volume). The per-KB env override wins; patterns stay on the workspace mount.
 CHROMA_PERSIST_DIR: str = os.environ.get(
-    "AESTHETICS_CHROMA_DIR", "/app/workspace/aesthetics"
-)
+    "AESTHETICS_CHROMA_DIR", ""
+) or str(chroma_kb_dir("aesthetics"))
 COLLECTION_NAME: str = "aesthetic_patterns"
 PATTERNS_DIR: str = os.environ.get(
     "AESTHETICS_PATTERNS_DIR", "/app/workspace/aesthetics/patterns"

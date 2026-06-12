@@ -30,9 +30,18 @@ logger = logging.getLogger(__name__)
 # ── Constants ───────────────────────────────────────────────────────────────
 
 BUSINESS_KB_PREFIX = "biz_kb_"
+
+
 # All business KBs share the same persist directory as enterprise KB
-# (they're different collections in the same ChromaDB instance).
-_DEFAULT_PERSIST_DIR = "/app/workspace/knowledge"
+# (they're different collections in the same ChromaDB instance). Resolved
+# from the knowledge_base config so the CHROMA_DATA_ROOT named-volume
+# redirect applies here too.
+def _default_persist_dir() -> str:
+    try:
+        from app.knowledge_base.config import CHROMA_PERSIST_DIR
+        return CHROMA_PERSIST_DIR
+    except Exception:
+        return "/app/workspace/knowledge"
 
 
 def _sanitize_name(name: str) -> str:
@@ -57,8 +66,8 @@ class BusinessKBRegistry:
     project is created.
     """
 
-    def __init__(self, persist_dir: str = _DEFAULT_PERSIST_DIR):
-        self._persist_dir = persist_dir
+    def __init__(self, persist_dir: str | None = None):
+        self._persist_dir = persist_dir or _default_persist_dir()
         self._stores: dict[str, object] = {}  # business_name -> KnowledgeStore
         self._lock = threading.Lock()
 
@@ -130,8 +139,11 @@ class BusinessKBRegistry:
         business KBs (e.g., from a previous container run).
         """
         try:
-            import chromadb
-            client = chromadb.PersistentClient(path=self._persist_dir)
+            # Cached path-keyed client (NOT a raw PersistentClient) — keeps
+            # the single-writer discipline and avoids leaking a Rust runtime
+            # per discovery call.
+            from app.memory.chromadb_manager import get_client_for_path
+            client = get_client_for_path(self._persist_dir)
             collections = client.list_collections()
             found = []
             for col in collections:

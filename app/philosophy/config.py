@@ -6,8 +6,14 @@ All values can be overridden via environment variables.
 
 import os
 
+from app.paths import chroma_kb_dir
+
 # ── Storage ──────────────────────────────────────────────────────────────────
-CHROMA_PERSIST_DIR = os.environ.get("PHIL_CHROMA_DIR", "/app/workspace/philosophy")
+# Chroma data dir (derived index — may live on the CHROMA_DATA_ROOT named
+# volume). The per-KB env override wins; texts stay on the workspace mount.
+CHROMA_PERSIST_DIR = os.environ.get("PHIL_CHROMA_DIR", "") or str(
+    chroma_kb_dir("philosophy")
+)
 COLLECTION_NAME = os.environ.get("PHIL_COLLECTION", "philosophy_humanist")
 TEXTS_DIR = os.environ.get("PHIL_TEXTS_DIR", "/app/workspace/philosophy/texts")
 

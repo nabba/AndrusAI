@@ -50,7 +50,16 @@ def _get_ollama_http():
             _ollama_http_client = False  # sentinel: httpx unavailable
         return _ollama_http_client
 
-PERSIST_DIR = Path("/app/workspace/memory")
+# Physical chroma data dir for the "memory" KB. Routed through
+# app.paths.chroma_kb_dir so the derived chromadb files can live on a named
+# volume (CHROMA_DATA_ROOT) while ledgers/snapshots stay on the workspace
+# bind mount. Falls back to the legacy literal if app.paths is unavailable
+# (matches the defensive import style used in get_kb_client below).
+try:
+    from app.paths import chroma_kb_dir as _chroma_kb_dir
+    PERSIST_DIR = _chroma_kb_dir("memory")
+except Exception:
+    PERSIST_DIR = Path("/app/workspace/memory")
 TEAM_COLLECTION = "team_shared"
 
 # ── Embedding backend selection ──────────────────────────────────────────────
@@ -296,8 +305,8 @@ def get_kb_client(kb_name: str):
         if cached is not None:
             return cached
         try:
-            from app.paths import WORKSPACE_ROOT
-            persist_dir = Path(WORKSPACE_ROOT) / name
+            from app.paths import chroma_kb_dir
+            persist_dir = chroma_kb_dir(name)
         except Exception:
             persist_dir = Path("/app/workspace") / name
         client = chromadb.PersistentClient(path=str(persist_dir))

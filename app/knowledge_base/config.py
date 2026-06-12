@@ -6,8 +6,14 @@ All values can be overridden via environment variables.
 
 import os
 
+from app.paths import chroma_kb_dir
+
 # ── Storage ──────────────────────────────────────────────────────────────────
-CHROMA_PERSIST_DIR = os.environ.get("KB_CHROMA_DIR", "/app/workspace/knowledge")
+# Chroma data dir (derived index — may live on the CHROMA_DATA_ROOT named
+# volume). The per-KB env override wins.
+CHROMA_PERSIST_DIR = os.environ.get("KB_CHROMA_DIR", "") or str(
+    chroma_kb_dir("knowledge")
+)
 CHROMA_COLLECTION_NAME = os.environ.get("KB_COLLECTION", "enterprise_knowledge")
 
 # ── Embeddings ───────────────────────────────────────────────────────────────

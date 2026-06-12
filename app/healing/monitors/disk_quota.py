@@ -122,6 +122,51 @@ def run() -> None:
                 tag="disk_quota",
             )
 
+    _check_chroma_volume(crit_gb, warn_gb)
+
+
+def _check_chroma_volume(crit_gb: float, warn_gb: float) -> None:
+    """Second probe: the chroma data root when the named-volume split is
+    active. The volume lives on the Docker VM disk — a different
+    filesystem the workspace probe can't see. Alert-only (chromadb
+    retention via the collections API frees volume space when the
+    operator acts); the substrate policy independently defers heavy
+    work on low chroma free space.
+    """
+    try:
+        from app.paths import CHROMA_DATA_ROOT, chroma_split_active
+        croot = Path(str(CHROMA_DATA_ROOT))
+        if not chroma_split_active() or not croot.exists():
+            return
+        usage = shutil.disk_usage(str(croot))
+    except Exception:
+        logger.debug("disk_quota: chroma volume probe failed", exc_info=True)
+        return
+
+    free_gb = usage.free / (1024 ** 3)
+    total_gb = usage.total / (1024 ** 3)
+    audit_event(
+        "disk_quota_check_chroma",
+        free_gb=round(free_gb, 2), total_gb=round(total_gb, 2),
+    )
+    if free_gb < crit_gb:
+        if _alert_with_cooldown("critical", str(croot), free_gb, total_gb):
+            send_signal_alert(
+                f"🚨 CRITICAL — chroma volume free is **{free_gb:.1f} GB** "
+                f"(of {total_gb:.0f} GB) at `{croot}` (Docker VM disk). "
+                f"KB writes will start failing. Grow the Docker Desktop "
+                f"disk or prune (`docker system df` / retention).",
+                tag="disk_quota_chroma",
+            )
+    elif free_gb < warn_gb:
+        if _alert_with_cooldown("warn", str(croot), free_gb, total_gb):
+            send_signal_alert(
+                f"⚠️  Chroma volume free is **{free_gb:.1f} GB** "
+                f"(of {total_gb:.0f} GB) at `{croot}` (Docker VM disk). "
+                f"Below warn threshold {warn_gb:.0f} GB — plan cleanup.",
+                tag="disk_quota_chroma",
+            )
+
 
 # ── Auto-action: immediate retention ─────────────────────────────────
 

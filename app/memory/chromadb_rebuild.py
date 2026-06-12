@@ -106,7 +106,17 @@ class RebuildSummary:
 
 
 def _kb_root(workspace_root: Path, kb: str) -> Path:
-    return workspace_root / kb
+    """Physical chroma data dir for the KB.
+
+    Routed through app.paths.chroma_kb_dir so a rebuild targets the live
+    chroma files even when they live on the CHROMA_DATA_ROOT named volume
+    rather than under workspace/.
+    """
+    try:
+        from app.paths import chroma_kb_dir
+        return chroma_kb_dir(kb)
+    except Exception:
+        return workspace_root / kb
 
 
 def _kb_size_bytes(kb_root: Path) -> int:
@@ -162,8 +172,13 @@ def _ensure_snapshot_dir(kb_root: Path) -> Path:
 
 def _write_snapshot(plan: RebuildPlan, chunks: list[dict]) -> Path:
     """Append-stream gzipped JSONL with one row per line (id, doc,
-    meta, embedding). Compresses ~10x on typical text + 768-d float."""
-    snap_dir = _ensure_snapshot_dir(_kb_root(plan.workspace_root, plan.kb))
+    meta, embedding). Compresses ~10x on typical text + 768-d float.
+
+    Snapshots deliberately live under workspace/<kb>/ (NOT the chroma data
+    root): the workspace bind mount is host-visible and warm-spare-replicated,
+    so recovery artifacts survive loss of the derived-data volume.
+    """
+    snap_dir = _ensure_snapshot_dir(plan.workspace_root / plan.kb)
     ts = time.strftime("%Y%m%d_%H%M%S", time.gmtime(plan.created_at))
     fname = f"{plan.collection}__{ts}.jsonl.gz"
     path = snap_dir / fname

@@ -311,6 +311,17 @@ def _probe_resources(snap: SubstrateStatus) -> None:
     except Exception as exc:
         snap.errors.append(f"resources.disk: {exc}")
 
+    # Disk free under the chroma data root — a separate filesystem when the
+    # named-volume split is active (volume lives on the Docker VM disk, not
+    # the host bind mount). None when split inactive ⇒ predicate skipped.
+    try:
+        from app.paths import CHROMA_DATA_ROOT, chroma_split_active
+        if chroma_split_active():
+            cusage = shutil.disk_usage(str(CHROMA_DATA_ROOT))
+            out["chroma_disk_free_gb"] = round(cusage.free / 1024 / 1024 / 1024, 2)
+    except Exception as exc:
+        snap.errors.append(f"resources.chroma_disk: {exc}")
+
     # Container cgroup memory — failure-isolated; absent files (non-Linux /
     # no limit set) simply leave the fields None.
     try:

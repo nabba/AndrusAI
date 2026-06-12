@@ -83,6 +83,13 @@ def should_defer_heavy_work(
             if disk_free < pol.min_free_disk_gb:
                 return f"disk_free={disk_free:.1f}GB < min={pol.min_free_disk_gb}GB"
 
+        # Chroma-volume disk pressure — same floors, separate filesystem.
+        # Present only when the named-volume split is active (the volume
+        # lives on the Docker VM disk, invisible to the workspace probe).
+        chroma_free = (snapshot.resources or {}).get("chroma_disk_free_gb")
+        if chroma_free is not None and chroma_free < pol.min_free_disk_gb:
+            return f"chroma_disk_free={chroma_free:.1f}GB < min={pol.min_free_disk_gb}GB"
+
         # Inflight-tasks pressure.
         inflight = int(getattr(snapshot, "inflight_tasks", 0) or 0)
         if inflight > pol.max_inflight_tasks:

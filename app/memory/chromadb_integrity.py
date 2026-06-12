@@ -93,15 +93,35 @@ def _workspace_root() -> Path:
         return Path("/app/workspace")
 
 
+def _chroma_root() -> Path:
+    """Resolve the chroma data root (named volume when split is active).
+
+    Sibling of ``_workspace_root()``: chroma data may live at
+    ``CHROMA_DATA_ROOT`` (a Docker named volume) while ledgers and
+    snapshots stay under the workspace bind mount.
+
+    Identity mode (no split) deliberately passes through
+    ``_workspace_root()`` so test harnesses that patch it keep steering
+    discovery — only an ACTIVE split (CHROMA_DATA_ROOT env set) redirects.
+    """
+    try:
+        from app.paths import CHROMA_DATA_ROOT, chroma_split_active  # type: ignore
+        if chroma_split_active():
+            return Path(CHROMA_DATA_ROOT)
+    except Exception:
+        pass
+    return _workspace_root()
+
+
 def chromadb_kbs(root: Optional[Path] = None) -> list[Path]:
-    """Return every live ``chroma.sqlite3`` path under workspace.
+    """Return every live ``chroma.sqlite3`` path under the chroma root.
 
     Skips quarantined snapshots (``*.corrupt_*``, ``*.bak_*``,
     ``*_backup``, ``*.backup``) — same filter as chromadb_hygiene so
     we never run integrity check against a known-bad file.
     """
     if root is None:
-        root = _workspace_root()
+        root = _chroma_root()
     if not root.exists():
         return []
     found: list[Path] = []
@@ -266,6 +286,32 @@ def _now_iso_compact() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
+def _snapshot_dir_for(db_or_kb_dir: Path) -> Path:
+    """Where snapshots for this KB belong.
+
+    Default: next to the database (legacy/dev behavior, keeps tests and
+    host-native runs unchanged). When the chroma data root is split from
+    the workspace (named volume), snapshots deliberately go to
+    ``workspace/<kb>/.sqlite_snapshots`` instead — the bind mount is
+    host-visible and warm-spare-replicated, so recovery artifacts
+    survive loss of the derived-data volume.
+    """
+    kb_dir = db_or_kb_dir if db_or_kb_dir.suffix == "" else db_or_kb_dir.parent
+    try:
+        from app.paths import (  # type: ignore
+            CHROMA_DATA_ROOT, WORKSPACE_ROOT, chroma_split_active,
+        )
+        if chroma_split_active():
+            try:
+                kb_dir.resolve().relative_to(Path(CHROMA_DATA_ROOT))
+                return Path(WORKSPACE_ROOT) / kb_dir.name / _SNAPSHOT_DIRNAME
+            except ValueError:
+                pass
+    except Exception:
+        pass
+    return kb_dir / _SNAPSHOT_DIRNAME
+
+
 def daily_snapshot(db_path: Path, *, retention_days: int = _SNAPSHOT_KEEP_DAYS) -> dict:
     """Atomic SQLite backup to ``<kb>/.sqlite_snapshots/<ts>.db``.
 
@@ -287,7 +333,7 @@ def daily_snapshot(db_path: Path, *, retention_days: int = _SNAPSHOT_KEEP_DAYS) 
     if not db_path.exists():
         info["error"] = "source_missing"
         return info
-    snap_dir = db_path.parent / _SNAPSHOT_DIRNAME
+    snap_dir = _snapshot_dir_for(db_path)
     try:
         snap_dir.mkdir(parents=True, exist_ok=True)
         target = snap_dir / f"{_now_iso_compact()}.db"
@@ -326,7 +372,7 @@ def daily_snapshot(db_path: Path, *, retention_days: int = _SNAPSHOT_KEEP_DAYS) 
 
 def list_snapshots(kb_dir: Path) -> list[Path]:
     """Return existing snapshots for a KB dir, newest first."""
-    snap_dir = kb_dir / _SNAPSHOT_DIRNAME
+    snap_dir = _snapshot_dir_for(kb_dir)
     if not snap_dir.exists():
         return []
     snaps = sorted(snap_dir.glob("*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -702,9 +748,50 @@ def boot_integrity_scan() -> dict:
         summary["skipped"] = "boot_integrity_check_disabled"
         return summary
     try:
-        root = _workspace_root()
+        root = _chroma_root()
         sqlites = chromadb_kbs(root)
         summary["kbs"] = [str(p) for p in sqlites]
+
+        # Empty-volume guard: chroma root has NO live KBs while source
+        # ledgers exist on the workspace — the signature of a lost/fresh
+        # named volume (`docker compose down -v`, new host). Never boot
+        # silently with empty KBs: alert loudly. Recovery itself is NOT
+        # run inline (lifespan must stay fast — §81); the source-ledger
+        # daemon's first pass (~5 min post-boot) detects 100% drift and
+        # replays every KB from its ledger automatically.
+        if not sqlites:
+            try:
+                ws = _workspace_root()
+                kbs_with_ledgers = sorted(
+                    p.parent.name
+                    for p in ws.glob("*/.source_ledger.jsonl")
+                    if p.stat().st_size > 0
+                )
+            except Exception:
+                kbs_with_ledgers = []
+            if kbs_with_ledgers:
+                summary["empty_chroma_root_with_ledgers"] = kbs_with_ledgers
+                logger.warning(
+                    "chromadb_integrity: chroma root %s is EMPTY but %d KBs "
+                    "have non-empty source ledgers (%s) — derived data lost? "
+                    "source_ledger_daemon will replay on its next pass.",
+                    root, len(kbs_with_ledgers), ", ".join(kbs_with_ledgers),
+                )
+                try:
+                    from app.life_companion._common import send_signal_alert  # type: ignore
+                    send_signal_alert(
+                        f"🚨 ChromaDB data root `{root}` is EMPTY but "
+                        f"{len(kbs_with_ledgers)} KBs have source ledgers "
+                        f"({', '.join(kbs_with_ledgers)}). Was the named volume "
+                        f"recreated? Auto-replay from ledgers starts with the "
+                        f"source-ledger daemon's next pass (~5 min).",
+                        tag="chromadb_integrity:empty_volume",
+                    )
+                except Exception:
+                    logger.debug(
+                        "chromadb_integrity: empty-volume alert failed",
+                        exc_info=True,
+                    )
 
         for db_path in sqlites:
             kb_dir = db_path.parent
@@ -818,7 +905,7 @@ def integrity_summary() -> dict:
     latest-snapshot age. Never mutates anything.
     """
     out: dict[str, Any] = {"kbs": []}
-    root = _workspace_root()
+    root = _chroma_root()
     for db_path in chromadb_kbs(root):
         kb_dir = db_path.parent
         snaps = list_snapshots(kb_dir)

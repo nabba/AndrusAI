@@ -57,7 +57,13 @@ logger = logging.getLogger(__name__)
 
 _BACKUP_ROOT = Path("/app/workspace/backups")
 _MANIFEST_PATH = _BACKUP_ROOT / "manifest.json"
-_CHROMA_DATA_DIR = Path("/app/workspace/memory")  # contains chroma sub-dir
+# Memory-KB chroma dir — routed via app.paths so the named-volume redirect
+# (CHROMA_DATA_ROOT) applies; tarballs still land under workspace/backups.
+try:
+    from app.paths import chroma_kb_dir as _chroma_kb_dir
+    _CHROMA_DATA_DIR = _chroma_kb_dir("memory")
+except Exception:
+    _CHROMA_DATA_DIR = Path("/app/workspace/memory")  # contains chroma sub-dir
 _DEFAULT_RETENTION_DAYS = 30
 
 
