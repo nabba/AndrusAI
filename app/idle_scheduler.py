@@ -292,11 +292,55 @@ _LIGHT_MIN_CADENCE: dict[str, float] = {
     "inbox-tick":                         300,
 }
 
-_light_job_last_run: dict[str, float] = {}
+# Persisted wall-clock last-run per cadence-gated job (2026-06-12 Phase 3,
+# restart-herd control). The original gates tracked time.monotonic() in
+# process memory — which resets on every restart, so after each watchdog
+# restart EVERY gated job (~76) was instantly "due" and the catch-up herd
+# re-wedged the gateway it was restarted to save. Wall clock + the existing
+# idle_job_state dbm (same store as skip-until/failure counts) makes "ran 2h
+# ago" survive the restart: a daily job stays not-due.
+_job_last_run_wall: dict[str, float] = {}
 
 _LIGHT_CADENCE_GATING_ENABLED = os.environ.get(
     "IDLE_LIGHT_CADENCE_GATING_ENABLED", "1"
 ).lower() in ("1", "true", "yes")
+
+
+def _cadence_jitter(name: str, min_cadence: float) -> float:
+    """Deterministic per-job jitter, scaled to the cadence.
+
+    Spreads the residual herd after a genuine long outage (when many jobs
+    really ARE due at once) without changing any job's average frequency.
+    crc32, NOT hash() — hash() is salted per process, which would make the
+    jitter wander across restarts and defeat its purpose. Max 600s for a
+    daily job, proportionally less for shorter cadences.
+    """
+    import zlib
+    return (zlib.crc32(name.encode("utf-8")) % 600) * (min_cadence / 86400.0)
+
+
+def _cadence_gate(name: str, min_cadence: float) -> bool:
+    """Shared wall-clock cadence gate for LIGHT and MEDIUM/HEAVY jobs.
+
+    Allows when the job has never run (first sighting) or when
+    ``last + min_cadence + jitter`` has passed. Records + persists the
+    decision time so the next check — in this process or the next one —
+    measures from here.
+    """
+    now = time.time()
+    last = _job_last_run_wall.get(name)
+    if last is not None and last > now:
+        # Clock went backwards (NTP step) past the stored stamp. Rewrite the
+        # stamp to "now" — once. Normalizing only the local copy would slide
+        # the reference forward on every check and wedge the gate shut.
+        last = now
+        _job_last_run_wall[name] = now
+        _persist_job_last_run(name, now)
+    if last is None or now >= last + min_cadence + _cadence_jitter(name, min_cadence):
+        _job_last_run_wall[name] = now
+        _persist_job_last_run(name, now)
+        return True
+    return False
 
 
 def _light_job_allowed(name: str) -> bool:
@@ -306,21 +350,15 @@ def _light_job_allowed(name: str) -> bool:
     ``IDLE_LIGHT_CADENCE_GATING_ENABLED=0`` reverts to always-allow.
 
     Called once per job per idle-loop cycle from ``_run_idle_loop``.
-    Records the gate decision via ``_light_job_last_run`` so the next
-    cycle's check measures from this point, not from when the inner
-    function happened to finish.
+    Wall-clock + persisted (see ``_cadence_gate``) so restarts don't
+    reset the schedule.
     """
     if not _LIGHT_CADENCE_GATING_ENABLED:
         return True
     min_cadence = _LIGHT_MIN_CADENCE.get(name, 0)
     if min_cadence <= 0:
         return True  # Not in map — queue drainer or unconfigured
-    now = time.monotonic()
-    last = _light_job_last_run.get(name)
-    if last is None or (now - last) >= min_cadence:
-        _light_job_last_run[name] = now
-        return True
-    return False
+    return _cadence_gate(name, min_cadence)
 
 
 # ── 2026-06-01: per-MEDIUM/HEAVY-job cadence gate ────────────────────────
@@ -335,7 +373,6 @@ def _light_job_allowed(name: str) -> bool:
 # always-run round-robin default. Reuses the LIGHT gate's design.
 _HEAVY_MIN_CADENCE: dict[str, float] = {
     # HEAVY (cap 600s) — the multi-minute GIL holders behind the blips
-    "evolution":               3600,   # self-improvement; hourly (was ~every rotation)
     "benchmarks-refresh":     86400,   # leaderboard refresh; daily is plenty
     "consolidator":           86400,   # meta-agent consolidation; daily
     "learn-queue":             3600,
@@ -367,9 +404,46 @@ _HEAVY_MIN_CADENCE: dict[str, float] = {
     "adversarial-probes":     86400,
     "chaos-testing":          86400,
     "code-intel-refresh":     86400,
+    # 2026-06-12 Phase-3 completion: the 31 MEDIUM/HEAVY jobs below were
+    # ABSENT from this map, i.e. ran on EVERY round-robin rotation — the
+    # M/H-lane version of the LIGHT-herd disease (alignment-audit, an
+    # expensive LLM pass intended weekly, fired every cycle and produced
+    # the known false-CRITICAL alert volume). Every M/H job now has an
+    # explicit cadence; the invariant test in
+    # tests/test_idle_cadence_invariants.py fails CI when a new M/H job
+    # is registered without one.
+    "alignment-audit":        7 * 86400,  # weekly by design — LLM-graded, costly, noisy
+    "analogy-populator":      86400,
+    "attention-slow-loop":     3600,
+    "autonomous-executor":      900,      # delegated-run advancement — keep responsive
+    "behavioral-assessment":  86400,
+    "companion-grand-task":   86400,
+    "companion-tick":          3600,
+    "consciousness-probe":    21600,
+    "consciousness-slow-loop": 3600,
+    "data-retention":         86400,
+    "discover-topics":        21600,
+    "embedded-probe":         21600,
+    "fiction-ingest":         86400,      # whole-novel embedding; per-book skip-list handles partial runs
+    "goodhart-check":          3600,
+    "knowledge-compactor":    86400,
+    "llm-external-ranks":     86400,
+    "llm-rebenchmark-incumbents": 86400,
+    "prediction-slow-loop":    3600,
+    "prosocial-learning":     21600,
+    "self-model-refresh":      3600,
+    "subia-reverie":          21600,
+    "subia-shadow":           21600,
+    "subia-understanding":    21600,
+    "tech-radar":             7 * 86400,
+    "tsal_code":              86400,
+    "tsal_components":        86400,
+    "tsal_host":              86400,
+    "tsal_principles":        86400,
+    "tsal_resources":         86400,
+    "wiki-lint":              86400,
+    "wiki-synthesis":         86400,
 }
-
-_heavy_job_last_run: dict[str, float] = {}
 
 _HEAVY_CADENCE_GATING_ENABLED = os.environ.get(
     "IDLE_HEAVY_CADENCE_GATING_ENABLED", "1"
@@ -382,18 +456,15 @@ def _heavy_job_allowed(name: str) -> bool:
     Jobs not in ``_HEAVY_MIN_CADENCE`` are always allowed (preserves the
     round-robin default). Master kill-switch
     ``IDLE_HEAVY_CADENCE_GATING_ENABLED=0`` reverts to always-allow.
+    Wall-clock + persisted (see ``_cadence_gate``) so restarts don't
+    reset the schedule — the post-restart herd was the re-wedge amplifier.
     """
     if not _HEAVY_CADENCE_GATING_ENABLED:
         return True
     min_cadence = _HEAVY_MIN_CADENCE.get(name, 0)
     if min_cadence <= 0:
         return True
-    now = time.monotonic()
-    last = _heavy_job_last_run.get(name)
-    if last is None or (now - last) >= min_cadence:
-        _heavy_job_last_run[name] = now
-        return True
-    return False
+    return _cadence_gate(name, min_cadence)
 
 # Boot-gate state. _module_import_time anchors the IDLE_BOOT_FALLBACK_S
 # safety net for the case where boot_state.mark_boot_complete() is never
@@ -655,10 +726,16 @@ def _load_job_state() -> None:
                     ts = float(val)
                     if ts > time.time():  # Only load if still in the future
                         _job_skip_until[k[5:]] = ts
-        if _job_failure_counts or _job_skip_until:
+                elif k.startswith("last:"):
+                    # Wall-clock last-run for the cadence gates (Phase 3,
+                    # restart-herd control). Future values (clock skew)
+                    # are normalized at gate time, not here.
+                    _job_last_run_wall[k[5:]] = float(val)
+        if _job_failure_counts or _job_skip_until or _job_last_run_wall:
             logger.info(f"idle_scheduler: restored job state — "
                         f"{len(_job_failure_counts)} failure counts, "
-                        f"{len(_job_skip_until)} active cooldowns")
+                        f"{len(_job_skip_until)} active cooldowns, "
+                        f"{len(_job_last_run_wall)} cadence last-runs")
     except Exception:
         logger.debug("idle_scheduler: job state load failed (starting fresh)", exc_info=True)
 
@@ -679,6 +756,21 @@ def _persist_job_skip(name: str, until: float) -> None:
         import dbm.sqlite3
         with dbm.sqlite3.open(_JOB_STATE_PATH, "c") as db:
             db[f"skip:{name}"] = str(until)
+    except Exception:
+        pass
+
+
+def _persist_job_last_run(name: str, ts: float) -> None:
+    """Persist wall-clock last-run for a cadence-gated job (Phase 3).
+
+    Sibling of ``_persist_job_skip`` — same dbm, ``last:`` prefix. Written
+    only when a gate ALLOWS a run, so write volume tracks actual job
+    executions, not gate checks.
+    """
+    try:
+        import dbm.sqlite3
+        with dbm.sqlite3.open(_JOB_STATE_PATH, "c") as db:
+            db[f"last:{name}"] = str(ts)
     except Exception:
         pass
 

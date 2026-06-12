@@ -143,11 +143,13 @@ def test_audit_logger_is_queue_decoupled(monkeypatch, tmp_path):
     pytest.importorskip("fastapi")  # app.main needs the gateway deps
     import logging
 
-    # Cross-file pollution guard: test_idle_scheduler_substrate_policy.py:22
-    # overwrites app.config.get_settings with a _FakeSettings lambda at
-    # MODULE level (not via monkeypatch), which breaks app.main's first
-    # import in any combined run. Reload app.config to restore the real
-    # accessor before app.main executes its module-level settings reads.
+    # Pollution guard: a few legacy test modules still overwrite
+    # app.config accessors at module level (not via monkeypatch) — e.g.
+    # test_conversation_store.py, test_meta_agent.py. Reload so app.main's
+    # first import sees the real get_settings in a combined run.
+    # (test_metrics.py + test_idle_scheduler_substrate_policy.py were
+    # converted to monkeypatch fixtures 2026-06-12; drop this guard once
+    # the remaining module-level overrides are converted too.)
     import app.config as _config_mod
     importlib.reload(_config_mod)
 
