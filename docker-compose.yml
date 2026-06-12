@@ -66,6 +66,10 @@ services:
       # the `worker` service. Frees the gateway event loop from the multi-minute
       # GIL-holding cognition jobs. "all" (unset) = single-process (legacy).
       IDLE_SCHEDULER_ROLE: gateway
+      # ChromaDB data root on the named volume (Phase 1b, 2026-06-12). Derived
+      # index only — ledgers/snapshots stay on the workspace bind mount. Unset
+      # to roll back to workspace/<kb>/ (bind-mount originals retained).
+      CHROMA_DATA_ROOT: /chroma
       # Default unchanged (docker-proxy). Set GATEWAY_DOCKER_HOST=tcp://docker-broker:2375
       # (+ `--profile docker-broker`) to route container-create through the body filter.
       # NB: a DEDICATED var, not DOCKER_HOST, to avoid colliding with the operator's
