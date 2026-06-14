@@ -2,7 +2,8 @@
 attachment_reader.py — Extract text content from uploaded Signal attachments.
 
 Supports: PDF, DOCX, XLSX, PNG, JPG (OCR via pytesseract if available,
-          otherwise basic image metadata).
+          otherwise basic image metadata), and Markdown / plain-text
+          documents (.md, .markdown, .txt, .csv, .json, .log, .rst).
 
 Attachments arrive from signal-cli at /app/attachments/<id> and are
 mounted read-only into the container.
@@ -29,6 +30,11 @@ _CTYPE_TO_EXT = {
     "image/png": ".png",
     "image/webp": ".webp",
     "image/gif": ".gif",
+    "text/markdown": ".md",
+    "text/x-markdown": ".md",
+    "text/plain": ".txt",
+    "text/csv": ".csv",
+    "application/json": ".json",
 }
 
 
@@ -60,8 +66,9 @@ def _safe_path(filename: str, content_type: str = "") -> pathlib.Path | None:
     if target.exists():
         return target
 
-    # Strategy 2: content-type-derived extension
-    ext = _CTYPE_TO_EXT.get(content_type, "")
+    # Strategy 2: content-type-derived extension (tolerate MIME params/casing,
+    # e.g. "text/markdown; charset=utf-8")
+    ext = _CTYPE_TO_EXT.get(content_type.split(";")[0].strip().lower(), "")
     if ext and not filename.lower().endswith(ext):
         alt = (ATTACHMENTS_DIR / (filename + ext)).resolve()
         if _within_dir(alt) and alt.exists():
@@ -202,6 +209,34 @@ def extract_image(path: pathlib.Path) -> str:
         return f"{info}\nOCR failed: {str(ocr_exc)[:200]}"
 
 
+def extract_text(path: pathlib.Path) -> str:
+    """Read a Markdown / plain-text attachment as UTF-8 text.
+
+    Covers .md / .markdown / .txt and other text-family types (CSV, JSON,
+    logs). The file is decoded with ``utf-8-sig`` (so a leading BOM is
+    stripped) and ``errors="replace"`` so a stray non-UTF-8 byte degrades
+    gracefully instead of raising. Content is returned verbatim — the caller
+    (``orchestrator._process_attachments``) wraps it in ``<attachment>`` tags
+    with an anti-prompt-injection instruction, so the document is treated as
+    data to analyse, not as instructions. Output is capped at
+    ``_MAX_EXTRACT_CHARS`` to bound token usage.
+    """
+    try:
+        data = path.read_bytes()
+    except Exception as exc:
+        logger.error(f"Text extraction failed: {exc}")
+        return f"Failed to read text file: {str(exc)[:200]}"
+
+    text = data.decode("utf-8-sig", errors="replace")
+    if not text.strip():
+        return "File is empty or contains no readable text."
+    if len(text) > _MAX_EXTRACT_CHARS:
+        return text[:_MAX_EXTRACT_CHARS] + (
+            f"\n\n... (truncated at {_MAX_EXTRACT_CHARS} characters)"
+        )
+    return text
+
+
 # Map MIME types and extensions to extractors
 _EXTRACTORS = {
     "application/pdf": extract_pdf,
@@ -211,6 +246,11 @@ _EXTRACTORS = {
     "image/png": extract_image,
     "image/webp": extract_image,
     "image/gif": extract_image,
+    "text/markdown": extract_text,
+    "text/x-markdown": extract_text,
+    "text/plain": extract_text,
+    "text/csv": extract_text,
+    "application/json": extract_text,
 }
 
 _EXT_MAP = {
@@ -223,6 +263,14 @@ _EXT_MAP = {
     ".png": extract_image,
     ".webp": extract_image,
     ".gif": extract_image,
+    ".md": extract_text,
+    ".markdown": extract_text,
+    ".txt": extract_text,
+    ".text": extract_text,
+    ".csv": extract_text,
+    ".json": extract_text,
+    ".log": extract_text,
+    ".rst": extract_text,
 }
 
 
@@ -241,15 +289,22 @@ def extract_attachment(filename: str, content_type: str = "") -> str:
     if path is None:
         return f"Attachment not found: {filename}"
 
-    # Find extractor by MIME type, then by extension
-    extractor = _EXTRACTORS.get(content_type)
+    # Normalise the MIME type — signal-cli sometimes appends parameters
+    # (e.g. "text/markdown; charset=utf-8") and casing is not significant.
+    ctype = content_type.split(";")[0].strip().lower()
+
+    # Find extractor by MIME type, then by extension. Prefer the resolved
+    # path's suffix, but fall back to the envelope filename's suffix —
+    # signal-cli occasionally stores the file under a bare id while the
+    # filename (e.g. "notes.md") carries the real extension.
+    extractor = _EXTRACTORS.get(ctype)
     if not extractor:
-        ext = path.suffix.lower()
+        ext = path.suffix.lower() or pathlib.Path(filename).suffix.lower()
         extractor = _EXT_MAP.get(ext)
 
     if not extractor:
         return (f"Unsupported file type: {content_type or path.suffix}. "
-                f"Supported: PDF, DOCX, XLSX, JPG, PNG")
+                f"Supported: PDF, DOCX, XLSX, images, Markdown/plain text, CSV, JSON")
 
     logger.info(f"Extracting attachment: {filename} ({content_type})")
     return extractor(path)
@@ -258,7 +313,8 @@ def extract_attachment(filename: str, content_type: str = "") -> str:
 @tool("read_attachment")
 def read_attachment(filename: str, content_type: str = "") -> str:
     """
-    Read and extract text from a Signal attachment (PDF, DOCX, XLSX, JPG, PNG).
+    Read and extract text from a Signal attachment (PDF, DOCX, XLSX, JPG, PNG,
+    Markdown/.md, and plain-text .txt/.csv/.json).
     filename: the attachment filename as provided in the message
     content_type: optional MIME type hint
     Returns extracted text content.
@@ -275,9 +331,10 @@ try:
         capabilities=["reads-attachment"],
         description=(
             "Read user-provided attachments (PDF, DOCX, XLSX, images, "
-            "plain text) and return extracted text content. Use this "
-            "when the user uploads a file with their message and you "
-            "need to see what's in it."
+            "Markdown, and plain text such as .md/.txt/.csv/.json) and "
+            "return extracted text content. Use this when the user "
+            "uploads a file with their message and you need to see "
+            "what's in it."
         ),
         tier=Tier.PRODUCTION,
         lifecycle=Lifecycle.SINGLETON,
