@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>org.andrus.botarmy.deploy-poller</string>
+
+  <!-- Pull-based auto-deploy: every StartInterval seconds this fetches origin
+       and, when origin/main is a clean fast-forward ahead of the local
+       checkout, runs scripts/deploy_gateway.sh. No inbound port, no public
+       exposure, no GitHub webhook — the host reaches out, nothing reaches in.
+       One-shot per tick (NOT KeepAlive); launchd reschedules it. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>-u</string>
+    <string>/Users/andrus/BotArmy/crewai-team/scripts/deploy_poller.py</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Poll every 180 s. A deploy that outlasts the interval is protected by an
+       fcntl flock inside the script (single-flight), so ticks never stack. -->
+  <key>StartInterval</key>
+  <integer>180</integer>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DEPLOY_POLLER_BRANCH</key>
+    <string>main</string>
+    <key>DEPLOY_POLLER_REMOTE</key>
+    <string>origin</string>
+    <key>DEPLOY_SCRIPT</key>
+    <string>/Users/andrus/BotArmy/crewai-team/scripts/deploy_gateway.sh</string>
+    <key>DEPLOY_TIMEOUT_SECONDS</key>
+    <string>1800</string>
+    <key>DEPLOY_POLLER_LOG</key>
+    <string>/Users/andrus/BotArmy/crewai-team/workspace/healing/.deploy_poller.log</string>
+    <key>DEPLOY_POLLER_LOCK</key>
+    <string>/Users/andrus/.crewai-bridge/deploy_poller.lock</string>
+    <key>DEPLOY_POLLER_STATE</key>
+    <string>/Users/andrus/.crewai-bridge/deploy_poller_state.json</string>
+    <!-- Best-effort deploy alerts, same signal-cli JSON-RPC the watchdog uses. -->
+    <key>SIGNAL_CLI_HTTP_URL</key>
+    <string>http://127.0.0.1:7583</string>
+    <key>SIGNAL_OWNER_NUMBER</key>
+    <string>+3725100500</string>
+    <!-- git + docker (used by deploy_gateway.sh) must resolve under launchd's
+         minimal PATH; mirror the watchdog/webhook plists. -->
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/andrus/BotArmy/crewai-team</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/andrus/BotArmy/crewai-team/workspace/healing/.deploy_poller.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/andrus/BotArmy/crewai-team/workspace/healing/.deploy_poller.log</string>
+</dict>
+</plist>
