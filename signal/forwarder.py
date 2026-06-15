@@ -20,6 +20,7 @@ acks — the outbox closes that loss window.
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 import time
 import requests
@@ -60,6 +61,52 @@ _MAX_ATTEMPTS = int(os.environ.get("FORWARDER_MAX_ATTEMPTS", "4320"))
 # durable outbox still owns the retry semantics — this just widens
 # the window for each attempt before the backoff ladder kicks in.
 _GATEWAY_POST_TIMEOUT_S = 60
+
+# ── Receive-stall watchdog (2026-06-15) ──────────────────────────────────
+# signal-cli's daemon can stay UP (answers version + send) while its RECEIVE
+# path hangs on a stale server connection — classically after the Mac sleeps
+# and wakes many times (a weekend of sleep/wakes killed it on 2026-06-15).
+# The receive RPC then never returns: requests hits ReadTimeout, and the next
+# receive gets "already being received" (the prior one is stuck server-side).
+# Before this, poll_loop treated BOTH as an empty poll ([]) and reset its
+# error counter, so it never recovered — inbound was silently dead for days
+# and the fix was a manual `launchctl kickstart -k`. Now the forwarder, which
+# is the receive client and thus the natural observer, detects a CONTINUOUS
+# stall and performs that same kick automatically. Rate-limited so a deeper
+# outage the kick can't fix (e.g. a version bug) doesn't become a restart
+# loop — past the cooldown we lean on _wait_for_signal_cli's >5min alert.
+_SIGNAL_CLI_LAUNCHD_LABEL = os.environ.get(
+    "SIGNAL_CLI_LAUNCHD_LABEL", "com.botarmy.signal-cli"
+)
+_RECV_STALL_RESTART_AFTER_S = float(
+    os.environ.get("FORWARDER_RECV_STALL_RESTART_S", "180")
+)  # continuous stall before a kick (~17 ReadTimeouts at the 10s req timeout)
+_RECV_STALL_KICK_COOLDOWN_S = float(
+    os.environ.get("FORWARDER_RECV_STALL_KICK_COOLDOWN_S", "600")
+)  # at most one kick per this window
+
+# Sentinel: receive did NOT complete normally (hung / "already being
+# received"). Distinct from a clean empty poll ([]) and from a daemon-down
+# connection error (None) — the distinction poll_loop was missing.
+_STALL = object()
+
+
+def _recv_stall_action(stall_since, last_kick_at, now):
+    """Decide what to do on a receive STALL. Pure + unit-testable.
+
+    Returns ``(action, new_stall_since)`` where action is one of:
+      ``"start"``    — first stall of a streak (begin timing; new_stall_since=now)
+      ``"wait"``     — streak ongoing but under the restart threshold
+      ``"kick"``     — streak exceeded threshold AND cooldown elapsed → restart
+      ``"cooldown"`` — over threshold but a recent kick is still cooling down
+    """
+    if stall_since is None:
+        return ("start", now)
+    if (now - stall_since) < _RECV_STALL_RESTART_AFTER_S:
+        return ("wait", stall_since)
+    if (now - last_kick_at) < _RECV_STALL_KICK_COOLDOWN_S:
+        return ("cooldown", stall_since)
+    return ("kick", stall_since)
 
 
 def log(msg):
@@ -271,7 +318,10 @@ def _reschedule(conn: sqlite3.Connection, row_id: int, attempts: int, err: str) 
 def _receive_messages():
     """Single receive call with short timeout.
 
-    Returns: list of messages, or None on connection error (distinct from empty []).
+    Returns one of: a list of messages; ``[]`` (clean empty poll — healthy,
+    no new messages); ``_STALL`` (receive did not complete — hung receive or
+    "already being received", the daemon-up-but-receive-wedged signature);
+    or ``None`` (connection error — daemon likely down).
     """
     try:
         resp = _signal_session.post(
@@ -288,14 +338,17 @@ def _receive_messages():
         if "error" in data:
             err = data["error"].get("message", "")
             if "already being received" in err:
-                return []
+                # A prior receive is stuck server-side — a stall, NOT empty.
+                return _STALL
             log(f"receive error: {err}")
             return []
         return data.get("result", [])
     except requests.exceptions.ConnectionError:
         return None  # Signal connection error — distinct from empty
     except requests.exceptions.ReadTimeout:
-        return []
+        # The receive RPC didn't return within the request timeout — the
+        # receive is hung, NOT empty. This is the wedge the watchdog targets.
+        return _STALL
     except Exception as e:
         log(f"receive failed: {e}")
         return None
@@ -347,6 +400,39 @@ def _wait_for_signal_cli():
 
         time.sleep(wait)
         wait = min(max_wait, wait * 1.5)  # Exponential backoff, cap at 60s
+
+
+def _kick_signal_cli() -> bool:
+    """Restart the signal-cli LaunchAgent to clear a hung receive.
+
+    Runs ``launchctl kickstart -k gui/<uid>/<label>`` — the exact manual fix
+    for "daemon up but receive wedged on a stale connection". Failure-isolated:
+    returns False (caller falls back to waiting/alerting) if launchctl is
+    absent or the kick fails. Never raises.
+    """
+    target = "gui/%d/%s" % (os.getuid(), _SIGNAL_CLI_LAUNCHD_LABEL)
+    log("RECEIVE STALLED — auto-kicking signal-cli (%s)" % target)
+    try:
+        r = subprocess.run(
+            ["launchctl", "kickstart", "-k", target],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode != 0:
+            log("kickstart failed (rc=%d): %s" % (r.returncode, (r.stderr or "").strip()[:200]))
+            return False
+        # Best-effort dashboard marker (mirrors _wait_for_signal_cli's POST).
+        try:
+            _gateway_session.post(
+                GATEWAY_URL.replace("/signal/inbound", "/location"),
+                json={"signal_cli_receive_kicked": True, "at": time.time()},
+                timeout=5,
+            )
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        log("kickstart raised: %s" % e)
+        return False
 
 
 def _process_envelope(envelope: dict) -> None:
@@ -453,6 +539,8 @@ def poll_loop():
     log(f"Outbox at {OUTBOX_DB}")
     _consecutive_errors = 0
     _MAX_ERRORS = 60  # ~30s of consecutive connection failures triggers reconnect
+    _stall_since = None   # monotonic ts the current receive-stall streak began
+    _last_kick_at = 0.0   # monotonic ts of the last auto-kick (rate limiter)
 
     # Drain anything left over from a prior process so an early crash doesn't
     # delay redelivery until the next inbound message arrives.
@@ -467,10 +555,24 @@ def poll_loop():
 
         messages = _receive_messages()
         if messages is None:
-            # Connection error — signal-cli may be down
+            # Connection error — signal-cli daemon likely down (process gone;
+            # launchd KeepAlive respawns it, _wait_for_signal_cli waits below).
             _consecutive_errors += 1
+            _stall_since = None
+        elif messages is _STALL:
+            # Daemon up but the receive isn't completing — hung on a stale
+            # server connection. Time the streak; auto-kick if it persists.
+            _consecutive_errors = 0
+            now = time.monotonic()
+            action, _stall_since = _recv_stall_action(_stall_since, _last_kick_at, now)
+            if action == "kick":
+                _last_kick_at = now
+                if _kick_signal_cli():
+                    _wait_for_signal_cli()
+                _stall_since = None
         elif messages:
             _consecutive_errors = 0
+            _stall_since = None  # healthy receive — clear any stall streak
             for msg in messages:
                 envelope = msg.get("envelope", msg)
                 try:
@@ -478,8 +580,9 @@ def poll_loop():
                 except Exception as e:
                     log(f"Error processing envelope: {e}")
         else:
-            # Empty list — normal, no new messages
+            # Empty list — normal, no new messages (healthy receive).
             _consecutive_errors = 0
+            _stall_since = None
 
         # Reconnect if signal-cli has been unresponsive for ~30s
         if _consecutive_errors >= _MAX_ERRORS:
