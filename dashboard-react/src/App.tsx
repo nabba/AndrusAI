@@ -56,6 +56,9 @@ const ForgeCompositionsPage = lazy(() =>
     default: m.ForgeCompositionsPage,
   })),
 );
+const FusionPage = lazy(() =>
+  import('./components/FusionPage').then((m) => ({ default: m.FusionPage })),
+);
 const AffectPage = lazy(() =>
   import('./components/AffectPage').then((m) => ({ default: m.AffectPage })),
 );
@@ -185,6 +188,7 @@ export default function App() {
             <Route path="/tasks" element={<LazyRoute><TasksPage /></LazyRoute>} />
             <Route path="/ops" element={<LazyRoute><OpsPage /></LazyRoute>} />
             <Route path="/llms" element={<LazyRoute><LlmsPage /></LazyRoute>} />
+            <Route path="/fusion" element={<LazyRoute><FusionPage /></LazyRoute>} />
             <Route path="/notes" element={<LazyRoute><NotesPage /></LazyRoute>} />
             <Route path="/wiki" element={<LazyRoute><WikiPage /></LazyRoute>} />
             <Route path="/budgets" element={<ErrorBoundary><BudgetDashboard /></ErrorBoundary>} />

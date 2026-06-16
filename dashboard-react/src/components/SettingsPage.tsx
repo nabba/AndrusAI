@@ -47,6 +47,7 @@ import { AnthropicBudgetCard } from './AnthropicBudgetCard';
 import { RecentSubsystemsCard } from './RecentSubsystemsCard';
 import { SettingsGenealogyCard } from './SettingsGenealogyCard';
 import { TotalCostCeilingCard } from './TotalCostCeilingCard';
+import { FusionCard } from './FusionCard';
 
 // Note: POST to /config/runtime_settings requires a gateway bearer secret.
 // The dashboard server (server.mjs) injects `Authorization: Bearer
@@ -84,6 +85,10 @@ export function SettingsPage() {
       <VoiceModeCard settings={settingsQ.data} />
       <VisionComputerUseCard settings={settingsQ.data} />
       <ConciergePersonaCard settings={settingsQ.data} />
+      <FusionCard
+        settings={settingsQ.data}
+        onSettingsChange={() => settingsQ.refetch()}
+      />
       <Tier3AmendmentCard settings={settingsQ.data} />
       <TrustZonesCard
         settings={settingsQ.data}

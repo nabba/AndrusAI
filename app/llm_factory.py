@@ -27,7 +27,12 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from crewai import LLM  # type hints only — no runtime import cost
-from app.config import get_settings, get_openrouter_api_key
+# Module import (not `from app.config import get_settings`) so the accessor
+# late-binds: a test monkeypatching app.config.get_settings is seen here even
+# when this module was first imported inside another test, and the patch's
+# teardown restores reality. The old captured-function form froze whichever
+# accessor was active at first import for the rest of the process.
+from app import config as app_config
 from app.llm_catalog import (
     get_model, get_model_id, get_provider, get_tier,
     get_default_for_role, CATALOG,
@@ -445,7 +450,7 @@ def _check_candidate_basics(
             pass
 
     # Provider-specific API-key check
-    if provider == "openrouter" and not get_openrouter_api_key():
+    if provider == "openrouter" and not app_config.get_openrouter_api_key():
         return ConstructionFailed("missing_key", "OPENROUTER_API_KEY not set")
 
     return None
@@ -538,7 +543,7 @@ def _construct_from_entry(
             raise ConstructionFailed("build_failed", f"{exc!s}") from exc
 
     if provider == "ollama":
-        settings = get_settings()
+        settings = app_config.get_settings()
         if not settings.local_llm_enabled:
             raise ConstructionFailed("disabled", "local_llm_enabled=False")
         try:
@@ -719,7 +724,7 @@ def _resolve_raw_target(role: str, task_hint: str = "") -> "_RawTarget":
         cost_out = float(entry.get("cost_output_per_m", 0.0) or 0.0)
         bare = derived_id(entry, "native_anthropic")
         if provider in ("openrouter", "anthropic"):
-            or_key = get_openrouter_api_key()
+            or_key = app_config.get_openrouter_api_key()
             if not or_key:
                 attempts.append(
                     (name, ConstructionFailed(
@@ -735,7 +740,7 @@ def _resolve_raw_target(role: str, task_hint: str = "") -> "_RawTarget":
                 health_provider=provider, bare=bare,
             )
         if provider == "ollama":
-            if not get_settings().local_llm_enabled:
+            if not app_config.get_settings().local_llm_enabled:
                 attempts.append(
                     (name, ConstructionFailed("disabled", "local_llm_enabled=False"))
                 )
@@ -812,16 +817,41 @@ class ChatCompletionHandle:
         # OpenRouter per-call daily-cap gate — parity with the agent
         # path's ``BudgetAwareCompletion``.  Failure-OPEN on anything
         # that isn't a typed cap-exceeded.
+        fusion_plugin = None
+        fusion_factor = 1
         if target.provider == "openrouter":
+            # ── OpenRouter Fusion (multi-model Mixture-of-Agents) ──────
+            # Default-OFF, role-scoped. Resolves a diverse OpenRouter panel
+            # + judge and rides the same ``extra_body`` passthrough the
+            # provider-exclusion call below uses. Fail-open: any error → a
+            # normal single-model completion. Ollama never reaches here.
+            try:
+                from app.fusion import plan_for_role
+                fusion_plugin, fusion_factor = plan_for_role(
+                    self._role,
+                    max_tokens=max_tokens,
+                    cost_in=target.cost_in,
+                    cost_out=target.cost_out,
+                )
+            except Exception:  # noqa: BLE001
+                fusion_plugin, fusion_factor = None, 1
+
             try:
                 from app.llm_openrouter_budget import pre_check as _or_pre_check
                 est = (2000 * target.cost_in + max_tokens * target.cost_out) / 1_000_000.0
-                _or_pre_check(estimated_cost_usd=est)
+                _or_pre_check(estimated_cost_usd=est * fusion_factor)
             except Exception as exc:  # noqa: BLE001
                 from app.llm_cost_exceptions import CapExceededError
                 if isinstance(exc, CapExceededError):
                     raise
             _apply_openrouter_provider_exclusion(kwargs)
+
+            if fusion_plugin is not None:
+                try:
+                    from app.fusion import inject_plugin
+                    inject_plugin(kwargs, fusion_plugin)
+                except Exception:  # noqa: BLE001
+                    pass
 
         call_kwargs: dict = {
             "model": target.model_id,
@@ -845,6 +875,13 @@ class ChatCompletionHandle:
                 )
             raise
         llm_factory_probe.mark_alive(target.health_provider, target.bare)
+        if fusion_plugin is not None:
+            # Persist the judge's deliberation for the /cp/fusion page.
+            try:
+                from app.fusion import record_response
+                record_response(self._role, fusion_plugin, resp)
+            except Exception:  # noqa: BLE001
+                pass
         return resp
 
 
@@ -920,8 +957,7 @@ class _AdapterLLM:
             record_llm_activity()
             # Fall back to Ollama base model (no adapter)
             logger.debug("AdapterLLM falling back to Ollama", exc_info=True)
-            from app.config import get_settings
-            s = get_settings()
+            s = app_config.get_settings()
             LLM = _get_LLM_class()
             fallback = LLM(
                 model=f"ollama/{s.local_model_default}",
@@ -961,10 +997,9 @@ def create_commander_llm() -> LLM:
     cheapest API-tier alternative with a valid key, and ultimately
     to the DeepSeek survival bootstrap.
     """
-    from app.config import get_openrouter_api_key
     from app.llm_mode import get_mode
 
-    settings = get_settings()
+    settings = app_config.get_settings()
     mode = get_mode()
 
     # Verified Plan §7 Gap A closure (2026-05-23) — local-tier override.
@@ -1129,7 +1164,7 @@ def create_specialist_llm(
     """
     # Q7: thread-local last model/tier tracking
     from app.llm_mode import get_mode
-    settings = get_settings()
+    settings = app_config.get_settings()
     mode = get_mode()
 
     from app.llm_selector import select_model
@@ -1355,7 +1390,7 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str, phase: st
     if not circuit_breaker.is_available("openrouter"):
         logger.info(f"llm_factory: skipping OpenRouter (circuit open)")
         return None
-    settings = get_settings()
+    settings = app_config.get_settings()
     api_key = settings.openrouter_api_key.get_secret_value()
     if not api_key:
         logger.warning("llm_factory: OpenRouter API key not set, skipping API tier")
@@ -1408,6 +1443,24 @@ def _try_api(model_name: str, entry: dict, max_tokens: int, role: str, phase: st
             llm.set_budget_module(llm_openrouter_budget)
             llm.set_estimated_cost_fn(_estimate)
             return llm
+
+        # Agent-path fusion (opt-in, default-OFF). Bakes the fusion plugin
+        # into ``extra_body`` at build time — ``role`` is known here, but the
+        # LLM is cached by model not role, so we also fork the cache key.
+        # Offered-not-forced (no tool_choice) → composes with the agent's own
+        # tools rather than blocking them. See app/fusion/.
+        try:
+            from app.fusion import agent_extra_body
+            _fusion_eb = agent_extra_body(role)
+        except Exception:  # noqa: BLE001
+            _fusion_eb = None
+        if _fusion_eb:
+            _merged_eb = dict(extra.get("extra_body") or {})
+            _merged_eb["plugins"] = (
+                list(_merged_eb.get("plugins") or []) + _fusion_eb["plugins"]
+            )
+            extra = {**extra, "extra_body": _merged_eb}
+            key = f"{key}|fusion"
 
         return _cached_llm(
             or_model_id, max_tokens=max_tokens,

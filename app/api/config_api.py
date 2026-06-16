@@ -425,6 +425,16 @@ def _build_setter_registry():
         set_producer_autopause_min_approval_rate,
         set_producer_autopause_min_samples,
         set_producer_autopause_window_days,
+        # 2026-06-16 — OpenRouter Fusion (multi-model Mixture-of-Agents)
+        set_fusion_enabled,
+        set_fusion_scope_roles,
+        set_fusion_panel_classes,
+        set_fusion_panel_pins,
+        set_fusion_variant_hints,
+        set_fusion_judge_id,
+        set_fusion_max_panel,
+        set_fusion_daily_cap_usd,
+        set_fusion_agent_path_enabled,
     )
 
     optional_float = _coerce_optional(float)
@@ -664,6 +674,16 @@ def _build_setter_registry():
         "gcp_bootstrap_enabled": (set_gcp_bootstrap_enabled, bool),
         "hardening_profile": (set_hardening_profile, str),
         "binauthz_mode": (set_binauthz_mode, str),
+        # ── 2026-06-16 — OpenRouter Fusion (multi-model MoA) ──────────
+        "fusion_enabled": (set_fusion_enabled, bool),
+        "fusion_scope_roles": (set_fusion_scope_roles, _coerce_list_str),
+        "fusion_panel_classes": (set_fusion_panel_classes, _coerce_list_str),
+        "fusion_panel_pins": (set_fusion_panel_pins, _coerce_dict),
+        "fusion_variant_hints": (set_fusion_variant_hints, _coerce_dict),
+        "fusion_judge_id": (set_fusion_judge_id, str),
+        "fusion_max_panel": (set_fusion_max_panel, int),
+        "fusion_daily_cap_usd": (set_fusion_daily_cap_usd, float),
+        "fusion_agent_path_enabled": (set_fusion_agent_path_enabled, bool),
         # ── 2026-05-30 — Gate A semantic rejection suppression ────────
         "cr_rejection_suppression_mode": (
             set_cr_rejection_suppression_mode, str,

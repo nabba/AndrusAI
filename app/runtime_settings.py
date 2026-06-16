@@ -185,6 +185,21 @@ def _defaults() -> dict[str, Any]:
         # ``docs/SELF_HEAL_V3.md`` for the auto-action contract.
         "chat_blocked_models": [],
         "no_function_calling_models": [],
+        # ── OpenRouter Fusion (multi-model Mixture-of-Agents) ──────────
+        # Default OFF; nothing fuses until fusion_scope_roles is non-empty.
+        # Panel "classes" resolve to current OpenRouter champions per vendor
+        # at call time (app.fusion.panel) — no hardcoded model ids.
+        "fusion_enabled": False,
+        "fusion_scope_roles": [],
+        "fusion_panel_classes": ["google", "qwen", "moonshotai", "deepseek"],
+        "fusion_panel_pins": {},
+        "fusion_variant_hints": {"google": "flash", "qwen": "max", "moonshotai": "kimi"},
+        "fusion_judge_id": "",
+        "fusion_max_panel": 4,
+        "fusion_daily_cap_usd": 10.0,
+        # Agent-path fusion (CrewAI LLMs) — separate opt-in beyond raw-path
+        # fusion; offered-not-forced + unmetered, so default OFF.
+        "fusion_agent_path_enabled": False,
         # Structured-diagnosis confidence threshold band (Q2 §39).
         # The auto-tuner adjusts the active threshold within
         # ``[floor, ceiling]`` based on recent approval-rate
@@ -1177,6 +1192,147 @@ def get_concierge_persona_enabled() -> bool:
 def set_concierge_persona_enabled(value: bool) -> None:
     _update({"concierge_persona_enabled": bool(value)})
     logger.info(f"runtime_settings: concierge_persona_enabled set to {bool(value)}")
+
+
+# ── OpenRouter Fusion (multi-model Mixture-of-Agents) ──────────────────
+# Default OFF. Even with fusion_enabled=True nothing fuses until the operator
+# adds roles to fusion_scope_roles. Panel "classes" are vendor families
+# resolved to current OpenRouter champions at call time (app.fusion.panel) —
+# no hardcoded model ids. See app/fusion/.
+_FUSION_DEFAULT_CLASSES = ["google", "qwen", "moonshotai", "deepseek"]
+_FUSION_DEFAULT_HINTS = {"google": "flash", "qwen": "max", "moonshotai": "kimi"}
+
+
+def get_fusion_enabled() -> bool:
+    return bool(_ensure_initialized().get("fusion_enabled", False))
+
+
+def set_fusion_enabled(value: bool) -> None:
+    _update({"fusion_enabled": bool(value)})
+    logger.info("runtime_settings: fusion_enabled set to %s", bool(value))
+
+
+def get_fusion_scope_roles() -> list[str]:
+    raw = _ensure_initialized().get("fusion_scope_roles") or []
+    return [str(x) for x in raw] if isinstance(raw, list) else []
+
+
+def set_fusion_scope_roles(value: list) -> None:
+    if not isinstance(value, list):
+        raise ValueError("fusion_scope_roles must be a list of role strings")
+    cleaned = [str(x).strip() for x in value if str(x).strip()]
+    _update({"fusion_scope_roles": cleaned})
+    logger.info("runtime_settings: fusion_scope_roles set to %s", cleaned)
+
+
+def get_fusion_panel_classes() -> list[str]:
+    raw = _ensure_initialized().get("fusion_panel_classes")
+    if not isinstance(raw, list) or not raw:
+        return list(_FUSION_DEFAULT_CLASSES)
+    return [str(x) for x in raw]
+
+
+def set_fusion_panel_classes(value: list) -> None:
+    if not isinstance(value, list):
+        raise ValueError("fusion_panel_classes must be a list of vendor classes")
+    cleaned = [str(x).strip().lower() for x in value if str(x).strip()]
+    if len(cleaned) > 8:
+        raise ValueError("fusion panel may contain at most 8 model classes")
+    _update({"fusion_panel_classes": cleaned})
+    logger.info("runtime_settings: fusion_panel_classes set to %s", cleaned)
+
+
+def get_fusion_panel_pins() -> dict:
+    raw = _ensure_initialized().get("fusion_panel_pins") or {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items()}
+
+
+def set_fusion_panel_pins(value: dict) -> None:
+    if not isinstance(value, dict):
+        raise ValueError("fusion_panel_pins must be a dict of {class: model_id}")
+    cleaned = {
+        str(k).strip().lower(): str(v).strip()
+        for k, v in value.items()
+        if str(k).strip() and str(v).strip()
+    }
+    _update({"fusion_panel_pins": cleaned})
+    logger.info("runtime_settings: fusion_panel_pins set to %s", cleaned)
+
+
+def get_fusion_variant_hints() -> dict:
+    raw = _ensure_initialized().get("fusion_variant_hints")
+    if not isinstance(raw, dict):
+        return dict(_FUSION_DEFAULT_HINTS)
+    return {str(k): str(v) for k, v in raw.items()}
+
+
+def set_fusion_variant_hints(value: dict) -> None:
+    if not isinstance(value, dict):
+        raise ValueError(
+            "fusion_variant_hints must be a dict of {class: slug-substring}"
+        )
+    cleaned = {
+        str(k).strip().lower(): str(v).strip().lower()
+        for k, v in value.items()
+        if str(k).strip()
+    }
+    _update({"fusion_variant_hints": cleaned})
+    logger.info("runtime_settings: fusion_variant_hints set to %s", cleaned)
+
+
+def get_fusion_judge_id() -> str:
+    return str(_ensure_initialized().get("fusion_judge_id", "") or "")
+
+
+def set_fusion_judge_id(value: str) -> None:
+    v = (value or "").strip()
+    _update({"fusion_judge_id": v})
+    logger.info("runtime_settings: fusion_judge_id set to %r", v)
+
+
+def get_fusion_max_panel() -> int:
+    try:
+        return int(_ensure_initialized().get("fusion_max_panel", 4))
+    except (TypeError, ValueError):
+        return 4
+
+
+def set_fusion_max_panel(value: int) -> None:
+    v = int(value)
+    if v < 1 or v > 8:
+        raise ValueError(
+            "fusion_max_panel must be between 1 and 8 (OpenRouter panel limit)"
+        )
+    _update({"fusion_max_panel": v})
+    logger.info("runtime_settings: fusion_max_panel set to %d", v)
+
+
+def get_fusion_daily_cap_usd() -> float:
+    try:
+        return float(_ensure_initialized().get("fusion_daily_cap_usd", 10.0))
+    except (TypeError, ValueError):
+        return 10.0
+
+
+def set_fusion_daily_cap_usd(value: float) -> None:
+    v = float(value)
+    if v < 0.0:
+        raise ValueError("fusion_daily_cap_usd must be non-negative")
+    if v > 500.0:
+        raise ValueError("fusion_daily_cap_usd exceeds sanity cap of $500/day")
+    _update({"fusion_daily_cap_usd": v})
+    logger.info("runtime_settings: fusion_daily_cap_usd set to $%.2f", v)
+
+
+def get_fusion_agent_path_enabled() -> bool:
+    return bool(_ensure_initialized().get("fusion_agent_path_enabled", False))
+
+
+def set_fusion_agent_path_enabled(value: bool) -> None:
+    _update({"fusion_agent_path_enabled": bool(value)})
+    logger.info("runtime_settings: fusion_agent_path_enabled set to %s", bool(value))
 
 
 # ── Gate A: semantic rejection suppression (2026-05-30) ────────────────
