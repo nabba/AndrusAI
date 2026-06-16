@@ -46,6 +46,7 @@ from app.control_plane.dashboard_routes_companion import (
 from app.control_plane.dashboard_routes_governance_ops import (
     router as _governance_ops_router,
 )
+from app.control_plane.dashboard_routes_fusion import router as _fusion_router
 from app.control_plane.dashboard_routes_llms import router as _llms_router
 from app.control_plane.dashboard_routes_ops_misc import (
     router as _ops_misc_router,
@@ -75,6 +76,7 @@ router.include_router(_projects_tickets_router)
 router.include_router(_budgets_costs_router)
 router.include_router(_companion_router)
 router.include_router(_governance_ops_router)
+router.include_router(_fusion_router)
 router.include_router(_llms_router)
 router.include_router(_ops_misc_router)
 router.include_router(_sentience_drills_router)

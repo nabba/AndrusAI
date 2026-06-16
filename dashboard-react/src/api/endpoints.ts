@@ -129,6 +129,8 @@ export const endpoints = {
 
   // LLMs
   llmCatalog: () => `${CP}/llms/catalog`,
+  fusionState: () => `${CP}/fusion/state`,
+  fusionDeliberations: (limit = 20) => `${CP}/fusion/deliberations?limit=${limit}`,
   llmRoles: () => `${CP}/llms/roles`,
   llmDiscovery: (limit = 50) => `${CP}/llms/discovery?limit=${limit}`,
   llmDiscoveryRun: () => `${CP}/llms/discovery/run`,

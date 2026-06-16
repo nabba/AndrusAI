@@ -677,6 +677,16 @@ export interface RuntimeSettings {
   producer_autopause_min_approval_rate?: number;
   producer_autopause_min_samples?: number;
   producer_autopause_window_days?: number;
+  // ── OpenRouter Fusion (multi-model Mixture-of-Agents, 2026-06-16) ──
+  fusion_enabled?: boolean;
+  fusion_scope_roles?: string[];
+  fusion_panel_classes?: string[];
+  fusion_panel_pins?: Record<string, string>;
+  fusion_variant_hints?: Record<string, string>;
+  fusion_judge_id?: string;
+  fusion_max_panel?: number;
+  fusion_daily_cap_usd?: number;
+  fusion_agent_path_enabled?: boolean;
 }
 
 export function useRuntimeSettingsQuery() {
@@ -896,6 +906,67 @@ export function useUpdateRuntimeSettings() {
         body: JSON.stringify(body),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.runtimeSettings }),
+  });
+}
+
+// ── OpenRouter Fusion state (resolved panel + judge + spend) ──────────────
+export interface FusionPanelSlot {
+  class: string;
+  model_id: string | null;
+  pinned: boolean;
+}
+
+export interface FusionState {
+  enabled: boolean;
+  active: boolean;
+  scope_roles: string[];
+  panel: FusionPanelSlot[];
+  judge: string;
+  max_panel: number;
+  daily_cap_usd: number;
+  spent_today_usd: number;
+  brake_engaged: boolean;
+  cost_multiplier: number;
+  available_roles: string[];
+  error?: string;
+}
+
+export function useFusionStateQuery() {
+  return useQuery({
+    queryKey: ['fusion-state'] as const,
+    queryFn: () => api<FusionState>(endpoints.fusionState()),
+    refetchInterval: 30_000,
+  });
+}
+
+export interface FusionDeliberation {
+  ts: string;
+  role: string;
+  panel: string[];
+  judge: string;
+  model?: string | null;
+  answer_preview?: string;
+  router?: unknown;
+  fusion?: unknown;
+  deliberation?: unknown;
+  annotations?: unknown;
+  message_annotations?: unknown;
+  message_tool_calls?: unknown;
+  usage?: unknown;
+  error?: string;
+}
+
+export interface FusionDeliberationsResponse {
+  deliberations: FusionDeliberation[];
+  error?: string;
+}
+
+export function useFusionDeliberationsQuery(limit = 20) {
+  return useQuery({
+    queryKey: ['fusion-deliberations', limit] as const,
+    queryFn: () =>
+      api<FusionDeliberationsResponse>(endpoints.fusionDeliberations(limit)),
+    refetchInterval: 30_000,
   });
 }
 

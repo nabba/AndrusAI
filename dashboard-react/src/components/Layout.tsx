@@ -27,6 +27,7 @@ const NAV_ITEMS = [
   { to: '/monitor', label: 'Monitor', icon: '🩺', exact: false },
   { to: '/ops', label: 'Ops', icon: '🛠️', exact: false },
   { to: '/llms', label: 'LLMs', icon: '🤖', exact: false },
+  { to: '/fusion', label: 'Fusion', icon: '🔀', exact: false },
   { to: '/knowledge', label: 'Knowledge', icon: '📚', exact: false },
   { to: '/notes', label: 'Notes', icon: '📝', exact: false },
   { to: '/wiki', label: 'Wiki', icon: '📖', exact: false },

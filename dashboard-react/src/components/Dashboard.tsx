@@ -10,6 +10,7 @@ import {
   useAuditQuery,
   useGovernancePendingQuery,
   useHealthQuery,
+  useFusionStateQuery,
 } from '../api/queries';
 
 function StatCard({
@@ -44,6 +45,7 @@ export function Dashboard() {
   const auditQ = useAuditQuery(10, activeProject?.id);
   const governanceQ = useGovernancePendingQuery(activeProject?.id);
   const healthQ = useHealthQuery();
+  const fusionQ = useFusionStateQuery();
 
   const ticketCounts = useMemo(() => {
     const tickets = ticketsQ.data ?? [];
@@ -87,6 +89,32 @@ export function Dashboard() {
           }`}
         >
           System status: <strong className="capitalize">{health.status}</strong>
+        </div>
+      )}
+
+      {fusionQ.data?.enabled && (
+        <div className="p-3 rounded-lg border text-sm bg-[#60a5fa]/10 border-[#60a5fa]/30 text-[#60a5fa] flex items-center gap-2 flex-wrap">
+          <span>🔀</span>
+          {fusionQ.data.active ? (
+            <span>
+              Fusion <strong>ON</strong>
+              {fusionQ.data.scope_roles.length > 0 &&
+                ` · ${fusionQ.data.scope_roles.join(', ')}`}
+              {' · '}
+              {fusionQ.data.panel
+                .filter((p) => p.model_id)
+                .map((p) => p.class)
+                .join(' · ')}{' '}
+              → judge {fusionQ.data.judge} (~{fusionQ.data.cost_multiplier}× cost)
+            </span>
+          ) : (
+            <span>
+              Fusion <strong>ON</strong> —{' '}
+              {fusionQ.data.scope_roles.length === 0
+                ? 'no roles selected (idle)'
+                : 'panel unresolved (no catalog models yet)'}
+            </span>
+          )}
         </div>
       )}
 
