@@ -30,11 +30,10 @@ class TestOpenRouterModelIdPrefix:
     def _stub_settings(self, monkeypatch):
         fake = MagicMock()
         fake.openrouter_api_key.get_secret_value.return_value = "sk-or-fake"
-        # Patch via the module-local binding (`app.llm_factory.get_settings`)
-        # because llm_factory imports the function at module load time —
-        # patching `app.config.get_settings` doesn't affect the already-
-        # imported reference, plus the underlying function is `@cache`-d.
-        monkeypatch.setattr("app.llm_factory.get_settings", lambda: fake)
+        # llm_factory late-binds via `app_config.get_settings()` (2026-06-12),
+        # so the canonical `app.config.get_settings` seam is the one to patch
+        # (it also sidesteps the underlying function's `@cache`).
+        monkeypatch.setattr("app.config.get_settings", lambda: fake)
 
     def _reset_breaker(self, name: str):
         from app import circuit_breaker
@@ -167,7 +166,7 @@ class TestOpenRouterModelIdPrefix:
         """No OPENROUTER_API_KEY → return None gracefully (logs warning)."""
         fake = MagicMock()
         fake.openrouter_api_key.get_secret_value.return_value = ""
-        monkeypatch.setattr("app.llm_factory.get_settings", lambda: fake)
+        monkeypatch.setattr("app.config.get_settings", lambda: fake)
         self._reset_breaker("openrouter")
 
         called = {"n": 0}

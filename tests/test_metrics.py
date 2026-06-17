@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
-# ── Mock the config module before importing anything else ────────────────────
+# ── Fake settings (shared: ~18 test files import _FakeSettings from here) ────
 
 class _FakeSecretStr:
     def __init__(self, v):
@@ -45,12 +45,42 @@ class _FakeSettings:
     evolution_deep_iterations = 15
     evolution_auto_deploy = False
     canary_deploy_enabled = False
+    # LLM-cascade fields (2026-06-12) — the post-2026-05-29 OpenRouter
+    # consolidation made create_commander_llm() read these during app.main
+    # import (claude entries now carry provider=openrouter). Values mirror
+    # tests/_v2_shim.py: no API key, local tier enabled, so the resolver
+    # lands on an Ollama model whose construction needs no network.
+    cost_mode = "balanced"
+    api_tier_enabled = True
+    openrouter_api_key = _FakeSecretStr("")
+    llm_mode = "hybrid"
+    local_llm_enabled = True
+    local_llm_base_url = "http://localhost:11434"
+    ollama_base_url = "http://localhost:11434"
+    ollama_max_concurrent_crews = 2
+    local_model_coding = "qwen3.5:35b-a3b-q4_K_M"
+    local_model_architecture = "qwen3.5:35b-a3b-q4_K_M"
+    local_model_research = "qwen3.5:35b-a3b-q4_K_M"
+    local_model_writing = "qwen3.5:35b-a3b-q4_K_M"
+    local_model_default = "qwen3.5:35b-a3b-q4_K_M"
 
 import app.config as config_mod
-config_mod.get_settings = lambda: _FakeSettings()
-config_mod.get_anthropic_api_key = lambda: "fake-key"
-config_mod.get_brave_api_key = lambda: "fake-key"
-config_mod.get_gateway_secret = lambda: "a" * 64
+
+
+@pytest.fixture(autouse=True)
+def _fake_config(monkeypatch):
+    """Route app.config accessors to _FakeSettings for this module's tests.
+
+    Via monkeypatch — NOT a module-level assignment. The old permanent
+    assignment leaked into the whole pytest session and broke the first
+    import of app.main in any later test file (_FakeSettings lacks
+    gateway-only fields like mem0_postgres_url read by
+    app/control_plane/db.py).
+    """
+    monkeypatch.setattr(config_mod, "get_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(config_mod, "get_anthropic_api_key", lambda: "fake-key")
+    monkeypatch.setattr(config_mod, "get_brave_api_key", lambda: "fake-key")
+    monkeypatch.setattr(config_mod, "get_gateway_secret", lambda: "a" * 64)
 
 
 # ── Tests ────────────────────────────────────────────────────────────────────
@@ -66,7 +96,7 @@ class TestCompositeScore:
         m = compute_metrics()
         expected_keys = {
             "task_success_rate", "error_rate_24h", "error_rate_1h",
-            "error_trend", "self_heal_rate",
+            "error_trend", "self_heal_rate", "error_resolution_rate",
             "output_quality", "skill_count", "avg_response_time_s",
             "evolution_efficiency", "avg_request_cost_usd",
             "composite_score", "measured_at",

@@ -33,6 +33,8 @@ import sys
 import types
 from unittest.mock import MagicMock
 
+import pytest
+
 
 # ── psycopg2 stub ─────────────────────────────────────────────────
 # Many app modules import psycopg2 at module-load time. The gateway
@@ -48,7 +50,16 @@ if "psycopg2" not in sys.modules:
     )
     sys.modules["psycopg2"] = _mock_pg
 if "psycopg2.pool" not in sys.modules:
-    sys.modules["psycopg2.pool"] = MagicMock()
+    _mock_pg_pool = MagicMock()
+    # Must be a real exception class: ``except pg_pool.PoolError`` clauses
+    # (app/control_plane/db.py) raise ``TypeError: catching classes that
+    # do not inherit from BaseException`` when this is a bare MagicMock
+    # attribute — detonating before the generic ``except Exception``
+    # fallback can swallow whatever actually went wrong.
+    _mock_pg_pool.PoolError = type("PoolError", (Exception,), {})
+    sys.modules["psycopg2.pool"] = _mock_pg_pool
+    if "psycopg2" in sys.modules:
+        sys.modules["psycopg2"].pool = _mock_pg_pool
 
 
 # ── crewai stub ───────────────────────────────────────────────────
@@ -93,3 +104,39 @@ if not _crewai_real:
         _crewai_tools.tool = _stub_tool_decorator
         _crewai_tools.BaseTool = type("BaseTool", (), {})
         sys.modules["crewai.tools"] = _crewai_tools
+
+
+# ── v2 settings-shim confinement (2026-06-12) ─────────────────────
+# v2 test files call tests._v2_shim.install_settings_shim() at module
+# level — their module-level ``app.*`` imports need the fake active
+# during collection, so that call can't move into a fixture. But the
+# install used to be permanent: fake app.config accessors leaked into
+# every test collected after a v2 file (same bug class as the
+# module-level ``config_mod.get_settings = ...`` overrides converted
+# to autouse monkeypatch fixtures the same day). This fixture confines
+# the shim to the tests that opted in: modules that imported
+# install_settings_shim get a fresh default install per test; all
+# other tests get the real accessors restored first.
+
+@pytest.fixture(autouse=True)
+def _confine_v2_settings_shim(request):
+    from tests import _v2_shim
+
+    try:
+        module = request.module
+    except Exception:
+        module = None
+    uses_shim = getattr(module, "install_settings_shim", None) is not None
+
+    if uses_shim:
+        # Fresh default install per test — also resets any override a
+        # previous test in the module installed (e.g. mcp_servers_json).
+        _v2_shim.install_settings_shim()
+        yield
+        _v2_shim.uninstall_settings_shim()
+    else:
+        # Clear any leak from collection-time installs or from modules
+        # that call install_settings_shim() inside test bodies
+        # (test_budget_default_limit.py).
+        _v2_shim.uninstall_settings_shim()
+        yield

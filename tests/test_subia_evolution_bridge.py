@@ -16,36 +16,75 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tests.test_metrics import _FakeSettings
 import app.config as config_mod
-config_mod.get_settings = lambda: _FakeSettings()
-config_mod.get_anthropic_api_key = lambda: "fake-key"
-config_mod.get_gateway_secret = lambda: "a" * 64
 
-# Mock heavy dependencies
+
+@pytest.fixture(autouse=True)
+def _fake_config(monkeypatch):
+    """Scoped stand-in for the real Settings (host runs lack the env vars).
+
+    Via monkeypatch — NOT a module-level assignment. The old permanent
+    assignment leaked across the pytest session and crashed the first
+    import of app.main in later test files ('_FakeSettings' object has
+    no attribute 'mem0_postgres_url' at app/control_plane/db.py).
+    """
+    monkeypatch.setattr(config_mod, "get_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(config_mod, "get_anthropic_api_key", lambda: "fake-key")
+    monkeypatch.setattr(config_mod, "get_gateway_secret", lambda: "a" * 64)
+
+# Mock heavy dependencies — constructed at module level (harmless), but
+# INSTALLED per-test by the autouse fixture below. The old module-level
+# sys.modules writes executed at collection time and leaked into the whole
+# session; in particular the hard `app.firebase_reporter` assignment (a
+# 3-function stub) broke app.main's
+# `from app.firebase_reporter import report_system_online` in every test
+# file collected after this one.
 _mock_crewai = types.ModuleType("crewai")
 _mock_crewai.Agent = type("Agent", (), {"__init__": lambda *a, **kw: None})
 _mock_crewai.Task = type("Task", (), {"__init__": lambda *a, **kw: None})
 _mock_crewai.Crew = type("Crew", (), {"__init__": lambda *a, **kw: None, "kickoff": lambda s: ""})
 _mock_crewai.Process = type("Process", (), {"sequential": "sequential"})
 _mock_crewai.LLM = type("LLM", (), {"__init__": lambda *a, **kw: None})
-sys.modules.setdefault("crewai", _mock_crewai)
 
 _mock_firebase = types.ModuleType("app.firebase_reporter")
 _mock_firebase.crew_started = lambda *a, **kw: "task_0"
 _mock_firebase.crew_completed = lambda *a, **kw: None
 _mock_firebase.crew_failed = lambda *a, **kw: None
-sys.modules["app.firebase_reporter"] = _mock_firebase
 
 _mock_ws = types.ModuleType("app.tools.web_search")
 _mock_ws.web_search = lambda *a, **kw: ""
-sys.modules.setdefault("app.tools.web_search", _mock_ws)
 
 _mock_mem = types.ModuleType("app.tools.memory_tool")
 _mock_mem.create_memory_tools = lambda **kw: []
-sys.modules.setdefault("app.tools.memory_tool", _mock_mem)
 
 _mock_fm = types.ModuleType("app.tools.file_manager")
 _mock_fm.file_manager = lambda *a, **kw: ""
-sys.modules.setdefault("app.tools.file_manager", _mock_fm)
+
+# Always stubbed (the old code hard-assigned this one).
+_MODULE_STUBS = {
+    "app.firebase_reporter": _mock_firebase,
+}
+# Stubbed only when not already imported (the old setdefault semantics —
+# a real, already-imported module wins).
+_MODULE_STUBS_IF_ABSENT = {
+    "crewai": _mock_crewai,
+    "app.tools.web_search": _mock_ws,
+    "app.tools.memory_tool": _mock_mem,
+    "app.tools.file_manager": _mock_fm,
+}
+
+
+@pytest.fixture(autouse=True)
+def _mock_heavy_deps(monkeypatch):
+    """Install the module stubs for this test only.
+
+    monkeypatch.setitem restores (or removes) the sys.modules entries on
+    teardown, so the stubs never leak past this module's tests.
+    """
+    for _name, _mod in _MODULE_STUBS.items():
+        monkeypatch.setitem(sys.modules, _name, _mod)
+    for _name, _mod in _MODULE_STUBS_IF_ABSENT.items():
+        if _name not in sys.modules:
+            monkeypatch.setitem(sys.modules, _name, _mod)
 
 
 class TestSUBIAPredictionInContext:
