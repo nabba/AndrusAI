@@ -15,6 +15,9 @@ from app.vetting import vet_response
 from app.sanitize import wrap_user_input
 from app.tools.memory_tool import create_memory_tools
 from app.tools.attachment_reader import extract_attachment
+from app.agents.commander.attachment_routing import (
+    digest_attachment_for_routing, deliver_attachment_to_decisions,
+)
 from app.conversation_store import get_history
 from app.firebase_reporter import crew_started, crew_completed, crew_failed
 from pathlib import Path
@@ -809,10 +812,19 @@ class Commander:
         # crew catalog (capabilities derived from the declarative tool
         # registry).  Per-call so tool registration changes since the
         # last dispatch are reflected without restart.
+        # ── Attachment handling for ROUTING (2026-06-17 fix) ─────────────
+        # The router is a lightweight classifier capped at max_tokens=1024; it
+        # only needs a head excerpt to pick a crew, NOT the whole body. The
+        # FULL document is delivered to the chosen crew out-of-band after
+        # _route returns (deliver_attachment_to_decisions). Embedding the
+        # entire attachment here used to truncate the classifier's reply
+        # (finish_reason="length" → CompletionTruncated → generic error).
+        routing_attachment_view = digest_attachment_for_routing(attachment_context)
+
         prompt = (
             f"{build_routing_prompt()}\n\n"
             f"{history_block}"
-            f"{attachment_context}"
+            f"{routing_attachment_view}"
             f"User request:\n\n{wrap_user_input(user_input)}\n\n"
             f"{mem0_block}"
             f"{wiki_block}"
@@ -863,6 +875,27 @@ class Commander:
                 break
             except Exception as exc:
                 last_exc = exc
+                # Router reply hit the max_tokens ceiling (finish_reason=
+                # "length"): the completion guard raises CompletionTruncated.
+                # Don't treat it as a provider failure — fall through with the
+                # partial text so the JSON-parse + _recover_truncated_routing +
+                # research fallback below give the user a real attempt instead
+                # of the generic "trouble understanding" error. (After the
+                # attachment-digest fix this is rare; it closes the class for
+                # any oversized routing prompt.)
+                try:
+                    from app.llm_completion_guard import CompletionTruncated
+                except Exception:
+                    CompletionTruncated = ()  # type: ignore[assignment]
+                if CompletionTruncated and isinstance(exc, CompletionTruncated):
+                    raw = (getattr(exc, "partial_text", "") or "").strip()
+                    logger.warning(
+                        "Commander routing: router reply truncated by "
+                        "max_tokens (partial=%d chars); using truncation "
+                        "recovery instead of failing the request",
+                        len(raw),
+                    )
+                    break
                 _cb_failure(_routing_provider)
                 err_str = str(exc).lower()
                 is_credit_error = any(k in err_str for k in ("credit balance", "insufficient_credits", "payment", "billing", "quota"))
@@ -2958,6 +2991,16 @@ class Commander:
             crew_failed("commander", task_id, str(exc)[:200])
             return "Sorry, I had trouble understanding that request. Please try again."
         _phase_log("route", _route_t0, decisions=len(decisions))
+
+        # ── Deliver the attachment to the worker crew OUT-OF-BAND ────────
+        # (2026-06-17 fix) The crew only ever sees ``d["task"]`` — the dispatch
+        # below calls _run_crew / _run_with_reflexion with d.get("task") and
+        # nothing else. Previously the ONLY channel for an attachment to reach
+        # the crew was the router echoing it into the task field, impossible
+        # for any document beyond the router's max_tokens cap. Prepend the full
+        # extracted attachment to every non-"direct" decision's task so
+        # delivery no longer depends on the classifier reproducing the doc.
+        deliver_attachment_to_decisions(decisions, attachment_context, user_input)
 
         # Verified Plan §7 item 3 (2026-05-23) — output-streaming
         # shortcut. If the routing layer matched a structurally
