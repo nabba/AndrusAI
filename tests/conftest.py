@@ -140,3 +140,68 @@ def _confine_v2_settings_shim(request):
         # (test_budget_default_limit.py).
         _v2_shim.uninstall_settings_shim()
         yield
+
+
+# ── collection-time leak guard (2026-06-17) ──────────────────────
+# Several test files install a module-level MagicMock / bare ModuleType
+# stub for a shared dependency under an ``if "X" not in sys.modules``
+# guard (e.g. test_emotions.py → app.control_plane, defensive against an
+# import-time DB pull; test_long_response.py → litellm, when the real
+# package is incomplete). pytest imports EVERY test module during the
+# collection phase, so that fake persists in sys.modules and breaks the
+# *collection* of unrelated files that import the real module
+# (test_epistemic_* need real app.control_plane.auth_dep → "not a
+# package"; threads/test_api.py needs real fastapi → "cannot import name
+# 'FastAPI'").
+#
+# Restoring the reals before each collector node is collected confines
+# every such stub to its own module without editing the ~25 stubber
+# files. A stubber module still installs its fake during its own
+# collection (it runs after this hook), and its tests use per-test
+# ``patch(...)`` against the real dotted path, so nothing regresses.
+# Heavy shared deps that ``app.main``'s import chain pulls in and that
+# various test files defensively stub at module level. All are really
+# installed in CI / the dev .venv / the gateway container, so restoring
+# the real one over a leaked stub is always correct there; on a genuinely
+# dep-less host the re-import fails and the stub is left in place.
+_PROTECTED_REALS = (
+    "fastapi", "litellm", "crewai", "chromadb", "groq",
+    "sentence_transformers", "apscheduler", "anthropic",
+    "app.control_plane",
+)
+
+
+def _looks_like_stub(mod) -> bool:
+    # MagicMock / Mock — its class lives in unittest.mock.
+    if type(mod).__module__ == "unittest.mock":
+        return True
+    # bare types.ModuleType("x") stub — real modules carry a __file__.
+    return getattr(mod, "__file__", None) is None
+
+
+def pytest_collectstart(collector):
+    import importlib
+
+    for _name in _PROTECTED_REALS:
+        # Scan the package AND every submodule already in sys.modules; a
+        # leak can stub the submodule alone (``crewai.tools``) while the
+        # parent (``crewai``) stays real, or stub the parent (``apscheduler``)
+        # and shadow the real ``apscheduler.schedulers.asyncio`` app.main
+        # needs. Restore independently of the parent's state.
+        _stubbed = sorted(
+            (
+                k for k in list(sys.modules)
+                if (k == _name or k.startswith(_name + "."))
+                and _looks_like_stub(sys.modules[k])
+            ),
+            key=lambda k: k.count("."),  # parents before submodules
+        )
+        if not _stubbed:
+            continue
+        for _k in _stubbed:
+            sys.modules.pop(_k, None)
+        for _k in _stubbed:
+            try:
+                importlib.import_module(_k)
+            except Exception:  # noqa: BLE001 — genuinely-absent dep: leave it
+                pass
