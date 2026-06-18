@@ -554,7 +554,9 @@ class TestAnthropicClientHandle:
                 def __getattr__(self, name):
                     return getattr(s, name)
             return _FakeSettings()
-        monkeypatch.setattr(llm_factory, "get_settings", fake_get_settings)
+        # llm_factory late-binds via app_config.get_settings() (2026-06-12),
+        # so the canonical app.config seam is the one to patch.
+        monkeypatch.setattr("app.config.get_settings", fake_get_settings)
 
         entry = CATALOG["qwen3.5:35b-a3b-q4_K_M"]
         with pytest.raises(ConstructionFailed) as exc_info:
@@ -1312,10 +1314,11 @@ class TestWalkChain:
                 return sentinel
             return None
 
-        # Mock the API-key getters directly so the test is robust
-        # against other tests in the suite that mock get_settings().
+        # Mock the API-key getter at its canonical app.config seam (which
+        # llm_factory late-binds) so the test is robust against other
+        # tests in the suite that mock get_settings().
         monkeypatch.setattr(
-            llm_factory, "get_openrouter_api_key", lambda: "test-key",
+            "app.config.get_openrouter_api_key", lambda: "test-key",
         )
         monkeypatch.setattr(llm_factory, "_try_api", fake_try_api)
 
@@ -1332,7 +1335,7 @@ class TestWalkChain:
             return sentinel
 
         monkeypatch.setattr(
-            llm_factory, "get_openrouter_api_key", lambda: "test-key",
+            "app.config.get_openrouter_api_key", lambda: "test-key",
         )
         monkeypatch.setattr(llm_factory, "_try_api", fake_try_api)
 

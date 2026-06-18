@@ -33,6 +33,8 @@ import sys
 import types
 from unittest.mock import MagicMock
 
+import pytest
+
 
 # ── psycopg2 stub ─────────────────────────────────────────────────
 # Many app modules import psycopg2 at module-load time. The gateway
@@ -48,7 +50,16 @@ if "psycopg2" not in sys.modules:
     )
     sys.modules["psycopg2"] = _mock_pg
 if "psycopg2.pool" not in sys.modules:
-    sys.modules["psycopg2.pool"] = MagicMock()
+    _mock_pg_pool = MagicMock()
+    # Must be a real exception class: ``except pg_pool.PoolError`` clauses
+    # (app/control_plane/db.py) raise ``TypeError: catching classes that
+    # do not inherit from BaseException`` when this is a bare MagicMock
+    # attribute — detonating before the generic ``except Exception``
+    # fallback can swallow whatever actually went wrong.
+    _mock_pg_pool.PoolError = type("PoolError", (Exception,), {})
+    sys.modules["psycopg2.pool"] = _mock_pg_pool
+    if "psycopg2" in sys.modules:
+        sys.modules["psycopg2"].pool = _mock_pg_pool
 
 
 # ── crewai stub ───────────────────────────────────────────────────
@@ -93,3 +104,104 @@ if not _crewai_real:
         _crewai_tools.tool = _stub_tool_decorator
         _crewai_tools.BaseTool = type("BaseTool", (), {})
         sys.modules["crewai.tools"] = _crewai_tools
+
+
+# ── v2 settings-shim confinement (2026-06-12) ─────────────────────
+# v2 test files call tests._v2_shim.install_settings_shim() at module
+# level — their module-level ``app.*`` imports need the fake active
+# during collection, so that call can't move into a fixture. But the
+# install used to be permanent: fake app.config accessors leaked into
+# every test collected after a v2 file (same bug class as the
+# module-level ``config_mod.get_settings = ...`` overrides converted
+# to autouse monkeypatch fixtures the same day). This fixture confines
+# the shim to the tests that opted in: modules that imported
+# install_settings_shim get a fresh default install per test; all
+# other tests get the real accessors restored first.
+
+@pytest.fixture(autouse=True)
+def _confine_v2_settings_shim(request):
+    from tests import _v2_shim
+
+    try:
+        module = request.module
+    except Exception:
+        module = None
+    uses_shim = getattr(module, "install_settings_shim", None) is not None
+
+    if uses_shim:
+        # Fresh default install per test — also resets any override a
+        # previous test in the module installed (e.g. mcp_servers_json).
+        _v2_shim.install_settings_shim()
+        yield
+        _v2_shim.uninstall_settings_shim()
+    else:
+        # Clear any leak from collection-time installs or from modules
+        # that call install_settings_shim() inside test bodies
+        # (test_budget_default_limit.py).
+        _v2_shim.uninstall_settings_shim()
+        yield
+
+
+# ── collection-time leak guard (2026-06-17) ──────────────────────
+# Several test files install a module-level MagicMock / bare ModuleType
+# stub for a shared dependency under an ``if "X" not in sys.modules``
+# guard (e.g. test_emotions.py → app.control_plane, defensive against an
+# import-time DB pull; test_long_response.py → litellm, when the real
+# package is incomplete). pytest imports EVERY test module during the
+# collection phase, so that fake persists in sys.modules and breaks the
+# *collection* of unrelated files that import the real module
+# (test_epistemic_* need real app.control_plane.auth_dep → "not a
+# package"; threads/test_api.py needs real fastapi → "cannot import name
+# 'FastAPI'").
+#
+# Restoring the reals before each collector node is collected confines
+# every such stub to its own module without editing the ~25 stubber
+# files. A stubber module still installs its fake during its own
+# collection (it runs after this hook), and its tests use per-test
+# ``patch(...)`` against the real dotted path, so nothing regresses.
+# Heavy shared deps that ``app.main``'s import chain pulls in and that
+# various test files defensively stub at module level. All are really
+# installed in CI / the dev .venv / the gateway container, so restoring
+# the real one over a leaked stub is always correct there; on a genuinely
+# dep-less host the re-import fails and the stub is left in place.
+_PROTECTED_REALS = (
+    "fastapi", "litellm", "crewai", "chromadb", "groq",
+    "sentence_transformers", "apscheduler", "anthropic",
+    "app.control_plane",
+)
+
+
+def _looks_like_stub(mod) -> bool:
+    # MagicMock / Mock — its class lives in unittest.mock.
+    if type(mod).__module__ == "unittest.mock":
+        return True
+    # bare types.ModuleType("x") stub — real modules carry a __file__.
+    return getattr(mod, "__file__", None) is None
+
+
+def pytest_collectstart(collector):
+    import importlib
+
+    for _name in _PROTECTED_REALS:
+        # Scan the package AND every submodule already in sys.modules; a
+        # leak can stub the submodule alone (``crewai.tools``) while the
+        # parent (``crewai``) stays real, or stub the parent (``apscheduler``)
+        # and shadow the real ``apscheduler.schedulers.asyncio`` app.main
+        # needs. Restore independently of the parent's state.
+        _stubbed = sorted(
+            (
+                k for k in list(sys.modules)
+                if (k == _name or k.startswith(_name + "."))
+                and _looks_like_stub(sys.modules[k])
+            ),
+            key=lambda k: k.count("."),  # parents before submodules
+        )
+        if not _stubbed:
+            continue
+        for _k in _stubbed:
+            sys.modules.pop(_k, None)
+        for _k in _stubbed:
+            try:
+                importlib.import_module(_k)
+            except Exception:  # noqa: BLE001 — genuinely-absent dep: leave it
+                pass

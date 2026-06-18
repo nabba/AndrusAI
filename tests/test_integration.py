@@ -28,6 +28,20 @@ import threading
 from pathlib import Path
 from datetime import datetime, timezone
 
+import pytest
+
+# This is a standalone, run-in-Docker end-to-end script (see the module
+# docstring — invoked via ``docker exec``), NOT a host unit test: it
+# ``os.chdir``s and reads/writes the hardcoded container path
+# ``/app/workspace/...`` at import time. Skip collection wherever that
+# path is absent (host / CI) so it can't break the suite's single
+# green/red signal or leak a chdir side-effect into other tests.
+if not Path("/app/workspace").exists():
+    pytest.skip(
+        "docker-only end-to-end script; run via `docker exec`",
+        allow_module_level=True,
+    )
+
 # Resolve the repo root from this file's location so the script is portable:
 # inside the container this is ``/app``; on the host it is the checkout root.
 _REPO_ROOT = Path(__file__).resolve().parent.parent

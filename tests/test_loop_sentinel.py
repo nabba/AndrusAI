@@ -143,16 +143,6 @@ def test_audit_logger_is_queue_decoupled(monkeypatch, tmp_path):
     pytest.importorskip("fastapi")  # app.main needs the gateway deps
     import logging
 
-    # Pollution guard: a few legacy test modules still overwrite
-    # app.config accessors at module level (not via monkeypatch) — e.g.
-    # test_conversation_store.py, test_meta_agent.py. Reload so app.main's
-    # first import sees the real get_settings in a combined run.
-    # (test_metrics.py + test_idle_scheduler_substrate_policy.py were
-    # converted to monkeypatch fixtures 2026-06-12; drop this guard once
-    # the remaining module-level overrides are converted too.)
-    import app.config as _config_mod
-    importlib.reload(_config_mod)
-
     audit_logger = logging.getLogger("crewai.audit")
     for h in list(audit_logger.handlers):
         audit_logger.removeHandler(h)

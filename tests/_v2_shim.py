@@ -7,6 +7,12 @@ Use at the top of every v2 test file:
 
 before importing any `app.*` module. This avoids the pydantic Settings loader
 trying to resolve real env vars / .env files during test collection.
+
+Teardown story (2026-06-12): the install used to be permanent — fake accessors
+leaked into every test collected after a v2 file. Now the originals are
+captured on first install and ``uninstall_settings_shim()`` restores them; the
+autouse ``_confine_v2_settings_shim`` fixture in tests/conftest.py calls both
+so the fake is active only for tests in modules that imported the shim.
 """
 from __future__ import annotations
 
@@ -14,11 +20,28 @@ import os
 import sys
 from pathlib import Path
 
+# Sentinel for "this accessor did not exist on app.config before the shim".
+_MISSING = object()
+
+# Real accessors captured before the first install; None until then.
+_ORIGINALS: dict[str, object] | None = None
+
+_PATCHED_ACCESSORS = (
+    "get_settings",
+    "get_anthropic_api_key",
+    "get_brave_api_key",
+    "get_gateway_secret",
+    "get_openrouter_api_key",
+)
+
 
 def install_settings_shim(**overrides) -> None:
     """Replace app.config.get_settings with a fake. Idempotent."""
-    # Ensure project root is importable
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    # Ensure project root is importable (idempotent — this runs once per
+    # test via the conftest confinement fixture, not just at collection)
+    _root = str(Path(__file__).resolve().parent.parent)
+    if _root not in sys.path:
+        sys.path.insert(0, _root)
 
     # Set minimal env so pydantic_settings doesn't choke if imported before shim
     os.environ.setdefault("ANTHROPIC_API_KEY", "sk-test")
@@ -170,9 +193,43 @@ def install_settings_shim(**overrides) -> None:
         setattr(s, k, v)
 
     import app.config as config_mod
+
+    # Capture the real accessors ONCE, before the first replacement, so
+    # uninstall_settings_shim() can put them back.
+    global _ORIGINALS
+    if _ORIGINALS is None:
+        _ORIGINALS = {
+            name: getattr(config_mod, name, _MISSING)
+            for name in _PATCHED_ACCESSORS
+        }
+
     config_mod.get_settings = lambda _s=s: _s
     config_mod.get_anthropic_api_key = lambda: "fake-key"
     config_mod.get_brave_api_key = lambda: "fake-key"
     config_mod.get_gateway_secret = lambda: "a" * 64
     config_mod.get_openrouter_api_key = lambda: ""
     return s
+
+
+def uninstall_settings_shim() -> None:
+    """Restore the real app.config accessors captured before the first install.
+
+    No-op when the shim was never installed (never imports app.config in
+    that case, so host runs without gateway deps stay unaffected). Called
+    by the autouse ``_confine_v2_settings_shim`` fixture in conftest.py.
+    """
+    if _ORIGINALS is None:
+        return
+    import app.config as config_mod
+
+    for name, original in _ORIGINALS.items():
+        if original is _MISSING:
+            if hasattr(config_mod, name):
+                delattr(config_mod, name)
+        else:
+            setattr(config_mod, name, original)
+
+
+def shim_installed() -> bool:
+    """True if install_settings_shim() has run at least once this session."""
+    return _ORIGINALS is not None

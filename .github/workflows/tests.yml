@@ -1,0 +1,86 @@
+name: tests
+
+# Python test suite — the regression gate that did not exist before
+# 2026-06-17 (the only prior workflow, deploy-smoke, covers infra only and
+# never runs pytest). ONE job, two steps with different blocking semantics:
+#
+#   * "collect"  — BLOCKING. `pytest --collect-only` must report 0 collection
+#                  errors. This is a real, deterministic gate: it catches
+#                  import rot, broken/renamed modules, and the cross-file
+#                  sys.modules-pollution class that the conftest collect-guard
+#                  fixes (10 such errors -> 0, see tests/conftest.py).
+#
+#   * "run"      — INFORMATIONAL (continue-on-error). Runs the full suite in a
+#                  minimal pip-only environment (no DB, no live services, no
+#                  docker, no .env). Many failures here are environmental, not
+#                  regressions, so this is NOT yet a blocking gate — it is a
+#                  VISIBLE baseline (failures show in the UI; full results in
+#                  the junit artifact, nothing masked). Promoting it to
+#                  blocking is a follow-on once the run-baseline is triaged
+#                  (deselect docker/live-LLM/DB tests; fix or xfail real bugs)
+#                  and `main` catches up to the fixes currently uncommitted on
+#                  the operator host.
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'tests/**'
+      - 'conftest.py'
+      - 'requirements.txt'
+      - 'requirements-dev.txt'
+      - '.github/workflows/tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'tests/**'
+      - 'conftest.py'
+      - 'requirements.txt'
+      - 'requirements-dev.txt'
+      - '.github/workflows/tests.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: pytest (collect = gate, run = baseline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'  # production target (the gateway image is 3.11)
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: install deps (CPU-only torch first — mirrors Dockerfile TORCH_VARIANT=cpu)
+        run: |
+          python -m pip install --upgrade pip
+          # Install the CPU torch wheel before requirements.txt so the resolver
+          # never drags in the unusable CUDA stack via sentence-transformers.
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: collect (BLOCKING — 0 collection errors)
+        run: python -m pytest tests/ --collect-only -q -p no:cacheprovider
+
+      - name: run suite (informational baseline — not yet blocking)
+        continue-on-error: true
+        run: |
+          python -m pytest tests/ -p no:cacheprovider -q --tb=line \
+            --junitxml=pytest-results.xml
+
+      - name: upload run results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: pytest-results.xml
+          retention-days: 14

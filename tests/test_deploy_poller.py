@@ -202,3 +202,140 @@ def test_signal_alert_noop_without_owner(monkeypatch):
     monkeypatch.delenv("SIGNAL_OWNER_NUMBER", raising=False)
     # Must not raise and must not attempt any network call.
     assert mod.signal_alert("hello") is None
+
+
+# ── Collection gate (CI substitute while GitHub Actions is billing-locked) ───--
+def _check_gated(mod, work, deploy_script, *, gate_fn, gate_state, alert=None):
+    return mod.check_once(
+        repo_root=str(work), target_branch="main", remote="origin",
+        git_bin=GIT, deploy_script=str(deploy_script), deploy_timeout=60,
+        alert=alert, gate_cmd="pytest --collect-only", gate_timeout=60,
+        gate_state_path=str(gate_state), gate_fn=gate_fn,
+    )
+
+
+def test_gate_pass_allows_deploy(tmp_path):
+    mod = _load()
+    remote, work = _setup_repos(tmp_path)
+    _advance_remote(tmp_path, remote)
+    sentinel = tmp_path / "deployed.marker"
+    stub = _stub_deploy(tmp_path, sentinel)
+
+    code, _ = _check_gated(
+        mod, work, stub,
+        gate_fn=lambda **kw: (True, "collection clean"),
+        gate_state=tmp_path / "gate.json",
+    )
+
+    assert code == mod.DEPLOYED
+    assert sentinel.exists()
+
+
+def test_gate_block_withholds_deploy_and_alerts_once(tmp_path):
+    mod = _load()
+    remote, work = _setup_repos(tmp_path)
+    _advance_remote(tmp_path, remote)
+    sentinel = tmp_path / "deployed.marker"
+    stub = _stub_deploy(tmp_path, sentinel)
+    gate_state = tmp_path / "gate.json"
+    seen = []
+
+    code, _ = _check_gated(
+        mod, work, stub,
+        gate_fn=lambda **kw: (False, "collection errors — ERROR tests/x.py"),
+        gate_state=gate_state, alert=seen.append,
+    )
+
+    assert code == mod.GATE_BLOCKED
+    assert not sentinel.exists(), "deploy must be withheld on a collection error"
+    assert len(seen) == 1 and "withheld" in seen[0].lower()
+
+    # Second tick, SAME bad SHA: silent, still no deploy, no new alert, gate not re-run.
+    seen.clear()
+
+    def _explode(**kw):
+        raise AssertionError("gate must not re-run on an already-blocked SHA")
+
+    code2, _ = _check_gated(
+        mod, work, stub, gate_fn=_explode, gate_state=gate_state, alert=seen.append,
+    )
+
+    assert code2 == mod.GATE_ALREADY_BLOCKED
+    assert not sentinel.exists()
+    assert seen == []
+
+
+def test_gate_unblocks_after_fix_commit(tmp_path):
+    mod = _load()
+    remote, work = _setup_repos(tmp_path)
+    _advance_remote(tmp_path, remote)
+    sentinel = tmp_path / "deployed.marker"
+    stub = _stub_deploy(tmp_path, sentinel)
+    gate_state = tmp_path / "gate.json"
+
+    # First (bad) SHA is blocked.
+    _check_gated(mod, work, stub, gate_fn=lambda **kw: (False, "errs"), gate_state=gate_state)
+    assert not sentinel.exists()
+
+    # A fix commit advances origin/main → new SHA → gate consulted again → passes → deploy.
+    # (Distinct clone dir; _advance_remote's fixed "other" dir is already taken above.)
+    fix = tmp_path / "fixclone"
+    _run("clone", "-q", str(remote), str(fix), cwd=tmp_path)
+    _run("config", "user.email", "t@t", cwd=fix)
+    _run("config", "user.name", "t", cwd=fix)
+    (fix / "f.txt").write_text("v3")
+    _run("add", "-A", cwd=fix)
+    _run("commit", "-q", "-m", "v3", cwd=fix)
+    _run("push", "-q", "origin", "main", cwd=fix)
+    code, _ = _check_gated(mod, work, stub, gate_fn=lambda **kw: (True, "clean"), gate_state=gate_state)
+
+    assert code == mod.DEPLOYED
+    assert sentinel.exists()
+
+
+# ── collection_gate() itself, against a real throwaway worktree ──────────────
+def _head_sha(work):
+    return subprocess.run(
+        [GIT, "rev-parse", "HEAD"], cwd=str(work), capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def test_collection_gate_clean(tmp_path):
+    mod = _load()
+    _, work = _setup_repos(tmp_path)
+    ok, detail = mod.collection_gate(
+        repo_root=str(work), remote_sha=_head_sha(work), git_bin=GIT,
+        gate_cmd="exit 0", gate_timeout=60,
+    )
+    assert ok and "clean" in detail
+
+
+def test_collection_gate_blocks_on_collection_error(tmp_path):
+    mod = _load()
+    _, work = _setup_repos(tmp_path)
+    ok, detail = mod.collection_gate(
+        repo_root=str(work), remote_sha=_head_sha(work), git_bin=GIT,
+        gate_cmd="echo '5 tests collected, 1 error'; exit 2", gate_timeout=60,
+    )
+    assert ok is False and "collection error" in detail.lower()
+
+
+def test_collection_gate_fails_open_when_pytest_cannot_run(tmp_path):
+    # rc 2 but no "collected" in output → can't confirm a real collection error →
+    # fail OPEN rather than wedge every deploy on a broken gate environment.
+    mod = _load()
+    _, work = _setup_repos(tmp_path)
+    ok, _ = mod.collection_gate(
+        repo_root=str(work), remote_sha=_head_sha(work), git_bin=GIT,
+        gate_cmd="exit 2", gate_timeout=60,
+    )
+    assert ok is True
+
+
+def test_collection_gate_disabled_is_noop(tmp_path):
+    mod = _load()
+    _, work = _setup_repos(tmp_path)
+    ok, detail = mod.collection_gate(
+        repo_root=str(work), remote_sha="HEAD", git_bin=GIT, gate_cmd="", gate_timeout=60,
+    )
+    assert ok and "disabled" in detail

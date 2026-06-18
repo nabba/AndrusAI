@@ -15,9 +15,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from tests.test_metrics import _FakeSettings  # noqa: E402
 import app.config as config_mod  # noqa: E402
 
-config_mod.get_settings = lambda: _FakeSettings()
-config_mod.get_anthropic_api_key = lambda: "fake-key"
-config_mod.get_gateway_secret = lambda: "a" * 64
+
+@pytest.fixture(autouse=True)
+def _fake_config(monkeypatch):
+    """Scoped stand-in for the real Settings (host runs lack the env vars).
+
+    Via monkeypatch — NOT a module-level assignment. The old permanent
+    assignment leaked across the pytest session and crashed the first
+    import of app.main in later test files ('_FakeSettings' object has
+    no attribute 'mem0_postgres_url' at app/control_plane/db.py).
+    """
+    monkeypatch.setattr(config_mod, "get_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(config_mod, "get_anthropic_api_key", lambda: "fake-key")
+    monkeypatch.setattr(config_mod, "get_gateway_secret", lambda: "a" * 64)
 
 
 class TestSubstrateStatus:

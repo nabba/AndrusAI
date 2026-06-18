@@ -34,6 +34,27 @@ other host LaunchAgents (warm-spare sync, db-backup, browse-collector).
 - Lock + state live in `~/.crewai-bridge/` (outside the repo); log is
   `workspace/healing/.deploy_poller.log`. Routine no-ops are silent (no spam).
 
+### Collection gate (host-side CI substitute)
+
+GitHub Actions is billing-locked on this account, so `.github/workflows/` (both
+`tests.yml` and `deploy-smoke`) does not run. The poller therefore carries the
+test gate itself: before each deploy it checks out the about-to-deploy SHA into a
+**throwaway git worktree** and runs `pytest --collect-only` there (in the gateway
+`.venv`). A collection error **withholds the deploy** — the container keeps its
+last-good build — and Signal-alerts **once per bad SHA** (subsequent ticks on the
+same SHA are silent until a fix commit advances `main`).
+
+- **Fail-OPEN on gate-infra trouble** — a missing `.venv`, `pytest`-not-found, a
+  timeout, or any ambiguous non-zero exit lets the deploy proceed (logged). A
+  broken *gate* must never wedge every deploy; only a confirmed `pytest`
+  "collected … error" summary (rc 2) blocks. See `collection_gate()`.
+- Catches exactly the class the conftest collect-guard fixes: import rot,
+  broken/renamed modules, cross-file `sys.modules` pollution.
+- Disable with `DEPLOY_POLLER_GATE_ENABLED=0`; tune via `DEPLOY_POLLER_GATE_CMD`
+  / `_GATE_TIMEOUT` (default 600 s) / `_GATE_STATE`.
+- When GHA billing is restored, `tests.yml` becomes the PR-time gate and this
+  host gate becomes defense-in-depth — they compose, no conflict.
+
 ### Operate
 ```
 ./scripts/install_deploy_poller.sh install     # load the LaunchAgent

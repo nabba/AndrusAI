@@ -18,9 +18,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from tests.test_metrics import _FakeSettings  # noqa: E402
 import app.config as config_mod  # noqa: E402
 
-config_mod.get_settings = lambda: _FakeSettings()
-config_mod.get_anthropic_api_key = lambda: "fake-key"
-config_mod.get_gateway_secret = lambda: "a" * 64
+
+@pytest.fixture(autouse=True)
+def _fake_config(monkeypatch):
+    """Scoped stand-in for the real Settings (host runs lack the env vars).
+
+    Via monkeypatch — NOT a module-level assignment. The old permanent
+    assignment leaked across the pytest session and crashed the first
+    import of app.main in later test files ('_FakeSettings' object has
+    no attribute 'mem0_postgres_url' at app/control_plane/db.py).
+    """
+    monkeypatch.setattr(config_mod, "get_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(config_mod, "get_anthropic_api_key", lambda: "fake-key")
+    monkeypatch.setattr(config_mod, "get_gateway_secret", lambda: "a" * 64)
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
@@ -197,20 +207,17 @@ class TestGatedRefusedWithoutAutoDeploy:
         # reads BOTH the env var AND get_settings().evolution_auto_deploy).
         fs = _FakeSettings()
         fs.evolution_auto_deploy = False
-        config_mod.get_settings = lambda: fs
-        try:
-            _write_applied_file(deploy_sandbox, "app/map_elites.py")
-            evidence = DeployEvidence(
-                reason="real-canary",
-                source="canary",
-                has_canary_pass=True,
-                canary_id="canary-1",
-            )
-            result = run_deploy(reason="real-canary", evidence=evidence)
-            assert "Deploy blocked" in result
-            assert "EVOLUTION_AUTO_DEPLOY" in result
-        finally:
-            config_mod.get_settings = lambda: _FakeSettings()
+        monkeypatch.setattr(config_mod, "get_settings", lambda: fs)
+        _write_applied_file(deploy_sandbox, "app/map_elites.py")
+        evidence = DeployEvidence(
+            reason="real-canary",
+            source="canary",
+            has_canary_pass=True,
+            canary_id="canary-1",
+        )
+        result = run_deploy(reason="real-canary", evidence=evidence)
+        assert "Deploy blocked" in result
+        assert "EVOLUTION_AUTO_DEPLOY" in result
 
 
 class TestGatedAllowedWithCanary:
@@ -222,18 +229,15 @@ class TestGatedAllowedWithCanary:
         monkeypatch.setenv("EVOLUTION_AUTO_DEPLOY", "true")
         fs = _FakeSettings()
         fs.evolution_auto_deploy = True
-        config_mod.get_settings = lambda: fs
-        try:
-            _write_applied_file(deploy_sandbox, "app/map_elites.py")
-            evidence = DeployEvidence.from_canary(
-                reason="real-canary",
-                canary_id="canary-real-1",
-            )
-            result = run_deploy(reason="real-canary", evidence=evidence)
-            assert "Deployed 1 files" in result, f"expected success, got: {result}"
-            assert (deploy_sandbox["live"] / "app/map_elites.py").exists()
-        finally:
-            config_mod.get_settings = lambda: _FakeSettings()
+        monkeypatch.setattr(config_mod, "get_settings", lambda: fs)
+        _write_applied_file(deploy_sandbox, "app/map_elites.py")
+        evidence = DeployEvidence.from_canary(
+            reason="real-canary",
+            canary_id="canary-real-1",
+        )
+        result = run_deploy(reason="real-canary", evidence=evidence)
+        assert "Deployed 1 files" in result, f"expected success, got: {result}"
+        assert (deploy_sandbox["live"] / "app/map_elites.py").exists()
 
 
 class TestImmutableAlwaysBlocked:
