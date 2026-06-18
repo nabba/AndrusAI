@@ -229,7 +229,7 @@ class TestSomatic:
         from app.self_awareness.internal_state import SomaticMarker
         ctx = {"description": "Original task"}
         result = SomaticBiasInjector().inject(ctx, SomaticMarker(valence=-0.7, intensity=0.9))
-        assert "[Somatic note:" in result.get("description", "")
+        assert 'type="somatic_bias"' in result.get("description", "")
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -644,7 +644,11 @@ class TestRecursive:
         ctx = HookContext(hook_point=HookPoint.PRE_TASK, agent_id="rec",
                           task_description="Step 2", metadata={"_internal_state": state})
         result = inject_hooks[0].fn(ctx)
-        assert "[Internal State]" in result.modified_data.get("task_description", "")
+        # Internal state is now metadata-only (commit 5693c2ec): the hook keeps it
+        # in ctx.metadata for downstream hooks but deliberately never injects it
+        # into the task text, so it can't leak into the user-facing answer.
+        assert result.metadata.get("_internal_state") is state
+        assert "[Internal State]" not in result.modified_data.get("task_description", "")
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -772,7 +776,9 @@ class TestDashboardAndBatch:
     ])
     def test_batch_job_registered(self, job):
         from app.idle_scheduler import _default_jobs
-        assert any(n == job for n, _ in _default_jobs())
+        # _default_jobs() entries are (name, fn, JobWeight) tuples (the weight
+        # field was added with the §86 cadence work); unpack name-and-rest.
+        assert any(n == job for n, *_ in _default_jobs())
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -783,6 +789,9 @@ class TestIntegration:
     def test_state_logged_to_db(self):
         from app.self_awareness.state_logger import get_state_logger
         from app.self_awareness.internal_state import InternalState, CertaintyVector
+        from app.control_plane.db import execute
+        if execute("SELECT 1", fetch=True) is None:
+            pytest.skip("postgres not reachable on this host")
         sl = get_state_logger()
         s = InternalState(agent_id="integ_db_test")
         s.certainty = CertaintyVector(factual_grounding=0.9)
@@ -817,6 +826,8 @@ class TestIntegration:
 
     def test_postgresql_tables(self):
         from app.control_plane.db import execute
+        if execute("SELECT 1", fetch=True) is None:
+            pytest.skip("postgres not reachable on this host")
         for t in ("internal_states", "agent_experiences", "tool_proposals",
                    "prosocial_profiles", "prosocial_game_outcomes"):
             r = execute(f"SELECT 1 FROM {t} LIMIT 1", fetch=True)
