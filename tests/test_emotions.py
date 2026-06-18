@@ -437,7 +437,7 @@ class TestSomaticBiasInjector:
         ctx = {"description": "test task"}
         sm = SomaticMarker(valence=-0.8, intensity=0.1)  # Below MIN_INTENSITY
         result = injector.inject(ctx, sm)
-        assert "[Somatic note:" not in result.get("description", "")
+        assert 'type="somatic_bias"' not in result.get("description", "")
 
     def test_strong_negative_injects_note(self):
         from app.self_awareness.somatic_bias import SomaticBiasInjector
@@ -445,7 +445,7 @@ class TestSomaticBiasInjector:
         ctx = {"description": "do a research task"}
         sm = SomaticMarker(valence=-0.7, intensity=0.8, source="past failure on research")
         result = injector.inject(ctx, sm)
-        assert "[Somatic note:" in result["description"]
+        assert 'type="somatic_bias"' in result["description"]
         assert "strongly negative" in result["description"]
         assert "strategy_hints" in result
         assert len(result["strategy_hints"]) > 0
@@ -457,7 +457,7 @@ class TestSomaticBiasInjector:
         ctx = {"description": "coding task"}
         sm = SomaticMarker(valence=-0.3, intensity=0.6, source="mixed results")
         result = injector.inject(ctx, sm)
-        assert "[Somatic note:" in result["description"]
+        assert 'type="somatic_bias"' in result["description"]
         assert "mixed-to-negative" in result["description"]
 
     def test_strong_positive_injects_positive_note(self):
@@ -466,7 +466,7 @@ class TestSomaticBiasInjector:
         ctx = {"description": "task"}
         sm = SomaticMarker(valence=0.7, intensity=0.8, source="great results")
         result = injector.inject(ctx, sm)
-        assert "[Somatic note:" in result["description"]
+        assert 'type="somatic_bias"' in result["description"]
         assert "strongly positive" in result["description"]
 
     def test_mild_positive_no_note(self):
@@ -475,8 +475,8 @@ class TestSomaticBiasInjector:
         ctx = {"description": "task"}
         sm = SomaticMarker(valence=0.3, intensity=0.8, source="ok")
         result = injector.inject(ctx, sm)
-        # mild_positive has context_note=None, so no [Somatic note:] added
-        assert "[Somatic note:" not in result.get("description", "task")
+        # mild_positive has context_note=None, so no somatic reference_context added
+        assert 'type="somatic_bias"' not in result.get("description", "task")
 
     def test_neutral_dead_band_no_bias(self):
         """Valence in (-0.2, 0.2) should produce no bias."""
@@ -485,7 +485,7 @@ class TestSomaticBiasInjector:
         ctx = {"description": "task"}
         sm = SomaticMarker(valence=0.0, intensity=0.8, source="neutral")
         result = injector.inject(ctx, sm)
-        assert "[Somatic note:" not in result.get("description", "task")
+        assert 'type="somatic_bias"' not in result.get("description", "task")
 
     def test_disposition_floor_extraction(self):
         from app.self_awareness.somatic_bias import SomaticBiasInjector
@@ -740,7 +740,12 @@ class TestInferentialCompetitionAffective:
     def test_weights_sum_to_one(self):
         from app.self_awareness.inferential_competition import InferentialCompetition
         ic = InferentialCompetition()
-        total = ic.precision_weight + ic.alignment_weight + ic.novelty_weight + ic.affective_weight
+        # All five composite-score weights must sum to 1.0. free_energy_weight
+        # is the active-inference dimension added after this test was first written.
+        total = (
+            ic.precision_weight + ic.alignment_weight + ic.novelty_weight
+            + ic.affective_weight + ic.free_energy_weight
+        )
         assert total == pytest.approx(1.0)
 
     def test_competing_plan_has_affective_score(self):

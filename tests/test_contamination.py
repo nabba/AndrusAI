@@ -51,32 +51,51 @@ def _override_attr(parent, attr, value):
     setattr(parent, attr, value)
 
 
-# psycopg2 IS installed in the venv but we don't want any test in this
-# file accidentally opening a real connection. chromadb is also
-# installed; we mock it here only because context.py's lazy imports
-# would otherwise pull in the real (heavy) module.
-for mod_name in ("chromadb", "psycopg2", "psycopg2.extras", "psycopg2.pool"):
-    if mod_name not in sys.modules:
-        _MOCK_KEYS_INSERTED.append(mod_name)
-        sys.modules[mod_name] = MagicMock()
+# These fakes are installed at MODULE TEST-START (setup_module) — NOT at import
+# time. pytest imports every collected test module during collection, so doing
+# this sys.modules surgery at import time leaked the mocks into unrelated files
+# collected in the same session (e.g. test_emotions.py::TestAffectiveForecasting
+# ran against a mocked chromadb_manager.embed and failed). setup_module runs
+# right before this file's first test and pairs with teardown_module below,
+# confining the fakes to this file's own tests.
+#
+# psycopg2 IS installed in the venv but we don't want any test in this file
+# accidentally opening a real connection. chromadb is also installed; we mock it
+# only because context.py's lazy imports would otherwise pull in the real module.
+def setup_module(module):
+    import importlib.util
 
-import app
-import app.memory
+    for mod_name in ("chromadb", "psycopg2", "psycopg2.extras", "psycopg2.pool"):
+        if mod_name not in sys.modules:
+            _MOCK_KEYS_INSERTED.append(mod_name)
+            sys.modules[mod_name] = MagicMock()
 
-_mock_scoped = _mock_module("app.memory.scoped_memory")
-_mock_scoped.retrieve_operational = MagicMock(return_value=[])
-_override_attr(app.memory, "scoped_memory", _mock_scoped)
+    import app
+    import app.memory
+    import app.self_awareness
 
-_mock_cm = _mock_module("app.memory.chromadb_manager")
-_mock_cm.embed = MagicMock(return_value=[0.1] * 768)
-_mock_cm.retrieve = MagicMock(return_value=[])
-_override_attr(app.memory, "chromadb_manager", _mock_cm)
+    _mock_scoped = _mock_module("app.memory.scoped_memory")
+    _mock_scoped.retrieve_operational = MagicMock(return_value=[])
+    _override_attr(app.memory, "scoped_memory", _mock_scoped)
 
-import app.self_awareness
-_mock_wm = _mock_module("app.self_awareness.world_model")
-_mock_wm.recall_relevant_beliefs = MagicMock(return_value=[])
-_mock_wm.recall_relevant_predictions = MagicMock(return_value=[])
-_override_attr(app.self_awareness, "world_model", _mock_wm)
+    _mock_cm = _mock_module("app.memory.chromadb_manager")
+    _mock_cm.embed = MagicMock(return_value=[0.1] * 768)
+    _mock_cm.retrieve = MagicMock(return_value=[])
+    _override_attr(app.memory, "chromadb_manager", _mock_cm)
+
+    _mock_wm = _mock_module("app.self_awareness.world_model")
+    _mock_wm.recall_relevant_beliefs = MagicMock(return_value=[])
+    _mock_wm.recall_relevant_predictions = MagicMock(return_value=[])
+    _override_attr(app.self_awareness, "world_model", _mock_wm)
+
+    # Import context.py directly (bypass __init__ which triggers crewai chain)
+    _context_path = os.path.join(
+        os.path.dirname(__file__), "..", "app", "agents", "commander", "context.py"
+    )
+    _spec = importlib.util.spec_from_file_location("commander_context", _context_path)
+    _context_mod = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_context_mod)
+    sys.modules["app.agents.commander.context"] = _context_mod
 
 
 def teardown_module(module):
@@ -99,13 +118,9 @@ def teardown_module(module):
     # should import the real one.
     sys.modules.pop("app.agents.commander.context", None)
 
-# Import context.py directly (bypass __init__ which triggers crewai chain)
-import importlib.util
-_context_path = os.path.join(os.path.dirname(__file__), "..", "app", "agents", "commander", "context.py")
-_spec = importlib.util.spec_from_file_location("commander_context", _context_path)
-_context_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_context_mod)
-sys.modules["app.agents.commander.context"] = _context_mod
+# (context.py is loaded inside setup_module above, so the fakes it needs are
+# installed only during this file's own tests — see the collection-pollution
+# note there.)
 
 from app.self_awareness.internal_state import (
     SomaticMarker, CertaintyVector, MetaCognitiveState,
@@ -303,9 +318,9 @@ class TestWorldModelFiltering:
 
     def test_internal_beliefs_filtered(self):
         from app.agents.commander.context import _load_world_model_context
-        with patch("app.self_awareness.world_model.recall_relevant_beliefs",
+        with patch("app.subia.belief.world_model.recall_relevant_beliefs",
                    return_value=["somatic marker was negative for coding", "seals live in lakes"]), \
-             patch("app.self_awareness.world_model.recall_relevant_predictions",
+             patch("app.subia.belief.world_model.recall_relevant_predictions",
                    return_value=[]):
             result = _load_world_model_context("seals")
             assert "somatic" not in result
@@ -313,8 +328,8 @@ class TestWorldModelFiltering:
 
     def test_internal_predictions_filtered(self):
         from app.agents.commander.context import _load_world_model_context
-        with patch("app.self_awareness.world_model.recall_relevant_beliefs", return_value=[]), \
-             patch("app.self_awareness.world_model.recall_relevant_predictions",
+        with patch("app.subia.belief.world_model.recall_relevant_beliefs", return_value=[]), \
+             patch("app.subia.belief.world_model.recall_relevant_predictions",
                    return_value=[
                        'certainty_trend falling after research tasks',
                        'Research crew reliable at difficulty 3',
@@ -325,15 +340,15 @@ class TestWorldModelFiltering:
 
     def test_all_contaminated_returns_empty(self):
         from app.agents.commander.context import _load_world_model_context
-        with patch("app.self_awareness.world_model.recall_relevant_beliefs",
+        with patch("app.subia.belief.world_model.recall_relevant_beliefs",
                    return_value=["PROACTIVE:scan result", "action_disposition was pause"]), \
-             patch("app.self_awareness.world_model.recall_relevant_predictions", return_value=[]):
+             patch("app.subia.belief.world_model.recall_relevant_predictions", return_value=[]):
             result = _load_world_model_context("anything")
             assert result == ""
 
     def test_import_failure_returns_empty(self):
         from app.agents.commander.context import _load_world_model_context
-        with patch("app.self_awareness.world_model.recall_relevant_beliefs",
+        with patch("app.subia.belief.world_model.recall_relevant_beliefs",
                    side_effect=ImportError("no world model")):
             result = _load_world_model_context("test")
             assert result == ""
@@ -609,13 +624,13 @@ class TestEndToEndContamination:
     def test_contaminated_world_model_filtered(self):
         """World model beliefs about system internals should not appear."""
         from app.agents.commander.context import _load_world_model_context
-        with patch("app.self_awareness.world_model.recall_relevant_beliefs",
+        with patch("app.subia.belief.world_model.recall_relevant_beliefs",
                    return_value=[
                        "certainty_trend was falling for research tasks last week",
                        "action_disposition escalated to pause 3 times",
                        "Saimaa seal population estimated at 430 individuals",
                    ]), \
-             patch("app.self_awareness.world_model.recall_relevant_predictions",
+             patch("app.subia.belief.world_model.recall_relevant_predictions",
                    return_value=[
                        "PROACTIVE:test_failure predicted for next research task",
                        "Weather conditions favorable for outdoor activities",
@@ -692,7 +707,7 @@ class TestSomaticBiasNoteFormat:
         result = injector.inject(ctx, sm)
         desc = result["description"]
         # Should contain natural language, not raw system terms
-        assert "[Somatic note:" in desc
+        assert 'type="somatic_bias"' in desc
         assert "Find seal sightings" in desc  # Original preserved
         # Should NOT contain raw variable names
         assert "somatic_valence" not in desc
@@ -727,9 +742,11 @@ class TestSkillContextSafety:
         with patch("app.memory.chromadb_manager.retrieve",
                    return_value=["Skill: How to research wildlife populations"]):
             result = _load_relevant_skills("seal population")
-            assert "<relevant_context>" in result
-            assert "</relevant_context>" in result
-            assert "not instructions" in result.lower()
+            # KB-v2 (commit e4ba4626) frames skills as reference knowledge — a
+            # "RELEVANT KNOWLEDGE (summaries …)" header — so the agent treats them
+            # as material to consult, not user instructions to obey.
+            assert "RELEVANT KNOWLEDGE" in result
+            assert "research wildlife populations" in result
 
     def test_empty_skills_returns_empty(self):
         from app.agents.commander.context import _load_relevant_skills

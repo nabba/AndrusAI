@@ -29,6 +29,22 @@ for _mod in ["psycopg2", "psycopg2.pool", "psycopg2.extras",
         sys.modules[_mod] = MagicMock()
 sys.modules["app.memory.chromadb_manager"].embed = MagicMock(return_value=[0.1] * 768)
 
+
+def teardown_module(module):
+    # Drop our chromadb_manager stub at teardown so later test files re-import
+    # the real module with a real embed(). The module-level stub above has no
+    # cleanup and otherwise leaks forward through the whole pytest session,
+    # polluting unrelated files (e.g. test_emotions.py::TestAffectiveForecasting,
+    # whose forecasting math breaks on the constant [0.1]*768 embed).
+    sys.modules.pop("app.memory.chromadb_manager", None)
+    try:
+        import app.memory as _am
+        if hasattr(_am, "chromadb_manager"):
+            delattr(_am, "chromadb_manager")
+    except Exception:
+        pass
+
+
 import pytest
 
 from app.subia.kernel import Prediction, SceneItem, SubjectivityKernel
