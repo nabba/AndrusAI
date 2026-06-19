@@ -1,1 +1,0 @@
-This skill involves techniques for summarizing large volumes of web-fetched data efficiently. It includes methods for extracting key points, generating concise summaries, and integrating summarized content into broader research frameworks.

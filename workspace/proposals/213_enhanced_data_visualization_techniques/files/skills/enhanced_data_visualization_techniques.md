@@ -1,2 +1,0 @@
-### Enhanced Data Visualization Techniques
-Integrate advanced visualization libraries such as Plotly and Dash to create interactive and insightful ecological data visualizations. This skill will enable the team to better communicate complex ecological data through engaging and informative visuals.
