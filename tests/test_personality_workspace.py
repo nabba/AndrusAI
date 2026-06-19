@@ -264,3 +264,21 @@ class TestOrchestratorIntegration:
         src = (Path(__file__).parent.parent / "app" / "agents" / "commander" / "orchestrator.py").read_text()
         assert "compute_workspace_profile" in src
         assert "set_dynamic_capacity" in src
+
+
+def teardown_module(module):
+    # Run-phase pollution guard: this module installs a constant
+    # chromadb_manager.embed stub at import time (needed for its own
+    # module-level imports) but had no cleanup, so the stub leaked forward
+    # through the whole pytest session and polluted unrelated files
+    # (e.g. test_emotions.py::TestAffectiveForecasting, whose forecasting
+    # math breaks on the constant [0.1]*768 embed). Drop it here so later
+    # modules re-import the real chromadb_manager.
+    import sys as _sys
+    _sys.modules.pop("app.memory.chromadb_manager", None)
+    try:
+        import app.memory as _am
+        if hasattr(_am, "chromadb_manager"):
+            delattr(_am, "chromadb_manager")
+    except Exception:
+        pass
