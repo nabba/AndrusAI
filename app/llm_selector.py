@@ -16,7 +16,10 @@ import logging
 import os
 from datetime import date
 
-from app.config import get_settings
+# Module import so get_settings late-binds (see app/llm_factory.py note) —
+# the captured `from app.config import get_settings` form froze whichever
+# accessor (real or test fake) was active when this module was first imported.
+from app import config as app_config
 from app.llm_catalog import (
     CATALOG, TASK_ALIASES, ROLE_DEFAULTS,
     get_model, get_default_for_role, get_candidates_by_tier,
@@ -542,7 +545,7 @@ def select_model(
         cost / budget steps may still drift, so callers needing strict
         recency should also pass ``force_tier`` to narrow the pool.
     """
-    settings = get_settings()
+    settings = app_config.get_settings()
 
     # Step 1: Environment override
     env_key = f"ROLE_MODEL_{role.upper()}"

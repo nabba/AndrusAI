@@ -106,6 +106,11 @@ class DrillReport:
     ledger_hash_mismatches: int = 0
     overall_ok: bool = True
     errors: list[str] = field(default_factory=list)
+    # T2.3 — SubIA continuity surface: export-time integrity snapshot
+    # (from the manifest) vs a drill-time verify of the live code, plus
+    # whether the workspace integrity-manifest mirror was restored.
+    # Observational — never fails the drill on its own.
+    subia_continuity: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -123,6 +128,7 @@ class DrillReport:
             "ledger_hash_mismatches": self.ledger_hash_mismatches,
             "overall_ok": self.overall_ok,
             "errors": self.errors,
+            "subia_continuity": self.subia_continuity,
         }
 
 
@@ -283,6 +289,13 @@ def run_drill(
                     report.chromadb_results.append(res)
                     if not res.ok:
                         report.overall_ok = False
+                        # 2026-05-17 — aggregate per-collection failures
+                        # so the alert's error count reflects reality.
+                        if res.error:
+                            report.errors.append(
+                                f"chromadb drill {kb_dir.name}/{col_name}: "
+                                f"{res.error}"
+                            )
 
         # 5. Bytes-restored bookkeeping for the report.
         ledger_root = td / "workspace_ledgers"
@@ -313,6 +326,13 @@ def run_drill(
                 f"{report.ledger_hash_mismatches} ledger file(s) failed "
                 f"SHA-256 round-trip — see ledger_hash_checks in the report."
             )
+
+        # 7. T2.3 — SubIA continuity surface. Observational only:
+        # drift between export-time and drill-time integrity is a
+        # signal for the operator, not a drill failure.
+        report.subia_continuity = _subia_continuity_check(
+            manifest, ledger_root,
+        )
     except Exception as exc:
         logger.exception("dr.boot_drill: drill failed")
         report.errors.append(f"unexpected: {exc}")
@@ -399,6 +419,43 @@ def _verify_ledger_hashes(
     return checks
 
 
+def _subia_continuity_check(
+    manifest: dict[str, Any] | None, ledger_root: Path,
+) -> dict[str, Any]:
+    """T2.3 — SubIA continuity across the backup boundary.
+
+    Three best-effort signals:
+      * ``at_export`` — the integrity verification recorded in the
+        export manifest (empty for pre-T2.3 tarballs).
+      * ``manifest_file_restored`` — did the workspace mirror
+        ``.subia_integrity.json`` land in the restored bundle?
+      * ``live`` — a verify_integrity() run against the CURRENT code,
+        so export-time vs drill-time drift is visible in one report.
+    """
+    out: dict[str, Any] = {
+        "at_export": dict(
+            (manifest or {}).get("subia_integrity_at_export") or {}
+        ),
+        "manifest_file_restored": (
+            ledger_root / ".subia_integrity.json"
+        ).is_file(),
+    }
+    try:
+        from app.subia.integrity import verify_integrity
+        live = verify_integrity()
+        out["live"] = {
+            "ok": live.ok,
+            "has_drift": live.has_drift,
+            "n_files": live.n_files,
+            "n_mismatched": len(live.mismatched),
+            "n_extra": len(live.extra),
+            "n_missing": len(live.missing),
+        }
+    except Exception as exc:
+        out["live_error"] = f"{type(exc).__name__}: {exc}"
+    return out
+
+
 def _publish_drill_outcome_to_gw(report: DrillReport) -> None:
     """Best-effort GW publish. Salience reflects whether the drill
     passed (low — routine confirmation) or failed (high — substrate
@@ -470,23 +527,37 @@ def _emit_drill_continuity_event(report: DrillReport) -> None:
 
 
 def _send_drill_alert(report: DrillReport) -> None:
+    """Alert the operator via the notify arbiter — NEVER the raw
+    life_companion send path. A broken drill firing on every scheduler
+    tick once produced 50+ identical Signal alerts within an hour
+    (2026-05-17); the stable topic + arbitration lets the arbiter
+    dedup / digest repeats.
+    """
     try:
-        from app.life_companion._common import send_signal_alert
+        from app.notify import notify
     except Exception:
         return
     if report.overall_ok:
-        msg = (
-            f"✅ DR boot drill OK — {len(report.chromadb_results)} collections, "
+        title = "✅ DR boot drill OK"
+        body = (
+            f"{len(report.chromadb_results)} collections, "
             f"{report.ledger_files_restored} ledger files, "
             f"{report.duration_s:.1f}s. Tarball: {Path(report.tarball).name}."
         )
     else:
-        msg = (
-            f"❌ DR boot drill FAILED — {len(report.errors)} errors. "
+        title = "❌ DR boot drill FAILED"
+        body = (
+            f"{len(report.errors)} errors. "
             f"See workspace/dr/drill_*.json for the report."
         )
     try:
-        send_signal_alert(msg, tag="dr_drill")
+        notify(
+            title,
+            body,
+            tag="dr_drill",
+            topic="dr_boot_drill",
+            arbitrate=True,
+        )
     except Exception:
         pass
 
