@@ -79,6 +79,13 @@ _LEDGER_INCLUDES: list[str] = [
     # dates" so the operator's view of the system's recovery posture
     # carries across a bare-metal rebuild.
     "resilience/",
+    # T2.3 (2026-05-17) — DR continuity extension: the bundle must carry
+    # enough state that a restored system keeps its continuity guarantees.
+    # (Restored 2026-06-12 — the original implementation only ever lived
+    # in the working tree; its pinning tests survived in git without it.)
+    "subia/",                 # SubIA observational state (self-model, GW)
+    ".subia_integrity.json",  # workspace mirror of the SubIA integrity manifest
+    "runtime_settings.json",  # operator-tunable runtime switches
 ]
 
 # Path-fragment denylist — applied AFTER the allowlist as a defense-in-depth
@@ -202,6 +209,12 @@ class ExportManifest:
     total_bytes: int = 0
     ok: bool = True
     errors: list[str] = field(default_factory=list)
+    # T2.3 — outcome of the SubIA code-integrity verification at export
+    # time, so a restore can tell whether the bundle was cut from a
+    # verified state. Consumed by app.substrate.migration (bundle_metadata
+    # step) and the boot drill's subia_continuity check. Empty dict when
+    # the integrity tooling is unavailable.
+    subia_integrity_at_export: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -219,7 +232,32 @@ class ExportManifest:
             "total_bytes": self.total_bytes,
             "ok": self.ok,
             "errors": self.errors,
+            "subia_integrity_at_export": self.subia_integrity_at_export,
         }
+
+
+def _subia_integrity_snapshot() -> dict[str, Any]:
+    """T2.3 — verify the SubIA code-integrity manifest at export time.
+
+    Failure-isolated: hosts without the subia package (or without a
+    manifest) export an empty dict — never an export error, because
+    DR export must keep working even when the integrity layer is the
+    thing that broke.
+    """
+    try:
+        from app.subia.integrity import verify_integrity
+        res = verify_integrity()
+        return {
+            "ok": res.ok,
+            "has_drift": res.has_drift,
+            "n_files": res.n_files,
+            "n_mismatched": len(res.mismatched),
+            "n_extra": len(res.extra),
+            "n_missing": len(res.missing),
+        }
+    except Exception:
+        logger.debug("dr.export: subia integrity snapshot failed", exc_info=True)
+        return {}
 
 
 # ── Workspace iteration ───────────────────────────────────────────────────
@@ -390,6 +428,7 @@ def export(
     manifest = ExportManifest(
         started_at=started_iso, workspace_root=str(ws_root),
     )
+    manifest.subia_integrity_at_export = _subia_integrity_snapshot()
 
     ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     name = f"dr_{label}_{ts}.tar.gz" if label else f"dr_{ts}.tar.gz"
