@@ -75,6 +75,7 @@ class TestWorkspaceItem:
 
     def test_item_creation_defaults(self):
         from app.consciousness.workspace_buffer import WorkspaceItem
+        from app.subia.scene.buffer import _default_decay_rate
         item = WorkspaceItem()
         assert item.item_id  # UUID generated
         assert item.content == ""
@@ -83,7 +84,9 @@ class TestWorkspaceItem:
         assert item.novelty_score == 0.0
         assert item.agent_urgency == 0.0
         assert item.surprise_signal == 0.0
-        assert item.decay_rate == 0.05
+        # decay_rate's default is config-driven (SUBIA_CONFIG.SCENE_DECAY_RATE),
+        # not a hardcoded 0.05 — assert it tracks the infra-level constant.
+        assert item.decay_rate == _default_decay_rate()
         assert item.consumed is False
 
     def test_item_creation_custom(self):
