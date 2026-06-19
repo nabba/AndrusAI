@@ -10,18 +10,17 @@ secrets/*
 # Host-bridge capability tokens — live secrets. Use capabilities.example.json as template.
 host_bridge/capabilities.json
 host_bridge/capabilities.json.bak.*
-workspace/memory/
-workspace/output/
-workspace/affect/
-workspace/skills/*.md
-!workspace/skills/learning_queue.md
-# Hand-authored skills that ship with the repo (NOT auto-generated).
-# Anything tracked here MUST also have a corresponding regression test
-# in tests/ that asserts its presence.
-!workspace/skills/gee_batching_pattern.md
-!workspace/skills/gee_forest_metric_semantics.md
-# Versioned prompt registry — tracked for version history and rollback
-!workspace/prompts/
+# ── workspace/ is the gateway's RUNTIME data directory — ignored wholesale ──
+# Regenerable/replicated (Q17.1 warm-spare rsync + §56 per-KB source-ledgers +
+# DR tarballs); NOT source-of-truth in git. Tracking live-mutated state
+# perpetually-dirtied the working tree, blocking `git checkout main` +
+# `git pull --ff-only` on the host and keeping the auto-deploy poller inert.
+# The ONLY tracked workspace/ files are hand-authored SEEDS a fresh clone needs;
+# they're committed explicitly (`git add -f`) and tracking wins over this ignore:
+#   migrations/  projects/  prompts/**/v001.md  skills/
+#   + config seeds: mcp_servers.json delegation_settings.json
+#     meta_agent_settings.json llm_catalog_overrides.json adversarial_tasks.json
+workspace/
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -44,79 +43,5 @@ wiki/.locks/*.lock
 signal/location-helper
 wiki/.slides/
 
-# ── Workspace runtime state (Phase A3 hygiene) ─────────────────────────
-# These files are written continuously by background jobs and the CIL loop.
-# They represent transient state, not source-of-truth knowledge.
-# Existing tracked instances are not removed by this pattern (use
-# `git rm --cached <path>` if you want to stop tracking them); this only
-# prevents NEW transient writes from being committed accidentally.
-workspace/.workspace.lock
-workspace/.locks/
-workspace/.self_knowledge_hashes.json
-workspace/SYSTEM_AUDIT_*.md
-workspace/agent_state.json
-workspace/alignment_audits.json
-workspace/audit_journal.json
-workspace/benchmarks.json
-workspace/error_tracker.json
-workspace/homeostasis.json
-workspace/atlas/competence/competence_map.json
-workspace/island_evolution/*/state.json
-workspace/checkpoints/
-workspace/cache/
-workspace/experiential/*/length.bin
-workspace/experiential/entries/
-workspace/manifests/
-workspace/narratives/
-workspace/proposals/*/status.json
-workspace/companion/
-workspace/knowledge_compactor_log.json
-workspace/evolution_roi.json
-
-# PROGRAM §55 — chromadb backup tarballs from host LaunchAgent exceed
-# GitHub's 100 MB per-file limit. The tarballs are runtime artifacts
-# regenerated daily and replicated via Q17.1 warm-spare; no need in git.
-workspace/backups/chromadb/*.tar.gz
-
-# ── 2026-06-18: stop tracking gateway-written runtime state + quarantine cruft ──
-# These are written continuously by the running gateway and are NOT
-# source-of-truth in git — they're already covered by Q17.1 warm-spare rsync,
-# the §56 per-KB source-ledger, and the DR tarballs. Tracking them made the
-# live working tree perpetually-dirty, which blocked `git checkout main` on the
-# host and kept the auto-deploy poller inert (WRONG_BRANCH on a feature branch).
-# Existing tracked instances are removed in the same commit via
-# `git rm -r --cached`. Seeds are deliberately NOT listed here and stay tracked:
-# migrations/, projects/, prompts/ (incl. **/v001.md), subia/, and the KB dirs
-# (knowledge/ episteme/ philosophy/ aesthetics/ tensions/ skills/).
-#
-# Quarantined corrupt ChromaDB (pure cruft; also safe to `rm -rf` on disk):
-workspace/memory.corrupt_*/
-# Runtime output / state directories:
-workspace/proposals/
-workspace/change_requests/
-workspace/dr/
-workspace/self_awareness_data/
-workspace/atlas/
-workspace/experiential/
-workspace/self_heal/
-workspace/healing/
-workspace/heartbeats/
-workspace/resilience/
-workspace/proposal_bridge/
-workspace/transfer_memory/
-workspace/warm_spare/
-workspace/sentience/
-workspace/dreams/
-workspace/audit_journal/
-workspace/qos/
-workspace/map_elites/
-workspace/benchmarks/
-workspace/code_quality/
-workspace/trajectories/
-workspace/applied_code/
-workspace/self_improvement/
-# Loose runtime files:
-workspace/self_model.json
-workspace/system_chronicle.md
-workspace/tool_failure_context.json
-workspace/sentience_config.json
+# (Former workspace/ runtime + §55 + 2026-06-18 patchwork rules removed —
+#  all subsumed by the single `workspace/` wholesale ignore above.)
