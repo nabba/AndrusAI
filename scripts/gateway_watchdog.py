@@ -13,6 +13,17 @@ container when it stays unresponsive past a threshold. It also alerts the
 operator via signal-cli directly (bypassing the gateway, since by definition
 that's the thing that's broken).
 
+It ALSO guards the Signal forwarder LaunchAgent (2026-06-19). The forwarder
+(`signal/forwarder.py`, run by `com.botarmy.signal-forwarder`) is the single
+point of failure for ALL inbound Signal: signal-cli downloads + acks messages
+(so the user sees ✓✓) but nothing reaches the gateway until the forwarder POSTs
+them. Its plist has KeepAlive=true, which restarts it after a CRASH — but
+KeepAlive cannot resurrect a job that has been `launchctl bootout`'d (fully
+unloaded), e.g. by a diagnostic "pause the forwarder" probe whose restore step
+was skipped. That left inbound Signal silently dead for ~19h on 2026-06-19. The
+watchdog now checks each poll that the forwarder is loaded and re-bootstraps it
+if not (idempotent — a no-op while it's loaded; KeepAlive still owns crashes).
+
 Environment:
     HEALTH_URL              gateway endpoint to poll (default http://127.0.0.1:8765/health)
     POLL_INTERVAL_SECONDS   gap between probes (default 20)
@@ -47,6 +58,17 @@ Environment:
     LOG_PATH                file to mirror stdout into (default /tmp/gateway-watchdog.log)
     STATE_PATH              JSON file persisting cooldown state across watchdog
                             crashes (default ~/.crewai-bridge/gateway_watchdog_state.json)
+    FORWARDER_GUARD_ENABLED whether to re-bootstrap the forwarder LaunchAgent if
+                            it's found unloaded (default 1; set 0 to disable)
+    FORWARDER_LABEL         launchd label of the forwarder agent
+                            (default com.botarmy.signal-forwarder)
+    FORWARDER_PLIST         path to the forwarder plist used for re-bootstrap
+                            (default ~/Library/LaunchAgents/<label>.plist)
+    FORWARDER_BOOTSTRAP_COOLDOWN_SECONDS  min gap between bootstrap attempts so a
+                            forwarder that keeps dying doesn't thrash launchctl /
+                            spam alerts (default 300). Recovery in the normal
+                            unload-and-stay-down case is still one poll interval.
+    LAUNCHCTL_BIN           launchctl binary path (default /bin/launchctl)
 """
 from __future__ import annotations
 
@@ -78,6 +100,24 @@ STATE_PATH = os.environ.get(
     "STATE_PATH",
     os.path.expanduser("~/.crewai-bridge/gateway_watchdog_state.json"),
 )
+
+# ── Signal-forwarder guard (2026-06-19) ──────────────────────────────────
+# The forwarder LaunchAgent is the single point of failure for inbound Signal.
+# KeepAlive=true in its plist handles crashes, but a `launchctl bootout` (the
+# diagnostic pause-probe) fully unloads it and KeepAlive cannot bring that back.
+# The watchdog re-bootstraps it if it's found unloaded.
+FORWARDER_GUARD_ENABLED = os.environ.get("FORWARDER_GUARD_ENABLED", "1") not in (
+    "0", "false", "False", "",
+)
+FORWARDER_LABEL = os.environ.get("FORWARDER_LABEL", "com.botarmy.signal-forwarder")
+FORWARDER_PLIST = os.environ.get(
+    "FORWARDER_PLIST",
+    os.path.expanduser(f"~/Library/LaunchAgents/{FORWARDER_LABEL}.plist"),
+)
+FORWARDER_BOOTSTRAP_COOLDOWN = float(
+    os.environ.get("FORWARDER_BOOTSTRAP_COOLDOWN_SECONDS", "300")
+)
+LAUNCHCTL_BIN = os.environ.get("LAUNCHCTL_BIN", "/bin/launchctl")
 
 # ── Process-liveness heartbeat gate (2026-06-01) ─────────────────────────
 # The gateway writes a heartbeat file (app/liveness.py) from a daemon thread
@@ -320,6 +360,91 @@ def restart_gateway() -> bool:
         return False
 
 
+def forwarder_loaded() -> Optional[bool]:
+    """Whether the forwarder LaunchAgent is loaded in launchd.
+
+    True if loaded, False if not, None if the check itself failed (treated as
+    'unknown' — never triggers a bootstrap on its own). `launchctl list <label>`
+    exits 0 when the agent is loaded and non-zero ("Could not find service …")
+    when it isn't — the absence we saw on 2026-06-19.
+    """
+    try:
+        result = subprocess.run(
+            [LAUNCHCTL_BIN, "list", FORWARDER_LABEL],
+            capture_output=True, text=True, timeout=10,
+        )
+        return result.returncode == 0
+    except Exception as e:  # noqa: BLE001 — guard must never crash the watchdog
+        log(f"forwarder liveness check raised: {e}")
+        return None
+
+
+def bootstrap_forwarder() -> bool:
+    """Re-bootstrap the forwarder LaunchAgent into the user's GUI domain.
+
+    Idempotent: an already-loaded race ('service already loaded', rc 5/EALREADY)
+    is treated as success. Returns False on a real failure (plist missing,
+    launchctl error) so the caller can alert that manual intervention is needed.
+    """
+    uid = os.getuid()
+    try:
+        result = subprocess.run(
+            [LAUNCHCTL_BIN, "bootstrap", f"gui/{uid}", FORWARDER_PLIST],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            return True
+        combined = (result.stderr + result.stdout).lower()
+        if "already" in combined:  # already-loaded race — benign
+            return True
+        log(f"forwarder bootstrap failed (rc={result.returncode}): "
+            f"{(result.stderr or result.stdout).strip()[:200]}")
+        return False
+    except FileNotFoundError:
+        log(f"{LAUNCHCTL_BIN} not found; cannot recover forwarder")
+        return False
+    except Exception as e:  # noqa: BLE001 — never crash the watchdog
+        log(f"forwarder bootstrap raised: {e}")
+        return False
+
+
+def maybe_recover_forwarder(last_action_at: float) -> float:
+    """Ensure the forwarder LaunchAgent is loaded; re-bootstrap if not.
+
+    Cheap to call every poll: it's a `launchctl list` and, only when the agent
+    is genuinely unloaded, one throttled bootstrap. Returns the (possibly
+    updated) timestamp of the last bootstrap attempt for cooldown tracking.
+    """
+    if not FORWARDER_GUARD_ENABLED:
+        return last_action_at
+    loaded = forwarder_loaded()
+    if loaded is None or loaded:
+        # Unknown (check failed) or healthy → nothing to do. KeepAlive owns the
+        # crash-restart case while it's loaded.
+        return last_action_at
+    now = time.time()
+    if (now - last_action_at) < FORWARDER_BOOTSTRAP_COOLDOWN:
+        # Acted recently; don't thrash launchctl or spam alerts on a flapping agent.
+        return last_action_at
+    log(f"Forwarder '{FORWARDER_LABEL}' is NOT loaded — inbound Signal is dead; "
+        f"re-bootstrapping from {FORWARDER_PLIST}")
+    ok = bootstrap_forwarder()
+    if ok:
+        log("Forwarder re-bootstrapped; inbound should resume (signal-cli backlog drains)")
+        signal_alert(
+            f"♻️ Signal forwarder was DOWN (LaunchAgent '{FORWARDER_LABEL}' "
+            f"unloaded) — watchdog re-bootstrapped it. Inbound messages flowing "
+            f"again; any backlog held by signal-cli will drain."
+        )
+    else:
+        signal_alert(
+            f"❌ Signal forwarder '{FORWARDER_LABEL}' is DOWN and the watchdog "
+            f"could NOT re-bootstrap it. Inbound Signal is dead — manual fix:\n"
+            f"launchctl bootstrap gui/{os.getuid()} {FORWARDER_PLIST}"
+        )
+    return now
+
+
 def main() -> int:
     log(f"Starting — poll {HEALTH_URL} every {POLL_INTERVAL:.0f}s "
         f"(timeout {HEALTH_TIMEOUT:.0f}s), restart after {FAILURE_THRESHOLD} consecutive failures, "
@@ -329,8 +454,12 @@ def main() -> int:
         f">{HEALTH_ESCALATE:.0f}s")
     if not SIGNAL_OWNER:
         log("SIGNAL_OWNER_NUMBER not set; alerts disabled (recovery still runs)")
+    if FORWARDER_GUARD_ENABLED:
+        log(f"Forwarder guard ON: ensuring '{FORWARDER_LABEL}' stays loaded "
+            f"(plist {FORWARDER_PLIST}, bootstrap cooldown {FORWARDER_BOOTSTRAP_COOLDOWN:.0f}s)")
 
     consecutive_failures = 0
+    last_forwarder_action_at = 0.0  # last forwarder bootstrap attempt (cooldown gate)
     health_down_since: Optional[float] = None  # when /health started failing (this outage)
     last_busy_log = 0.0  # throttle the "busy, not restarting" log line
     last_restart_at: Optional[float] = _load_restart_state()
@@ -352,6 +481,10 @@ def main() -> int:
 
     while True:
         now = time.time()
+        # Forwarder guard runs every iteration, independent of gateway health and
+        # boot grace — the forwarder being unloaded has nothing to do with the
+        # gateway booting. Cheap (a launchctl list); only acts when unloaded.
+        last_forwarder_action_at = maybe_recover_forwarder(last_forwarder_action_at)
         if now < grace_until:
             # Inside post-restart grace; don't even probe yet.
             time.sleep(min(POLL_INTERVAL, grace_until - now))
