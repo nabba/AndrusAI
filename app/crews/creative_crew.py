@@ -74,6 +74,13 @@ _TIER_BY_ROLE_CREATIVE = {
     "commander":  "premium",  # convergence must be coherent
 }
 
+# Inputs larger than this are refused pre-flight (zero spend): the 4-agent
+# divergent pipeline re-sends the whole input every phase, so a giant document
+# is both inappropriate for ideation and prohibitively expensive. Such tasks
+# belong in an analysis/writing crew (routing keeps them there — see
+# maybe_promote_to_creative). ~60k tokens ≈ 240k chars.
+_MAX_CREATIVE_INPUT_TOKENS = 60_000
+
 
 @dataclass
 class PhaseOutput:
@@ -378,12 +385,27 @@ def run_creative_crew(
     Returns:
         CreativeRunResult with final_output, per-phase traces, cost, scores.
     """
-    from app.creative_mode import get_budget_usd
-    budget_usd = get_budget_usd()
+    from app.creative_mode import effective_budget_usd
 
-    # Budget-aware degradation (per user decision: auto-downgrade at low budget)
-    if budget_usd < 0.05 and creativity == "high":
-        logger.info(f"creative_crew: budget ${budget_usd:.2f} < $0.05 — downgrading to medium")
+    eb = effective_budget_usd(task_description)
+    budget_usd = eb.usd
+
+    # Pre-flight: an input too large for divergent ideation is refused BEFORE
+    # any LLM call (zero spend) — it belongs in an analysis/writing crew, not
+    # the 4-agent creative pipeline that re-sends the whole input per phase.
+    if eb.input_tokens > _MAX_CREATIVE_INPUT_TOKENS:
+        msg = (
+            f"Creative mode declined: input is ~{eb.input_tokens:,} tokens, over the "
+            f"{_MAX_CREATIVE_INPUT_TOKENS:,}-token ceiling for divergent ideation. "
+            f"Send this as an analysis/writing request, or trim the document."
+        )
+        logger.warning(f"creative_crew: {msg}")
+        return CreativeRunResult(final_output=msg, aborted_reason="input_too_large")
+
+    # Budget-aware degradation (per user decision: auto-downgrade at low budget).
+    # Keys off the operator-configured base, NOT the input-scaled effective value.
+    if eb.base_usd < 0.05 and creativity == "high":
+        logger.info(f"creative_crew: budget ${eb.base_usd:.2f} < $0.05 — downgrading to medium")
         creativity = "medium"
     if creativity == "medium":
         discussion_rounds = 1  # conformity only, skip anti-conformity
@@ -416,7 +438,13 @@ def run_creative_crew(
         elif phase1:
             final = "\n\n---\n\n".join(f"[{p.role}]\n{p.text}" for p in phase1)
         else:
-            final = "(creative run aborted before any output was produced)"
+            _scale = f", auto-scaled from ${eb.base_usd:.2f}" if eb.scaled else ""
+            _cap = f"; hit the ${eb.ceiling_usd:.2f} ceiling" if eb.ceiling_hit else ""
+            final = (
+                f"Creative run hit its ${budget_usd:.2f} budget before producing output "
+                f"(input ~{eb.input_tokens:,} tokens{_scale}{_cap}). "
+                f"Raise creative_run_budget_usd in /cp/settings, or send a smaller input."
+            )
     except Exception as exc:
         logger.exception(f"creative_crew: unhandled error: {exc}")
         aborted_reason = f"error: {exc}"

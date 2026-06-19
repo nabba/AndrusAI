@@ -482,6 +482,13 @@ _CREATIVE_PROMOTION_PATTERNS = re.compile(
 # tasks stay in `writing` because the cost asymmetry isn't justified.
 _CREATIVE_PROMOTION_MIN_DIFFICULTY = 6
 
+# Large tasks (e.g. a prepended document attachment) are analysis work, not
+# divergent ideation. The creative crew's per-run budget is calibrated for
+# short prompts and re-sends the whole input every phase, so a big document
+# aborts it before any output. Keep large tasks in the standard `writing`
+# crew, which has no per-run cap. ~8k chars ≈ 2k tokens.
+_CREATIVE_PROMOTION_MAX_CHARS = 8000
+
 
 def maybe_promote_to_creative(decisions: list[dict]) -> list[dict]:
     """Auto-promote `writing` decisions to `creative` when warranted.
@@ -514,6 +521,12 @@ def maybe_promote_to_creative(decisions: list[dict]) -> list[dict]:
         if int(d.get("difficulty", 0)) < threshold:
             continue
         task_text = str(d.get("task", ""))
+        if len(task_text) > _CREATIVE_PROMOTION_MAX_CHARS:
+            logger.info(
+                f"creative auto-promote skipped: task {len(task_text)} chars "
+                f"> {_CREATIVE_PROMOTION_MAX_CHARS} — large doc stays in writing"
+            )
+            continue
         if not _CREATIVE_PROMOTION_PATTERNS.search(task_text):
             continue
         original_task = task_text[:80]
