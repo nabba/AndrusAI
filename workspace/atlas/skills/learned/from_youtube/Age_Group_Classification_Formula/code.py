@@ -1,1 +1,0 @@
-=VLOOKUP(E3, AgeGroup, 2, TRUE)

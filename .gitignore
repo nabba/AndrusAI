@@ -77,3 +77,46 @@ workspace/evolution_roi.json
 # GitHub's 100 MB per-file limit. The tarballs are runtime artifacts
 # regenerated daily and replicated via Q17.1 warm-spare; no need in git.
 workspace/backups/chromadb/*.tar.gz
+
+# ── 2026-06-18: stop tracking gateway-written runtime state + quarantine cruft ──
+# These are written continuously by the running gateway and are NOT
+# source-of-truth in git — they're already covered by Q17.1 warm-spare rsync,
+# the §56 per-KB source-ledger, and the DR tarballs. Tracking them made the
+# live working tree perpetually-dirty, which blocked `git checkout main` on the
+# host and kept the auto-deploy poller inert (WRONG_BRANCH on a feature branch).
+# Existing tracked instances are removed in the same commit via
+# `git rm -r --cached`. Seeds are deliberately NOT listed here and stay tracked:
+# migrations/, projects/, prompts/ (incl. **/v001.md), subia/, and the KB dirs
+# (knowledge/ episteme/ philosophy/ aesthetics/ tensions/ skills/).
+#
+# Quarantined corrupt ChromaDB (pure cruft; also safe to `rm -rf` on disk):
+workspace/memory.corrupt_*/
+# Runtime output / state directories:
+workspace/proposals/
+workspace/change_requests/
+workspace/dr/
+workspace/self_awareness_data/
+workspace/atlas/
+workspace/experiential/
+workspace/self_heal/
+workspace/healing/
+workspace/heartbeats/
+workspace/resilience/
+workspace/proposal_bridge/
+workspace/transfer_memory/
+workspace/warm_spare/
+workspace/sentience/
+workspace/dreams/
+workspace/audit_journal/
+workspace/qos/
+workspace/map_elites/
+workspace/benchmarks/
+workspace/code_quality/
+workspace/trajectories/
+workspace/applied_code/
+workspace/self_improvement/
+# Loose runtime files:
+workspace/self_model.json
+workspace/system_chronicle.md
+workspace/tool_failure_context.json
+workspace/sentience_config.json
