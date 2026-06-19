@@ -17,10 +17,29 @@ from __future__ import annotations
 
 import logging
 import threading
+from dataclasses import dataclass
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# ── Input-aware effective budget (2026-06-19) ────────────────────────────────
+# `creative_run_budget_usd` is a *generation* allowance calibrated for short
+# brainstorm prompts. But reading the input is unavoidable cost that scales
+# with input size: a large document (e.g. a 110k-char attachment ≈ 28k tokens)
+# costs more than the $0.10 default just to read once, so the creative run
+# aborted in phase 1 before producing any output (and still spent the money).
+# A fixed USD cap is structurally input-size-blind. We scale the effective
+# budget with input size, capped at a hard ceiling so a runaway input can't
+# burn unbounded $, and never below the operator's explicitly-configured value.
+_BASELINE_INPUT_TOKENS = 2000        # input size the default budget assumes
+_EFFECTIVE_BUDGET_CEILING_USD = 5.0  # hard cap on automatic scaling
+_CHARS_PER_TOKEN = 4                 # standard rough chars→tokens heuristic
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token estimate from character count (4 chars/token heuristic)."""
+    return max(0, len(text or "")) // _CHARS_PER_TOKEN
 
 _lock = threading.Lock()
 _budget_usd: float | None = None
@@ -53,6 +72,47 @@ def set_budget_usd(value: float) -> None:
         raise ValueError("creative_run_budget_usd exceeds sanity cap of $100/run")
     _budget_usd = float(value)
     logger.info(f"creative_mode: budget_usd set to ${value:.2f}")
+
+
+@dataclass(frozen=True)
+class EffectiveBudget:
+    """The budget a creative run should actually enforce for a given input.
+
+    `usd` is what the run caps against; `base_usd` is the operator-configured
+    value; `scaled`/`ceiling_hit` let the caller produce an honest message
+    when a run still can't fit.
+    """
+    usd: float
+    base_usd: float
+    input_tokens: int
+    scaled: bool
+    ceiling_hit: bool
+    ceiling_usd: float = _EFFECTIVE_BUDGET_CEILING_USD
+
+
+def effective_budget_usd(task_description: str) -> EffectiveBudget:
+    """Scale the configured budget by input size.
+
+    Small inputs use the configured value unchanged. Larger inputs scale the
+    budget proportionally (so reading the input doesn't consume the entire
+    generation allowance), capped at `_EFFECTIVE_BUDGET_CEILING_USD` and never
+    reduced below the operator's explicit `creative_run_budget_usd`.
+    """
+    base = get_budget_usd()
+    toks = estimate_tokens(task_description)
+    if toks <= _BASELINE_INPUT_TOKENS:
+        return EffectiveBudget(
+            usd=base, base_usd=base, input_tokens=toks,
+            scaled=False, ceiling_hit=False,
+        )
+    scaled_usd = base * (toks / _BASELINE_INPUT_TOKENS)
+    capped = min(scaled_usd, _EFFECTIVE_BUDGET_CEILING_USD)
+    usd = max(base, capped)  # never below the operator's explicit choice
+    return EffectiveBudget(
+        usd=usd, base_usd=base, input_tokens=toks,
+        scaled=usd > base,
+        ceiling_hit=scaled_usd > _EFFECTIVE_BUDGET_CEILING_USD,
+    )
 
 
 def get_originality_wiki_weight() -> float:
