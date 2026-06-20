@@ -119,6 +119,20 @@ FORWARDER_BOOTSTRAP_COOLDOWN = float(
 )
 LAUNCHCTL_BIN = os.environ.get("LAUNCHCTL_BIN", "/bin/launchctl")
 
+# ── Agent-keeper guard (2026-06-19) ───────────────────────────────────────
+# The keeper (org.andrus.botarmy.agent-keeper, a StartInterval LaunchAgent) is
+# what keeps THIS watchdog — and every other botarmy agent — loaded. Guarding
+# the keeper here, while the keeper guards the watchdog, makes the two mutually
+# protective: no single `launchctl bootout` can leave both recovery agents dead.
+KEEPER_GUARD_ENABLED = os.environ.get("KEEPER_GUARD_ENABLED", "1") not in (
+    "0", "false", "False", "",
+)
+KEEPER_LABEL = os.environ.get("KEEPER_LABEL", "org.andrus.botarmy.agent-keeper")
+KEEPER_PLIST = os.environ.get(
+    "KEEPER_PLIST",
+    os.path.expanduser(f"~/Library/LaunchAgents/{KEEPER_LABEL}.plist"),
+)
+
 # ── Process-liveness heartbeat gate (2026-06-01) ─────────────────────────
 # The gateway writes a heartbeat file (app/liveness.py) from a daemon thread
 # that survives event-loop starvation. When /health is unresponsive we read
@@ -445,6 +459,57 @@ def maybe_recover_forwarder(last_action_at: float) -> float:
     return now
 
 
+def maybe_recover_keeper(last_action_at: float) -> float:
+    """Ensure the agent-keeper LaunchAgent is loaded; re-bootstrap if not.
+
+    The keeper (StartInterval) is what keeps THIS watchdog — and every other
+    botarmy agent — loaded; guarding it here makes the two mutually protective,
+    so no single `launchctl bootout` can leave both recovery agents dead. Cheap
+    (a launchctl list); only acts when the keeper is genuinely unloaded.
+    """
+    if not KEEPER_GUARD_ENABLED:
+        return last_action_at
+    try:
+        loaded = subprocess.run(
+            [LAUNCHCTL_BIN, "list", KEEPER_LABEL],
+            capture_output=True, text=True, timeout=10,
+        ).returncode == 0
+    except Exception as e:  # noqa: BLE001 — guard must never crash the watchdog
+        log(f"keeper liveness check raised: {e}")
+        return last_action_at
+    if loaded:
+        return last_action_at
+    now = time.time()
+    if (now - last_action_at) < FORWARDER_BOOTSTRAP_COOLDOWN:
+        return last_action_at  # acted recently; don't thrash/spam on a flapping agent
+    log(f"Agent-keeper '{KEEPER_LABEL}' is NOT loaded — re-bootstrapping from {KEEPER_PLIST}")
+    uid = os.getuid()
+    try:
+        r = subprocess.run(
+            [LAUNCHCTL_BIN, "bootstrap", f"gui/{uid}", KEEPER_PLIST],
+            capture_output=True, text=True, timeout=30,
+        )
+        ok = r.returncode == 0 or "already" in (r.stderr + r.stdout).lower()
+        if not ok:
+            log(f"keeper bootstrap failed (rc={r.returncode}): "
+                f"{(r.stderr or r.stdout).strip()[:200]}")
+    except Exception as e:  # noqa: BLE001 — never crash the watchdog
+        log(f"keeper bootstrap raised: {e}")
+        ok = False
+    if ok:
+        log(f"Re-bootstrapped '{KEEPER_LABEL}'")
+        signal_alert(
+            f"♻️ agent-keeper was DOWN (LaunchAgent '{KEEPER_LABEL}' unloaded) — "
+            f"watchdog re-bootstrapped it. Host-agent recovery layer restored."
+        )
+    else:
+        signal_alert(
+            f"❌ agent-keeper '{KEEPER_LABEL}' is DOWN and the watchdog could NOT "
+            f"re-bootstrap it — manual: launchctl bootstrap gui/{uid} {KEEPER_PLIST}"
+        )
+    return now
+
+
 def main() -> int:
     log(f"Starting — poll {HEALTH_URL} every {POLL_INTERVAL:.0f}s "
         f"(timeout {HEALTH_TIMEOUT:.0f}s), restart after {FAILURE_THRESHOLD} consecutive failures, "
@@ -457,9 +522,13 @@ def main() -> int:
     if FORWARDER_GUARD_ENABLED:
         log(f"Forwarder guard ON: ensuring '{FORWARDER_LABEL}' stays loaded "
             f"(plist {FORWARDER_PLIST}, bootstrap cooldown {FORWARDER_BOOTSTRAP_COOLDOWN:.0f}s)")
+    if KEEPER_GUARD_ENABLED:
+        log(f"Keeper guard ON: ensuring '{KEEPER_LABEL}' stays loaded "
+            f"(mutual — the keeper keeps this watchdog loaded in return)")
 
     consecutive_failures = 0
     last_forwarder_action_at = 0.0  # last forwarder bootstrap attempt (cooldown gate)
+    last_keeper_action_at = 0.0     # last keeper bootstrap attempt (cooldown gate)
     health_down_since: Optional[float] = None  # when /health started failing (this outage)
     last_busy_log = 0.0  # throttle the "busy, not restarting" log line
     last_restart_at: Optional[float] = _load_restart_state()
@@ -485,6 +554,7 @@ def main() -> int:
         # boot grace — the forwarder being unloaded has nothing to do with the
         # gateway booting. Cheap (a launchctl list); only acts when unloaded.
         last_forwarder_action_at = maybe_recover_forwarder(last_forwarder_action_at)
+        last_keeper_action_at = maybe_recover_keeper(last_keeper_action_at)
         if now < grace_until:
             # Inside post-restart grace; don't even probe yet.
             time.sleep(min(POLL_INTERVAL, grace_until - now))

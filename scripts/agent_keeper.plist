@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>org.andrus.botarmy.agent-keeper</string>
+
+  <!-- Keeps every botarmy host LaunchAgent loaded — including the gateway
+       watchdog (the top of the recovery chain, which nothing else watched).
+       Runs ensure_host_agents.sh on a short interval. The watchdog guards THIS
+       keeper in return (mutual protection); macOS login auto-load is the reboot
+       backstop. See scripts/ensure_host_agents.sh. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/andrus/BotArmy/crewai-team/scripts/ensure_host_agents.sh</string>
+    <string>run</string>
+  </array>
+
+  <!-- StartInterval (not KeepAlive): this is a periodic sweep that runs and
+       exits, not a long-lived daemon. RunAtLoad fires one sweep immediately. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>180</integer>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>SIGNAL_CLI_HTTP_URL</key>
+    <string>http://127.0.0.1:7583</string>
+    <key>SIGNAL_OWNER_NUMBER</key>
+    <string>+3725100500</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/andrus/BotArmy/crewai-team</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/andrus/BotArmy/crewai-team/workspace/healing/.agent_keeper.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/andrus/BotArmy/crewai-team/workspace/healing/.agent_keeper.log</string>
+</dict>
+</plist>
