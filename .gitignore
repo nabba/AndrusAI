@@ -45,3 +45,11 @@ wiki/.slides/
 
 # (Former workspace/ runtime + §55 + 2026-06-18 patchwork rules removed —
 #  all subsumed by the single `workspace/` wholesale ignore above.)
+
+# 2026-06-20: gateway-written wiki runtime (self-reflection digests, hot topics,
+# privacy audit) — same untrack rationale as workspace/ (#167/#170): continuously
+# rewritten, dirtied the tree + blocked deploy_gateway.sh git pull --ff-only.
+# Hand-authored wiki pages (meta/, index.md, project pages, .obsidian) stay tracked.
+wiki/hot.md
+wiki/privacy/
+wiki/self/
