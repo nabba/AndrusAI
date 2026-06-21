@@ -74,6 +74,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -152,6 +153,31 @@ HEARTBEAT_STALE = float(os.environ.get("HEARTBEAT_STALE_SECONDS", "60"))
 # wedge worth a restart — generous, so we never guillotine real work.
 HEALTH_ESCALATE = float(os.environ.get("HEALTH_ESCALATE_SECONDS", "900"))
 BUSY_LOG_INTERVAL = 120.0  # throttle the "busy, not restarting" log line
+
+# ── Docker daemon guard (2026-06-21) ─────────────────────────────────────
+# A host reboot or a Docker Desktop crash/quit takes the whole daemon down.
+# The gateway runs IN Docker, so it then cannot be running and a
+# `docker compose restart` always fails. Pre-fix the watchdog could not tell
+# this apart from an event-loop wedge: container_running() returned None on the
+# failed inspect (not False), so the loop fell through to the HEALTH_ESCALATE
+# branch, waited 900s, mislabelled the cause "event loop wedged", issued a
+# doomed restart, and alerted "restart FAILED — manual intervention needed"
+# every ~17 min until a human started Docker (15h on 2026-06-21, after an
+# overnight reboot that didn't auto-start Docker Desktop). Now the watchdog
+# detects an unreachable daemon and relaunches Docker Desktop itself — the
+# stack's restart:unless-stopped brings the gateway + memory back once the
+# daemon is up — with a clear one-shot alert and a relaunch cooldown.
+DOCKER_AUTOSTART_ENABLED = os.environ.get("DOCKER_AUTOSTART_ENABLED", "1") not in (
+    "0", "false", "False", "",
+)
+# How Docker Desktop is (re)launched. macOS default; override for another host
+# (e.g. a Linux systemd unit) or set DOCKER_AUTOSTART_ENABLED=0 to disable.
+DOCKER_DESKTOP_OPEN_CMD = os.environ.get("DOCKER_DESKTOP_OPEN_CMD", "open -ga Docker")
+# Min gap between relaunch attempts so a daemon that won't come up doesn't
+# thrash `open` or spam alerts. Docker Desktop normally boots well under this.
+DOCKER_RELAUNCH_COOLDOWN = float(
+    os.environ.get("DOCKER_RELAUNCH_COOLDOWN_SECONDS", "300")
+)
 
 _session = requests.Session()
 
@@ -348,6 +374,67 @@ def container_running() -> Optional[bool]:
         return None
 
 
+def docker_daemon_reachable() -> Optional[bool]:
+    """Whether the Docker daemon answers.
+
+    True  → daemon responded (a server version came back).
+    False → daemon explicitly unreachable ("Cannot connect to the Docker
+            daemon" / "Is the docker daemon running?") — the signature of a
+            stopped Docker Desktop (reboot, crash, quit).
+    None  → the check itself couldn't run (docker binary missing, timeout, an
+            unrecognised error) — treated as "unknown", never an action trigger
+            on its own.
+
+    This is the signal that distinguishes "the whole Docker daemon is down"
+    from both "container stopped" (daemon up, inspect says not-running) and
+    "event loop wedged" (daemon up, container up, /health hung). Without it the
+    watchdog mis-handles a down daemon as a wedge and floods the operator with
+    doomed-restart alerts.
+    """
+    try:
+        result = subprocess.run(
+            [DOCKER_BIN, "version", "--format", "{{.Server.Version}}"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return True
+        combined = (result.stderr + result.stdout).lower()
+        if ("cannot connect to the docker daemon" in combined
+                or "docker daemon running" in combined):
+            return False
+        return None
+    except FileNotFoundError:
+        return None
+    except Exception:  # noqa: BLE001 — never crash the watchdog
+        return None
+
+
+def relaunch_docker_desktop() -> bool:
+    """Best-effort (re)launch of Docker Desktop via DOCKER_DESKTOP_OPEN_CMD.
+
+    Returns True if the launch command was issued cleanly, False otherwise.
+    Never raises — like the other recovery helpers, a bug here must not crash
+    the watchdog.
+    """
+    try:
+        result = subprocess.run(
+            shlex.split(DOCKER_DESKTOP_OPEN_CMD),
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0:
+            return True
+        log(f"Docker Desktop relaunch failed (rc={result.returncode}): "
+            f"{(result.stderr or result.stdout).strip()[:200]}")
+        return False
+    except FileNotFoundError:
+        log(f"relaunch command not found: '{DOCKER_DESKTOP_OPEN_CMD}' "
+            f"(set DOCKER_DESKTOP_OPEN_CMD or DOCKER_AUTOSTART_ENABLED=0)")
+        return False
+    except Exception as e:  # noqa: BLE001 — never crash the watchdog
+        log(f"Docker Desktop relaunch raised: {e}")
+        return False
+
+
 def restart_gateway() -> bool:
     log(f"Restarting compose service '{GATEWAY_SERVICE}' in {COMPOSE_PROJECT_DIR}")
     try:
@@ -510,6 +597,49 @@ def maybe_recover_keeper(last_action_at: float) -> float:
     return now
 
 
+def maybe_relaunch_docker(last_action_at: float) -> float:
+    """Relaunch Docker Desktop when the daemon is found unreachable.
+
+    Mirrors maybe_recover_forwarder/keeper: throttled by DOCKER_RELAUNCH_COOLDOWN
+    so a daemon that won't come up doesn't thrash `open` or spam alerts. Returns
+    the (possibly updated) timestamp of the last relaunch attempt.
+
+    The gateway runs in Docker, so a down daemon means the whole stack is down
+    and a `docker compose restart` can't help. The container restart policy
+    (restart:unless-stopped) brings everything back once the daemon is up, so
+    all the watchdog has to do is start Docker Desktop again and wait.
+    """
+    now = time.time()
+    if (now - last_action_at) < DOCKER_RELAUNCH_COOLDOWN:
+        # Relaunch issued recently — Docker is (hopefully) still booting. Stay
+        # quiet; /health will recover on its own once the daemon + gateway are up.
+        return last_action_at
+    if not DOCKER_AUTOSTART_ENABLED:
+        log("Docker daemon is DOWN (auto-relaunch disabled) — gateway can't run")
+        signal_alert(
+            "🐳 Docker daemon is DOWN — the gateway and memory stack can't run. "
+            "Start Docker Desktop to recover. (Watchdog auto-relaunch is disabled.)"
+        )
+        return now
+    log(f"Docker daemon is DOWN — relaunching Docker Desktop via "
+        f"'{DOCKER_DESKTOP_OPEN_CMD}' (gateway can't run without it)")
+    ok = relaunch_docker_desktop()
+    if ok:
+        signal_alert(
+            "🐳 Docker daemon was DOWN (reboot or Docker Desktop crash/quit) — "
+            "watchdog is relaunching Docker Desktop. The gateway + memory stack "
+            "come back automatically once Docker finishes starting "
+            "(restart:unless-stopped). No action needed unless this repeats."
+        )
+    else:
+        signal_alert(
+            "❌ Docker daemon is DOWN and the watchdog could NOT relaunch Docker "
+            f"Desktop ('{DOCKER_DESKTOP_OPEN_CMD}' failed). Manual fix: start "
+            "Docker Desktop (`open -a Docker`); the gateway recovers on its own."
+        )
+    return now
+
+
 def main() -> int:
     log(f"Starting — poll {HEALTH_URL} every {POLL_INTERVAL:.0f}s "
         f"(timeout {HEALTH_TIMEOUT:.0f}s), restart after {FAILURE_THRESHOLD} consecutive failures, "
@@ -529,6 +659,7 @@ def main() -> int:
     consecutive_failures = 0
     last_forwarder_action_at = 0.0  # last forwarder bootstrap attempt (cooldown gate)
     last_keeper_action_at = 0.0     # last keeper bootstrap attempt (cooldown gate)
+    last_docker_action_at = 0.0     # last Docker Desktop relaunch attempt (cooldown gate)
     health_down_since: Optional[float] = None  # when /health started failing (this outage)
     last_busy_log = 0.0  # throttle the "busy, not restarting" log line
     last_restart_at: Optional[float] = _load_restart_state()
@@ -592,14 +723,23 @@ def main() -> int:
                 # The heartbeat age is kept only as a human-readable log hint.
                 age = read_liveness_age()
                 hb = f"{age:.0f}s" if age is not None else "n/a"
-                running = container_running()
+                daemon_up = docker_daemon_reachable()
+                # Skip the inspect when the daemon is unreachable — it would
+                # only fail the same way, and `running` is unused on that path.
+                running = None if daemon_up is False else container_running()
                 down_for = (
                     int(now - health_down_since) if health_down_since
                     else int(consecutive_failures * POLL_INTERVAL)
                 )
                 should_restart = False
                 cause = ""
-                if in_cooldown:
+                if daemon_up is False:
+                    # Docker daemon is DOWN — the gateway can't be running and a
+                    # `docker compose restart` would only fail. NOT an event-loop
+                    # wedge. Relaunch Docker Desktop (throttled); the stack's
+                    # restart:unless-stopped brings the gateway back once it's up.
+                    last_docker_action_at = maybe_relaunch_docker(last_docker_action_at)
+                elif in_cooldown:
                     remaining = int(RESTART_COOLDOWN - (now - last_restart_at))
                     log(f"Threshold breached but cooldown active ({remaining}s remaining)")
                 elif running is False:
