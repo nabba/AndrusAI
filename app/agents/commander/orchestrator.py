@@ -582,6 +582,86 @@ def _try_attachment_hint_route(user_input: str, attachments: list) -> list[dict]
     }]
 
 
+def _merge_crew_results(
+    results: list, difficulty_map: dict, user_input: str,
+) -> tuple[str, int, str]:
+    """Merge multiple crews' ParallelResult objects into one response.
+
+    Isolated from Commander.handle() so the empty-result and partial-
+    failure paths are unit-testable without spinning up the full
+    routing/dispatch stack. Returns
+    ``(combined_text, max_difficulty, partial_failure_note)``.
+    """
+    parts: list[str] = []
+    failed_labels: list[tuple[str, str]] = []
+    max_diff = 5
+    for r in results:
+        if r.success:
+            parts.append(r.result)
+            max_diff = max(max_diff, difficulty_map.get(r.label, 5))
+        else:
+            logger.error(f"Crew {r.label} failed: {r.error}")
+            failed_labels.append((r.label, r.error or "unknown error"))
+
+    # Q8: Synthesize multi-crew results into a coherent response instead
+    # of raw concatenation with --- separators.
+    if len(parts) > 1:
+        try:
+            from app.llm_factory import create_specialist_llm
+            synth_llm = create_specialist_llm(max_tokens=4096, role="synthesis")
+            raw_combined = "\n\n---\n\n".join(parts)
+            synth_prompt = (
+                f"The user asked: {user_input[:500]}\n\n"
+                f"Multiple specialist teams produced these results:\n\n"
+                f"{raw_combined[:6000]}\n\n"
+                f"Combine these into ONE coherent response. Remove any "
+                f"duplication. Preserve all specific data points, numbers, "
+                f"and sources. Keep it concise for a phone screen."
+            )
+            combined = str(synth_llm.call(synth_prompt)).strip()
+            if not combined or len(combined) < 30:
+                combined = raw_combined  # fallback
+        except Exception:
+            logger.warning("Multi-crew synthesis failed, using raw concat", exc_info=True)
+            combined = "\n\n---\n\n".join(parts)
+    elif parts:
+        combined = parts[0]
+    else:
+        # Every dispatched crew failed or timed out (e.g. an LLM provider
+        # outage, or a slow crew that blew through run_parallel's
+        # timeout). Previously this fell through as combined="", which
+        # survives vet_response's short-circuit for sub-10-char input
+        # unchanged and reaches send_durable() as an empty string —
+        # Signal silently rejects empty sends, so the user got nothing at
+        # all with no visible error anywhere (see 2026-07-05 incident,
+        # trace 8d75862285ab).
+        reasons = "; ".join(
+            f"{label} ({err[:80]})" for label, err in failed_labels
+        ) or "unknown reason"
+        combined = (
+            "Sorry — I wasn't able to put together an answer for that. "
+            "The specialist step(s) handling it didn't finish in time or "
+            f"failed: {reasons}. Please try again, or split it into a "
+            "narrower question."
+        )
+
+    # Surface partial failures (some crews succeeded, others didn't)
+    # instead of silently dropping them — the user should know the
+    # answer may be incomplete rather than assuming it's complete.
+    partial_failure_note = ""
+    if parts and failed_labels:
+        reasons = "; ".join(
+            f"{label} ({err[:80]})" for label, err in failed_labels
+        )
+        partial_failure_note = (
+            f"\n\n_Note: {len(failed_labels)} of {len(results)} specialist "
+            f"step(s) didn't complete ({reasons}) — this answer may be "
+            "incomplete._"
+        )
+
+    return combined, max_diff, partial_failure_note
+
+
 class Commander:
     def __init__(self):
         self.llm = create_commander_llm()
@@ -3847,39 +3927,12 @@ class Commander:
                 logger.error(_dispatch_error, exc_info=True)
                 results = []
 
-            # Aggregate raw results (vet once at the end, not per-crew)
-            parts = []
-            max_diff = 5
-            for r in results:
-                if r.success:
-                    parts.append(r.result)
-                    max_diff = max(max_diff, difficulty_map.get(r.label, 5))
-                else:
-                    logger.error(f"Crew {r.label} failed: {r.error}")
-
-            # Q8: Synthesize multi-crew results into a coherent response
-            # instead of raw concatenation with --- separators.
-            if len(parts) > 1:
-                try:
-                    from app.llm_factory import create_specialist_llm
-                    synth_llm = create_specialist_llm(max_tokens=4096, role="synthesis")
-                    raw_combined = "\n\n---\n\n".join(parts)
-                    synth_prompt = (
-                        f"The user asked: {user_input[:500]}\n\n"
-                        f"Multiple specialist teams produced these results:\n\n"
-                        f"{raw_combined[:6000]}\n\n"
-                        f"Combine these into ONE coherent response. Remove any "
-                        f"duplication. Preserve all specific data points, numbers, "
-                        f"and sources. Keep it concise for a phone screen."
-                    )
-                    combined = str(synth_llm.call(synth_prompt)).strip()
-                    if not combined or len(combined) < 30:
-                        combined = raw_combined  # fallback
-                except Exception:
-                    logger.warning("Multi-crew synthesis failed, using raw concat", exc_info=True)
-                    combined = "\n\n---\n\n".join(parts)
-            else:
-                combined = parts[0] if parts else ""
+            # Aggregate raw results into one response (vet once at the
+            # end, not per-crew). Extracted to _merge_crew_results() so
+            # the empty/partial-failure paths are independently testable.
+            combined, max_diff, partial_failure_note = _merge_crew_results(
+                results, difficulty_map, user_input,
+            )
 
             # Single vetting pass on the combined output
             final_result = vet_response(
@@ -3899,6 +3952,11 @@ class Commander:
                     )
                 except Exception:
                     logger.debug("Critic review failed (non-blocking)", exc_info=True)
+
+            # Append the partial-failure note after vetting/critic so it's
+            # never mistaken for part of the substantive answer.
+            if partial_failure_note:
+                final_result += partial_failure_note
 
         # ── Step 3: Log request cost ───────────────────────────────────────
         # This is the top of the request stack — actually clear the tracker.

@@ -15,7 +15,7 @@ Ollama concurrency control:
 import logging
 import os
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Callable
 
@@ -109,17 +109,50 @@ def run_parallel(
                 except Exception:
                     logger.debug(f"on_complete callback failed for '{label}'", exc_info=True)
     except TimeoutError:
-        # Stage 4.4 — cancel the pending stragglers so the semaphore is
-        # released and Ollama/API slots don't stay held by slow crews.
+        # Stage 4.4 — try to cancel the pending stragglers. NOTE:
+        # Future.cancel() only succeeds for futures that haven't started
+        # running yet (still queued behind the pool's max_workers limit);
+        # once a worker thread has actually begun executing the callable,
+        # cancel() is a documented no-op and the thread keeps running to
+        # its natural completion — holding its _ollama_semaphore slot and
+        # a _pool worker slot for as long as that takes. Distinguish the
+        # two cases so the log (and any operator reading it) isn't misled
+        # into thinking "cancelling" actually stopped anything running.
         pending = [f for f in futures if not f.done()]
+        cancelled = [f for f in pending if f.cancel()]
+        orphaned = [f for f in pending if f not in cancelled]
         logger.warning(
-            "run_parallel: timeout %ds reached, cancelling %d pending crew(s) "
-            "(%s). Best-effort results returned.",
-            timeout_seconds, len(pending),
-            ", ".join(futures[f] for f in pending),
+            "run_parallel: timeout %ds reached — %d crew(s) not yet started "
+            "were cancelled cleanly (%s); %d crew(s) already running cannot "
+            "be interrupted and will keep executing in the background, "
+            "holding a worker/semaphore slot until they finish on their own "
+            "(%s). Best-effort results returned now.",
+            timeout_seconds,
+            len(cancelled), ", ".join(futures[f] for f in cancelled) or "none",
+            len(orphaned), ", ".join(futures[f] for f in orphaned) or "none",
         )
-        for f in pending:
-            f.cancel()
+        # Orphaned futures are otherwise a silent black hole — nothing ever
+        # looks at their eventual result once the caller has moved on. Log
+        # what happens to them so a slow/hung crew is at least visible in
+        # the logs after the fact, instead of vanishing without a trace.
+        for f in orphaned:
+            label = futures[f]
+
+            def _log_late_result(fut: Future, _label: str = label) -> None:
+                try:
+                    fut.result()
+                    logger.warning(
+                        "run_parallel: orphaned crew '%s' finished AFTER "
+                        "its caller already gave up and returned a response",
+                        _label,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "run_parallel: orphaned crew '%s' failed AFTER its "
+                        "caller already gave up: %s", _label, str(exc)[:300],
+                    )
+
+            f.add_done_callback(_log_late_result)
 
     # Return in original order; mark missing (timed-out) tasks
     ordered = []
