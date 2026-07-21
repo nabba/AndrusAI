@@ -11,11 +11,12 @@ import json
 from app.tools.coding_session_tools import create_coding_session_tools
 
 
-def test_factory_returns_eight_tools() -> None:
+def test_factory_includes_evolve_tool() -> None:
     tools = create_coding_session_tools()
     names = [t.name for t in tools]
     assert "coding_session_evolve_solution" in names
-    assert len(tools) == 8
+    assert "coding_session_iterate" in names
+    assert len(tools) == 9
 
 
 def test_evolve_tool_has_expected_args_schema() -> None:

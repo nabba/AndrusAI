@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 
@@ -42,6 +42,7 @@ APPROVAL_QUEUE_PATH = Path("/app/workspace/human_approval_queue.json")
 APPROVAL_HISTORY_PATH = Path("/app/workspace/human_approval_history.json")
 
 _AUTO_REJECT_AFTER_HOURS = 24
+_FILE_PREVIEW_CHARS = 5000
 
 # Confidence thresholds
 _HIGH_CONFIDENCE_DELTA = 0.05
@@ -71,14 +72,28 @@ class ApprovalRequest:
     decision: str = "pending"   # pending | approved | rejected | expired
     decided_at: float = 0.0
     decided_by: str = ""
+    signal_timestamp: int = 0
+    file_previews: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        # Truncate file contents in serialized form to avoid massive queue files
+        """Serialize the request without losing proposed file bodies.
+
+        ``files`` is the payload, so it must remain complete. ``file_previews``
+        is a separate bounded convenience field for UI/audit displays that do
+        not need the full body.
+        """
         serialized = asdict(self)
-        serialized["files"] = {
-            path: content[:5000] for path, content in self.files.items()
-        }
+        if not serialized.get("file_previews"):
+            serialized["file_previews"] = _build_file_previews(self.files)
         return serialized
+
+
+def _build_file_previews(files: dict[str, str]) -> dict[str, str]:
+    """Return bounded file previews while preserving full payload elsewhere."""
+    return {
+        path: str(content)[:_FILE_PREVIEW_CHARS]
+        for path, content in files.items()
+    }
 
 
 # ── Confidence classification ────────────────────────────────────────────────
@@ -216,10 +231,21 @@ def approve_request(request_id: str, approver: str = "owner") -> bool:
         queue = [e for e in queue if e.get("request_id") != request_id]
         _save_queue(queue)
 
-        # Trigger deploy via auto_deployer
+        # Trigger deploy via auto_deployer with explicit non-canary evidence.
+        # Human approval proves operator intent, not canary safety; GATED files
+        # still require a real canary pass at the deploy boundary.
         try:
-            from app.auto_deployer import schedule_deploy
-            schedule_deploy(reason=f"human-approved-{request_id}")
+            from app.auto_deployer import DeployEvidence, schedule_deploy
+            reason = f"human-approved-{request_id}"
+            schedule_deploy(
+                reason=reason,
+                evidence=DeployEvidence(
+                    reason=reason,
+                    source="human_gate",
+                    has_canary_pass=False,
+                    operator_approval_id=request_id,
+                ),
+            )
             logger.info(f"human_gate: approved {request_id} — deploy scheduled")
         except Exception as e:
             logger.error(f"human_gate: deploy failed for {request_id}: {e}")
@@ -339,8 +365,8 @@ def _send_approval_notification(request: ApprovalRequest) -> None:
     timestamp is persisted on the queue entry via _set_signal_timestamp.
     """
     try:
-        from app.signal_client import send_message_blocking
         from app.config import get_settings
+        from app.signal_client import send_message_blocking
 
         files_summary = "\n".join(
             f"  - {path} ({len(content)} chars)"

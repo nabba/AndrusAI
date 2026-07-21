@@ -12,7 +12,7 @@ two things 5.4-e actually changes:
      ``create_coding_session_tools`` (i.e., the wiring lines
      weren't deleted by a future refactor).
 
-The end-to-end "coder builds and has the seven tools" smoke is
+The end-to-end "coder builds and has the coding-session tools" smoke is
 covered by ``tests/test_capability_e2e.py::TestAgentWiring`` once
 the integration test surface picks up #60's symbols.
 """

@@ -417,11 +417,34 @@ class TestHumanGate:
         pending = hg.get_pending_requests()
         assert len(pending) == 1
 
-        with patch("app.auto_deployer.schedule_deploy"):
+        with patch("app.auto_deployer.schedule_deploy") as schedule:
             assert hg.approve_request(req_id) is True
+        evidence = schedule.call_args.kwargs["evidence"]
+        assert evidence.source == "human_gate"
+        assert evidence.has_canary_pass is False
+        assert evidence.operator_approval_id == req_id
 
         # Should be moved to history, queue empty
         assert hg.get_pending_requests() == []
+
+    def test_request_preserves_full_files_and_adds_preview(self, tmp_path, monkeypatch):
+        import app.human_gate as hg
+        monkeypatch.setattr(hg, "APPROVAL_QUEUE_PATH", tmp_path / "queue.json")
+        monkeypatch.setattr(hg, "APPROVAL_HISTORY_PATH", tmp_path / "history.json")
+
+        content = "x" * 6001
+        with patch("app.human_gate._send_approval_notification"):
+            hg.request_approval(
+                experiment_id="exp_payload",
+                hypothesis="test",
+                change_type="code",
+                files={"app/large.py": content},
+                delta=0.02,
+            )
+
+        pending = hg.get_pending_requests()[0]
+        assert pending["files"]["app/large.py"] == content
+        assert pending["file_previews"]["app/large.py"] == content[:5000]
 
     def test_expire_stale_requests(self, tmp_path, monkeypatch):
         import app.human_gate as hg

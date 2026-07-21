@@ -24,6 +24,19 @@ from unittest.mock import MagicMock
 
 
 @pytest.fixture
+def isolated_store(tmp_path, monkeypatch):
+    """Redirect change_requests storage so host runs do not need /app."""
+    from app.change_requests import store
+
+    store_dir = tmp_path / "change_requests"
+    store_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(store, "_STORE_DIR", store_dir)
+    monkeypatch.setattr(store, "_AUDIT_LOG", store_dir / "audit.jsonl")
+    store.reset_for_tests()
+    yield store
+
+
+@pytest.fixture
 def patched_bridge(monkeypatch):
     """Stub the host bridge so apply_change's write_file + git ops
     succeed without actually shelling out. The fixture also captures
@@ -45,6 +58,13 @@ def patched_bridge(monkeypatch):
     bridge.read_file = lambda p: {"ok": True, "content": ""}
     monkeypatch.setattr(ar_apply, "_get_bridge", lambda: bridge)
 
+    branch_result = MagicMock()
+    branch_result.ok = True
+    branch_result.error = None
+    monkeypatch.setattr(
+        ar_apply, "_prepare_git_branch", lambda **kw: branch_result,
+    )
+
     # Git ops — return success without touching git.
     git_result = MagicMock()
     git_result.ok = True
@@ -64,10 +84,11 @@ def patched_bridge(monkeypatch):
 
 
 def test_apply_change_writes_docs_proposed_upgrades_file(
-    patched_bridge, tmp_path,
+    isolated_store, patched_bridge, tmp_path,
 ):
     """The end-to-end smoke: create_request → approve → apply_change."""
     from app.change_requests.lifecycle import (
+        DecisionSource,
         approve,
         create_request,
     )
@@ -99,7 +120,7 @@ def test_apply_change_writes_docs_proposed_upgrades_file(
     )
 
     # Approve.
-    approve(cr.id, approver="test-operator")
+    approve(cr.id, source=DecisionSource.REACT_APPROVE)
 
     # Apply.
     result = apply_change(cr.id)

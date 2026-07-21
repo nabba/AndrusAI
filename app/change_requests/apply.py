@@ -2,12 +2,13 @@
 
 Hot-apply path (after Signal 👍 or React operator approve):
 
-  1. Write the file via the host bridge (``write_host_file``).
-  2. Best-effort module reload — for ``app/agents/*.py`` and similar
+  1. Prepare a fresh auto/change_* branch from origin/main.
+  2. Write the file via the host bridge (``write_host_file``).
+  3. Best-effort module reload — for ``app/agents/*.py`` and similar
      Python files, importlib.reload picks up the change without a
      gateway restart. For files imported once at boot, we log
      "restart needed" but the hot-apply still succeeds.
-  3. Git operations via the bridge: branch, commit, push, open PR
+  4. Git operations via the bridge: commit, push, open PR
      against main. The PR is the durable second-gate artifact —
      operator merges it after review (or the auto-merge CI lands
      it if/when configured).
@@ -159,7 +160,18 @@ def apply_change(request_id: str) -> ApplyResult:
     abs_path = os.path.join(repo, cr.path)
     branch = f"auto/change_{cr.id}"
 
-    # 1. Write the file
+    # 1. Prepare the branch BEFORE writing. If we write first and then
+    # reset/checkout origin/main, git can discard the approved content before
+    # it is staged. That was the CR landing-path failure caught in July 2026.
+    branch_result = _prepare_git_branch(bridge=bridge, repo=repo, branch=branch)
+    if not branch_result.ok:
+        lifecycle.mark_apply_failed(
+            request_id,
+            error=branch_result.error or "branch setup failed",
+        )
+        return ApplyResult(ok=False, error=branch_result.error)
+
+    # 2. Write the file
     try:
         result = bridge.write_file(abs_path, cr.new_content, create_dirs=True)
         if not result or result.get("ok") is False:
@@ -170,10 +182,10 @@ def apply_change(request_id: str) -> ApplyResult:
         lifecycle.mark_apply_failed(request_id, error=f"write_file raised: {exc}")
         return ApplyResult(ok=False, error=f"write_file raised: {exc}")
 
-    # 2. Best-effort module reload
+    # 3. Best-effort module reload
     reload_ok, reload_note = _try_module_reload(cr.path)
 
-    # 3. Git operations
+    # 4. Git operations
     git_result = _run_git_auto_pr(
         bridge=bridge,
         repo=repo,
@@ -193,7 +205,7 @@ def apply_change(request_id: str) -> ApplyResult:
             module_reload_note=reload_note,
         )
 
-    # 4. Mark applied
+    # 5. Mark applied
     lifecycle.mark_applied(
         request_id,
         git_branch=branch,
@@ -238,6 +250,33 @@ class GitResult:
     error: str | None = None
 
 
+def _prepare_git_branch(*, bridge, repo: str, branch: str) -> GitResult:
+    """Create/reset the auto-change branch before writing approved content."""
+
+    def _run(args: list[str], timeout: int = 30) -> dict[str, Any]:
+        return bridge.execute(args, working_dir=repo, timeout=timeout) or {}
+
+    for args, timeout in (
+        (["git", "fetch", "origin", "main"], 30),
+        (["git", "checkout", "main"], 10),
+        (["git", "reset", "--hard", "origin/main"], 10),
+        (["git", "checkout", "-B", branch], 10),
+    ):
+        try:
+            res = _run(args, timeout=timeout)
+        except Exception as exc:  # noqa: BLE001
+            return GitResult(ok=False, error=f"{' '.join(args)} raised: {exc}")
+        if res.get("returncode", 0) != 0:
+            return GitResult(
+                ok=False,
+                error=(
+                    f"{' '.join(args)} failed: "
+                    f"{res.get('stderr', '')[:400]}"
+                ),
+            )
+    return GitResult(ok=True)
+
+
 def _run_git_auto_pr(
     *,
     bridge,
@@ -248,29 +287,17 @@ def _run_git_auto_pr(
     pr_title: str,
     pr_body: str,
 ) -> GitResult:
-    """Branch + add + commit + push + open PR. All via bridge.execute.
+    """Add + commit + push + open PR. All via bridge.execute.
+
+    Branch setup happens before the approved file is written; otherwise a
+    checkout/reset here would discard the content before git can stage it.
+
     Returns GitResult with the commit SHA + PR URL on success."""
 
     def _run(args: list[str], timeout: int = 30) -> dict[str, Any]:
         return bridge.execute(args, working_dir=repo, timeout=timeout) or {}
 
-    # Snapshot main HEAD so we know what to revert to if needed
-    try:
-        head = _run(["git", "rev-parse", "main"]).get("stdout", "").strip()
-    except Exception:
-        head = ""
-
-    # 1. Create branch from main (force in case branch already exists)
-    try:
-        # Reset any in-progress branch state; checkout main first
-        _run(["git", "fetch", "origin", "main"], timeout=30)
-        _run(["git", "checkout", "main"], timeout=10)
-        _run(["git", "reset", "--hard", "origin/main"], timeout=10)
-        _run(["git", "checkout", "-B", branch], timeout=10)
-    except Exception as exc:  # noqa: BLE001
-        return GitResult(ok=False, error=f"branch setup failed: {exc}")
-
-    # 2. The file write happened earlier via bridge.write_file. Stage it.
+    # 1. The file write happened earlier via bridge.write_file. Stage it.
     try:
         add_res = _run(["git", "add", path])
         if add_res.get("returncode", 0) != 0:
@@ -281,7 +308,7 @@ def _run_git_auto_pr(
     except Exception as exc:  # noqa: BLE001
         return GitResult(ok=False, error=f"git add raised: {exc}")
 
-    # 3. Commit
+    # 2. Commit
     try:
         commit_res = _run(["git", "commit", "-m", commit_message])
         if commit_res.get("returncode", 0) != 0:
@@ -299,7 +326,7 @@ def _run_git_auto_pr(
     except Exception as exc:  # noqa: BLE001
         return GitResult(ok=False, error=f"git commit raised: {exc}")
 
-    # 4. Push
+    # 3. Push
     try:
         push_res = _run(["git", "push", "-u", "origin", branch], timeout=60)
         if push_res.get("returncode", 0) != 0:
@@ -311,7 +338,7 @@ def _run_git_auto_pr(
     except Exception as exc:  # noqa: BLE001
         return GitResult(ok=False, commit_sha=sha, error=f"git push raised: {exc}")
 
-    # 5. Open PR via gh
+    # 4. Open PR via gh
     pr_url = None
     try:
         pr_res = _run([

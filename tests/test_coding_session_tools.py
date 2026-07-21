@@ -1,4 +1,4 @@
-"""Tests for the 7 coding_session_* agent tools — Phase 5.4-d.
+"""Tests for the coding_session_* agent tools — Phase 5.4-d.
 
 Coverage:
 
@@ -6,7 +6,7 @@ Coverage:
     backend factory (env-driven local vs bridge)
   * **capability vocabulary** — the 4 new tags exist + are in the
     code-development category + match what the tools declare
-  * **tool factory** — create_coding_session_tools returns the 7
+  * **tool factory** — create_coding_session_tools returns the expected
     tools with the right names
   * **per-tool _run** — happy path + error formatting for each of:
     start, read, write, run, diff, submit, discard
@@ -268,11 +268,10 @@ class TestRuntime:
 
 class TestToolFactory:
 
-    def test_seven_tools_returned(self) -> None:
+    def test_expected_tools_returned(self) -> None:
         from app.tools.coding_session_tools import create_coding_session_tools
 
         tools = create_coding_session_tools()
-        assert len(tools) == 7
         names = [t.name for t in tools]
         assert names == [
             "coding_session_start",
@@ -282,6 +281,8 @@ class TestToolFactory:
             "coding_session_diff",
             "coding_session_submit",
             "coding_session_discard",
+            "coding_session_evolve_solution",
+            "coding_session_iterate",
         ]
 
     def test_tool_descriptions_nontrivial(self) -> None:

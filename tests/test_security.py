@@ -497,6 +497,25 @@ class TestProposals(unittest.TestCase):
         self.assertIn("approved", result.lower())
         self.assertTrue((self.tmpdir / "skills" / "good_skill.md").exists())
 
+    def test_code_proposal_schedules_deploy_with_proposal_evidence(self):
+        pid = self.prop.create_proposal(
+            "Code Fix",
+            "new code",
+            "code",
+            files={"app/example_fix.py": "x = 1\n"},
+            rationale="test",
+            changes_summary="test",
+            risks="test",
+        )
+        with patch("app.auto_deployer.schedule_deploy") as schedule:
+            result = self.prop.approve_proposal(pid)
+
+        self.assertIn("deploying", result.lower())
+        evidence = schedule.call_args.kwargs["evidence"]
+        self.assertEqual(evidence.source, "proposal")
+        self.assertFalse(evidence.has_canary_pass)
+        self.assertEqual(evidence.operator_approval_id, f"proposal-{pid}")
+
     def test_reject_proposal(self):
         pid = self.prop.create_proposal("Bad Idea", "nope", "skill")
         result = self.prop.reject_proposal(pid)
@@ -803,9 +822,15 @@ class TestConfig(unittest.TestCase):
 
     def test_default_values(self):
         from app.config import get_settings
-        s = get_settings()
-        self.assertEqual(s.gateway_bind, "127.0.0.1")
-        self.assertEqual(s.conversation_history_turns, 10)
+        get_settings.cache_clear()
+        try:
+            with patch.dict(os.environ, {"CONVERSATION_HISTORY_TURNS": "10"}):
+                get_settings.cache_clear()
+                s = get_settings()
+                self.assertEqual(s.gateway_bind, "127.0.0.1")
+                self.assertEqual(s.conversation_history_turns, 10)
+        finally:
+            get_settings.cache_clear()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

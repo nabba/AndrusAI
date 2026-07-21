@@ -42,7 +42,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -248,6 +250,19 @@ def _apply_sandbox_wrapper(argv: list[str]) -> list[str]:
     return argv
 
 
+def _resolve_executable(argv: list[str]) -> list[str]:
+    """Return the argv to execute after local interpreter normalization.
+
+    Some host-native dev environments expose ``python3`` and the active
+    virtualenv interpreter but no bare ``python``. The runner's public
+    allowlist includes ``python`` for agent ergonomics, so make that command
+    portable without requiring a system-level symlink.
+    """
+    if argv and argv[0] == "python" and shutil.which("python") is None:
+        return [sys.executable, *argv[1:]]
+    return argv
+
+
 def _preexec(cpu_seconds: int) -> "object":
     """Return a preexec_fn that applies CPU rlimits to the child.
 
@@ -327,7 +342,8 @@ def run(
             refusal_reason=f"cwd {cwd!s} does not exist or is not a directory",
         )
 
-    wrapped = _apply_sandbox_wrapper(argv)
+    resolved = _resolve_executable(argv)
+    wrapped = _apply_sandbox_wrapper(resolved)
     cpu_budget = max(1, int(timeout_s) * 4)
     child_env = _build_env(env)
 

@@ -212,8 +212,7 @@ def _legacy_create_coder(force_tier: str | None = None) -> Agent:
         if forge_tool is not None:
             tools.append(forge_tool)
     # Coding sessions — Phase 5.4 iteration loop primitive. Adds the
-    # 7 coding_session_* tools (start/read/write/run/diff/submit/
-    # discard). Submission goes through the change-request human
+    # coding_session_* tools. Submission goes through the change-request human
     # gate; nothing reaches production without operator 👍.
     with optional_tool_group("coder", "coding_session"):
         from app.tools.coding_session_tools import create_coding_session_tools

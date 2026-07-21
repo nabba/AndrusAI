@@ -16,6 +16,8 @@ This test pins the new re-validation step.
 """
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -147,6 +149,11 @@ def test_apply_proceeds_for_ordinary_path(isolated_store, monkeypatch):
     fake_bridge.write_file = MagicMock(return_value={"ok": True})
     monkeypatch.setattr(apply, "_get_bridge", lambda: fake_bridge)
 
+    fake_branch_result = MagicMock()
+    fake_branch_result.ok = True
+    fake_branch_result.error = None
+    monkeypatch.setattr(apply, "_prepare_git_branch", lambda **kwargs: fake_branch_result)
+
     # Stub _run_git_auto_pr so the test stays self-contained.
     fake_git_result = MagicMock()
     fake_git_result.ok = False
@@ -158,6 +165,7 @@ def test_apply_proceeds_for_ordinary_path(isolated_store, monkeypatch):
     # The actual outcome is "git ops failed", which is fine — the
     # important assertion is that write_file WAS called (proves
     # re-validation didn't refuse ordinary path).
+    assert result.ok is False
     fake_bridge.write_file.assert_called_once()
 
 
@@ -194,6 +202,11 @@ def test_apply_validator_failure_is_failure_isolated(isolated_store, monkeypatch
     fake_bridge.write_file = MagicMock(return_value={"ok": True})
     monkeypatch.setattr(apply, "_get_bridge", lambda: fake_bridge)
 
+    fake_branch_result = MagicMock()
+    fake_branch_result.ok = True
+    fake_branch_result.error = None
+    monkeypatch.setattr(apply, "_prepare_git_branch", lambda **kwargs: fake_branch_result)
+
     fake_git_result = MagicMock()
     fake_git_result.ok = False
     fake_git_result.error = "skipped in test"
@@ -203,4 +216,105 @@ def test_apply_validator_failure_is_failure_isolated(isolated_store, monkeypatch
     # the pre-Round-2 behaviour (write-time errors are the safety net).
     result = apply.apply_change("cr-ok-probe-2")
     # write_file was reached — proves we didn't fail-closed on broken validator.
+    assert result.ok is False
     fake_bridge.write_file.assert_called_once()
+
+
+def _git(repo, *args):
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_apply_prepares_branch_before_write_so_reset_cannot_discard_content(
+    isolated_store, tmp_path, monkeypatch,
+):
+    """Regression: branch reset must happen before the approved file write.
+
+    The old ordering wrote ``new_content`` and then reset the repo to
+    ``origin/main``, which erased the approved content before ``git add``.
+    This test uses real git with a local bare origin and a fake bridge.
+    """
+    from app.change_requests import apply, models, store
+
+    origin = tmp_path / "origin.git"
+    repo = tmp_path / "repo"
+    subprocess.run(
+        ["git", "init", "--bare", str(origin)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "clone", str(origin), str(repo)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    _git(repo, "config", "user.email", "t@t.t")
+    _git(repo, "config", "user.name", "t")
+    (repo / "docs").mkdir()
+    (repo / "docs" / "x.md").write_text("old\n")
+    _git(repo, "add", "docs/x.md")
+    _git(repo, "commit", "-m", "init")
+    _git(repo, "branch", "-M", "main")
+    _git(repo, "push", "-u", "origin", "main")
+
+    cr = models.ChangeRequest(
+        id="cr-order-probe",
+        created_at="2026-07-22T00:00:00+00:00",
+        requestor="test",
+        path="docs/x.md",
+        new_content="new\n",
+        old_content="old\n",
+        reason="prove branch prep happens before write",
+        diff="",
+        status=models.Status.APPROVED,
+    )
+    store.save(cr, audit_event="probe-approved")
+
+    class FakeBridge:
+        def write_file(self, abs_path, content, create_dirs=False):
+            path = tmp_path / "should-not-happen"
+            if str(abs_path).startswith(str(repo)):
+                path = Path(abs_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+            return {"ok": True}
+
+        def execute(self, args, working_dir=None, timeout=30):
+            if args[:3] == ["gh", "pr", "create"]:
+                return {"returncode": 1, "stdout": "", "stderr": "gh skipped"}
+            result = subprocess.run(
+                args,
+                cwd=working_dir,
+                timeout=timeout,
+                capture_output=True,
+                text=True,
+            )
+            return {
+                "returncode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+
+    monkeypatch.setattr(apply, "_get_bridge", lambda: FakeBridge())
+    monkeypatch.setattr(apply, "_host_repo_path", lambda: str(repo))
+    monkeypatch.setattr(apply, "_try_module_reload", lambda path: (True, ""))
+
+    result = apply.apply_change("cr-order-probe")
+
+    assert result.ok is True, result.error
+    assert (repo / "docs" / "x.md").read_text() == "new\n"
+    show = subprocess.run(
+        ["git", "show", "--format=", "--name-only", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "docs/x.md" in show.stdout

@@ -1,4 +1,4 @@
-"""coding_session_* — the 7 agent-callable tools for Phase 5.4.
+"""coding_session_* — agent-callable tools for Phase 5.4.
 
 Pattern of use::
 
@@ -26,7 +26,7 @@ agent's prompt to read. Errors return a string starting with one of
 ``ERROR:``, ``REFUSED:``, or ``QUOTA_EXCEEDED:`` so the agent can
 pattern-match on the prefix.
 
-Shared state: all seven tools talk to the same ``Manager`` singleton
+Shared state: all tools talk to the same ``Manager`` singleton
 via ``app.coding_session.runtime.get_manager()``. Tests inject a
 test Manager via ``runtime.set_manager_for_tests(...)``.
 """
@@ -66,7 +66,7 @@ def _format_session(cs: Any, *, header: str) -> str:
 
 
 def _build_tool_classes() -> dict[str, type]:
-    """Lazy-build the seven tool classes. CrewAI BaseTool + pydantic
+    """Lazy-build the tool classes. CrewAI BaseTool + pydantic
     args_schema isn't safe to evaluate at import time (CrewAI may not
     have loaded yet); deferring keeps this module importable in test
     contexts that don't have the full dep tree."""
@@ -905,7 +905,7 @@ except Exception as exc:
 def create_coding_session_tools() -> list:
     """Factory for explicit injection (agents not using the registry).
     Returns one instance per tool, in the start/read/write/run/diff/
-    submit/discard/evolve order."""
+    submit/discard/evolve/iterate order."""
     global _TOOL_CLASSES
     if _TOOL_CLASSES is None:
         try:

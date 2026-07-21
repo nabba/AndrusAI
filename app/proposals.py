@@ -576,7 +576,8 @@ def create_proposal(
         "dirname": dirname,
         "resolution_target": resolution_target,  # F3: error pattern this fixes
     }
-    from app.safe_io import safe_write_json as _swj; _swj(pdir / "status.json", status)
+    from app.safe_io import safe_write_json as _swj
+    _swj(pdir / "status.json", status)
 
     # Write proposed files
     if files:
@@ -595,7 +596,8 @@ def create_proposal(
         try:
             test_result = _pretest_proposal(pid, files)
             status["pretest"] = test_result
-            from app.safe_io import safe_write_json as _swj; _swj(pdir / "status.json", status)
+            from app.safe_io import safe_write_json as _swj
+            _swj(pdir / "status.json", status)
         except Exception:
             logger.debug(f"Pretest skipped for proposal #{pid}", exc_info=True)
 
@@ -767,7 +769,8 @@ def approve_proposal(proposal_id: int) -> str:
     status["status"] = "approved"
     status["applied_at"] = datetime.now(timezone.utc).isoformat()
     status["applied_files"] = applied
-    from app.safe_io import safe_write_json as _swj; _swj(pdir / "status.json", status)
+    from app.safe_io import safe_write_json as _swj
+    _swj(pdir / "status.json", status)
 
     logger.info(f"Proposal #{proposal_id} approved: {applied}")
 
@@ -778,8 +781,17 @@ def approve_proposal(proposal_id: int) -> str:
     # R2: Trigger auto-deployer for code proposals so changes reach the live codebase
     if ptype == "code" and applied:
         try:
-            from app.auto_deployer import schedule_deploy
-            schedule_deploy(f"proposal #{proposal_id}: {status.get('title', '')[:60]}")
+            from app.auto_deployer import DeployEvidence, schedule_deploy
+            reason = f"proposal #{proposal_id}: {status.get('title', '')[:60]}"
+            schedule_deploy(
+                reason,
+                evidence=DeployEvidence(
+                    reason=reason,
+                    source="proposal",
+                    has_canary_pass=False,
+                    operator_approval_id=f"proposal-{proposal_id}",
+                ),
+            )
             msg += " Deploying to live codebase..."
         except Exception as exc:
             msg += f" Deploy trigger failed: {str(exc)[:100]}. Manual restart needed."
@@ -801,7 +813,8 @@ def reject_proposal(proposal_id: int) -> str:
 
     status["status"] = "rejected"
     status["rejected_at"] = datetime.now(timezone.utc).isoformat()
-    from app.safe_io import safe_write_json as _swj; _swj(pdir / "status.json", status)
+    from app.safe_io import safe_write_json as _swj
+    _swj(pdir / "status.json", status)
 
     logger.info(f"Proposal #{proposal_id} rejected")
     return f"Proposal #{proposal_id} rejected."
