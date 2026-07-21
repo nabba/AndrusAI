@@ -266,6 +266,24 @@ def test_plan_happy_builds_plugin_and_factor(monkeypatch):
     assert factor == len(members) + 1  # panel + judge
 
 
+def test_request_scoped_force_enables_only_named_role(monkeypatch):
+    _happy_config(monkeypatch, ["a", "b", "c"])
+    monkeypatch.setattr(config, "is_enabled_for", lambda _role: False)
+    monkeypatch.setattr(
+        panel,
+        "resolve_panel",
+        lambda **kwargs: ["a", "b", "c"][:kwargs["max_panel"]],
+    )
+
+    with config.force_for_roles({"vetting"}, max_panel=2):
+        plugin, factor = plan_for_role("vetting")
+        assert plugin["analysis_models"] == ["a", "b"]
+        assert factor == 3
+        assert plan_for_role("research") == (None, 1)
+
+    assert plan_for_role("vetting") == (None, 1)
+
+
 def test_plan_happy_includes_judge_when_set(monkeypatch):
     _happy_config(monkeypatch, ["m1", "m2"], judge="openrouter/anthropic/claude")
     plugin, _ = plan_for_role("research")

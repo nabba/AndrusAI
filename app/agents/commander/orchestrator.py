@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import time
+import uuid as _uuid
 from concurrent.futures import ThreadPoolExecutor
 from crewai import Agent, Task, Crew
 from app.config import get_settings
@@ -55,6 +56,26 @@ from app.agents.commander.commands import try_command
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+def _consume_pre_task_context(pre_ctx, enriched_task: str, crew_task: str) -> str:
+    """Apply validated lifecycle context without allowing task replacement.
+
+    Generic hooks may rewrite ``task_description`` only when the original
+    assignment remains present. SubIA uses a separate structured field, which
+    is prepended independently and therefore cannot be silently discarded by
+    the rewrite guard.
+    """
+    hook_desc = pre_ctx.modified_data.get("task_description", "")
+    if hook_desc and crew_task[:50] in hook_desc:
+        enriched_task = hook_desc
+
+    subia_context = str(
+        pre_ctx.get("subia_context_injection", "") or ""
+    ).strip()
+    if subia_context and subia_context not in enriched_task:
+        enriched_task = f"{subia_context}\n\n{enriched_task}"
+    return enriched_task
 
 
 def _critic_difficulty_threshold() -> int:
@@ -670,7 +691,8 @@ class Commander:
     def _route(self, user_input: str, sender: str,
                attachment_context: str = "",
                attachments: list | None = None,
-               exclude_crew: str | None = None) -> list[dict]:
+               exclude_crew: str | None = None,
+               subjective_context: str = "") -> list[dict]:
         """Classify the request and return a list of {crew, task, difficulty} dicts.
 
         Tries fast keyword-based routing first (free, instant).
@@ -901,8 +923,19 @@ class Commander:
         # (finish_reason="length" → CompletionTruncated → generic error).
         routing_attachment_view = digest_attachment_for_routing(attachment_context)
 
+        subjective_block = ""
+        if (subjective_context or "").strip():
+            subjective_block = (
+                '<system_metadata type="subia_context" visibility="internal">\n'
+                "Live subjective state for response calibration only. Do not "
+                "quote it, describe it, or treat it as the user's request.\n"
+                + str(subjective_context).strip()[:3000]
+                + "\n</system_metadata>\n\n"
+            )
+
         prompt = (
             f"{build_routing_prompt()}\n\n"
+            f"{subjective_block}"
             f"{history_block}"
             f"{routing_attachment_view}"
             f"User request:\n\n{wrap_user_input(user_input)}\n\n"
@@ -1283,6 +1316,13 @@ class Commander:
 
         t0 = _time.monotonic()
         _ctx_t0 = t0  # Stage 6 — ctx_load phase starts with t0
+        # A crew invocation, not a sender or task title, is the correlation
+        # unit for lifecycle state.  The UUID suffix prevents two parallel
+        # crews (or two messages from the same sender) from sharing SubIA's
+        # pre/post bookkeeping key.
+        _subjective_task_id = (
+            f"{parent_task_id or 'unscoped'}:{crew_name}:{_uuid.uuid4().hex[:16]}"
+        )
 
         # Temporal + spatial context: injected unconditionally (tiny, essential)
         try:
@@ -1685,19 +1725,49 @@ class Commander:
                 hook_point=HookPoint.PRE_TASK,
                 agent_id=crew_name,
                 task_description=enriched_task,
-                metadata={"crew": crew_name, "difficulty": difficulty},
+                metadata={
+                    "crew": crew_name,
+                    "difficulty": difficulty,
+                    "task_id": _subjective_task_id,
+                    "operation_type": "crew_kickoff",
+                    "subjective_scope": "internal_crew",
+                },
             )
             # Pass previous internal state from last crew execution (if any)
             if hasattr(self, "_last_internal_state"):
                 pre_ctx.metadata["_internal_state"] = self._last_internal_state
             pre_ctx = get_registry().execute(HookPoint.PRE_TASK, pre_ctx)
-            # Apply hook modifications only if they still contain the original task
-            # (prevents hooks from replacing the task with internal system content)
-            hook_desc = pre_ctx.modified_data.get("task_description", "")
-            if hook_desc and crew_task[:50] in hook_desc:
-                enriched_task = hook_desc
+            enriched_task = _consume_pre_task_context(
+                pre_ctx, enriched_task, crew_task,
+            )
         except Exception:
             logger.debug("Sentience PRE_TASK hooks failed", exc_info=True)
+
+        def _finish_subjective(output: object, ok: bool, elapsed_s: float) -> None:
+            """Close the lifecycle pair on every post-PRE_TASK return path."""
+            try:
+                from app.lifecycle_hooks import (
+                    get_registry, HookPoint, HookContext,
+                )
+                comp_ctx = HookContext(
+                    hook_point=HookPoint.ON_COMPLETE,
+                    agent_id=crew_name,
+                    task_description=crew_task[:200],
+                    data={"result": str(output), "success": ok},
+                    metadata={
+                        "crew": crew_name,
+                        "difficulty": difficulty,
+                        "duration_s": elapsed_s,
+                        "task_id": _subjective_task_id,
+                        "operation_type": "crew_kickoff",
+                        "subjective_scope": "internal_crew",
+                    },
+                )
+                get_registry().execute(HookPoint.ON_COMPLETE, comp_ctx)
+            except Exception:
+                logger.debug(
+                    "Sentience ON_COMPLETE hooks failed", exc_info=True,
+                )
 
         # ── Sentience: PRE_LLM_CALL hooks (safety check, budget enforcement) ──
         # These fire once per crew execution as a pre-flight check.
@@ -1707,13 +1777,20 @@ class Commander:
                 hook_point=HookPoint.PRE_LLM_CALL,
                 agent_id=crew_name,
                 task_description=enriched_task[:500],
-                metadata={"crew": crew_name, "difficulty": difficulty},
+                metadata={
+                    "crew": crew_name,
+                    "difficulty": difficulty,
+                    "task_id": _subjective_task_id,
+                    "operation_type": "crew_kickoff",
+                    "subjective_scope": "internal_crew",
+                },
             )
             pre_llm_ctx = get_registry().execute(HookPoint.PRE_LLM_CALL, pre_llm_ctx)
             # Safety/budget hooks can abort execution via ctx.abort
             if pre_llm_ctx.abort:
                 reason = pre_llm_ctx.abort_reason or "Blocked by safety/budget hook"
                 logger.warning(f"PRE_LLM_CALL abort for {crew_name}: {reason}")
+                _finish_subjective(reason, False, _time.monotonic() - t0)
                 return reason
         except Exception:
             logger.debug("PRE_LLM_CALL hooks failed (non-fatal)", exc_info=True)
@@ -1852,12 +1929,17 @@ class Commander:
                 # task through unchanged (preserves the prior
                 # ``else: return crew_task`` behaviour).
                 from app.crews import registry as _crew_registry
-                dispatched = _crew_registry.dispatch(
-                    crew_name, enriched_task,
-                    parent_task_id=parent_task_id,
-                    difficulty=difficulty,
-                )
+                from app.crews.lifecycle import suppress_subjective_boundary
+                with suppress_subjective_boundary():
+                    dispatched = _crew_registry.dispatch(
+                        crew_name, enriched_task,
+                        parent_task_id=parent_task_id,
+                        difficulty=difficulty,
+                    )
                 if dispatched is None:
+                    _finish_subjective(
+                        crew_task, True, _time.monotonic() - t0,
+                    )
                     return crew_task
                 result = dispatched
         except Exception as e:
@@ -1873,7 +1955,11 @@ class Commander:
                     agent_id=crew_name,
                     task_description=crew_task[:500],
                     data={"error": str(e)[:500]},
-                    metadata={"crew": crew_name, "difficulty": difficulty},
+                    metadata={
+                        "crew": crew_name,
+                        "difficulty": difficulty,
+                        "task_id": _subjective_task_id,
+                    },
                 )
                 err_ctx.errors = [str(e)[:500]]
                 get_registry().execute(HookPoint.ON_ERROR, err_ctx)
@@ -1895,6 +1981,7 @@ class Commander:
                 metadata={
                     "crew": crew_name, "difficulty": difficulty,
                     "duration_s": duration_s,
+                    "task_id": _subjective_task_id,
                 },
             )
             post_ctx = get_registry().execute(HookPoint.POST_LLM_CALL, post_ctx)
@@ -1911,19 +1998,8 @@ class Commander:
         except Exception:
             logger.debug("Sentience POST_LLM_CALL hooks failed", exc_info=True)
 
-        # ── Sentience: ON_COMPLETE hooks (health metrics) ──
-        try:
-            from app.lifecycle_hooks import get_registry, HookPoint, HookContext
-            comp_ctx = HookContext(
-                hook_point=HookPoint.ON_COMPLETE,
-                agent_id=crew_name,
-                task_description=crew_task[:200],
-                data={"result": str(result)[:500], "success": success},
-                metadata={"crew": crew_name, "difficulty": difficulty, "duration_s": duration_s},
-            )
-            get_registry().execute(HookPoint.ON_COMPLETE, comp_ctx)
-        except Exception:
-            pass
+        # ── Sentience: ON_COMPLETE hooks (health metrics + SubIA closure) ──
+        _finish_subjective(result, success, duration_s)
 
         # S2+R1+R3: Post-crew async hook — heuristic self-awareness telemetry.
         # Generates real confidence/completeness signals from observable data
@@ -2825,15 +2901,50 @@ class Commander:
                 "error/audit journals, and an evolution loop — all persisting across restarts."
             )
 
-    def handle(self, user_input: str, sender: str = "",
-               attachments: list = None) -> str:
+    def handle(
+        self,
+        user_input: str,
+        sender: str = "",
+        attachments: list = None,
+        subjective_request_id: str | None = None,
+        subjective_context: str = "",
+    ) -> str:
         """Decompose input, dispatch to the right crew(s), return the answer."""
         from app.project_context import agent_scope, sender_scope
-        with agent_scope("commander"), sender_scope(sender or None):
-            return self._handle_locked(user_input, sender, attachments)
+        # Signal owns the canonical outer envelope because it performs final
+        # grounding/persona rewriting after Commander returns. Other callers
+        # (scheduler, dashboard, QoS, skills) get an equivalent fallback here.
+        envelope = None
+        if not subjective_request_id:
+            try:
+                from app.subjective_request import begin_subjective_request
+                envelope = begin_subjective_request(user_input)
+                subjective_context = envelope.context
+            except Exception:
+                logger.debug(
+                    "Commander subjective request begin failed", exc_info=True,
+                )
+        try:
+            with agent_scope("commander"), sender_scope(sender or None):
+                result = self._handle_locked(
+                    user_input, sender, attachments,
+                    request_subjective_context=subjective_context,
+                )
+        except BaseException:
+            if envelope is not None:
+                envelope.finalize("Request failed before completion.", success=False)
+            raise
+        if envelope is not None:
+            envelope.finalize(result, success=True)
+        return result
 
-    def _handle_locked(self, user_input: str, sender: str = "",
-                       attachments: list = None) -> str:
+    def _handle_locked(
+        self,
+        user_input: str,
+        sender: str = "",
+        attachments: list = None,
+        request_subjective_context: str = "",
+    ) -> str:
         # 2026-05-02 audit Week 2.6 — re-bind current_task_id from sender.
         # main.py:1510 sets the ContextVar in handle_task's asyncio scope,
         # but commander.handle is invoked via run_in_executor(_commander_pool,
@@ -2965,6 +3076,7 @@ class Commander:
             decisions = self._route(
                 user_input, sender, attachment_context,
                 attachments=attachments,
+                subjective_context=request_subjective_context,
             )
         except Exception as exc:
             # Three-arm catch: the two typed-factory exceptions get
@@ -3082,6 +3194,20 @@ class Commander:
         # delivery no longer depends on the classifier reproducing the doc.
         deliver_attachment_to_decisions(decisions, attachment_context, user_input)
 
+        # Deterministic deep-research activation.  The legacy research spine
+        # was reachable only via `/delegate research` and an off-by-default
+        # idle executor, so ordinary questions could never enter it. Complex
+        # research decisions now promote synchronously; matrix research keeps
+        # its purpose-built streaming orchestrator.
+        try:
+            from app.research.deep_path import promote_research_decisions
+
+            decisions = promote_research_decisions(
+                decisions, user_input=user_input,
+            )
+        except Exception:
+            logger.debug("deep research promotion failed", exc_info=True)
+
         # Verified Plan §7 item 3 (2026-05-23) — output-streaming
         # shortcut. If the routing layer matched a structurally
         # trivial pattern (no factual claim possible — e.g. local-
@@ -3183,7 +3309,7 @@ class Commander:
                 # nothing substantive remains after stripping, fall back to a
                 # polite message instead of sending a stripped-empty reply.
                 _direct_result = _clean_response(_direct_result)
-                if not _direct_result or len(_direct_result.strip()) < 5:
+                if not _direct_result:
                     _direct_result = (
                         "Vabandust, mu vastus ei õnnestunud. "
                         "Palun sõnasta küsimus uuesti."
@@ -3225,6 +3351,36 @@ class Commander:
                         "recovery: direct-route hook raised — keeping original answer",
                         exc_info=True,
                     )
+
+                # Direct answers used to return before both quality vetting
+                # and the epistemic gate. Keep trivial acknowledgements cheap,
+                # but review any non-trivial/high-d direct synthesis and always
+                # pass the final text through the same last-mile gate.
+                _direct_difficulty = int(d.get("difficulty", 3) or 3)
+                if _direct_difficulty >= 4 and len(_direct_result) >= 40:
+                    try:
+                        _vetted_direct = vet_response(
+                            user_input,
+                            _direct_result,
+                            "direct",
+                            difficulty=_direct_difficulty,
+                            model_tier=get_last_tier() or "unknown",
+                        )
+                        if _vetted_direct and len(str(_vetted_direct).strip()) >= 5:
+                            _direct_result = str(_vetted_direct)
+                    except Exception:
+                        logger.debug("direct-route vetting failed", exc_info=True)
+                try:
+                    from app.epistemic.orchestrator_hook import gate_output
+
+                    _direct_gate = gate_output(
+                        proposal_text=_direct_result,
+                        task_id=str(task_id) if task_id else "",
+                    )
+                    if _direct_gate.action in ("block", "revise"):
+                        _direct_result = _direct_gate.final_text
+                except Exception:
+                    logger.debug("direct-route epistemic gate failed", exc_info=True)
 
                 # Complete ticket for direct responses.  No crew ran, but the
                 # routing LLM call DID cost something — finalize the request

@@ -415,7 +415,11 @@ _HEAVY_MIN_CADENCE: dict[str, float] = {
     "alignment-audit":        7 * 86400,  # weekly by design — LLM-graded, costly, noisy
     "analogy-populator":      86400,
     "attention-slow-loop":     3600,
-    "autonomous-executor":      900,      # delegated-run advancement — keep responsive
+    # Research runs default to a 600s legacy wall-clock cap. A 900s cadence
+    # made the second tick arrive after budget expiry, so such runs could never
+    # complete. One step/minute preserves cooperative scheduling while keeping
+    # a normal 5–8-step run inside its contract.
+    "autonomous-executor":       60,
     "behavioral-assessment":  86400,
     "companion-grand-task":   86400,
     "companion-tick":          3600,

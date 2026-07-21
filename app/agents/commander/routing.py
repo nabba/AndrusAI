@@ -283,15 +283,15 @@ _IDENTITY_PHRASES = {
     "who are you", "what are you", "describe yourself", "tell me about yourself",
     "about yourself", "your memory", "your identity", "your history",
     "your capabilities", "your skills", "your architecture", "your personality",
-    "your character", "your biography", "your chronicle", "long-term memory",
-    "long term memory", "have you learned", "have you evolved", "have you improved",
+    "your character", "your biography", "your chronicle",
+    "have you learned", "have you evolved", "have you improved",
     "have you grown", "have you changed", "do you persist", "can you persist",
     "do you remember", "can you remember", "do you recall", "how do you learn",
     "how do you improve", "how do you evolve", "what do you remember",
     "what do you know about yourself", "how long have you been running",
     "are you self-aware", "are you sentient", "are you conscious",
     "are you learning", "are you improving", "are you evolving",
-    "memory system", "memory architecture", "system chronicle",
+    "system chronicle",
     "what is your name", "what's your name", "your name",
     "what is your purpose", "what's your purpose", "your purpose",
     "how do you work", "how are you built", "what can you do",
@@ -325,8 +325,8 @@ def _is_introspective(text: str) -> bool:
 
     Fires on:
     - Any multi-word identity phrase found as substring
-    - 2+ identity keywords (exact or fuzzy match)
-    - 1 identity keyword + short question (<100 chars with ?)
+    - 2+ identity keywords (exact or fuzzy match) with a self anchor
+    - 1 identity keyword + self anchor + short question (<100 chars with ?)
 
     Does NOT fire when the question is about hardware/infrastructure
     (e.g. "what capabilities has the computer you are running on?").
@@ -345,7 +345,18 @@ def _is_introspective(text: str) -> bool:
         if phrase in lower:
             return True
 
-    # Word-level fuzzy matching
+    # Word-level fuzzy matching.  Single concepts such as "personality",
+    # "memory", or "architecture" are ordinary research topics unless the
+    # user also anchors them to this system.  The old one-keyword rule
+    # intercepted questions like "What personality predicts leadership?".
+    self_anchored = bool(re.search(
+        r"\b(?:you|your|yours|yourself|andrusai|botarmy)\b",
+        lower,
+        re.IGNORECASE,
+    ))
+    if not self_anchored:
+        return False
+
     words = set(re.findall(r'\w+', lower))
     hits = 0
     for word in words:

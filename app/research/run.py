@@ -52,6 +52,7 @@ import json
 import logging
 import re
 import uuid
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
@@ -73,6 +74,7 @@ HINT_LITERATURE = "research:literature"
 HINT_HYPOTHESES = "research:hypotheses"
 HINT_INVESTIGATE = "research:investigate"
 HINT_DRAFT = "research:draft"
+HINT_CRITIQUE = "research:critique"
 HINT_GATE = "research:gate"
 # Phase C — the experiment spine (off by default; opt in with ``experiment=True``).
 # These three steps REPLACE the single ``investigate`` step: design a runnable
@@ -110,6 +112,10 @@ _MAX_HYP_FOR_PROMPT = 4
 # Gate actions worth surfacing (substring-matched out of the gate step text).
 # Longest first so the check is unambiguous.
 _GATE_ACTIONS = ("peer_review", "verify")
+
+_active_research_run_id: ContextVar[str] = ContextVar(
+    "active_research_run_id", default="",
+)
 
 
 # ── Result type ───────────────────────────────────────────────────────────
@@ -159,6 +165,7 @@ def plan_research(
     experiment: bool = False,
     verify: bool = False,
     compose: bool = False,
+    critique: bool = False,
 ) -> list[ExecutorStep]:
     """Return the research steps, each carrying a ``research:*`` hint.
 
@@ -239,6 +246,14 @@ def plan_research(
             crew_hint=HINT_DRAFT,
         )
     )
+    if critique:
+        steps.append(
+            ExecutorStep(
+                step_id="",
+                description="Adversarially check and synthesize the evidence-grounded answer",
+                crew_hint=HINT_CRITIQUE,
+            )
+        )
     if verify:
         steps.append(
             ExecutorStep(
@@ -324,6 +339,29 @@ def _lit_titles(run: ExecutorRun, *, limit: int = _MAX_LIT_FOR_PROMPT) -> list[s
     return titles
 
 
+def _literature_evidence(
+    run: ExecutorRun,
+    *,
+    limit: int = _MAX_LIT_FOR_PROMPT,
+    excerpt_chars: int = 900,
+) -> list[str]:
+    """Render source identity plus actual retrieved evidence, not titles only."""
+    evidence: list[str] = []
+    for idx, hit in enumerate(_decode_list(run, HINT_LITERATURE)[:limit], 1):
+        title = str(hit.get("title") or "Untitled source").strip()[:240]
+        source = str(hit.get("source") or "source").strip()
+        metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
+        identifier = str(
+            metadata.get("url") or hit.get("id") or metadata.get("doi") or ""
+        ).strip()
+        excerpt = str(hit.get("text") or "").strip()[:excerpt_chars]
+        header = f"[S{idx}] {title} ({source})"
+        if identifier:
+            header += f" — {identifier}"
+        evidence.append(f"{header}\nEvidence excerpt: {excerpt or '[no excerpt retrieved]'}")
+    return evidence
+
+
 def _hypotheses(run: ExecutorRun, *, limit: int = _MAX_HYP_FOR_PROMPT) -> list[str]:
     out: list[str] = []
     for hyp in _decode_list(run, HINT_HYPOTHESES)[:limit]:
@@ -335,11 +373,12 @@ def _hypotheses(run: ExecutorRun, *, limit: int = _MAX_HYP_FOR_PROMPT) -> list[s
 
 def _build_investigate_prompt(run: ExecutorRun) -> str:
     hyps = _hypotheses(run)
-    titles = _lit_titles(run)
+    evidence = _literature_evidence(run)
     parts = [
         "Investigate the research question below and report concrete "
         "findings, the methods you relied on, and the evidence behind each "
-        "claim. Prefer specific, checkable statements over generalities.",
+        "claim. Prefer specific, checkable statements over generalities. "
+        "Use only the supplied evidence for factual claims; label any inference.",
         f"\nResearch question: {run.goal}",
     ]
     if hyps:
@@ -349,8 +388,8 @@ def _build_investigate_prompt(run: ExecutorRun) -> str:
                 "Alternative hypotheses to keep in mind:\n"
                 + "\n".join(f"- {h}" for h in hyps[1:])
             )
-    if titles:
-        parts.append("Prior literature already retrieved:\n" + "\n".join(f"- {t}" for t in titles))
+    if evidence:
+        parts.append("Retrieved evidence:\n\n" + "\n\n".join(evidence))
     return "\n".join(parts)
 
 
@@ -359,18 +398,37 @@ def _build_draft_prompt(run: ExecutorRun) -> str:
     # analysis narrative carries the findings the draft must fold in.
     investigation = (_text_for(run, HINT_INVESTIGATE) or _text_for(run, HINT_ANALYZE_RESULT)).strip()
     hyps = _hypotheses(run)
+    evidence = _literature_evidence(run)
     parts = [
         "Write a concise research-findings draft for the question below. "
         "State results concretely; whenever you make an empirical or "
         "quantitative claim, attribute it to its source (author, link, or "
-        "arXiv id) so the finding is citable.",
+        "arXiv id) so the finding is citable. Do not cite a source for a claim "
+        "unless its evidence excerpt actually supports that claim.",
         f"\nResearch question: {run.goal}",
     ]
     if investigation:
         parts.append("\nInvestigation notes:\n" + investigation[:4000])
     if hyps:
         parts.append("Hypotheses considered:\n" + "\n".join(f"- {h}" for h in hyps))
+    if evidence:
+        parts.append("Source evidence available to cite:\n\n" + "\n\n".join(evidence))
     return "\n".join(parts)
+
+
+def _build_critique_prompt(run: ExecutorRun) -> str:
+    """Ask an independent judge/panel to correct and synthesize the draft."""
+    draft = _text_for(run, HINT_DRAFT) or _text_for(run, HINT_INVESTIGATE)
+    evidence = _literature_evidence(run, limit=10, excerpt_chars=1100)
+    return "\n".join([
+        "Act as an adversarial research editor. Return ONLY the corrected final answer.",
+        "Check every material factual claim against the retrieved evidence below.",
+        "Remove or explicitly label unsupported claims and resolve contradictions.",
+        "Preserve real URLs/identifiers, cite sources inline, and answer the user's exact question.",
+        f"\nResearch question: {run.goal}",
+        f"\nDraft to audit:\n{draft[:8000]}",
+        "\nRetrieved evidence:\n" + ("\n\n".join(evidence) or "[none retrieved]"),
+    ])
 
 
 # ── Phase C: experiment spine helpers ─────────────────────────────────────────
@@ -725,6 +783,30 @@ def _focused_completion(
     focused functions rather than the Commander. Failure-isolated: returns
     ``""`` on any error so the step degrades gracefully.
     """
+    task_id = _active_research_run_id.get() or f"research-focused:{uuid.uuid4().hex}"
+    try:
+        from app.lifecycle_hooks import get_registry, HookContext, HookPoint
+
+        pre_ctx = HookContext(
+            hook_point=HookPoint.PRE_LLM_CALL,
+            agent_id=role,
+            task_description=prompt[:1000],
+            metadata={
+                "task_id": task_id,
+                "operation_type": "research_step",
+                "research_step": task_hint,
+            },
+        )
+        pre_ctx = get_registry().execute(HookPoint.PRE_LLM_CALL, pre_ctx)
+        if pre_ctx.abort:
+            logger.warning(
+                "research.run: PRE_LLM_CALL aborted %s: %s",
+                task_hint, pre_ctx.abort_reason,
+            )
+            return ""
+    except Exception:
+        logger.debug("research.run: PRE_LLM_CALL hook failed", exc_info=True)
+
     try:
         from app.llm_factory import chat_completion_for_role
 
@@ -732,8 +814,43 @@ def _focused_completion(
         resp = handle.create(
             messages=[{"role": "user", "content": prompt}], max_tokens=max_tokens
         )
-        return resp.choices[0].message.content or ""
-    except Exception:
+        text = resp.choices[0].message.content or ""
+        try:
+            from app.lifecycle_hooks import get_registry, HookContext, HookPoint
+
+            post_ctx = HookContext(
+                hook_point=HookPoint.POST_LLM_CALL,
+                agent_id=role,
+                task_description=prompt[:1000],
+                data={"llm_response": text, "result": text},
+                metadata={
+                    "task_id": task_id,
+                    "operation_type": "research_step",
+                    "research_step": task_hint,
+                },
+            )
+            get_registry().execute(HookPoint.POST_LLM_CALL, post_ctx)
+        except Exception:
+            logger.debug("research.run: POST_LLM_CALL hook failed", exc_info=True)
+        return text
+    except Exception as exc:
+        try:
+            from app.lifecycle_hooks import get_registry, HookContext, HookPoint
+
+            err_ctx = HookContext(
+                hook_point=HookPoint.ON_ERROR,
+                agent_id=role,
+                task_description=prompt[:1000],
+                data={"error": str(exc)[:500]},
+                metadata={
+                    "task_id": task_id,
+                    "operation_type": "research_step",
+                    "research_step": task_hint,
+                },
+            )
+            get_registry().execute(HookPoint.ON_ERROR, err_ctx)
+        except Exception:
+            pass
         logger.debug(
             "research.run: focused completion failed (role=%s)", role, exc_info=True
         )
@@ -754,6 +871,16 @@ def _default_draft(prompt: str) -> str:
     """Write up the findings (writing role; allow a longer answer)."""
     return _focused_completion(
         prompt, role="writing", task_hint="research findings draft", max_tokens=3000
+    )
+
+
+def _default_critique(prompt: str) -> str:
+    """Independent evidence audit; deep mode may expand this into a panel."""
+    return _focused_completion(
+        prompt,
+        role="vetting",
+        task_hint="research evidence critique and synthesis",
+        max_tokens=3500,
     )
 
 
@@ -796,6 +923,7 @@ def make_research_adapter(
     design_fn: Optional[Callable] = None,
     investigate_fn: Optional[Callable] = None,
     draft_fn: Optional[Callable] = None,
+    critique_fn: Optional[Callable] = None,
     verify_references_fn: Optional[Callable] = None,
     citation_verification_enabled_fn: Optional[Callable] = None,
     compose_fn: Optional[Callable] = None,
@@ -874,6 +1002,8 @@ def make_research_adapter(
         investigate_fn = _default_investigate
     if draft_fn is None:
         draft_fn = _default_draft
+    if critique_fn is None:
+        critique_fn = _default_critique
     if verify_references_fn is None:
         verify_references_fn = _default_verify_references
     if citation_verification_enabled_fn is None:
@@ -1017,6 +1147,18 @@ def make_research_adapter(
             # Focused write-up completion, NOT the conversational Commander.
             return CommanderResult(text=draft_fn(_build_draft_prompt(run)) or "")
 
+        if hint == HINT_CRITIQUE:
+            # Independent evidence audit and final synthesis. In synchronous
+            # deep mode this role can be expanded into a heterogeneous Fusion
+            # panel; without Fusion it remains a distinct judge completion.
+            text = critique_fn(_build_critique_prompt(run)) or ""
+            if not text.strip():
+                text = _text_for(run, HINT_DRAFT)
+                run.record_note("critique: unavailable; retained draft")
+            else:
+                run.record_note("critique: evidence-grounded synthesis completed")
+            return CommanderResult(text=text)
+
         if hint == HINT_VERIFY:
             # Phase B — anti-fabrication pass. Gated by
             # ``citation_verification_enabled_fn`` (off → a non-blocking skip;
@@ -1030,7 +1172,8 @@ def make_research_adapter(
                     text=_encode({"skipped": "research_citation_verification_enabled off"})
                 )
             draft = (
-                _text_for(run, HINT_DRAFT)
+                _text_for(run, HINT_CRITIQUE)
+                or _text_for(run, HINT_DRAFT)
                 or _text_for(run, HINT_ANALYZE_RESULT)
                 or _text_for(run, HINT_INVESTIGATE)
             )
@@ -1070,7 +1213,11 @@ def make_research_adapter(
             )
 
         if hint == HINT_GATE:
-            draft = _text_for(run, HINT_DRAFT) or _text_for(run, HINT_INVESTIGATE)
+            draft = (
+                _text_for(run, HINT_CRITIQUE)
+                or _text_for(run, HINT_DRAFT)
+                or _text_for(run, HINT_INVESTIGATE)
+            )
             try:
                 action, note = gate_fn(
                     proposal_text=draft,
@@ -1169,6 +1316,7 @@ def build_research_run(
     experiment: bool = False,
     verify: bool = False,
     compose: bool = False,
+    critique: bool = False,
 ) -> ExecutorRun:
     """Create a research ExecutorRun with its plan pre-populated.
 
@@ -1203,7 +1351,13 @@ def build_research_run(
     )
     run.transition(ExecutorStatus.PLANNING)
     for step in plan_research(
-        q, run, synthesize=synthesize, experiment=experiment, verify=verify, compose=compose
+        q,
+        run,
+        synthesize=synthesize,
+        experiment=experiment,
+        verify=verify,
+        compose=compose,
+        critique=critique,
     ):
         run.add_step(description=step.description, crew_hint=step.crew_hint)
     return run
@@ -1216,6 +1370,7 @@ def run_to_completion(
     planner_fn: Optional[Callable] = None,
     max_iterations: int = 12,
     bind_thread: bool = False,
+    on_advance: Optional[Callable[[ExecutorRun], None]] = None,
 ) -> ExecutorRun:
     """Drive ``run`` with the research adapter until it stops advancing.
 
@@ -1245,13 +1400,22 @@ def run_to_completion(
 
         bind_run_to_thread(run)
 
-    for _ in range(max(1, max_iterations)):
-        if run.is_terminal or run.status in (
-            ExecutorStatus.BLOCKED,
-            ExecutorStatus.PAUSED,
-        ):
-            break
-        advance_one_step(run, commander_fn=adapter, planner_fn=planner_fn)
+    _run_token = _active_research_run_id.set(run.run_id)
+    try:
+        for _ in range(max(1, max_iterations)):
+            if run.is_terminal or run.status in (
+                ExecutorStatus.BLOCKED,
+                ExecutorStatus.PAUSED,
+            ):
+                break
+            advance_one_step(run, commander_fn=adapter, planner_fn=planner_fn)
+            if on_advance is not None:
+                try:
+                    on_advance(run)
+                except Exception:
+                    logger.debug("research.run: on_advance failed", exc_info=True)
+    finally:
+        _active_research_run_id.reset(_run_token)
 
     if bind_thread:
         from app.research.binding import close_thread_for_run
@@ -1281,7 +1445,7 @@ def summarise_run(run: ExecutorRun) -> ResearchRunOutcome:
         n_literature=len(lit),
         n_hypotheses=len(hyps),
         top_hypothesis=top,
-        draft=_text_for(run, HINT_DRAFT),
+        draft=_text_for(run, HINT_CRITIQUE) or _text_for(run, HINT_DRAFT),
         gate_action=gate_action,
         gate_note=gate_text,
     )
@@ -1295,6 +1459,7 @@ __all__ = [
     "HINT_RUN_EXPERIMENT",
     "HINT_ANALYZE_RESULT",
     "HINT_DRAFT",
+    "HINT_CRITIQUE",
     "HINT_GATE",
     "HINT_SYNTHESIZE",
     "HINT_VERIFY",

@@ -13,24 +13,28 @@
       "size": 16417
     },
     "app/affect/calibration.py": {
-      "sha256": "49a58873a57c0c85a3161e37403e436da5a12ec02813b487405e734ad203bfc1",
-      "size": 18241
+      "sha256": "feaf070c04aba2d68708978703cf21f6c0b79b37176f907ba7a2d67daf03b21e",
+      "size": 20852
     },
     "app/affect/calibration_proposals.py": {
-      "sha256": "8b10beb886d928cf31f7c9afbe865b1b8d1f4bae440a9c677892bdfba55f69ea",
-      "size": 20354
+      "sha256": "81070585c10529c640071d4ae8474ab1c3ffc03fd1f6512b3be2bc6f6809bbb1",
+      "size": 21631
     },
     "app/affect/care_policies.py": {
-      "sha256": "12ec92d31a93ebc99521eb5e9d97e97e78d645417404ce059e51519d0dd4ba53",
-      "size": 6138
+      "sha256": "81b03d783160ba15dec03c11dca8978d0150ce21459387f5d6bd8309d8b2182e",
+      "size": 7825
     },
     "app/affect/core.py": {
-      "sha256": "e1a252a54b0563163f574ff1e7b04b1cf1969065d3aaea2f56f6c39d28699826",
-      "size": 9967
+      "sha256": "e04c25e10ca504e2dd74e2faf2dfd69a86665f5181ef96699f541f491e75c92c",
+      "size": 10501
     },
     "app/affect/data/reference_panel.json": {
       "sha256": "8b4116621d48082e355864f977ce5c9c1302e319e7c7a8d4ba9844069138b3f8",
       "size": 13623
+    },
+    "app/affect/decentered.py": {
+      "sha256": "f4cbf78f687ab9d0c6d2fe23e599c29ae7a93ab6dc4139546fbe9935de59d78e",
+      "size": 16098
     },
     "app/affect/ecological.py": {
       "sha256": "533428eff9f0933f2138a1e18cdda1fcef79ced5951b1c6ad7d0c3b4f6784f3a",
@@ -40,17 +44,21 @@
       "sha256": "8fc7519ca60f3a63f2522545d6b5dbdcb4d0fd7b0ad410d3ee9a00b331267cf5",
       "size": 10790
     },
+    "app/affect/goal_emitter.py": {
+      "sha256": "bd706781b424b210522e0870e477af7d22b4f1102064e942c7c3e67e66c13907",
+      "size": 18342
+    },
     "app/affect/health_check.py": {
       "sha256": "ae207da9c8e7f47277b4c4e2cb30d564a12a9b651d5fcb9633a7c2db047556eb",
       "size": 14909
     },
     "app/affect/hooks.py": {
-      "sha256": "c4355b8865fa26ed1b3e92a5215959a42768341f52b1335027f04c2e201f023c",
-      "size": 14177
+      "sha256": "6af9f1d622e7b947746ab42d4d03bb2891bbad8087c13672b28e3380cea5b6a7",
+      "size": 16920
     },
     "app/affect/integrity.py": {
-      "sha256": "53794a29509a4846c0a3607b12ae8fad6c213c89fe66e2e6b62479db9b6f3d42",
-      "size": 8126
+      "sha256": "a3220b60fad19cb5f385a76c863a6f53e55666b5814223a4ea7894fe456d84c9",
+      "size": 8403
     },
     "app/affect/kb_metadata.py": {
       "sha256": "4049142475986a9a7c2453408d55ea885ad682fb286aa01c5fcd078d57f87ec8",
@@ -61,8 +69,8 @@
       "size": 5241
     },
     "app/affect/narrative.py": {
-      "sha256": "30ee2b565da834f34eedf425f932f29df55108481de94a74da94b308d91abb72",
-      "size": 18658
+      "sha256": "82dc3ea306b992b7aae02e9c01fa956fae11f96b17cf0aad9aa8dbb3ab7cc152",
+      "size": 20800
     },
     "app/affect/phase5_gate.py": {
       "sha256": "98b99217ff8834a06e8c60cdcd253b40fc01c9272f930930c913369b7ad5aa05",
@@ -77,8 +85,8 @@
       "size": 4503
     },
     "app/affect/salience.py": {
-      "sha256": "2701432f3dbf2742e2dfe0055ab8bca3832b77002bb329728b14c848a1144775",
-      "size": 9923
+      "sha256": "507958ba011bc80b5d53c67f76629a08261ce4aec47e5792059f1187c1a5dc51",
+      "size": 12105
     },
     "app/affect/schemas.py": {
       "sha256": "7400865d9b659ad93cf4e0300e1b5d93747b5788acb68673a87689138816775a",
@@ -89,8 +97,8 @@
       "size": 13417
     },
     "app/affect/welfare.py": {
-      "sha256": "fe578f7b4a18b8c9683abb6bf5831234d0fc60aa09cc2bef93170bc00c6b2411",
-      "size": 20281
+      "sha256": "92190d96a0e2d654f25b5948813e1df5da11279cfd55a19be8b7c56f28e91e16",
+      "size": 23600
     }
   },
   "version": 1

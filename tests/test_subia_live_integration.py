@@ -28,6 +28,7 @@ from app.subia.live_integration import (
     LiveIntegrationState,
     _AgentShim,
     _TaskShim,
+    _bind_crew_lifecycle_stubs,
     _wrap_post,
     _wrap_pre,
     enable_subia_hooks,
@@ -253,6 +254,75 @@ class TestWrapperAdapters:
         post = _wrap_post(FakeHooks())
         post(FakeCtx())
         assert captured["result"] == {"summary": "result-stub"}
+
+    def test_pre_and_post_use_same_explicit_task_identity(self):
+        class FakeCtx:
+            agent_id = "researcher"
+            task_description = "trace this task"
+            metadata = {
+                "task_id": "request:crew:7",
+                "operation_type": "user_interaction",
+            }
+
+            def __init__(self):
+                self.modified_data = {}
+
+            def set(self, key, value):
+                self.modified_data[key] = value
+
+            def get(self, key, default=None):
+                if key == "result":
+                    return "done"
+                return self.modified_data.get(key, default)
+
+        seen = []
+
+        class FakeHooks:
+            def pre_task(self, _agent, task):
+                seen.append(("pre", task.id, task.operation_type))
+                return "context"
+
+            def post_task(self, _agent, task, _result):
+                seen.append(("post", task.id, task.operation_type))
+
+        hooks = FakeHooks()
+        _wrap_pre(hooks)(FakeCtx())
+        _wrap_post(hooks)(FakeCtx())
+        assert seen == [
+            ("pre", "request:crew:7", "user_interaction"),
+            ("post", "request:crew:7", "user_interaction"),
+        ]
+
+    def test_crew_binding_preserves_identity_and_uses_compressed_operation(self):
+        import app.crews.lifecycle as lifecycle
+
+        original_pre = lifecycle.subia_pre_task
+        original_post = lifecycle.subia_post_task
+        seen = []
+
+        class FakeHooks:
+            def pre_task(self, _agent, task):
+                seen.append(("pre", task.id, task.description,
+                             task.operation_type))
+
+            def post_task(self, _agent, task, result):
+                seen.append(("post", task.id, task.description,
+                             task.operation_type, result["success"]))
+
+        try:
+            _bind_crew_lifecycle_stubs(FakeHooks())
+            lifecycle.subia_pre_task("research", "Find evidence", "crew-42")
+            lifecycle.subia_post_task(
+                "research", "success", None, "crew-42", "Find evidence",
+            )
+        finally:
+            lifecycle.subia_pre_task = original_pre
+            lifecycle.subia_post_task = original_post
+
+        assert seen == [
+            ("pre", "crew-42", "Find evidence", "crew_kickoff"),
+            ("post", "crew-42", "Find evidence", "crew_kickoff", True),
+        ]
 
 
 # ── Real lifecycle_hooks registry smoke test ────────────────────

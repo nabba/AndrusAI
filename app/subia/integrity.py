@@ -74,7 +74,7 @@ class IntegrityResult:
 
     @property
     def has_drift(self) -> bool:
-        return bool(self.missing or self.mismatched)
+        return bool(self.missing or self.extra or self.mismatched)
 
     def to_dict(self) -> dict:
         return {
@@ -286,11 +286,15 @@ def verify_integrity(
         for rel in live_files - set(declared):
             result.extra.append(rel)
 
-    result.ok = not (result.missing or result.mismatched)
+    # Undeclared files are drift too.  Treating ``extra`` as informational
+    # would let a new, unpinned module land anywhere under ``app/subia/``
+    # while strict verification still reported success.
+    result.ok = not (result.missing or result.extra or result.mismatched)
 
     if strict and not result.ok:
         raise IntegrityFault(
             f"SubIA integrity drift: {len(result.missing)} missing, "
+            f"{len(result.extra)} extra, "
             f"{len(result.mismatched)} mismatched"
         )
     return result

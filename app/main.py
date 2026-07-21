@@ -2413,6 +2413,7 @@ async def handle_task(sender: str, text: str, attachments: list = None,
 
     # Track activity for idle scheduler (only if accepted)
     idle_scheduler.notify_task_start()
+    _subjective_request = None
 
     # Notify user if other tasks are already in progress
     if currently_running > 0:
@@ -2431,6 +2432,19 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         if attachments:
             att_note = f" [+{len(attachments)} attachment(s)]"
         add_message(sender, "user", text + att_note)
+
+        # Canonical outer sentience boundary.  It begins from the original
+        # accepted user message and is finalized only after grounding/persona
+        # rewriting, with exactly the response handed to durable delivery.
+        try:
+            from app.subjective_request import begin_subjective_request
+            _subjective_request = begin_subjective_request(
+                text, request_id=f"request:{trace_id}",
+            )
+        except Exception:
+            logger.debug(
+                "Subjective request envelope begin failed", exc_info=True,
+            )
 
         # ── Phase 15 grounding: ingress correction capture ─────────────
         # Detects user corrections ("actually it's X", "use source Y") and
@@ -2614,7 +2628,9 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         _task_started_at = _time.monotonic()
         _ctx_token = current_task_id.set(str(sender or ""))
         _handle_fut = loop.run_in_executor(
-            _commander_pool, commander.handle, text, sender, attachments or [],
+            _commander_pool, commander.handle, text, sender,
+            attachments or [], f"request:{trace_id}",
+            getattr(_subjective_request, "context", ""),
         )
 
         def _stall_check() -> tuple[str, float] | None:
@@ -2978,6 +2994,9 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         else:
             _reply_ts = await send_durable(sender, result, reply_to_id=queue_id)
 
+        if _subjective_request is not None:
+            _subjective_request.finalize(result, success=True)
+
         # Stage F (2026-05-26): register signal_ts → task context so a
         # subsequent 👎 reaction can route to record_override (gate-
         # intervened reply) or record_disagreement (gate-shipped reply).
@@ -3045,12 +3064,23 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         except Exception:
             pass
         # Generic error — do not leak internals to Signal
-        await signal_client.send(
-            sender,
+        _failure_response = (
             "Something went wrong processing your request. "
             "The self-healing system is analyzing the error and will attempt a fix. "
             "Please try again shortly."
         )
+        await signal_client.send(sender, _failure_response)
+        try:
+            if _subjective_request is None:
+                from app.subjective_request import begin_subjective_request
+                _subjective_request = begin_subjective_request(
+                    text, request_id=f"request:{trace_id}",
+                )
+            _subjective_request.finalize(_failure_response, success=False)
+        except Exception:
+            logger.debug(
+                "Subjective request failure finalization failed", exc_info=True,
+            )
         if queue_id:
             mark_inbound_failed(queue_id, f"{type(exc).__name__}: {exc}")
     else:

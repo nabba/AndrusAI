@@ -225,6 +225,7 @@ def assemble_tools(
 CREW_TO_AGENTS: dict[str, frozenset[str]] = {
     "coding":   frozenset({"coder", "coordinator", "designer", "executor", "debugger"}),
     "research": frozenset({"researcher", "web_specialist", "document_specialist", "synthesis_specialist"}),
+    "deep_research": frozenset({"researcher", "web_specialist", "document_specialist", "synthesis_specialist"}),
     "writing":  frozenset({"writer"}),
     "media":    frozenset({"media_analyst"}),
     "creative": frozenset({"creative", "writer", "researcher"}),  # creative is a multi-agent dialectic

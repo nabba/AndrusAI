@@ -842,6 +842,17 @@ def _defaults() -> dict[str, Any]:
         # measurement nor a verified citation. Default OFF; opt-in per run via
         # the ``verify=True`` planner flag AND this switch (makes network calls).
         "research_citation_verification_enabled": False,
+        # Synchronous deep-research path. Unlike /delegate it returns the
+        # answer in the current request, so it does not depend on the dormant
+        # autonomous-executor master switch or idle cadence.
+        "deep_research_auto_enabled": True,
+        "deep_research_min_score": 4,
+        # Must finish below main.py's 2700s hard delivery ceiling.
+        "deep_research_wall_clock_s": 2400,
+        # One final evidence-audit completion may use the vendor-diverse
+        # OpenRouter Fusion panel (still obeys its daily cap + cost brake).
+        "deep_research_fusion_enabled": True,
+        "deep_research_max_panel": 3,
         # Phase-C/D compose step: render the run's artifacts into paper.tex +
         # references.bib (manuscript composer + LaTeX backend). Default OFF;
         # opt-in per run via the ``compose=True`` planner flag AND this switch.
@@ -1941,6 +1952,71 @@ def set_research_citation_verification_enabled(value: bool) -> None:
         "runtime_settings: research_citation_verification_enabled set to %s",
         bool(value),
     )
+
+
+def get_deep_research_auto_enabled() -> bool:
+    """Whether complex research requests may auto-promote synchronously."""
+    return bool(_ensure_initialized().get("deep_research_auto_enabled", True))
+
+
+def set_deep_research_auto_enabled(value: bool) -> None:
+    _update({"deep_research_auto_enabled": bool(value)})
+    logger.info("runtime_settings: deep_research_auto_enabled set to %s", bool(value))
+
+
+def get_deep_research_min_score() -> int:
+    try:
+        return int(_ensure_initialized().get("deep_research_min_score", 4))
+    except (TypeError, ValueError):
+        return 4
+
+
+def set_deep_research_min_score(value: int) -> None:
+    score = int(value)
+    if score < 2 or score > 10:
+        raise ValueError("deep_research_min_score must be between 2 and 10")
+    _update({"deep_research_min_score": score})
+
+
+def get_deep_research_wall_clock_s() -> int:
+    try:
+        return int(_ensure_initialized().get("deep_research_wall_clock_s", 2400))
+    except (TypeError, ValueError):
+        return 2400
+
+
+def set_deep_research_wall_clock_s(value: int) -> None:
+    seconds = int(value)
+    if seconds < 300 or seconds > 2500:
+        raise ValueError("deep_research_wall_clock_s must be between 300 and 2500")
+    _update({"deep_research_wall_clock_s": seconds})
+
+
+def get_deep_research_fusion_enabled() -> bool:
+    return bool(
+        _ensure_initialized().get("deep_research_fusion_enabled", True),
+    )
+
+
+def set_deep_research_fusion_enabled(value: bool) -> None:
+    _update({"deep_research_fusion_enabled": bool(value)})
+    logger.info(
+        "runtime_settings: deep_research_fusion_enabled set to %s", bool(value),
+    )
+
+
+def get_deep_research_max_panel() -> int:
+    try:
+        return int(_ensure_initialized().get("deep_research_max_panel", 3))
+    except (TypeError, ValueError):
+        return 3
+
+
+def set_deep_research_max_panel(value: int) -> None:
+    size = int(value)
+    if size < 2 or size > 4:
+        raise ValueError("deep_research_max_panel must be between 2 and 4")
+    _update({"deep_research_max_panel": size})
 
 
 def get_research_compose_paper_enabled() -> bool:

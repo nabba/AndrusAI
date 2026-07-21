@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable, Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -239,4 +239,149 @@ def search_literature(
             continue
         seen.add(key)
         merged.append(hit)
+    return merged
+
+
+def search_web(
+    query: str,
+    *,
+    max_results: int = 8,
+    backend: Optional[Callable[[str, int], list[dict]]] = None,
+) -> list[LiteratureHit]:
+    """Search the live web and retain URL-bearing evidence snippets.
+
+    This is deliberately separate from :func:`search_literature`: the original
+    Phase-3 contract remains KB + arXiv, while the synchronous deep-research
+    path can add current, non-academic primary sources.  Returned snippets are
+    evidence candidates, not automatically trusted facts.
+    """
+    if not query or not query.strip() or max_results <= 0:
+        return []
+    try:
+        if backend is None:
+            from app.tools.web_search import search_brave
+
+            backend = search_brave
+        rows = backend(query, max_results) or []
+    except Exception:
+        logger.debug("literature.search_web failed", exc_info=True)
+        return []
+
+    hits: list[LiteratureHit] = []
+    for row in rows[:max_results]:
+        url = str(row.get("url") or "").strip()
+        title = str(row.get("title") or "").strip()
+        snippet = str(
+            row.get("description") or row.get("snippet") or row.get("text") or ""
+        ).strip()
+        if not (url or title or snippet):
+            continue
+        hits.append(
+            LiteratureHit(
+                source="web",
+                id=url or f"web:{title}",
+                title=title,
+                text=snippet,
+                metadata={"url": url},
+            )
+        )
+    return hits
+
+
+def _default_fetch_backend(url: str) -> str:
+    """Fetch one public page through the existing SSRF-hardened tool."""
+    from app.tools.web_fetch import web_fetch
+
+    fn = getattr(web_fetch, "func", None)
+    if callable(fn):
+        return str(fn(url) or "")
+    runner = getattr(web_fetch, "run", None)
+    if callable(runner):
+        return str(runner(url) or "")
+    return ""
+
+
+def enrich_web_hits(
+    hits: Iterable[LiteratureHit],
+    *,
+    max_fetch: int = 4,
+    max_chars: int = 6000,
+    backend: Optional[Callable[[str], str]] = None,
+) -> list[LiteratureHit]:
+    """Replace search snippets with bounded, fetched primary page text.
+
+    Search-result snippets are discovery metadata, not sufficient evidence for
+    a deep-research answer. This pass reads the highest-ranked HTTPS pages
+    through the project's SSRF-protected fetcher. Fetch failures retain the
+    original snippet and never erase a result.
+    """
+    fetch = backend or _default_fetch_backend
+    remaining = max(0, int(max_fetch))
+    out: list[LiteratureHit] = []
+    failure_prefixes = (
+        "fetch error:", "url blocked:", "redirect blocked:",
+    )
+    for hit in hits:
+        url = str(hit.metadata.get("url") or hit.id or "").strip()
+        metadata = dict(hit.metadata)
+        fetched = ""
+        if hit.source == "web" and remaining > 0 and url.startswith("https://"):
+            remaining -= 1
+            try:
+                fetched = str(fetch(url) or "").strip()
+            except Exception:
+                logger.debug(
+                    "literature.enrich_web_hits failed for %s", url,
+                    exc_info=True,
+                )
+            if fetched.lower().startswith(failure_prefixes):
+                fetched = ""
+            metadata["content_fetched"] = bool(fetched)
+        text = fetched[:max_chars] if fetched else hit.text
+        out.append(
+            LiteratureHit(
+                source=hit.source,
+                id=hit.id,
+                title=hit.title,
+                text=text,
+                score=hit.score,
+                published=hit.published,
+                metadata=metadata,
+            )
+        )
+    return out
+
+
+def search_deep_sources(
+    query: str,
+    *,
+    kb_n: int = 5,
+    arxiv_n: int = 5,
+    web_n: int = 8,
+    fetch_n: int = 4,
+    store=None,
+    arxiv_backend: Optional[ArxivBackend] = None,
+    web_backend: Optional[Callable[[str, int], list[dict]]] = None,
+    fetch_backend: Optional[Callable[[str], str]] = None,
+) -> list[LiteratureHit]:
+    """Combine KB, arXiv, and fetched live-web evidence for deep research."""
+    literature = search_literature(
+        query,
+        kb_n=kb_n,
+        arxiv_n=arxiv_n,
+        store=store,
+        arxiv_backend=arxiv_backend,
+    )
+    web = enrich_web_hits(
+        search_web(query, max_results=web_n, backend=web_backend),
+        max_fetch=fetch_n,
+        backend=fetch_backend,
+    )
+    seen = {hit.id or f"{hit.source}:{hit.title}" for hit in literature}
+    merged = list(literature)
+    for hit in web:
+        key = hit.id or f"{hit.source}:{hit.title}"
+        if key not in seen:
+            seen.add(key)
+            merged.append(hit)
     return merged

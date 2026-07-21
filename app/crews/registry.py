@@ -152,6 +152,7 @@ def install_defaults() -> None:
     # majority.  Each entry is a single data-driven line.
     for name, module, cls in (
         ("research",      "app.crews.research_crew",       "ResearchCrew"),
+        ("deep_research", "app.crews.deep_research_crew",  "DeepResearchCrew"),
         ("coding",        "app.crews.coding_crew",         "CodingCrew"),
         ("writing",       "app.crews.writing_crew",        "WritingCrew"),
         ("media",         "app.crews.media_crew",          "MediaCrew"),

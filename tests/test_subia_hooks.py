@@ -14,6 +14,9 @@ crewai-amendments lifecycle system:
 from __future__ import annotations
 
 import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from unittest.mock import MagicMock
 
@@ -157,6 +160,49 @@ class TestPostTask:
                         task_result={"summary": "orphan"})
         # Should not raise, kernel loop_count should advance.
         assert hooks.loop.kernel.loop_count == 1
+
+    def test_shared_loop_half_cycles_are_serialized(self):
+        """The live singleton must not interleave its transient state."""
+        active = 0
+        max_active = 0
+        guard = threading.Lock()
+
+        class SlowLoop:
+            def _enter(self):
+                nonlocal active, max_active
+                with guard:
+                    active += 1
+                    max_active = max(max_active, active)
+                time.sleep(0.005)
+                with guard:
+                    active -= 1
+
+            def pre_task(self, **_kwargs):
+                from app.subia.loop import CILResult
+                self._enter()
+                return CILResult(
+                    loop_type="full", phase="pre_task", budget_ms=100,
+                )
+
+            def post_task(self, **_kwargs):
+                from app.subia.loop import CILResult
+                self._enter()
+                return CILResult(
+                    loop_type="full", phase="post_task", budget_ms=100,
+                )
+
+        hooks = SubIALifecycleHooks(loop=SlowLoop())
+
+        def cycle(i):
+            task = FakeTask(description=f"task {i}", id=f"t-{i}")
+            hooks.pre_task(FakeAgent(), task)
+            hooks.post_task(FakeAgent(), task, {"summary": "done"})
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(cycle, range(24)))
+
+        assert max_active == 1
+        assert hooks._last_pre == {}
 
 
 # ── Weird inputs ─────────────────────────────────────────────────

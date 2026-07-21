@@ -285,7 +285,13 @@ def _load_policies_for_crew(task: str, crew_name: str) -> str:
     """Load relevant policies for a crew (S6: runs in parallel with other context)."""
     try:
         # Map crew_name to agent role for policy matching
-        _crew_to_role = {"research": "researcher", "coding": "coder", "writing": "writer", "media": "media_analyst"}
+        _crew_to_role = {
+            "research": "researcher",
+            "deep_research": "researcher",
+            "coding": "coder",
+            "writing": "writer",
+            "media": "media_analyst",
+        }
         role = _crew_to_role.get(crew_name, crew_name)
         from app.policies.policy_loader import load_relevant_policies
         return load_relevant_policies(task, role)

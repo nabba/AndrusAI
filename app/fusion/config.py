@@ -13,6 +13,50 @@ fusion or widen its blast radius.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Iterator
+
+
+_forced_roles: ContextVar[frozenset[str]] = ContextVar(
+    "fusion_forced_roles", default=frozenset(),
+)
+_forced_panel_cap: ContextVar[int | None] = ContextVar(
+    "fusion_forced_panel_cap", default=None,
+)
+
+
+@contextmanager
+def force_for_roles(
+    roles: set[str] | frozenset[str],
+    *,
+    max_panel: int = 3,
+) -> Iterator[None]:
+    """Request-scoped Fusion opt-in used by gated deep research.
+
+    This does not weaken the cost brake or daily cap. It only bypasses the
+    global role-scope switch for the named roles while the context is active.
+    """
+    role_token = _forced_roles.set(frozenset(str(r) for r in roles if r))
+    cap_token = _forced_panel_cap.set(max(2, min(8, int(max_panel))))
+    try:
+        yield
+    finally:
+        _forced_panel_cap.reset(cap_token)
+        _forced_roles.reset(role_token)
+
+
+def is_forced_for(role: str) -> bool:
+    """Whether this request explicitly selected a Fusion panel for ``role``."""
+    return role in _forced_roles.get()
+
+
+def effective_max_panel() -> int:
+    """Apply the narrower request cap when a forced scope is active."""
+    configured = max_panel()
+    forced = _forced_panel_cap.get()
+    return min(configured, forced) if forced is not None else configured
+
 
 def enabled() -> bool:
     """Master switch. Default False."""

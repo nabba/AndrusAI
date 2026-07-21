@@ -40,6 +40,7 @@ Infrastructure-level. Not agent-modifiable.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Callable
 
 from app.subia.config import SUBIA_CONFIG
@@ -68,6 +69,10 @@ class SubIALifecycleHooks:
 
     def __init__(self, loop: SubIALoop) -> None:
         self.loop = loop
+        # One live loop/kernel is shared by the Commander's worker pool.
+        # SubIALoop carries transient attentional state, so each half-cycle
+        # must be atomic when specialist crews execute concurrently.
+        self._lock = threading.RLock()
         # Remember the pre_task result so post_task can align context.
         self._last_pre: dict[str, CILResult] = {}
 
@@ -88,14 +93,20 @@ class SubIALifecycleHooks:
             else self._classify_operation(description)
         )
 
-        result = self.loop.pre_task(
-            agent_role=agent_role,
-            task_description=description,
-            operation_type=operation_type,
-        )
+        with self._lock:
+            result = self.loop.pre_task(
+                agent_role=agent_role,
+                task_description=description,
+                operation_type=operation_type,
+            )
 
-        task_id = getattr(task, "id", None) or id(task)
-        self._last_pre[str(task_id)] = result
+            task_id = getattr(task, "id", None) or id(task)
+            self._last_pre[str(task_id)] = result
+            # A caller that aborts after PRE_TASK may never emit ON_COMPLETE.
+            # Bound this diagnostic cache so contained failures cannot become
+            # a process-lifetime memory leak.
+            while len(self._last_pre) > 512:
+                self._last_pre.pop(next(iter(self._last_pre)))
 
         return self._build_injection(result)
 
@@ -123,17 +134,19 @@ class SubIALifecycleHooks:
 
         actual_content = str(task_result)[:500]
 
-        self.loop.post_task(
-            agent_role=agent_role,
-            task_description=description,
-            operation_type=operation_type,
-            task_result=result_dict,
-            actual_content=actual_content,
-        )
-
-        # Clean up pre_task cache to bound memory.
         task_id = str(getattr(task, "id", None) or id(task))
-        self._last_pre.pop(task_id, None)
+        with self._lock:
+            try:
+                self.loop.post_task(
+                    agent_role=agent_role,
+                    task_description=description,
+                    operation_type=operation_type,
+                    task_result=result_dict,
+                    actual_content=actual_content,
+                )
+            finally:
+                # Clean up pre_task cache to bound memory.
+                self._last_pre.pop(task_id, None)
 
     # ── Helpers ───────────────────────────────────────────────────
 

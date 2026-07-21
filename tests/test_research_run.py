@@ -561,6 +561,7 @@ def test_module_exports():
         "HINT_RUN_EXPERIMENT",
         "HINT_ANALYZE_RESULT",
         "HINT_DRAFT",
+        "HINT_CRITIQUE",
         "HINT_GATE",
         "HINT_SYNTHESIZE",
         "HINT_VERIFY",

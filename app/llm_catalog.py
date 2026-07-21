@@ -65,6 +65,8 @@ TASK_ALIASES: dict[str, str] = {
 CREW_ROLES: tuple[str, ...] = (
     # Dispatched via app.crews.registry.install_defaults
     "research",
+    "deep_research",
+    "company_dossier",
     "coding",
     "writing",
     "media",
@@ -145,6 +147,8 @@ _ROLE_TO_TASK: dict[str, str] = {
     # Crew names (from orchestrator._run_crew)
     "coding":        "coding",
     "research":      "research",
+    "deep_research": "research",
+    "company_dossier": "reasoning",
     "writing":       "writing",
     "media":         "multimodal",
     "creative":      "writing",

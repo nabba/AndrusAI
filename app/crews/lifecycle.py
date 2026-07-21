@@ -53,7 +53,9 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Iterator, Optional
 
@@ -61,6 +63,45 @@ from app.crews import events as crew_events
 from app.crews.events import CrewEventContext
 
 logger = logging.getLogger(__name__)
+
+_subjective_boundary_suppressed: ContextVar[bool] = ContextVar(
+    "subjective_crew_boundary_suppressed", default=False,
+)
+
+
+# Runtime extension points.  They deliberately start as no-ops so importing
+# the crew layer never imports SubIA or makes it mandatory.  When live SubIA is
+# enabled, ``app.subia.live_integration`` replaces both callables with
+# failure-isolated adapters.
+def subia_pre_task(crew_name: str, task_title: str, task_id: str) -> None:
+    """Observe a crew boundary before execution (live-bound when enabled)."""
+
+
+def subia_post_task(
+    crew_name: str,
+    status: str,
+    exc: BaseException | None,
+    task_id: str,
+    task_title: str,
+) -> None:
+    """Observe a crew boundary after execution (live-bound when enabled)."""
+
+
+@contextmanager
+def suppress_subjective_boundary() -> Iterator[None]:
+    """Suppress only the SubIA crew callback for an orchestrated dispatch.
+
+    The orchestrator already emits a lifecycle pair early enough to inject
+    context into the specialist assignment.  Its actual crew then enters this
+    standard lifecycle envelope; suppressing this one callback prevents a
+    duplicate compressed CIL cycle while leaving all event-bus sinks active.
+    Autonomous/direct crew runs do not enter this scope and remain wired.
+    """
+    token = _subjective_boundary_suppressed.set(True)
+    try:
+        yield
+    finally:
+        _subjective_boundary_suppressed.reset(token)
 
 
 # ── Runtime handle passed to the body of the `with` block ──
@@ -145,6 +186,18 @@ def crew_lifecycle(
     crew_events.fire_crew_started(event_ctx)
 
     ctx = CrewContext(_event_ctx=event_ctx)
+    # Some test/dev handler sets do not assign a Firebase task id.  SubIA still
+    # needs a stable pre/post correlation key, so use a private invocation id
+    # rather than allowing task-title collisions across concurrent crews.
+    _subjective_task_id = event_ctx.task_id or f"crew:{uuid.uuid4().hex}"
+    _emit_subjective_boundary = not _subjective_boundary_suppressed.get()
+    if _emit_subjective_boundary:
+        try:
+            subia_pre_task(crew_name, task_title, _subjective_task_id)
+        except Exception:
+            logger.debug(
+                "lifecycle: SubIA pre-task boundary raised", exc_info=True,
+            )
 
     from app.project_context import agent_scope
     # Bind the crew_task_id into the span-events ContextVar so CrewAI
@@ -167,9 +220,22 @@ def crew_lifecycle(
         # Failure path — exceptions propagate after the handlers run.
         event_ctx.duration_s = time.monotonic() - start
         event_ctx.error = exc
-        crew_events.fire_crew_failed(event_ctx)
-        if _span_token is not None:
-            clear_current_crew_task_id(_span_token)
+        try:
+            crew_events.fire_crew_failed(event_ctx)
+        finally:
+            if _emit_subjective_boundary:
+                try:
+                    subia_post_task(
+                        crew_name, "failed", exc,
+                        _subjective_task_id, task_title,
+                    )
+                except Exception:
+                    logger.debug(
+                        "lifecycle: SubIA failed-task boundary raised",
+                        exc_info=True,
+                    )
+            if _span_token is not None:
+                clear_current_crew_task_id(_span_token)
         raise
 
     # Success path — compute duration + auto-capture cost from the
@@ -191,6 +257,19 @@ def crew_lifecycle(
             logger.debug("lifecycle: active-tracker read raised",
                          exc_info=True)
 
-    crew_events.fire_crew_completed(event_ctx)
-    if _span_token is not None:
-        clear_current_crew_task_id(_span_token)
+    try:
+        crew_events.fire_crew_completed(event_ctx)
+    finally:
+        if _emit_subjective_boundary:
+            try:
+                subia_post_task(
+                    crew_name, "success", None,
+                    _subjective_task_id, task_title,
+                )
+            except Exception:
+                logger.debug(
+                    "lifecycle: SubIA completed-task boundary raised",
+                    exc_info=True,
+                )
+        if _span_token is not None:
+            clear_current_crew_task_id(_span_token)

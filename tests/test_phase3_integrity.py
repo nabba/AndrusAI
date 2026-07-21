@@ -210,6 +210,28 @@ class TestVerifyIntegrity:
         assert not r.ok
         assert "app/subia/definitely_not_a_real_path.py" in r.missing
 
+    def test_undeclared_file_detected(self):
+        """A manifest that omits a live SubIA module must fail closed."""
+        manifest = compute_manifest()
+        rel = next(iter(manifest["files"]))
+        manifest["files"] = dict(manifest["files"])
+        manifest["files"].pop(rel)
+
+        r = verify_integrity(manifest=manifest)
+
+        assert not r.ok
+        assert r.has_drift
+        assert rel in r.extra
+
+    def test_strict_raises_on_undeclared_file(self):
+        manifest = compute_manifest()
+        rel = next(iter(manifest["files"]))
+        manifest["files"] = dict(manifest["files"])
+        manifest["files"].pop(rel)
+
+        with pytest.raises(IntegrityFault, match="extra"):
+            verify_integrity(manifest=manifest, strict=True)
+
 
 # ── Adversarial: simulated Self-Improver tampering ──────────────
 

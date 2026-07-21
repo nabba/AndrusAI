@@ -198,6 +198,32 @@ class TestEdgeCases:
         assert result is None
 
 
+# ── Introspection false-positive guard ─────────────────────────────
+
+
+@pytest.mark.skipif(routing is None, reason="routing not loadable")
+class TestIntrospectionDetection:
+    """Generic research topics must not be mistaken for system identity."""
+
+    @pytest.mark.parametrize("query", [
+        "What personality traits predict leadership?",
+        "Which memory architecture is best for autonomous agents?",
+        "Compare persistent memory systems for AI applications.",
+        "Research the limitations of transformer architectures.",
+    ])
+    def test_generic_research_topic_is_not_introspective(self, query):
+        assert routing._is_introspective(query) is False
+
+    @pytest.mark.parametrize("query", [
+        "Who are you?",
+        "How does your personality work?",
+        "What is your memory architecture?",
+        "Do you have meory?",
+    ])
+    def test_self_anchored_identity_question_is_introspective(self, query):
+        assert routing._is_introspective(query) is True
+
+
 # ── Composition with fast-route ─────────────────────────────────────
 
 

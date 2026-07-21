@@ -35,7 +35,10 @@ def plan_for_role(
     to fuse. Fully failure-isolated: any error returns ``(None, 1)``.
     """
     try:
-        if not config.is_enabled_for(role):
+        if not (
+            config.is_enabled_for(role)
+            or config.is_forced_for(role)
+        ):
             return (None, 1)
         if config.brake_engaged():
             return (None, 1)
@@ -47,7 +50,7 @@ def plan_for_role(
             classes=config.panel_classes(),
             pins=config.panel_pins(),
             hints=config.variant_hints(),
-            max_panel=config.max_panel(),
+            max_panel=config.effective_max_panel(),
             blocked=config.blocked_models(),
         )
         if len(members) < _MIN_PANEL:

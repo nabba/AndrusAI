@@ -153,7 +153,7 @@ def _check_escalation_triggers(
             break
 
     # Suspiciously short output for complex task
-    if difficulty >= 8 and crew_name in ("research", "writing") and len(result.strip()) < 100:
+    if difficulty >= 8 and crew_name in ("research", "deep_research", "writing") and len(result.strip()) < 100:
         reasons.append(f"response is very short ({len(result.strip())} chars) for a complex task")
 
     # Reflexion loop was exhausted without satisfactory result

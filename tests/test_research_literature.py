@@ -206,6 +206,87 @@ def test_search_literature_respects_zero_counts():
     assert "fetch_args" not in captured
 
 
+def test_search_web_preserves_url_and_snippet_as_evidence():
+    hits = L.search_web(
+        "q",
+        backend=lambda query, count: [{
+            "title": "Primary source",
+            "url": "https://authority.example/data",
+            "description": "The measured value was 42 in 2025.",
+        }],
+    )
+    assert len(hits) == 1
+    assert hits[0].source == "web"
+    assert hits[0].id == "https://authority.example/data"
+    assert hits[0].text == "The measured value was 42 in 2025."
+    assert hits[0].metadata["url"] == "https://authority.example/data"
+
+
+def test_search_deep_sources_merges_and_deduplicates_web():
+    store = _FakeStore([
+        {
+            "id": "https://same.example",
+            "text": "kb excerpt",
+            "score": 0.9,
+            "metadata": {"title": "Stored source"},
+        },
+    ])
+    backend, _ = _fake_backend([])
+    hits = L.search_deep_sources(
+        "q",
+        store=store,
+        arxiv_backend=backend,
+        fetch_n=0,
+        web_backend=lambda _query, _count: [
+            {
+                "title": "duplicate",
+                "url": "https://same.example",
+                "description": "web duplicate",
+            },
+            {
+                "title": "new",
+                "url": "https://new.example",
+                "description": "new evidence",
+            },
+        ],
+    )
+    assert [hit.id for hit in hits] == [
+        "https://same.example", "https://new.example",
+    ]
+
+
+def test_enrich_web_hits_replaces_snippet_with_fetched_page_text():
+    hits = [LiteratureHit(
+        source="web",
+        id="https://example.test/report",
+        title="Report",
+        text="search snippet",
+        metadata={"url": "https://example.test/report"},
+    )]
+    enriched = L.enrich_web_hits(
+        hits,
+        backend=lambda _url: "Full primary-source evidence from the page.",
+    )
+    assert enriched[0].text == "Full primary-source evidence from the page."
+    assert enriched[0].metadata["content_fetched"] is True
+
+
+def test_enrich_web_hits_retains_snippet_when_fetch_fails():
+    hits = [LiteratureHit(
+        source="web",
+        id="https://example.test/report",
+        title="Report",
+        text="search snippet",
+        metadata={"url": "https://example.test/report"},
+    )]
+    enriched = L.enrich_web_hits(
+        hits,
+        backend=lambda _url: "Fetch error: unable to retrieve URL content.",
+    )
+    assert enriched[0].text == "search snippet"
+    assert enriched[0].metadata["content_fetched"] is False
+
+
 # ── LiteratureHit ─────────────────────────────────────────────────────────
 
 

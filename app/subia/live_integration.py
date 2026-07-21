@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import logging
 import os
+import hashlib
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -323,7 +324,11 @@ def _wrap_pre(subia_hooks):
         try:
             # Build lightweight agent/task stand-ins from the HookContext
             agent = _AgentShim(ctx.agent_id)
-            task = _TaskShim(ctx.task_description)
+            task = _TaskShim(
+                description=ctx.task_description,
+                id=_task_id_from_ctx(ctx),
+                operation_type=_operation_type_from_ctx(ctx),
+            )
             injection = subia_hooks.pre_task(agent, task)
             ctx.set("subia_context_injection", injection)
         except Exception:
@@ -336,7 +341,11 @@ def _wrap_post(subia_hooks):
     def _post(ctx):
         try:
             agent = _AgentShim(ctx.agent_id)
-            task = _TaskShim(ctx.task_description)
+            task = _TaskShim(
+                description=ctx.task_description,
+                id=_task_id_from_ctx(ctx),
+                operation_type=_operation_type_from_ctx(ctx),
+            )
             # task_result: prefer modified_data["result"], fall back to data.
             result = ctx.get("result", None)
             subia_hooks.post_task(agent, task, result)
@@ -354,6 +363,34 @@ class _AgentShim:
 @dataclass
 class _TaskShim:
     description: str
+    id: str = ""
+    operation_type: str = "task_execute"
+
+
+def _context_metadata(ctx: Any) -> dict:
+    """Return HookContext metadata without assuming a concrete test double."""
+    metadata = getattr(ctx, "metadata", None)
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _task_id_from_ctx(ctx: Any) -> str:
+    """Derive one bounded correlation id shared by the pre/post adapters."""
+    metadata = _context_metadata(ctx)
+    task_id = metadata.get("task_id") or metadata.get("request_id")
+    if task_id:
+        return str(task_id)
+    # Compatibility fallback for callers not yet carrying a task id.  The
+    # agent+description digest is stable across the existing pre/post pair and
+    # avoids storing the full task (which may contain sensitive user text).
+    material = f"{getattr(ctx, 'agent_id', '')}\0{getattr(ctx, 'task_description', '')}"
+    digest = hashlib.sha256(material.encode("utf-8", errors="replace")).hexdigest()
+    return f"hook:{digest[:24]}"
+
+
+def _operation_type_from_ctx(ctx: Any) -> str:
+    """Read an explicit operation classification, defaulting to a full pass."""
+    value = _context_metadata(ctx).get("operation_type")
+    return str(value or "task_execute")
 
 
 # ── consult_fn, predictor enrichment, crew-lifecycle binding ─────
@@ -445,15 +482,22 @@ def _bind_crew_lifecycle_stubs(hooks: Any) -> None:
                      exc_info=True)
         return
 
-    def _pre(crew_name: str, task_title: str) -> None:
+    def _pre(crew_name: str, task_title: str, task_id: str) -> None:
         try:
             hooks.pre_task(_AgentShim(role=str(crew_name or "crew")),
                            _CrewTaskShim(description=str(task_title or ""),
+                                          id=str(task_id or ""),
                                           operation_type="crew_kickoff"))
         except Exception:
             logger.debug("crew_lifecycle subia_pre_task failed", exc_info=True)
 
-    def _post(crew_name: str, status: str, exc: Exception | None) -> None:
+    def _post(
+        crew_name: str,
+        status: str,
+        exc: BaseException | None,
+        task_id: str,
+        task_title: str,
+    ) -> None:
         try:
             result = {
                 "success": status == "success",
@@ -461,7 +505,8 @@ def _bind_crew_lifecycle_stubs(hooks: Any) -> None:
                 "error": repr(exc) if exc else "",
             }
             hooks.post_task(_AgentShim(role=str(crew_name or "crew")),
-                            _CrewTaskShim(description="crew_kickoff",
+                            _CrewTaskShim(description=str(task_title or "crew_kickoff"),
+                                           id=str(task_id or ""),
                                            operation_type="crew_kickoff"),
                             result)
         except Exception:
@@ -481,4 +526,5 @@ class _CrewTaskShim:
     cleanest way to steer classification without plumbing a new kwarg.
     """
     description: str
+    id: str = ""
     operation_type: str = "crew_kickoff"
