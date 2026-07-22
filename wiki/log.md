@@ -50,3 +50,10 @@ title: "AndrusAI Wiki — Operations Log"
 | 2026-05-06T12:05:03Z | idle_scheduler.wiki_synthesis | CREATE | meta/reliable-weather-forecast-retrieval-78f4c768 | Created: **** Reliable Weather Forecast Retrieval |
 | 2026-05-06T12:05:03Z | idle_scheduler.wiki_synthesis | CREATE | meta/robust-weather-data-retrieval-via-open-meteo-api-f39c9571 | Created: **** Robust Weather Data Retrieval via Open-Meteo API |
 | 2026-05-06T12:05:03Z | idle_scheduler.wiki_synthesis | CREATE | meta/estonia-forest-maps | Created: Skill: Generating Estonia Deforestation & Forest Age Maps via Hansen GFC |
+| 2026-06-25T09:41:19Z | idle_scheduler.wiki_synthesis | CREATE | meta/adaptive-search-depth-and-confidence-gating | Created: Adaptive Search Depth and Confidence-Gated Research |
+| 2026-06-25T09:41:19Z | idle_scheduler.wiki_synthesis | CREATE | meta/answer-completeness-verification | Created: Answer Completeness Verification (Pre-Finalization Check) |
+| 2026-06-25T09:41:19Z | idle_scheduler.wiki_synthesis | CREATE | meta/high-fidelity-evidence-mapping-and-triangulation | Created: High-Fidelity Evidence Mapping and Triangulation |
+| 2026-06-25T09:43:55Z | idle_scheduler.wiki_synthesis | CREATE | meta/lateral-reading-and-source-credibility | Created: Lateral Reading and Source Credibility Verification |
+| 2026-06-25T09:43:55Z | idle_scheduler.wiki_synthesis | CREATE | meta/query-decomposition-and-multi-hop-research | Created: Query Decomposition and Multi-Hop Research Strategy |
+| 2026-06-25T09:43:55Z | idle_scheduler.wiki_synthesis | CREATE | meta/structured-coding-problem-solving-pedac | Created: Structured Coding Problem Solving (PEDAC Method) |
+| 2026-06-25T09:47:25Z | idle_scheduler.wiki_synthesis | CREATE | meta/systematic-debugging-methodology | Created: Systematic Debugging Methodology for Coding Tasks |

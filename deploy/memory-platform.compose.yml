@@ -1,0 +1,131 @@
+# Additive compose overlay for the physically isolated memory boundaries.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f deploy/memory-platform.compose.yml \
+#     --profile memory-platform up -d durable-memory-postgres governance-postgres
+#   docker compose -f docker-compose.yml -f deploy/memory-platform.compose.yml \
+#     --profile memory-platform run --rm durable-memory-migrate
+#   docker compose -f docker-compose.yml -f deploy/memory-platform.compose.yml \
+#     --profile memory-platform run --rm governance-migrate
+#
+# The existing embedded Chroma named volume remains the operational plane.
+# Neither database publishes a host port or joins the external network.
+
+services:
+  durable-memory-postgres:
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg18@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d}
+    profiles: ["memory-platform"]
+    restart: unless-stopped
+    shm_size: 512mb
+    environment:
+      POSTGRES_USER: memory_owner
+      POSTGRES_PASSWORD: ${DURABLE_MEMORY_POSTGRES_PASSWORD:?DURABLE_MEMORY_POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: botarmy_memory
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - durable_memory_pgdata:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memory_owner -d botarmy_memory"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: "2.0"
+
+  governance-postgres:
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg18@sha256:42e7f6b4e1eceb02ff14e3e6bc6108bbe259abbe83879dc1845d0da1ddeb555d}
+    profiles: ["memory-platform"]
+    restart: unless-stopped
+    shm_size: 128mb
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=30"]
+    environment:
+      POSTGRES_USER: governance_owner
+      POSTGRES_PASSWORD: ${GOVERNANCE_POSTGRES_PASSWORD:?GOVERNANCE_POSTGRES_PASSWORD must be set}
+      POSTGRES_DB: botarmy_governance
+      PGDATA: /var/lib/postgresql/data
+    volumes:
+      - governance_pgdata:/var/lib/postgresql/data
+    networks: [governance_boundary]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U governance_owner -d botarmy_governance"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+
+  durable-memory-migrate:
+    image: ${MEMORY_PLATFORM_TOOLS_IMAGE:-crewai-team-gateway:latest}
+    profiles: ["memory-platform"]
+    restart: "no"
+    depends_on:
+      durable-memory-postgres:
+        condition: service_healthy
+    environment:
+      DURABLE_MEMORY_DATABASE_URL: postgresql://memory_owner:${DURABLE_MEMORY_POSTGRES_PASSWORD:?DURABLE_MEMORY_POSTGRES_PASSWORD must be set}@durable-memory-postgres:5432/botarmy_memory
+    volumes:
+      - ./migrations:/app/migrations:ro
+      - ./scripts/apply_memory_platform_migrations.py:/app/scripts/apply_memory_platform_migrations.py:ro
+    command: ["python", "scripts/apply_memory_platform_migrations.py", "--target", "durable"]
+    networks: [internal]
+    security_opt: ["no-new-privileges:true"]
+
+  governance-migrate:
+    image: ${MEMORY_PLATFORM_TOOLS_IMAGE:-crewai-team-gateway:latest}
+    profiles: ["memory-platform"]
+    restart: "no"
+    depends_on:
+      governance-postgres:
+        condition: service_healthy
+    environment:
+      GOVERNANCE_DATABASE_URL: postgresql://governance_owner:${GOVERNANCE_POSTGRES_PASSWORD:?GOVERNANCE_POSTGRES_PASSWORD must be set}@governance-postgres:5432/botarmy_governance
+    volumes:
+      - ./deploy/governance/migrations:/app/deploy/governance/migrations:ro
+      - ./scripts/apply_memory_platform_migrations.py:/app/scripts/apply_memory_platform_migrations.py:ro
+    command: ["python", "scripts/apply_memory_platform_migrations.py", "--target", "governance"]
+    networks: [governance_boundary]
+    security_opt: ["no-new-privileges:true"]
+
+  # One-shot backfill runner.  HARD PRECONDITION: the gateway must be stopped
+  # while this service mounts chroma_data; embedded Chroma is single-writer.
+  # Use deploy/scripts/memory-platform-backfill.sh, which enforces that gate.
+  memory-platform-backfill:
+    image: ${MEMORY_PLATFORM_TOOLS_IMAGE:-crewai-team-gateway:latest}
+    profiles: ["memory-platform"]
+    restart: "no"
+    user: "1000:1000"
+    depends_on:
+      durable-memory-postgres:
+        condition: service_healthy
+    environment:
+      WORKSPACE_ROOT: /app/workspace
+      CHROMA_DATA_ROOT: /chroma
+      DURABLE_MEMORY_DATABASE_URL: postgresql://memory_owner:${DURABLE_MEMORY_POSTGRES_PASSWORD:?DURABLE_MEMORY_POSTGRES_PASSWORD must be set}@durable-memory-postgres:5432/botarmy_memory
+    volumes:
+      - ./app/memory_platform:/app/app/memory_platform:ro
+      - ./scripts/backfill_memory_space.py:/app/scripts/backfill_memory_space.py:ro
+      - ./workspace:/app/workspace:ro
+      - chroma_data:/chroma
+    entrypoint: ["python", "scripts/backfill_memory_space.py"]
+    command: ["--help"]
+    networks: [internal]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  durable_memory_pgdata: {}
+  governance_pgdata: {}
+
+networks:
+  governance_boundary:
+    internal: true
