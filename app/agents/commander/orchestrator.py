@@ -4149,6 +4149,46 @@ class Commander:
         except Exception:
             logger.debug("Escalation check failed", exc_info=True)
 
+        # ── Step 5.5: Unified post-processing epistemic gate ─────────────
+        # The single-crew path historically gated before proactive notes and
+        # humility labels, while the multi-crew path had no matching final
+        # gate.  Gate the actual delivery candidate here for every path.  The
+        # earlier single-crew gate remains as an early stop; this pass protects
+        # subsequent transformations and closes the multi-crew gap.
+        try:
+            from app.epistemic.orchestrator_hook import gate_output
+
+            try:
+                from app.risk_classifier.per_reply import classify_reply_zone
+
+                classify_reply_zone(
+                    user_input=user_input,
+                    final_reply=final_result,
+                    sender=sender,
+                    task_id=str(task_id) if task_id else None,
+                )
+            except Exception:
+                logger.debug(
+                    "final epistemic zone classification failed",
+                    exc_info=True,
+                )
+            _final_gate = gate_output(
+                proposal_text=final_result,
+                task_id=str(task_id) if task_id else "",
+            )
+            if _final_gate.action in {"block", "revise"}:
+                final_result = _final_gate.final_text
+                logger.info(
+                    "final epistemic gate: %s — %s",
+                    _final_gate.action.upper(),
+                    _final_gate.user_visible_reason,
+                )
+        except Exception:
+            logger.debug(
+                "unified final epistemic gate failed; preserving candidate",
+                exc_info=True,
+            )
+
         # ── Step 6: Clean output for user delivery ──────────────────────────
         # Strip internal metadata (critic reviews, self-reports, debug info).
         # Truncation is handled by handle_task() which also writes .md attachment.

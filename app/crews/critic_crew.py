@@ -13,6 +13,7 @@ Only runs on high-difficulty tasks to avoid adding latency to simple ones.
 """
 
 import logging
+import re
 import time
 
 from crewai import Task, Crew, Process
@@ -22,14 +23,65 @@ from app.rate_throttle import start_request_tracking, stop_request_tracking
 
 logger = logging.getLogger(__name__)
 
+_LEGACY_CRITICAL = re.compile(
+    r"^\s*(?:[-*]\s*)?(?:(?:severity\s*[:=-]\s*)?critical\b|\[critical\])",
+    re.IGNORECASE | re.MULTILINE,
+)
+_CONTRACT = re.compile(
+    r"^\s*(PASS|REVISED|BLOCK)\s*(?::[ \t]*(.*))?(?:\n([\s\S]*))?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _apply_review_result(crew_output: str, review: str) -> tuple[str, str]:
+    """Apply the critic's structured PASS/REVISED/BLOCK contract.
+
+    Returns ``(delivery_text, outcome)``.  Critical findings can no longer be
+    logged and then silently discarded.  Malformed non-critical feedback keeps
+    the original response so a formatting failure does not become an outage.
+    """
+    result = (review or "").strip()
+    contract = _CONTRACT.fullmatch(result)
+    if contract:
+        directive = contract.group(1).upper()
+        payload = "\n".join(
+            part.strip()
+            for part in (contract.group(2), contract.group(3))
+            if part and part.strip()
+        )
+        if directive == "PASS":
+            if not payload:
+                return crew_output, "pass"
+            return crew_output, "malformed"
+        if directive == "REVISED":
+            if len(payload) >= 20:
+                return payload, "revised"
+            return crew_output, "malformed"
+        reason = payload[:800] or "the answer could not be verified safely"
+        return (
+            "I’m withholding the draft because adversarial review found an "
+            f"unresolved critical quality issue: {reason}",
+            "blocked",
+        )
+
+    if _LEGACY_CRITICAL.search(result):
+        reason = result[:800] or "the answer could not be verified safely"
+        return (
+            "I’m withholding the draft because adversarial review found an "
+            f"unresolved critical quality issue: {reason}",
+            "blocked",
+        )
+
+    return crew_output, "malformed"
+
 
 class CriticCrew:
     """Adversarial review of agent output before delivery."""
 
     def review(self, original_task: str, crew_output: str,
                crew_used: str = "", difficulty: int = 5,
-               parent_task_id: str = None) -> str:
-        """Review crew output and return cleaned/annotated version.
+               parent_task_id: str | None = None) -> str:
+        """Review crew output and return the original, a revision, or a block.
 
         Args:
             original_task: What the user originally asked
@@ -39,8 +91,8 @@ class CriticCrew:
             parent_task_id: For task tracking hierarchy
 
         Returns:
-            The original output with critic annotations appended,
-            or the original output unchanged if review finds no issues.
+            PASS preserves the original; REVISED supplies a complete corrected
+            answer; BLOCK withholds a critically unsafe/unverifiable answer.
         """
         _start = time.monotonic()
         from app.conversation_store import estimate_eta
@@ -70,13 +122,17 @@ class CriticCrew:
                     f"5. Confidence calibration — justified by evidence?\n"
                     f"6. Actionability — can someone act on this?\n"
                     f"7. Productive tension — false clarity on complex topics?\n\n"
-                    f"If no major issues: reply with ONLY 'PASS'.\n"
-                    f"If issues found: list them concisely with severity "
-                    f"(critical/improvement/minor) and specific fixes."
+                    f"Return exactly one of these contracts:\n"
+                    f"PASS\n"
+                    f"REVISED\n<the complete corrected answer, ready for the user>\n"
+                    f"BLOCK\n<a concise reason that cannot be corrected from the supplied evidence>\n\n"
+                    f"Use REVISED when you can safely fix an issue from the supplied "
+                    f"material. Use BLOCK only for a critical factual, safety, or "
+                    f"evidence defect that cannot be repaired without new information."
                 ),
                 expected_output=(
-                    "Either 'PASS' if the output is good, or a concise list of "
-                    "issues with severity levels and suggested fixes."
+                    "Exactly PASS, REVISED followed by a complete corrected answer, "
+                    "or BLOCK followed by the unresolved critical reason."
                 ),
                 agent=critic,
             )
@@ -102,14 +158,14 @@ class CriticCrew:
                 tokens_used=_tokens, cost_usd=_cost,
             )
 
-            # If critic says PASS, return original output unchanged
-            if result.upper().startswith("PASS"):
-                logger.info(f"Critic review: PASS ({duration:.1f}s)")
-                return crew_output
-
-            # Otherwise append critic notes
-            logger.info(f"Critic review: {len(result)} chars of feedback ({duration:.1f}s)")
-            return crew_output
+            delivery, outcome = _apply_review_result(crew_output, result)
+            logger.info(
+                "Critic review: %s (%d chars, %.1fs)",
+                outcome,
+                len(result),
+                duration,
+            )
+            return delivery
 
         except Exception as exc:
             stop_request_tracking()

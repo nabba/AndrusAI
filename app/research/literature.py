@@ -25,6 +25,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Optional
 
+from app.research.lifecycle import invoke_research_tool
+
 logger = logging.getLogger(__name__)
 
 
@@ -97,11 +99,21 @@ def search_kb(
         if min_score is None:
             min_score = 0.0
 
-        raw = store.query(
-            query,
-            n_results=n_results,
-            where_filter=where,
-            min_score=min_score,
+        raw = invoke_research_tool(
+            "research_kb_search",
+            {
+                "query": query,
+                "n_results": n_results,
+                "where_filter": where,
+                "min_score": min_score,
+            },
+            lambda args: store.query(
+                args.get("query", query),
+                n_results=int(args.get("n_results", n_results)),
+                where_filter=args.get("where_filter", where),
+                min_score=float(args.get("min_score", min_score)),
+            ),
+            task_description=f"Research KB search: {query}",
         )
     except Exception:
         logger.debug("literature.search_kb failed", exc_info=True)
@@ -177,7 +189,16 @@ def search_arxiv(
     try:
         build_query, fetch, parse, default_categories = backend or _default_arxiv_backend()
         cats = categories or default_categories
-        atom = fetch(build_query(terms, cats), max_results)
+        arxiv_query = build_query(terms, cats)
+        atom = invoke_research_tool(
+            "research_arxiv_search",
+            {"query": arxiv_query, "max_results": max_results},
+            lambda args: fetch(
+                str(args.get("query", arxiv_query)),
+                int(args.get("max_results", max_results)),
+            ),
+            task_description=f"arXiv search: {query}",
+        )
         if not atom:
             return []
         records = parse(atom, lookback_days)
@@ -262,7 +283,29 @@ def search_web(
             from app.tools.web_search import search_brave
 
             backend = search_brave
-        rows = backend(query, max_results) or []
+        rows = invoke_research_tool(
+            "research_web_search",
+            {"query": query, "count": max_results},
+            lambda args: backend(
+                str(args.get("query", query)),
+                int(args.get("count", max_results)),
+            ),
+            task_description=f"Web search: {query}",
+        ) or []
+        # Custom/injected backends must meet the same contract as the default
+        # cascade.  This prevents a fallback provider from bypassing the
+        # relevance and sensitive-domain checks merely because it is called
+        # through the research facade.
+        from app.tools.search_validation import validate_search_results
+
+        rows, rejected = validate_search_results(
+            query, list(rows), backend="research-backend",
+        )
+        if rejected:
+            logger.warning(
+                "literature.search_web rejected %d irrelevant/unsafe result(s)",
+                rejected,
+            )
     except Exception:
         logger.debug("literature.search_web failed", exc_info=True)
         return []
@@ -282,7 +325,12 @@ def search_web(
                 id=url or f"web:{title}",
                 title=title,
                 text=snippet,
-                metadata={"url": url},
+                metadata={
+                    "url": url,
+                    "search_backend": row.get("search_backend"),
+                    "query_term_overlap": row.get("query_term_overlap"),
+                    "source_quality": row.get("source_quality"),
+                },
             )
         )
     return hits
@@ -328,7 +376,12 @@ def enrich_web_hits(
         if hit.source == "web" and remaining > 0 and url.startswith("https://"):
             remaining -= 1
             try:
-                fetched = str(fetch(url) or "").strip()
+                fetched = str(invoke_research_tool(
+                    "research_web_fetch",
+                    {"url": url},
+                    lambda args: fetch(str(args.get("url", url))),
+                    task_description=f"Fetch research source: {url}",
+                ) or "").strip()
             except Exception:
                 logger.debug(
                     "literature.enrich_web_hits failed for %s", url,

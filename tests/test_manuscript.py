@@ -101,3 +101,28 @@ def test_default_llm_unavailable_on_host_falls_back():
     m = compose_manuscript(ARTIFACTS)
     assert len(m.sections) == len(DEFAULT_SECTIONS)
     assert all(s.prose for s in m.sections)
+
+
+def test_default_llm_call_uses_research_lifecycle_completion(monkeypatch):
+    from app.research.manuscript import _default_llm_call
+
+    captured = {}
+
+    def focused(prompt, *, role, task_hint, max_tokens):
+        captured.update({
+            "prompt": prompt,
+            "role": role,
+            "task_hint": task_hint,
+            "max_tokens": max_tokens,
+        })
+        return "Lifecycle-wrapped manuscript prose."
+
+    monkeypatch.setattr("app.research.run._focused_completion", focused)
+
+    assert _default_llm_call("section prompt") == "Lifecycle-wrapped manuscript prose."
+    assert captured == {
+        "prompt": "section prompt",
+        "role": "writing",
+        "task_hint": "research manuscript section",
+        "max_tokens": 1200,
+    }

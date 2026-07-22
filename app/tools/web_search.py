@@ -21,6 +21,7 @@ import requests
 from crewai.tools import tool
 
 from app.config import get_brave_api_key
+from app.tools.search_validation import validate_search_results as _validate_results
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ _BRAVE_QUOTA_BACKOFF_S = 24 * 3600
 _brave_quota_blocked_until: float = 0.0  # epoch seconds; 0 = no block
 _last_backend_used: str | None = None
 _last_failure_chain: list[str] = []
+_last_rejection_counts: dict[str, int] = {}
 
 
 # ── Per-task search budget (principled stopping criterion) ───────────────────
@@ -164,7 +166,7 @@ def _search_duckduckgo(query: str, count: int) -> list[dict]:
             snippet = div.select_one(".result__snippet")
             if not link:
                 continue
-            url = link.get("href", "")
+            url = str(link.get("href", "") or "")
             # DDG redirector — strip wrapper if present
             if "uddg=" in url:
                 from urllib.parse import unquote, urlparse, parse_qs
@@ -193,29 +195,45 @@ def search_brave(query: str, count: int = 5) -> list[dict]:
 
     Always returns a list (possibly empty when every tier failed).
     """
-    global _last_backend_used, _last_failure_chain
+    global _last_backend_used, _last_failure_chain, _last_rejection_counts
     chain: list[str] = []
+    _last_rejection_counts = {}
 
     res = _search_brave_raw(query, count)
     if res:
-        _last_backend_used = "brave"
-        _last_failure_chain = chain
-        return res
-    chain.append("brave:quota" if res is None else "brave:error")
+        valid, rejected = _validate_results(query, res, backend="brave")
+        _last_rejection_counts["brave"] = rejected
+        if valid:
+            _last_backend_used = "brave"
+            _last_failure_chain = chain
+            return valid[:count]
+        chain.append("brave:rejected")
+    else:
+        chain.append("brave:quota" if res is None else "brave:error")
 
     res = _search_searxng(query, count)
     if res:
-        _last_backend_used = "searxng"
-        _last_failure_chain = chain
-        return res
-    chain.append("searxng:no_results")
+        valid, rejected = _validate_results(query, res, backend="searxng")
+        _last_rejection_counts["searxng"] = rejected
+        if valid:
+            _last_backend_used = "searxng"
+            _last_failure_chain = chain
+            return valid[:count]
+        chain.append("searxng:rejected")
+    else:
+        chain.append("searxng:no_results")
 
     res = _search_duckduckgo(query, count)
     if res:
-        _last_backend_used = "ddg"
-        _last_failure_chain = chain
-        return res
-    chain.append("ddg:no_results")
+        valid, rejected = _validate_results(query, res, backend="ddg")
+        _last_rejection_counts["ddg"] = rejected
+        if valid:
+            _last_backend_used = "ddg"
+            _last_failure_chain = chain
+            return valid[:count]
+        chain.append("ddg:rejected")
+    else:
+        chain.append("ddg:no_results")
 
     _last_backend_used = None
     _last_failure_chain = chain
@@ -236,6 +254,7 @@ def get_search_status() -> dict:
     return {
         "last_backend_used": _last_backend_used,
         "last_failure_chain": list(_last_failure_chain),
+        "last_rejection_counts": dict(_last_rejection_counts),
         "brave_quota_blocked_until": (
             _brave_quota_blocked_until if _brave_blocked_now() else None
         ),

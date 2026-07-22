@@ -6,6 +6,7 @@ from app.autonomous_executor.models import ExecutorStatus
 from app.research.deep_path import (
     _deep_evidence_gate_for,
     _parse_query_plan,
+    _usable_deep_evidence,
     assess_deep_research,
     collect_deep_evidence,
     execute_deep_research,
@@ -120,8 +121,8 @@ def test_deep_evidence_searches_original_plus_subqueries_and_dedups() -> None:
     def search(query: str) -> list[LiteratureHit]:
         calls.append(query)
         return [LiteratureHit(
-            source="web", id="shared" if len(calls) < 3 else "third",
-            title="title", text=f"evidence for {query}",
+            source="arxiv", id="shared" if len(calls) < 3 else "third",
+            title="title", text=(f"evidence for {query}. " * 12),
         )]
 
     hits = collect_deep_evidence(
@@ -140,8 +141,11 @@ def test_synchronous_deep_path_returns_the_gated_critic_answer(monkeypatch) -> N
         "app.research.deep_path.collect_deep_evidence",
         lambda _question: [LiteratureHit(
             source="web", id="https://authority.example/report",
-            title="Authority report", text="Primary evidence says 42.",
-            metadata={"url": "https://authority.example/report"},
+            title="Authority report", text=("Primary evidence says 42. " * 8),
+            metadata={
+                "url": "https://authority.example/report",
+                "content_fetched": True,
+            },
         )],
     )
     monkeypatch.setattr(
@@ -185,8 +189,10 @@ def test_deep_gate_blocks_a_synthesis_untraceable_to_retrieved_sources() -> None
     literature.status = ExecutorStatus.COMPLETED
     literature.result_text = (
         '[{"source":"web","id":"https://source.example",'
-        '"title":"Source","text":"Evidence",'
-        '"metadata":{"url":"https://source.example"}}]'
+        '"title":"Source","text":"Evidence repeated to form a substantive '
+        'retrieved passage. Evidence repeated to form a substantive retrieved '
+        'passage. Evidence repeated to form a substantive retrieved passage.",'
+        '"metadata":{"url":"https://source.example","content_fetched":true}}]'
     )
 
     action, note = _deep_evidence_gate_for(run)(
@@ -196,3 +202,106 @@ def test_deep_gate_blocks_a_synthesis_untraceable_to_retrieved_sources() -> None
 
     assert action == "verify"
     assert "no identifier retrieved" in note
+
+
+def test_deep_evidence_rejects_unfetched_web_snippets() -> None:
+    hit = LiteratureHit(
+        source="web",
+        id="https://source.example/discovery-only",
+        title="Discovery result",
+        text="A long search snippet that repeats discovery metadata but was not " * 5,
+        metadata={
+            "url": "https://source.example/discovery-only",
+            "content_fetched": False,
+        },
+    )
+
+    hits = collect_deep_evidence(
+        "original question",
+        planner_fn=lambda _q: [],
+        search_fn=lambda _q: [hit],
+    )
+
+    assert hits == []
+
+
+def test_deep_evidence_rejects_a_malformed_kb_score() -> None:
+    hit = LiteratureHit(
+        source="kb",
+        id="kb:result",
+        title="Malformed scored result",
+        text="A substantive knowledge-base excerpt with enough detail. " * 4,
+        score="not-a-number",  # type: ignore[arg-type]
+    )
+
+    assert not _usable_deep_evidence(hit)
+
+
+def _run_with_web_evidence() -> object:
+    run = build_research_run("question")
+    literature = next(
+        step for step in run.plan if step.crew_hint == HINT_LITERATURE
+    )
+    literature.status = ExecutorStatus.COMPLETED
+    literature.result_text = (
+        '[{"source":"web","id":"https://source.example/report",'
+        '"title":"Source","text":"A substantive fetched passage with enough '
+        'detail to support the result. A substantive fetched passage with enough '
+        'detail to support the result. A substantive fetched passage with detail.",'
+        '"metadata":{"url":"https://source.example/report",'
+        '"content_fetched":true}}]'
+    )
+    return run
+
+
+def test_deep_gate_rejects_an_unretrieved_citation() -> None:
+    action, note = _deep_evidence_gate_for(_run_with_web_evidence())(
+        proposal_text=(
+            "Supported source: https://source.example/report\n\n"
+            "A second assertion cites https://invented.example/report."
+        ),
+        task_id="task",
+    )
+
+    assert action == "verify"
+    assert "not retrieved" in note
+    assert "invented.example" in note
+
+
+def test_deep_gate_checks_empirical_paragraphs_independently() -> None:
+    action, note = _deep_evidence_gate_for(_run_with_web_evidence())(
+        proposal_text=(
+            "The system achieved 99% accuracy.\n\n"
+            "Source: https://source.example/report"
+        ),
+        task_id="task",
+    )
+
+    assert action == "verify"
+    assert "uncited empirical" in note
+
+
+def test_deep_gate_rejects_generic_source_label_for_empirical_claim() -> None:
+    action, note = _deep_evidence_gate_for(_run_with_web_evidence())(
+        proposal_text=(
+            "The system achieved 99% accuracy. Source: unknown.\n\n"
+            "Retrieved reference: https://source.example/report"
+        ),
+        task_id="task",
+    )
+
+    assert action == "verify"
+    assert "uncited empirical" in note
+
+
+def test_deep_gate_accepts_inline_retrieval_traced_empirical_claim() -> None:
+    action, note = _deep_evidence_gate_for(_run_with_web_evidence())(
+        proposal_text=(
+            "The system achieved 99% accuracy according to "
+            "https://source.example/report."
+        ),
+        task_id="task",
+    )
+
+    assert action is None
+    assert "gate clear" in note

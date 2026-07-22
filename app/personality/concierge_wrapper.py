@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
+from typing import Any, Optional, cast
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,7 @@ _MIN_REWRITE_LEN = 20
 # Regex for "looks like JSON" — opens with { or [ on the first non-empty line.
 _JSON_OPEN_RE = re.compile(r"^\s*[\{\[]")
 _FENCED_CODE_RE = re.compile(r"```")
+_URL_RE = re.compile(r"https?://[^\s<>()\]]+", re.IGNORECASE)
 
 # Phrase prefixes that mark structured / non-conversational output. Stay
 # in sync with the soul file's "When to step aside" list.
@@ -58,7 +59,12 @@ _SKIP_PREFIXES = (
 )
 
 
-def apply_concierge(text: str, *, model: Optional[str] = None) -> str:
+def apply_concierge(
+    text: str,
+    *,
+    model: Optional[str] = None,
+    integrity_sensitive: bool = False,
+) -> str:
     """Maybe rewrite ``text`` in the concierge voice. Returns ``text``
     unchanged whenever the wrap is disabled or the heuristics suggest
     skipping. Never raises — failures fall back to the input.
@@ -69,6 +75,8 @@ def apply_concierge(text: str, *, model: Optional[str] = None) -> str:
     ignore the hint when it would distort the message; the contract
     above (preserve facts/length/structure) takes precedence."""
     if not text:
+        return text
+    if integrity_sensitive:
         return text
 
     try:
@@ -195,11 +203,11 @@ def _rewrite_with_llm(text: str, *, model: str, tone_hint: str = "") -> str:
         # the original within ~20%. Cap at 1024 so a runaway expansion
         # can't blow up cost.
         budget = max(256, min(1024, int(len(text) / 2)))
-        resp = client.create(
+        resp = cast(Any, client.create(
             max_tokens=budget,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
-        )
+        ))
     except Exception as exc:
         logger.debug(f"concierge_wrapper: LLM call failed: {exc}")
         return text
@@ -217,6 +225,27 @@ def _rewrite_with_llm(text: str, *, model: str, tone_hint: str = "") -> str:
     # blunt original than a 5-paragraph monologue.
     if len(rewritten) > max(80, len(text) * 2):
         logger.info("concierge_wrapper: rewrite exceeded 2x length, using original")
+        return text
+
+    # A capped rewrite can terminate normally while still truncating a long
+    # answer.  Research/report callers bypass the concierge entirely, and this
+    # guard protects any other substantial response that reaches it.
+    if len(text) >= 400 and len(rewritten) < int(len(text) * 0.75):
+        logger.warning(
+            "concierge_wrapper: rewrite lost more than 25%% of content; using original"
+        )
+        return text
+
+    original_urls = {
+        match.group(0).rstrip(".,;:") for match in _URL_RE.finditer(text)
+    }
+    rewritten_urls = {
+        match.group(0).rstrip(".,;:") for match in _URL_RE.finditer(rewritten)
+    }
+    if not original_urls.issubset(rewritten_urls):
+        logger.warning(
+            "concierge_wrapper: rewrite changed or dropped source URL(s); using original"
+        )
         return text
 
     # Safety guard: every epistemic label in the input must survive the

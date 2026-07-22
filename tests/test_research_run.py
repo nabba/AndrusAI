@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 import app.research.run as R
 from app.autonomous_executor.driver import CommanderResult
@@ -541,6 +542,83 @@ def test_outcome_to_dict_shape():
         "gate_action",
         "gate_note",
     }
+
+
+def test_manuscript_artifacts_use_corrected_critique_not_precritic_draft():
+    run = R.build_research_run("topic", critique=True)
+    draft = _step(run, R.HINT_DRAFT)
+    critique = _step(run, R.HINT_CRITIQUE)
+    draft.status = ExecutorStatus.COMPLETED
+    draft.result_text = "Pre-critic draft with an unsupported statement."
+    critique.status = ExecutorStatus.COMPLETED
+    critique.result_text = "Corrected evidence-grounded final synthesis."
+
+    artifacts = R._artifacts_from_run(run, citations=[])
+
+    assert artifacts.findings == "Corrected evidence-grounded final synthesis."
+
+
+def test_verify_accepts_empirical_claim_with_exact_retrieved_url():
+    run = R.build_research_run("topic", verify=True)
+    literature = _step(run, R.HINT_LITERATURE)
+    literature.status = ExecutorStatus.COMPLETED
+    literature.result_text = json.dumps([{
+        "source": "web",
+        "id": "https://authority.example/report",
+        "text": "Fetched evidence",
+        "metadata": {"url": "https://authority.example/report"},
+    }])
+    draft = _step(run, R.HINT_DRAFT)
+    draft.status = ExecutorStatus.COMPLETED
+    draft.result_text = (
+        "The measured accuracy was 99% according to "
+        "https://authority.example/report."
+    )
+    seams, _ = _make_seams()
+    adapter = R.make_research_adapter(
+        **seams,
+        citation_verification_enabled_fn=lambda: True,
+        verify_references_fn=lambda _citations: SimpleNamespace(
+            dropped=[], verified=[], kept=[], summary=lambda: {},
+        ),
+    )
+
+    result = adapter(_step(run, R.HINT_VERIFY), run)
+
+    payload = json.loads(result.text)
+    assert payload["verdict"] == "clear"
+    assert payload["traceable_urls"] == ["https://authority.example/report"]
+
+
+def test_verify_rejects_empirical_claim_with_unretrieved_url():
+    run = R.build_research_run("topic", verify=True)
+    literature = _step(run, R.HINT_LITERATURE)
+    literature.status = ExecutorStatus.COMPLETED
+    literature.result_text = json.dumps([{
+        "source": "web",
+        "id": "https://authority.example/report",
+        "text": "Fetched evidence",
+        "metadata": {"url": "https://authority.example/report"},
+    }])
+    draft = _step(run, R.HINT_DRAFT)
+    draft.status = ExecutorStatus.COMPLETED
+    draft.result_text = (
+        "The measured accuracy was 99% according to "
+        "https://invented.example/report."
+    )
+    seams, _ = _make_seams()
+    adapter = R.make_research_adapter(
+        **seams,
+        citation_verification_enabled_fn=lambda: True,
+        verify_references_fn=lambda _citations: SimpleNamespace(
+            dropped=[], verified=[], kept=[], summary=lambda: {},
+        ),
+    )
+
+    result = adapter(_step(run, R.HINT_VERIFY), run)
+
+    assert result.text.startswith("BLOCKED:")
+    assert "retrieval-traced citation" in result.text
 
 
 # ── Package wiring ────────────────────────────────────────────────────────────

@@ -2961,9 +2961,23 @@ async def handle_task(sender: str, text: str, attachments: list = None,
         # on any error. Run in the default thread pool so the Haiku
         # rewrite call doesn't block the event loop.
         try:
+            from functools import partial
             from app.personality.concierge_wrapper import apply_concierge
+            _delivery_crew = str(
+                commander.last_crew_used
+                if hasattr(commander, "last_crew_used") else ""
+            ).lower()
+            _integrity_sensitive = any(
+                name in _delivery_crew
+                for name in ("research", "deep_research", "company_dossier")
+            )
             result = await asyncio.get_running_loop().run_in_executor(
-                None, apply_concierge, result,
+                None,
+                partial(
+                    apply_concierge,
+                    result,
+                    integrity_sensitive=_integrity_sensitive,
+                ),
             )
         except Exception:
             logger.debug(

@@ -54,7 +54,7 @@ import re
 import uuid
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 from app.autonomous_executor.driver import CommanderFn, CommanderResult, advance_one_step
 from app.autonomous_executor.models import (
@@ -350,7 +350,10 @@ def _literature_evidence(
     for idx, hit in enumerate(_decode_list(run, HINT_LITERATURE)[:limit], 1):
         title = str(hit.get("title") or "Untitled source").strip()[:240]
         source = str(hit.get("source") or "source").strip()
-        metadata = hit.get("metadata") if isinstance(hit.get("metadata"), dict) else {}
+        metadata_value = hit.get("metadata")
+        metadata: dict = (
+            metadata_value if isinstance(metadata_value, dict) else {}
+        )
         identifier = str(
             metadata.get("url") or hit.get("id") or metadata.get("doi") or ""
         ).strip()
@@ -501,12 +504,39 @@ _EMPIRICAL_CLAIM_RE = re.compile(
     r"|\b\d+(?:\.\d+)?\s*(?:ms|s|rps|qps|fps|gb|mb|kb|tok(?:ens?)?/s)\b",
     re.IGNORECASE,
 )
+_URL_RE = re.compile(r"https?://[^\s<>()\]]+", re.IGNORECASE)
 
 
 def _draft_has_empirical_claims(text: str) -> bool:
     """True if the draft makes a quantitative empirical assertion that must be
     grounded in a measurement or a verified citation."""
     return bool(_EMPIRICAL_CLAIM_RE.search(text or ""))
+
+
+def _retrieved_identifiers(run: ExecutorRun) -> set[str]:
+    """Stable identifiers that entered this run through retrieval."""
+    identifiers: set[str] = set()
+    for row in _decode_list(run, HINT_LITERATURE):
+        if not isinstance(row, dict):
+            continue
+        metadata_value = row.get("metadata")
+        metadata: dict = (
+            metadata_value if isinstance(metadata_value, dict) else {}
+        )
+        for value in (
+            metadata.get("url"), row.get("id"), metadata.get("doi"),
+        ):
+            identifier = str(value or "").strip().rstrip(".,;:")
+            if identifier:
+                identifiers.add(identifier)
+    return identifiers
+
+
+def _traceable_retrieved_urls(run: ExecutorRun, text: str) -> set[str]:
+    """URLs in ``text`` that exactly match evidence retrieved by this run."""
+    retrieved = _retrieved_identifiers(run)
+    cited = {m.group(0).rstrip(".,;:") for m in _URL_RE.finditer(text or "")}
+    return cited & retrieved
 
 
 def _run_measurement_present(run: ExecutorRun) -> bool:
@@ -589,7 +619,12 @@ def _kept_citations(run: ExecutorRun, verify_references_fn) -> list:
                 return [Citation.from_dict(d) for d in kept if isinstance(d, dict)]
         except Exception:
             logger.debug("research.run: reuse of verify kept-citations failed", exc_info=True)
-    draft = _text_for(run, HINT_DRAFT) or _text_for(run, HINT_ANALYZE_RESULT) or _text_for(run, HINT_INVESTIGATE)
+    draft = (
+        _text_for(run, HINT_CRITIQUE)
+        or _text_for(run, HINT_DRAFT)
+        or _text_for(run, HINT_ANALYZE_RESULT)
+        or _text_for(run, HINT_INVESTIGATE)
+    )
     try:
         report = verify_references_fn(extract_citations(draft))
         return list(getattr(report, "kept", []) or [])
@@ -608,7 +643,8 @@ def _artifacts_from_run(run: ExecutorRun, citations: list):
         literature=_decode_list(run, HINT_LITERATURE),
         hypotheses=[h for h in hyps if h],
         findings=(
-            _text_for(run, HINT_DRAFT)
+            _text_for(run, HINT_CRITIQUE)
+            or _text_for(run, HINT_DRAFT)
             or _text_for(run, HINT_ANALYZE_RESULT)
             or _text_for(run, HINT_INVESTIGATE)
         ),
@@ -811,9 +847,9 @@ def _focused_completion(
         from app.llm_factory import chat_completion_for_role
 
         handle = chat_completion_for_role(role=role, task_hint=task_hint)
-        resp = handle.create(
+        resp = cast(Any, handle.create(
             messages=[{"role": "user", "content": prompt}], max_tokens=max_tokens
-        )
+        ))
         text = resp.choices[0].message.content or ""
         try:
             from app.lifecycle_hooks import get_registry, HookContext, HookPoint
@@ -1187,13 +1223,17 @@ def make_research_adapter(
                 return CommanderResult(text="research-citation verification: unavailable")
             dropped = list(getattr(report, "dropped", []) or [])
             verified = list(getattr(report, "verified", []) or [])
+            traceable_urls = _traceable_retrieved_urls(run, draft)
             measured = _run_measurement_present(run)
             has_empirical = _draft_has_empirical_claims(draft)
             reasons = []
             if dropped:
                 reasons.append(f"{len(dropped)} unverifiable citation(s)")
-            if has_empirical and not measured and not verified:
-                reasons.append("empirical claims with no recorded measurement or verified citation")
+            if has_empirical and not measured and not verified and not traceable_urls:
+                reasons.append(
+                    "empirical claims with no recorded measurement or "
+                    "retrieval-traced citation"
+                )
             if reasons:
                 detail = "; ".join(reasons)
                 run.record_note(f"verify: escalate ({detail})")
@@ -1205,6 +1245,7 @@ def make_research_adapter(
                 text=_encode({
                     "verdict": "clear",
                     "citations": summary,
+                    "traceable_urls": sorted(traceable_urls),
                     # Persist the verified set so a downstream compose step can
                     # reuse it for the bibliography without re-verifying (avoids
                     # a second round of literature-API calls).

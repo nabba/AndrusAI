@@ -198,13 +198,21 @@ def _slice_echo(spec: SectionSpec, slice_text: str) -> str:
 
 
 def _default_llm_call(prompt: str) -> str:
-    """Focused writing completion via the LLM factory (the sole LLM path)."""
-    try:
-        from app.llm_factory import chat_completion_for_role
+    """Focused writing completion through the research lifecycle bridge.
 
-        handle = chat_completion_for_role(role="writing", task_hint="manuscript section")
-        resp = handle.create(messages=[{"role": "user", "content": prompt}], max_tokens=1200)
-        return resp.choices[0].message.content or ""
+    Using ``_focused_completion`` is load-bearing: it emits the same PRE/POST
+    LLM hooks as investigation, drafting, and critique, keeping SubIA and the
+    sentience-model telemetry continuous through manuscript composition.
+    """
+    try:
+        from app.research.run import _focused_completion
+
+        return _focused_completion(
+            prompt,
+            role="writing",
+            task_hint="research manuscript section",
+            max_tokens=1200,
+        )
     except Exception:
         logger.debug("manuscript: writing completion unavailable", exc_info=True)
         return ""

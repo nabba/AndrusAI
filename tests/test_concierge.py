@@ -159,3 +159,39 @@ def test_empty_input_passes_through(_enable_concierge):
     from app.personality.concierge_wrapper import apply_concierge
     assert apply_concierge("") == ""
     assert apply_concierge("   ") == "   "
+
+
+def test_integrity_sensitive_response_bypasses_rewrite(_enable_concierge, monkeypatch):
+    from app.personality.concierge_wrapper import apply_concierge
+
+    monkeypatch.setattr(
+        "app.personality.concierge_wrapper._rewrite_with_llm",
+        lambda *a, **kw: pytest.fail("protected research must not be rewritten"),
+    )
+    original = (
+        "Research finding with source https://authority.example/report and "
+        "material details that must survive delivery unchanged."
+    )
+    assert apply_concierge(original, integrity_sensitive=True) == original
+
+
+def test_rewrite_falls_back_when_substantially_shortened(_enable_concierge, monkeypatch):
+    from app.personality.concierge_wrapper import apply_concierge
+
+    original = "Evidence-bearing explanatory sentence. " * 30
+    patch_chat_completion(monkeypatch, "A much shorter paraphrase that omits most details.")
+    assert apply_concierge(original) == original
+
+
+def test_rewrite_falls_back_when_source_url_is_dropped(_enable_concierge, monkeypatch):
+    from app.personality.concierge_wrapper import apply_concierge
+
+    original = (
+        "The source is https://authority.example/report and it supports the "
+        "specific conclusion described in this response."
+    )
+    patch_chat_completion(
+        monkeypatch,
+        "The source supports the specific conclusion described in this response.",
+    )
+    assert apply_concierge(original) == original

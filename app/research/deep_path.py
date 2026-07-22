@@ -41,6 +41,58 @@ _BREADTH = re.compile(
     r"\b(?:compare|across|alternatives?|perspectives?|multiple|several)\b",
     re.IGNORECASE,
 )
+_MIN_EVIDENCE_CHARS = 120
+_CITED_URL_RE = re.compile(r"https?://[^\s<>()\]]+", re.IGNORECASE)
+_CITED_DOI_RE = re.compile(r"\b10\.\d{4,9}/[^\s\"<>]+", re.IGNORECASE)
+_CITED_ARXIV_RE = re.compile(
+    r"\b(?:arxiv\s*:\s*)?(\d{4}\.\d{4,5})(?:v\d+)?\b",
+    re.IGNORECASE,
+)
+
+
+def _usable_deep_evidence(hit) -> bool:
+    """Return whether a hit is strong enough to enter a deep-research run.
+
+    Search-result snippets are discovery metadata, not evidence.  Web rows must
+    therefore have fetched page content.  Academic/KB rows need a substantive
+    excerpt and stable identifier.  This is deterministic and intentionally
+    conservative: an empty evidence set blocks the run instead of inviting the
+    drafting model to fill gaps from memory.
+    """
+    source = str(getattr(hit, "source", "") or "").strip().lower()
+    identifier = str(getattr(hit, "id", "") or "").strip()
+    text = str(getattr(hit, "text", "") or "").strip()
+    metadata = getattr(hit, "metadata", {}) or {}
+    if not identifier or len(text) < _MIN_EVIDENCE_CHARS:
+        return False
+    if source == "web":
+        return bool(
+            identifier.startswith("https://")
+            and metadata.get("content_fetched") is True
+        )
+    if source == "kb":
+        score = getattr(hit, "score", None)
+        if score is None:
+            return True
+        try:
+            return float(score) >= 0.35
+        except (TypeError, ValueError):
+            return False
+    return source == "arxiv"
+
+
+def _cited_identifiers(text: str) -> set[str]:
+    """Machine-checkable identifiers asserted by a final synthesis."""
+    out = {
+        match.group(0).rstrip(".,;:")
+        for match in _CITED_URL_RE.finditer(text or "")
+    }
+    out.update(
+        match.group(0).rstrip(".,;:)]}")
+        for match in _CITED_DOI_RE.finditer(text or "")
+    )
+    out.update(match.group(1) for match in _CITED_ARXIV_RE.finditer(text or ""))
+    return {item for item in out if item}
 
 
 @dataclass(frozen=True)
@@ -228,23 +280,32 @@ def collect_deep_evidence(
         if len(queries) >= 3:
             break
 
-    if search_fn is None:
+    search = search_fn
+    if search is None:
         from app.research.literature import search_deep_sources
 
-        def search_fn(query: str) -> list:
+        def _default_search(query: str) -> list:
             return search_deep_sources(
                 query, kb_n=3, arxiv_n=3, web_n=4, fetch_n=2,
             )
+        search = _default_search
 
     merged: list = []
     seen: set[str] = set()
     for query in queries:
         try:
-            hits = search_fn(query) or []
+            hits = search(query) or []
         except Exception:
             logger.debug("deep evidence search failed for %r", query, exc_info=True)
             continue
         for hit in hits:
+            if not _usable_deep_evidence(hit):
+                logger.warning(
+                    "deep research rejected non-evidentiary hit for %r: %s",
+                    query[:80],
+                    str(getattr(hit, "id", "") or getattr(hit, "title", ""))[:160],
+                )
+                continue
             identifier = str(
                 getattr(hit, "id", "")
                 or getattr(hit, "title", "")
@@ -276,16 +337,46 @@ def _deep_evidence_gate_for(run) -> Callable[..., tuple[str | None, str]]:
 
         text = str(proposal_text or "")
         rows = _decode_list(run, HINT_LITERATURE)
-        if not rows:
+        usable_rows = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            metadata_value = row.get("metadata")
+            metadata: dict = metadata_value if isinstance(metadata_value, dict) else {}
+            source = str(row.get("source") or "").lower()
+            identifier = str(metadata.get("url") or row.get("id") or "").strip()
+            excerpt = str(row.get("text") or "").strip()
+            if (
+                source not in {"web", "kb", "arxiv"}
+                or not identifier
+                or len(excerpt) < _MIN_EVIDENCE_CHARS
+            ):
+                continue
+            if source == "web" and not (
+                identifier.startswith("https://")
+                and metadata.get("content_fetched") is True
+            ):
+                continue
+            score_value = row.get("score")
+            if source == "kb" and score_value is not None:
+                try:
+                    if float(score_value) < 0.35:
+                        continue
+                except (TypeError, ValueError):
+                    continue
+            usable_rows.append(row)
+        if not usable_rows:
             return "verify", "deep research retrieved no evidence sources"
 
         identifiers: list[str] = []
-        for row in rows:
-            metadata = row.get("metadata") if isinstance(row, dict) else {}
-            metadata = metadata if isinstance(metadata, dict) else {}
+        for row in usable_rows:
+            metadata_value = row.get("metadata")
+            metadata: dict = (
+                metadata_value if isinstance(metadata_value, dict) else {}
+            )
             identifier = str(
                 metadata.get("url")
-                or (row.get("id") if isinstance(row, dict) else "")
+                or row.get("id")
                 or metadata.get("doi")
                 or ""
             ).strip()
@@ -299,14 +390,71 @@ def _deep_evidence_gate_for(run) -> Callable[..., tuple[str | None, str]]:
                 "final synthesis cites no identifier retrieved by this run",
             )
 
-        has_gap, samples = _detect_evidence_gap(text)
-        if has_gap:
-            detail = "; ".join(samples) or "empirical claim"
+        # A single valid source must not launder additional invented URLs,
+        # DOIs, or arXiv ids. Every machine-checkable citation in the answer
+        # must resolve to an identifier in this run's evidence set.
+        asserted = _cited_identifiers(text)
+        untraced = sorted(
+            token for token in asserted
+            if not any(token == identifier or token in identifier for identifier in identifiers)
+        )
+        if untraced:
+            return (
+                "verify",
+                "final synthesis contains citation(s) not retrieved by this run: "
+                + ", ".join(untraced[:3]),
+            )
+
+        # Check empirical blocks independently. A URL in the references section
+        # must not make an unrelated numeric paragraph look grounded.
+        gap_samples: list[str] = []
+        blocks = [
+            block.strip()
+            for block in re.split(
+                r"\n\s*\n|^\s*[-*]\s+", text, flags=re.MULTILINE,
+            )
+            if block.strip()
+        ]
+        for block in blocks:
+            traces_identifier = any(
+                identifier in block for identifier in identifiers
+            )
+            source_labels = {
+                int(match.group(1))
+                for match in re.finditer(r"\[S(\d+)\]", block, re.IGNORECASE)
+            }
+            traces_source_label = any(
+                1 <= source_number <= len(usable_rows)
+                for source_number in source_labels
+            )
+            if traces_identifier or traces_source_label:
+                continue
+
+            # The general-purpose detector accepts weak citation-shaped text
+            # such as ``Source: unknown`` or ``according to``.  Deep research
+            # has the retrieved source set available, so remove those generic
+            # markers and detect the underlying empirical claim instead.  A
+            # claim clears this stricter gate only when its own block contains
+            # an exact retrieved identifier or a valid [S<n>] evidence label.
+            untraced_claim = re.sub(
+                r"https?://[^\s<>()\]]+|\b10\.\d{4,9}/\S+|"
+                r"\barxiv\s*:?\s*\d{4}\.\d{4,5}(?:v\d+)?\b|"
+                r"\[S?\d+\]|\baccording to\b|\bsource\s*:|"
+                r"\bet al\.?|\([A-Z][A-Za-z]+,?\s+\d{4}\)",
+                " ",
+                block,
+                flags=re.IGNORECASE,
+            )
+            has_gap, samples = _detect_evidence_gap(untraced_claim)
+            if has_gap:
+                gap_samples.extend(samples or [block[:80]])
+        if gap_samples:
+            detail = "; ".join(gap_samples[:3]) or "empirical claim"
             return "verify", f"uncited empirical claim(s): {detail}"
 
         return (
             None,
-            f"deep evidence gate clear ({len(rows)} sources; "
+            f"deep evidence gate clear ({len(usable_rows)} sources; "
             f"{len(cited)} traced citation(s))",
         )
 
@@ -359,6 +507,10 @@ def execute_deep_research(
     adapter = make_research_adapter(
         search_fn=collect_deep_evidence,
         gate_fn=_deep_evidence_gate_for(run),
+        # Automatic deep research is never allowed to inherit the legacy
+        # default-OFF verification switch.  It advertises a verified answer,
+        # so citation/identifier verification is part of the contract.
+        citation_verification_enabled_fn=lambda: True,
     )
 
     def progress(current) -> None:

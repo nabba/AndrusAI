@@ -23,6 +23,7 @@ def _reset_module_state():
     ws._brave_quota_blocked_until = 0.0
     ws._last_backend_used = None
     ws._last_failure_chain = []
+    ws._last_rejection_counts = {}
     yield
 
 
@@ -34,7 +35,11 @@ def _brave_response(status: int, items: list | None = None):
         resp.json = lambda: {
             "web": {
                 "results": items or [
-                    {"title": "Brave Hit", "url": "https://b.example", "description": "from brave"}
+                    {
+                        "title": "Brave Hit",
+                        "url": "https://b.example",
+                        "description": "A relevant test query result from Brave.",
+                    }
                 ]
             }
         }
@@ -49,7 +54,11 @@ def _searxng_response(items: list | None = None):
     resp.raise_for_status = lambda: None
     resp.json = lambda: {
         "results": items or [
-            {"title": "Sx Hit", "url": "https://s.example", "content": "from searxng"}
+            {
+                "title": "Sx Hit",
+                "url": "https://s.example",
+                "content": "Relevant q first second fallback result from SearXNG.",
+            }
         ]
     }
     return resp
@@ -158,3 +167,81 @@ def test_web_search_tool_wrapper_returns_no_results_string_when_empty():
         out = ws.web_search.run("anything")
 
     assert out == "No results found."
+
+
+def test_irrelevant_fallback_results_are_rejected_and_not_returned():
+    """A healthy HTTP response with unrelated rows is a search failure."""
+    from app.tools import web_search as ws
+
+    unrelated = _searxng_response([{
+        "title": "Unsolicited account email discussion",
+        "url": "https://www.reddit.example/scams/account-email",
+        "content": "A discussion of an unrelated account notification.",
+    }])
+    ddg_resp = MagicMock()
+    ddg_resp.raise_for_status = lambda: None
+    ddg_resp.text = "<html></html>"
+
+    with patch.object(ws._session, "get", return_value=_brave_response(402)), \
+         patch("requests.get", return_value=unrelated), \
+         patch("requests.post", return_value=ddg_resp):
+        results = ws.search_brave(
+            "agentic retrieval augmented research systems", count=3,
+        )
+
+    assert results == []
+    status = ws.get_search_status()
+    assert "searxng:rejected" in status["last_failure_chain"]
+    assert status["last_rejection_counts"]["searxng"] == 1
+
+
+def test_adult_domain_is_rejected_for_unrelated_research_query():
+    from app.tools.web_search import _validate_results
+
+    valid, rejected = _validate_results(
+        "agentic retrieval augmented research systems",
+        [{
+            "title": "Agentic retrieval research systems",
+            "url": "https://example-pornhub.com/research",
+            "description": "agentic retrieval research systems",
+        }],
+        backend="searxng",
+    )
+
+    assert valid == []
+    assert rejected == 1
+
+
+def test_sensitive_domain_can_be_returned_when_explicitly_relevant():
+    from app.tools.web_search import _validate_results
+
+    valid, rejected = _validate_results(
+        "adult pornography platform safety policy",
+        [{
+            "title": "Adult platform safety policy",
+            "url": "https://pornhub.example/safety",
+            "description": "Adult pornography platform policy and safety rules.",
+        }],
+        backend="brave",
+    )
+
+    assert len(valid) == 1
+    assert rejected == 0
+
+
+def test_relevance_metadata_is_attached_to_accepted_rows():
+    from app.tools.web_search import _validate_results
+
+    valid, rejected = _validate_results(
+        "retrieval augmented generation",
+        [{
+            "title": "Retrieval augmented generation overview",
+            "url": "https://example.org/rag",
+            "description": "A technical retrieval system overview.",
+        }],
+        backend="brave",
+    )
+
+    assert rejected == 0
+    assert valid[0]["search_backend"] == "brave"
+    assert valid[0]["query_term_overlap"] >= 1
