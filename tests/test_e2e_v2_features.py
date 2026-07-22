@@ -43,7 +43,8 @@ class TestE2E_ConversationFlow:
 
         class DummyCommander:
             last_crew_used = "researcher"
-            def handle(self, text, sender, attachments):
+            def handle(self, text, sender, attachments, subjective_request_id=None,
+                       subjective_context=""):
                 # Simulate the normal main.py add_message calls
                 cs.add_message(sender, "user", text)
                 cs.add_message(sender, "assistant",

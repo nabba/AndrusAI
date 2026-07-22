@@ -589,7 +589,14 @@ class CompressionMiddleware:
     def __init__(self, commander):
         self._commander = commander
 
-    def handle(self, text: str, sender: str, attachments: list = None) -> str:
+    def handle(
+        self,
+        text: str,
+        sender: str,
+        attachments: list = None,
+        subjective_request_id: str | None = None,
+        subjective_context: str = "",
+    ) -> str:
         # Track user message in compressed history
         try:
             from app.config import get_settings
@@ -602,7 +609,10 @@ class CompressionMiddleware:
             logger.debug("Compression middleware: pre failed", exc_info=True)
 
         # Delegate to actual commander
-        result = self._commander.handle(text, sender, attachments or [])
+        result = self._commander.handle(
+            text, sender, attachments or [],
+            subjective_request_id, subjective_context,
+        )
 
         # Track assistant response + trigger compression
         try:

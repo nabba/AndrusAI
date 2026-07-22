@@ -24,7 +24,8 @@ class _DummyCommander:
         self.last_model_used = "claude-sonnet"
         self._internal_attr = 42
 
-    def handle(self, text, sender, attachments):
+    def handle(self, text, sender, attachments, subjective_request_id=None,
+               subjective_context=""):
         self.handle_calls.append((text, sender, list(attachments)))
         return self.response
 
