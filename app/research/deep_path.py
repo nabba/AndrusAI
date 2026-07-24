@@ -28,6 +28,20 @@ _REVIEW_SHAPE = re.compile(
     r"|\bresearch report\b",
     re.IGNORECASE,
 )
+# 2026-07-24: "make me a report on X" / "report on X ... over the years"
+# scored ZERO points before this — _REVIEW_SHAPE only matched the literal
+# phrase "research report". A plain "please make me a report on Estonia
+# forest health ... over the years" is one of the clearest possible
+# signals of wanting a long-form, evidence-backed product, yet it fell
+# through to the plain ``research`` crew (see
+# reports/ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md).
+_REPORT_SHAPE = re.compile(
+    r"\b(?:make|write|draft|prepare|compile|produce|create)\s+(?:me\s+)?"
+    r"(?:an?\s+)?report\b"
+    r"|\breport\s+on\b"
+    r"|\bover\s+the\s+years\b",
+    re.IGNORECASE,
+)
 _SOURCE_REQUEST = re.compile(
     r"\b(?:citations?|sources?|references?|doi|papers?|primary sources?)\b",
     re.IGNORECASE,
@@ -134,6 +148,8 @@ def assess_deep_research(
         add(4, "explicit-depth request")
     if _REVIEW_SHAPE.search(text):
         add(3, "review/evidence-synthesis shape")
+    if _REPORT_SHAPE.search(text):
+        add(2, "explicit report request")
     if _SOURCE_REQUEST.search(text):
         add(1, "source-verification requested")
     if _SYNTHESIS.search(text):
@@ -201,6 +217,32 @@ def promote_research_decisions(
                 ", ".join(assessment.reasons),
             )
     return out
+
+
+def drop_writing_after_deep_research(decisions: list[dict]) -> list[dict]:
+    """Drop a co-dispatched ``writing`` decision when ``deep_research`` is present.
+
+    ``execute_deep_research`` already runs a draft→critique chain and
+    returns the composed write-up itself (see ``HINT_DRAFT``/
+    ``HINT_CRITIQUE`` in ``app/research/run.py``). Dispatching a separate
+    ``writing`` crew alongside it in parallel is pure redundancy: the
+    writer never sees the research findings (each parallel crew gets only
+    its own router-authored task), so it either duplicates the report
+    from model weights or gets discarded — and the extra crew is exactly
+    what pushes a report-class request onto the timeout-capped multi-crew
+    dispatch path instead of the uncapped single-crew path (see
+    reports/ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md). Any other co-dispatched
+    crew (e.g. a genuinely independent "coding" decision) is left alone.
+    """
+    if not any(d.get("crew") == "deep_research" for d in decisions):
+        return decisions
+    kept = [d for d in decisions if d.get("crew") != "writing"]
+    if len(kept) != len(decisions):
+        logger.info(
+            "dropped redundant 'writing' decision — deep_research already "
+            "drafts and critiques its own write-up",
+        )
+    return kept
 
 
 def _parse_query_plan(raw: str) -> list[str]:

@@ -683,6 +683,63 @@ def _merge_crew_results(
     return combined, max_diff, partial_failure_note
 
 
+# Per-crew-class floor (seconds) for the multi-crew run_parallel timeout.
+# Historical averages (``conversation_store.get_crew_avg_duration``) are
+# biased low for these classes precisely because the flat 120s cap this
+# replaces has been killing runs before they finish — a floor keeps the
+# adaptive estimate honest until enough post-fix data accumulates. Values
+# come from measured real runs (research 652s, writing 345s) in
+# reports/ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md, rounded up with margin.
+_MULTI_CREW_TIMEOUT_FLOOR_BY_CLASS: dict[str, int] = {
+    "writing": 180,
+    "research": 480,
+    "deep_research": 780,
+    "coding": 480,
+}
+_MULTI_CREW_TIMEOUT_DEFAULT_FLOOR = 300
+# main.py's outer soft-timeout is 900s (_SOFT_TIMEOUT_SECS) and it already
+# extends gracefully with progress messaging up to a 45-min hard cap. This
+# ceiling leaves ~2 min of margin under that soft threshold for merge +
+# vetting + critic to run afterward — run_parallel's own timeout should be
+# a rare last resort for a genuinely hung crew, not the normal outcome for
+# real report/research work.
+_MULTI_CREW_TIMEOUT_CEILING = 780
+
+
+def adaptive_parallel_timeout(crew_names: list[str]) -> int:
+    """Size run_parallel's timeout to the slowest dispatched crew class.
+
+    Replaces the flat, chat-tuned 120s default (``parallel_runner.py``'s
+    ``_PARALLEL_DEFAULT_TIMEOUT``) which silently discarded real,
+    successfully-completed report/research work that took longer than a
+    quick chat reply — the crews finished (research 652s, writing 345s)
+    but ``run_parallel`` had already given up and returned a "Timed out"
+    apology (see reports/ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md). Uses
+    historical per-crew averages with a safety margin, floored per crew
+    class (see ``_MULTI_CREW_TIMEOUT_FLOOR_BY_CLASS``) and capped just
+    under main.py's outer soft-timeout so a genuinely hung crew still
+    times out rather than blocking indefinitely.
+    """
+    try:
+        from app.conversation_store import get_crew_avg_duration
+    except Exception:
+        get_crew_avg_duration = None  # pure-unit-test fallback
+
+    estimate = 0.0
+    for name in crew_names:
+        floor = _MULTI_CREW_TIMEOUT_FLOOR_BY_CLASS.get(
+            name, _MULTI_CREW_TIMEOUT_DEFAULT_FLOOR,
+        )
+        historical = 0.0
+        if get_crew_avg_duration is not None:
+            try:
+                historical = get_crew_avg_duration(name) * 1.5
+            except Exception:
+                historical = 0.0
+        estimate = max(estimate, historical, floor)
+    return int(min(estimate, _MULTI_CREW_TIMEOUT_CEILING))
+
+
 class Commander:
     def __init__(self):
         self.llm = create_commander_llm()
@@ -3200,11 +3257,20 @@ class Commander:
         # research decisions now promote synchronously; matrix research keeps
         # its purpose-built streaming orchestrator.
         try:
-            from app.research.deep_path import promote_research_decisions
+            from app.research.deep_path import (
+                drop_writing_after_deep_research,
+                promote_research_decisions,
+            )
 
             decisions = promote_research_decisions(
                 decisions, user_input=user_input,
             )
+            # 2026-07-24: deep_research drafts + critiques its own report —
+            # a separate parallel "writing" decision is redundant, blind to
+            # the findings, and is exactly what forces the request onto the
+            # timeout-capped multi-crew dispatch path (see
+            # reports/ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md).
+            decisions = drop_writing_after_deep_research(decisions)
         except Exception:
             logger.debug("deep research promotion failed", exc_info=True)
 
@@ -4077,7 +4143,11 @@ class Commander:
                     streamed_parts.append(pr.label)
 
             try:
-                results = run_parallel(parallel_tasks, on_complete=_on_crew_complete)
+                _timeout = adaptive_parallel_timeout([n for n, _ in parallel_tasks])
+                results = run_parallel(
+                    parallel_tasks, timeout_seconds=_timeout,
+                    on_complete=_on_crew_complete,
+                )
             except Exception as _par_exc:
                 _dispatch_error = f"Parallel dispatch failed: {_par_exc}"
                 logger.error(_dispatch_error, exc_info=True)

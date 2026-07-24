@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.autonomous_executor.models import ExecutorStatus
 from app.research.deep_path import (
+    drop_writing_after_deep_research,
     _deep_evidence_gate_for,
     _parse_query_plan,
     _usable_deep_evidence,
@@ -76,6 +77,57 @@ def test_matrix_research_is_never_replaced(monkeypatch) -> None:
         user_input="Do extensive deep research and populate all rows with sources.",
     )
     assert out[0]["crew"] == "research"
+
+
+def test_report_request_scores_points_it_previously_missed() -> None:
+    # 2026-07-24 incident regression (reports/ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md):
+    # this exact phrasing scored ~3 points pre-fix (evaluate +1, multi-"and" +1,
+    # difficulty>=7 +1) against a threshold of 4 — one point short, so it never
+    # promoted and instead got split into blind parallel research+writing crews
+    # that both got discarded by the (also-fixed) 120s multi-crew cap.
+    text = (
+        "please make me a report on estona forest health and deforestation "
+        "data over the years. research forestry industry business and "
+        "practices and evaluate those from critical point in view"
+    )
+    assessment = assess_deep_research(text, difficulty=7, threshold=4)
+    assert assessment.use_deep
+    assert "explicit report request" in assessment.reasons
+
+
+def test_report_shape_scores_even_without_the_word_report() -> None:
+    assessment = assess_deep_research(
+        "Please write me a report on X over the years.",
+        difficulty=5, threshold=4,
+    )
+    assert "explicit report request" in assessment.reasons
+
+
+def test_drop_writing_after_deep_research_removes_the_redundant_writer() -> None:
+    decisions = [
+        {"crew": "deep_research", "task": "research the topic"},
+        {"crew": "writing", "task": "write the topic"},
+    ]
+    out = drop_writing_after_deep_research(decisions)
+    assert [d["crew"] for d in out] == ["deep_research"]
+
+
+def test_drop_writing_leaves_other_crews_alone() -> None:
+    decisions = [
+        {"crew": "deep_research", "task": "research the topic"},
+        {"crew": "coding", "task": "build a chart"},
+    ]
+    out = drop_writing_after_deep_research(decisions)
+    assert [d["crew"] for d in out] == ["deep_research", "coding"]
+
+
+def test_drop_writing_is_a_noop_without_deep_research() -> None:
+    decisions = [
+        {"crew": "research", "task": "research the topic"},
+        {"crew": "writing", "task": "write the topic"},
+    ]
+    out = drop_writing_after_deep_research(decisions)
+    assert [d["crew"] for d in out] == ["research", "writing"]
 
 
 def test_critique_prompt_contains_full_evidence_not_titles_only() -> None:

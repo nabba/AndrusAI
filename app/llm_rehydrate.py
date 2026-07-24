@@ -26,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 _rehydrated = False
 
+# Mirrors the provider dispatch in app.llm_factory._construct_from_entry —
+# the only two providers the factory knows how to build. A promoted row
+# with any other provider (e.g. a pre-consolidation "anthropic" row) would
+# raise ConstructionFailed("unknown_provider", ...) on every selection
+# attempt if rehydrated; see the 2026-07-24 refusal check below.
+_VALID_CATALOG_PROVIDERS = frozenset({"openrouter", "ollama"})
+
 
 def rehydrate_catalog(force: bool = False, *, retries: int = 3, retry_sleep: float = 2.0) -> int:
     """Load every promoted discovered_models row into CATALOG.
@@ -104,6 +111,7 @@ def rehydrate_catalog(force: bool = False, *, retries: int = 3, retry_sleep: flo
 
     added = 0
     skipped = 0
+    invalid_provider = 0
     for row in rows:
         # Key shape matches _add_to_runtime_catalog's expectations.
         model_id = row["model_id"]
@@ -111,9 +119,29 @@ def rehydrate_catalog(force: bool = False, *, retries: int = 3, retry_sleep: flo
         if key in CATALOG:
             skipped += 1
             continue
+        # 2026-07-24: a promoted row surviving from before the
+        # OpenRouter+Ollama consolidation (2026-05-29) can carry
+        # provider="anthropic" (or any other pre-consolidation value).
+        # app.llm_factory._construct_from_entry only knows how to build
+        # "openrouter" and "ollama" entries — anything else raises
+        # ConstructionFailed("unknown_provider", ...) on EVERY selection
+        # attempt for that model's role, silently wasting a construction
+        # and falling back further down the chain (see
+        # reports/ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md, finding D1).
+        # Refuse to rehydrate what the factory can never build.
+        row_provider = row.get("provider") or "openrouter"
+        if row_provider not in _VALID_CATALOG_PROVIDERS:
+            invalid_provider += 1
+            logger.warning(
+                "rehydrate_catalog: skipping %s — stale provider %r is not "
+                "constructable (valid: %s); demote/delete this row in "
+                "control_plane.discovered_models",
+                key, row_provider, sorted(_VALID_CATALOG_PROVIDERS),
+            )
+            continue
         model_payload = {
             "model_id":          model_id,
-            "provider":          row.get("provider", "openrouter"),
+            "provider":          row_provider,
             "display_name":      row.get("display_name", key),
             "context_window":    int(row.get("context_window") or 0),
             "cost_input_per_m":  float(row.get("cost_input_per_m") or 0),
@@ -138,8 +166,8 @@ def rehydrate_catalog(force: bool = False, *, retries: int = 3, retry_sleep: flo
     # Always log final count so silent boot failures are visible.
     logger.info(
         "rehydrate_catalog: restored %d promoted model(s) into CATALOG "
-        "(%d already present, %d total on record)",
-        added, skipped, len(rows),
+        "(%d already present, %d invalid-provider skipped, %d total on record)",
+        added, skipped, invalid_provider, len(rows),
     )
     return added
 
