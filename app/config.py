@@ -82,16 +82,27 @@ class Settings(BaseSettings):
     # Parallelism — controls how many crews/sub-agents can run concurrently.
     max_parallel_crews: int = 3   # max crews commander can dispatch at once
     max_sub_agents: int = 4       # max sub-agents a single crew can spawn
-    # 2026-07-24: 6 → 16. The pool is shared by run_parallel's OUTER
-    # multi-crew dispatch AND every INNER sub-agent/debate-round fan-out a
-    # crew spawns from within its own execution (research_crew.py
-    # _run_parallel/_debate_round). At 6 workers, 2 outer crews + up to 4
-    # research subtopics + 2 debate challengers already exceeds the pool,
-    # queuing sub-agents behind unrelated outer work for their whole
-    # runtime (see reports/ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md). All
-    # this work is I/O-bound (waiting on LLM API calls), so a larger
-    # thread count is safe — it doesn't add CPU pressure, just headroom.
-    thread_pool_size: int = 16    # shared thread pool size (caps total API calls)
+    # 2026-07-24: bumped 6 → 16, then REVERTED same day. The intent was
+    # sound (see reports/ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md — the pool
+    # is shared by run_parallel's OUTER multi-crew dispatch AND every INNER
+    # sub-agent/debate-round fan-out, so 6 workers let research sub-agents
+    # queue behind an unrelated outer crew for its whole runtime), but the
+    # bump had an unaccounted-for dependency: every agent construction
+    # (``create_specialist_llm``) does a SYNCHRONOUS Postgres query for
+    # benchmark scores (``llm_benchmarks.get_combined_scores`` ->
+    # ``llm_external_ranks.get_external_score``) against a fixed 24-conn
+    # pool (``CONTROL_PLANE_POOL_MAX``). More concurrent threads meant more
+    # concurrent DB-pool contention, and a live eval-harness run the same
+    # day produced the worst event-loop wedge in the project's history
+    # (8 simultaneous psycopg2/pool.py frames in a loop-stall dump,
+    # workspace/healing/loop_stalls/20260724T171644Z.txt) plus three
+    # watchdog-triggered restarts in ~2.5h that kept recurring minutes
+    # after each fresh boot. Reverted to the safe prior value the same day.
+    # A real fix for the original starvation problem needs to ALSO account
+    # for DB-pool capacity (e.g. cache benchmark scores, or size this
+    # against CONTROL_PLANE_POOL_MAX), not just raise the thread ceiling —
+    # left for a follow-up, not reattempted here under incident pressure.
+    thread_pool_size: int = 6     # shared thread pool size (caps total API calls)
 
     # Cloud backup — set to a GitHub/git remote URL to enable workspace sync.
     # Use an HTTPS URL with a PAT for simplicity:
@@ -224,17 +235,20 @@ class Settings(BaseSettings):
     local_llm_enabled: bool = True
     local_llm_base_url: str = "http://host.docker.internal:11434"
     ollama_base_url: str = "http://localhost:11434"  # native Ollama on host
-    # 2026-07-24: 2 → 8. Despite the name, this semaphore (in
-    # app/crews/parallel_runner.py) throttles EVERY run_parallel task,
-    # not just Ollama-routed ones — a vestige of the pre-consolidation
-    # local-first design. Since the OpenRouter+Ollama consolidation
-    # (2026-05-29) most crew traffic is OpenRouter, not local Ollama, so
-    # capping ALL parallel dispatch (including nested sub-agent fan-out)
-    # at 2 concurrent starves inner sub-agents behind unrelated outer
-    # crews. 8 gives real headroom without needing a reentrant/tiered
-    # semaphore rewrite. TODO: rename to reflect its true scope (total
-    # parallel-crew concurrency, not Ollama-specific) in a follow-up.
-    ollama_max_concurrent_crews: int = 8  # max crews hitting Ollama at once (semaphore)
+    # 2026-07-24: bumped 2 → 8, then REVERTED same day alongside
+    # thread_pool_size — see that field's comment for the full incident
+    # account (DB-connection-pool contention from create_specialist_llm's
+    # synchronous benchmark-score lookup, not this semaphore itself, was
+    # the actual mechanism; caught by a live eval-harness run the same
+    # day: reports/ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md). Despite the
+    # name, this semaphore (app/crews/parallel_runner.py) throttles EVERY
+    # run_parallel task, not just Ollama-routed ones — a vestige of the
+    # pre-consolidation local-first design, and a real fix for the
+    # original nested-fan-out starvation problem needs to raise this
+    # WITHOUT exceeding what the shared Postgres connection pool
+    # (CONTROL_PLANE_POOL_MAX, default 24) can absorb — left for a
+    # follow-up rather than reattempted here under incident pressure.
+    ollama_max_concurrent_crews: int = 2  # max crews hitting Ollama at once (semaphore)
 
     # Role → model mapping (Ollama model names, auto-pulled on first use).
     # 2026-04-25: swapped qwen3:30b-a3b → qwen3.5:35b-a3b-q4_K_M for
