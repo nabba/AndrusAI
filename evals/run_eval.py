@@ -1,0 +1,207 @@
+#!/usr/bin/env python3
+"""Answering-pipeline golden-set eval runner.
+
+Part of the Phase 1 groundwork in docs/ANSWERING_V2_PLAN.md. Sends each
+question in golden_set.jsonl through the SAME dispatch path Signal uses
+(``POST /api/cp/chat/send`` -> ``Commander().handle()``) and scores the
+result on delivery + basic completeness heuristics, so future answering-
+pipeline changes can be compared against a recorded baseline instead of
+asserted.
+
+*** THIS SPENDS REAL LLM BUDGET AND WRITES REAL DATA ***
+Every question is a genuine dispatch through the live Commander — it
+incurs real per-role LLM cost, creates real control_plane.crew_tasks /
+audit.log / ticket rows, and (if the conversation-history join means a
+"sender" is shared with the real operator) becomes part of that
+conversation's history. Never run this against a shared production
+gateway without the operator's awareness of the cost and the resulting
+synthetic conversation entries. Use --sender to isolate the eval run's
+conversation history from the real owner's thread.
+
+Usage:
+    python evals/run_eval.py --base-url http://127.0.0.1:8765 \\
+        --sender eval-harness --out evals/results/baseline.json
+
+    # Re-run later and diff against a recorded baseline:
+    python evals/run_eval.py --out evals/results/after_phase2.json
+    python evals/run_eval.py --diff evals/results/baseline.json \\
+        evals/results/after_phase2.json
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+_GOLDEN_SET_PATH = Path(__file__).parent / "golden_set.jsonl"
+
+# Structural failure markers pulled directly from the code paths that
+# produce them (app/agents/commander/orchestrator.py's _merge_crew_results
+# apology strings, the main.py soft/hard-timeout apologies). A hit here
+# means the pipeline gave up rather than answered — independent of
+# whether the ANSWER itself is any good.
+_FAILURE_MARKERS = (
+    "wasn't able to put together an answer",
+    "didn't finish in time or",
+    "trouble understanding that request",
+    "ran for 10+ minutes without",
+    "ran for 20+ minutes without",
+    "hit the absolute 45-minute ceiling",
+    "stalled (no LLM activity",
+    "currently handling",  # load-shed message
+)
+
+
+@dataclass
+class EvalResult:
+    id: str
+    category: str
+    prompt: str
+    ok: bool                 # HTTP-level success
+    delivered: bool          # no structural failure marker present
+    latency_s: float
+    reply_chars: int
+    failure_marker: str | None = None
+    error: str | None = None
+    reply_preview: str = ""
+
+
+@dataclass
+class EvalReport:
+    base_url: str
+    sender: str
+    results: list[EvalResult] = field(default_factory=list)
+
+    def summary(self) -> dict:
+        n = len(self.results)
+        delivered = sum(1 for r in self.results if r.delivered)
+        errored = sum(1 for r in self.results if not r.ok)
+        avg_latency = (
+            sum(r.latency_s for r in self.results) / n if n else 0.0
+        )
+        return {
+            "n": n,
+            "delivered": delivered,
+            "delivery_rate": round(delivered / n, 3) if n else 0.0,
+            "http_errors": errored,
+            "avg_latency_s": round(avg_latency, 1),
+            "max_latency_s": round(max((r.latency_s for r in self.results), default=0.0), 1),
+        }
+
+
+def load_golden_set(path: Path = _GOLDEN_SET_PATH) -> list[dict]:
+    items = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                items.append(json.loads(line))
+    return items
+
+
+def _detect_failure_marker(reply: str) -> str | None:
+    lower = reply.lower()
+    for marker in _FAILURE_MARKERS:
+        if marker.lower() in lower:
+            return marker
+    return None
+
+
+def send_one(base_url: str, sender: str, prompt: str, timeout_s: float) -> tuple[str, float, str | None]:
+    """POST to /api/cp/chat/send. Returns (reply, latency_s, error)."""
+    url = f"{base_url.rstrip('/')}/api/cp/chat/send"
+    payload = json.dumps({"message": prompt, "sender": sender}).encode()
+    req = urllib.request.Request(
+        url, data=payload, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    t0 = time.monotonic()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            body = json.loads(resp.read())
+        return str(body.get("reply", "")), time.monotonic() - t0, None
+    except urllib.error.HTTPError as exc:
+        return "", time.monotonic() - t0, f"HTTP {exc.code}: {exc.read()[:300]}"
+    except Exception as exc:
+        return "", time.monotonic() - t0, f"{type(exc).__name__}: {exc}"
+
+
+def run(base_url: str, sender: str, timeout_s: float, only_ids: set[str] | None) -> EvalReport:
+    report = EvalReport(base_url=base_url, sender=sender)
+    items = load_golden_set()
+    if only_ids:
+        items = [i for i in items if i["id"] in only_ids]
+    for item in items:
+        print(f"-> {item['id']} ({item['category']}): {item['prompt'][:70]}...", file=sys.stderr)
+        reply, latency, error = send_one(base_url, sender, item["prompt"], timeout_s)
+        marker = _detect_failure_marker(reply) if reply else None
+        result = EvalResult(
+            id=item["id"], category=item["category"], prompt=item["prompt"],
+            ok=error is None, delivered=(error is None and marker is None and len(reply) >= 20),
+            latency_s=round(latency, 1), reply_chars=len(reply),
+            failure_marker=marker, error=error, reply_preview=reply[:200],
+        )
+        report.results.append(result)
+        status = "OK" if result.delivered else ("FAIL:" + (marker or error or "?"))
+        print(f"   {status}  {latency:.0f}s  {len(reply)} chars", file=sys.stderr)
+    return report
+
+
+def _print_diff(a: dict, b: dict) -> None:
+    a_by_id = {r["id"]: r for r in a["results"]}
+    b_by_id = {r["id"]: r for r in b["results"]}
+    print(f"{'id':<28} {'before':<10} {'after':<10} {'lat before':<12} {'lat after':<10}")
+    for qid in sorted(set(a_by_id) | set(b_by_id)):
+        ra, rb = a_by_id.get(qid), b_by_id.get(qid)
+        before = "delivered" if ra and ra["delivered"] else "FAILED" if ra else "missing"
+        after = "delivered" if rb and rb["delivered"] else "FAILED" if rb else "missing"
+        lb = f"{ra['latency_s']:.0f}s" if ra else "-"
+        la = f"{rb['latency_s']:.0f}s" if rb else "-"
+        print(f"{qid:<28} {before:<10} {after:<10} {lb:<12} {la:<10}")
+    print()
+    print("before:", a.get("summary"))
+    print("after: ", b.get("summary"))
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--base-url", default="http://127.0.0.1:8765")
+    ap.add_argument("--sender", default="eval-harness",
+                     help="Isolate the eval conversation from the real operator's Signal thread.")
+    ap.add_argument("--timeout", type=float, default=900.0,
+                     help="Per-question client timeout in seconds (report-class dispatch can take minutes).")
+    ap.add_argument("--only", nargs="*", default=None, help="Run only these golden-set ids.")
+    ap.add_argument("--out", type=Path, default=None, help="Write JSON report here.")
+    ap.add_argument("--diff", nargs=2, metavar=("BEFORE_JSON", "AFTER_JSON"),
+                     help="Skip running; just diff two previously-recorded reports.")
+    args = ap.parse_args()
+
+    if args.diff:
+        before = json.loads(Path(args.diff[0]).read_text())
+        after = json.loads(Path(args.diff[1]).read_text())
+        _print_diff(before, after)
+        return
+
+    only_ids = set(args.only) if args.only else None
+    report = run(args.base_url, args.sender, args.timeout, only_ids)
+    payload = {
+        "base_url": report.base_url,
+        "sender": report.sender,
+        "results": [asdict(r) for r in report.results],
+        "summary": report.summary(),
+    }
+    print(json.dumps(payload["summary"], indent=2))
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(payload, indent=2))
+        print(f"Report written to {args.out}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

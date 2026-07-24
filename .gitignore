@@ -21,6 +21,10 @@ host_bridge/capabilities.json.bak.*
 #   + config seeds: mcp_servers.json delegation_settings.json
 #     meta_agent_settings.json llm_catalog_overrides.json adversarial_tasks.json
 workspace/
+# Raw eval-harness run output (evals/run_eval.py --out) — reproducible on
+# demand, not a curated artifact. Record a summary in docs/PROGRAM.md
+# instead of committing the JSON if a result is worth keeping permanently.
+evals/results/
 __pycache__/
 *.pyc
 .pytest_cache/
