@@ -116,6 +116,25 @@ _UNGROUNDED_DISCLOSURE = re.compile(
 )
 
 
+def _canonical_artifacts():
+    """The serving path's artifact definitions, so the two cannot drift.
+
+    ``app/crews/output_integrity.py`` is the single source of truth, imported by
+    both the post-crew check in the orchestrator and this scorer. Falls back to
+    the local patterns when ``app`` is not importable (scoring a report on a host
+    without the gateway installed).
+    """
+    import sys
+    root = str(Path(__file__).resolve().parents[1])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    try:
+        from app.crews.output_integrity import find_artifacts, is_whole_reply_json
+        return find_artifacts, is_whole_reply_json
+    except Exception:
+        return None, None
+
+
 def _strip_fences(text: str) -> str:
     lines = (text or "").strip().splitlines()
     if lines and lines[0].lstrip().startswith("```"):
@@ -126,6 +145,9 @@ def _strip_fences(text: str) -> str:
 
 
 def _is_whole_reply_json(text: str) -> bool:
+    _, canonical = _canonical_artifacts()
+    if canonical is not None:
+        return canonical(text)
     body = _strip_fences(text).strip()
     if not body or body[0] not in "{[":
         return False
@@ -208,12 +230,23 @@ def score_result(contract: dict, result: dict) -> dict:
         "citation_resolution": "unchecked — evidence set not stored (Phase 3)",
     })
 
-    # 1. Internal artifacts. Most certain signal; checked first.
-    for clause, pattern in _ARTIFACTS:
-        if pattern.search(reply):
-            clauses.append(clause)
-    if _is_whole_reply_json(reply) and shape != "structured_dossier":
-        clauses.append("leakage:raw_json")
+    # 1. Internal artifacts. Most certain signal; checked first. Prefer the
+    #    serving path's canonical definitions (app/crews/output_integrity.py) so
+    #    a shape the gate suppresses and a shape the scorer fails can never
+    #    diverge; strict=True because in scoring an ambiguous marker anywhere is
+    #    worth flagging, whereas serving requires it to dominate.
+    canonical_find, _ = _canonical_artifacts()
+    if canonical_find is not None:
+        clauses.extend(
+            c for c in canonical_find(reply, strict=True)
+            if not (c == "leakage:raw_json" and shape == "structured_dossier")
+        )
+    else:
+        for clause, pattern in _ARTIFACTS:
+            if pattern.search(reply):
+                clauses.append(clause)
+        if _is_whole_reply_json(reply) and shape != "structured_dossier":
+            clauses.append("leakage:raw_json")
     if clauses:
         return {"verdict": FAIL, "clauses": clauses, "checks": checks,
                 "coverage_checked": False, "reply_truncated": truncated}

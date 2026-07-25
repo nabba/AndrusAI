@@ -2324,6 +2324,35 @@ class Commander:
                 logger.debug("Post-crew telemetry failed", exc_info=True)
         _ctx_pool.submit(_post_crew_telemetry)
 
+        # ── Output integrity (2026-07-25): a crew must not deliver its own
+        # scaffolding as an answer ──────────────────────────────────────────
+        # Applied to EVERY crew, deliberately. Every gate fix in this effort had
+        # protected exactly one fork, and the plain `research` crew — which has
+        # no evidence gate at all — delivered three of the four leakage failures
+        # on the 07-25 golden set: raw tool-call syntax as a 79-char "report",
+        # the ReAct scratchpad, and internal JSON. A crash traceback went out as
+        # the dossier.
+        #
+        # On detection this becomes a no-answer signal rather than a rewrite, so
+        # _handle_locked's short circuit reports the real cause and skips
+        # vetting/critic — there is nothing to review. Non-strict mode: an
+        # ambiguous marker must dominate the reply, because a false positive
+        # here would destroy a genuine answer.
+        try:
+            from app.crews.output_integrity import describe, find_artifacts
+            _artifacts = find_artifacts(result or "")
+            if _artifacts:
+                from app.crews.outcome import record_no_answer
+                _cause = describe(_artifacts)
+                logger.warning(
+                    "output_integrity: %s delivered scaffolding, not an answer "
+                    "(%s) — suppressing and reporting the cause",
+                    crew_name, ", ".join(_artifacts),
+                )
+                record_no_answer(crew_name, _cause)
+        except Exception:
+            logger.debug("output integrity check raised", exc_info=True)
+
         # ── Cure B (2026-05-10): post-run artifact verification ──
         # If handle() classified this task as artifact-shape, the
         # response MUST reference an existing, non-empty artifact.
