@@ -252,6 +252,21 @@ class ResearchCrew:
             "</attachment>",
             "</attachment_error>",
             "</reference_data>",
+            # 2026-07-25: the SubIA lifecycle hook PREPENDS its context block to
+            # every crew task (orchestrator._consume_pre_task_context), and this
+            # list did not know the marker — so the "core topic" was the context
+            # block itself, with the user's actual question buried after it.
+            # Observed live in control_plane.crew_tasks as topics literally
+            # reading "--- SubIA Context --- loop: compressed scene (2 items…".
+            # Consequences: research crews returned raw tool-call syntax
+            # ("call:web_search{query:…}") and ReAct scratchpad ("Thought: The
+            # user wants…") as final answers, and the dossier crew built an
+            # output filename from the block and died with
+            # OSError: [Errno 36] File name too long:
+            #   '…/dossier_subia_context_loop_compressed_scene_2_items_0_74…'
+            # Present since at least 2026-07-24. Everything after the end
+            # marker is the real assignment, so it is a clean boundary.
+            "--- End SubIA Context ---",
         ]
         last_xml_end = 0
         for tag in xml_end_tags:
