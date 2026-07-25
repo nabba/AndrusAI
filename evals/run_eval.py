@@ -222,6 +222,16 @@ class EvalResult:
     # Non-zero means the answer was probably served by the tool-incapable
     # local failover, so the row measures an outage rather than the pipeline.
     credit_errors: int = 0
+    # FULL reply (2026-07-25, Phase 1). Previously only reply_preview[:200] was
+    # kept, which is why --rescore is documented as "a floor on the failure
+    # count, not a ceiling", and why the labelled validation set can check
+    # leakage but not groundedness. Every scorer beyond substring matching needs
+    # the whole text.
+    reply: str = ""
+    # UTC ISO bounds, so evals/provenance.py can join this question EXACTLY to
+    # control_plane.crew_tasks instead of guessing from a time window.
+    started_at: str = ""
+    ended_at: str = ""
 
 
 @dataclass
@@ -269,6 +279,24 @@ class EvalReport:
             "credit_errors": credit_errors,
             "questions_with_credit_errors": contaminated,
             "credit_watch": self.credit_watch,
+            # ── What `delivered` actually means (2026-07-25) ────────────────
+            # TRANSPORT, not quality: bytes came back that don't match a
+            # blocklist of known failure phrasings. That blocklist has been
+            # wrong three times, always overstating success — most recently
+            # scoring 12/12 on a run whose real quality rate was 5/11, with
+            # seven replies of internal leakage (raw tool-call syntax, ReAct
+            # scratchpad, raw JSON, a crash traceback) counted as successes.
+            # Do not quote `delivery_rate` as a quality figure.
+            # See docs/EVAL_HARNESS_V2_PLAN.md.
+            "scoring": "transport-only",
+            "quality_scored": False,
+            "scoring_warning": (
+                "delivery_rate measures TRANSPORT (bytes returned that avoid a "
+                "failure blocklist), NOT answer quality. Known to overstate: "
+                "internal leakage, honest non-answers and ungrounded prose all "
+                "score as delivered. Score against each question's `contract` "
+                "in golden_set.jsonl instead — see docs/EVAL_HARNESS_V2_PLAN.md."
+            ),
         }
 
 
@@ -374,7 +402,9 @@ def run(
 
     for item in items:
         print(f"-> {item['id']} ({item['category']}): {item['prompt'][:70]}...", file=sys.stderr)
+        started_at = datetime.now(timezone.utc)
         reply, latency, error = send_one(base_url, sender, item["prompt"], timeout_s)
+        ended_at = datetime.now(timezone.utc)
         credit_errors = watcher.poll()
         marker = _detect_failure_marker(reply) if reply else None
         result = EvalResult(
@@ -382,7 +412,8 @@ def run(
             ok=error is None, delivered=(error is None and marker is None and len(reply) >= 20),
             latency_s=round(latency, 1), reply_chars=len(reply),
             failure_marker=marker, error=error, reply_preview=reply[:200],
-            credit_errors=credit_errors,
+            credit_errors=credit_errors, reply=reply,
+            started_at=started_at.isoformat(), ended_at=ended_at.isoformat(),
         )
         report.results.append(result)
         status = "OK" if result.delivered else ("FAIL:" + (marker or error or "?"))
@@ -534,6 +565,18 @@ def main() -> None:
         "summary": report.summary(),
     }
     print(json.dumps(payload["summary"], indent=2))
+    print(
+        "\n!! delivery_rate above is TRANSPORT-ONLY and is known to overstate "
+        "quality.\n"
+        "!! Score against each question's `contract` in golden_set.jsonl, then\n"
+        "!! attach provenance so the number is interpretable:\n"
+        "!!   docker compose run --rm --no-deps -v \"$PWD/evals:/app/evals\" "
+        "gateway \\\n"
+        "!!     python evals/provenance.py <report.json>\n"
+        "!!   python evals/review_sheet.py <report.json> --out <sheet.md>\n"
+        "!! See docs/EVAL_HARNESS_V2_PLAN.md.",
+        file=sys.stderr,
+    )
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(payload, indent=2))

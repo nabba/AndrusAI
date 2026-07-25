@@ -640,3 +640,86 @@ successes, honest non-answers counted as successes, and now internal leakage
 counted as success. It should be replaced with a positive check (does the reply
 answer the question, with citations where required), not extended with more
 substrings.
+
+---
+
+## Addendum 8 — Phase 1 provenance immediately found two systematic bugs
+
+`docs/EVAL_HARNESS_V2_PLAN.md` Phase 1 shipped: the harness stores full replies
+and per-question UTC timestamps, `evals/provenance.py` joins each question to
+`control_plane.tickets`/`crew_tasks`, and `evals/review_sheet.py` renders the
+contract + provenance + full reply for human labelling. Run provenance where the
+credentials already live — `docker compose run --rm --no-deps ... gateway` injects
+the service env, so nothing is duplicated.
+
+Joined 12/12 on the "12/12 delivered" run. The crew column alone explains most of
+the failures:
+
+| question | crews | gate | contract verdict |
+|---|---|---|---|
+| gs_report_forest | commander → **deep_research** → critic | presumed_clear | fail (ungrounded) |
+| gs_report_industry | commander → **research** | **none** | fail (raw JSON) |
+| gs_research_deep | commander → **deep_research** → critic | presumed_clear | fail (false capability claim) |
+| gs_multi_and | commander → **deep_research** → critic | presumed_clear | blocked_infrastructure |
+| gs_dossier | **pim** → commander → critic | none | fail (crash) |
+| gs_report_no_evaluate | commander → **research** ×2 | **none** | fail (tool-call leak) |
+| gs_ambiguous_short_report | commander → **research** ×3 | **none** | fail (scratchpad leak) |
+
+**Three of the four leakage failures are the plain `research` crew, which has no
+evidence gate at all.** The gate work in this report only ever protected the
+`deep_research` path; non-deterministic routing decides which one a report
+question gets.
+
+**`gs_dossier` never reached a dossier crew** — it went to `pim`. The
+`company_dossier` fast-route did not fire, which is why an "investment-grade
+dossier" request produced a filename crash.
+
+### Bug A — the critic crew is failing 100% of the time, silently
+
+Every question where the critic ran (5 of 5) failed identically:
+
+```
+Task execution failed: litellm.BadRequestError: OpenrouterException -
+  {"error":{"message":"Provider returned error","code":400,
+   "metadata":{"raw":"{\"type\":\"error\",\"error\":{\"type\":\"invalid_requ…
+```
+
+This is **D4 from the original 2026-07-24 diagnosis** — the native-tools path
+building a message array with a system message after assistant messages, yielding
+an Anthropic-side `invalid_request_error`. It was listed as deferred and has been
+live ever since.
+
+It fails *silently*: `critic_crew.review()` catches the exception and returns the
+original output unchanged ("On failure, return original output — don't block
+delivery"). So adversarial review has not run on any high-difficulty answer, and
+nothing surfaced that. Every "the critic blocked this" conclusion earlier in this
+report refers to the *pre-2026-07-25* runs; in the latest run the critic never
+executed at all.
+
+### Bug B — the leaked scaffolding is a TaskOutput validation failure
+
+The two questions that returned raw scaffolding both show:
+
+```
+research  failed  1 validation error for TaskOutput
+raw
+  Input should be a valid string…
+```
+
+So the leak is not "the crew was confused about its task" — CrewAI's
+`TaskOutput` rejected the crew's output and the raw partial content escaped as
+the reply. That is a different and more tractable defect than the SubIA topic
+pollution fixed in `4c11f769`, and it needs its own fix: a crew whose output
+fails validation must not have its raw buffer delivered.
+
+### Assessment
+
+Phase 1's gate was "the sheet answers, for every historical run, which crew
+handled this and did a gate run." It does — and in doing so it found two
+systematic bugs that reading replies did not. Neither is fixed here.
+
+Known limitation: best-effort joins (reports predating timestamp capture) can
+include a neighbouring question's tail, because crews outlive the HTTP response.
+Windows are clamped to the previous question's ticket, which removed most of it;
+`gs_report_no_evaluate` and `gs_ambiguous_short_report` still show a leading
+neighbour crew. Reports written from now on carry exact timestamps.
