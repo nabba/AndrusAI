@@ -25,6 +25,10 @@ workspace/
 # demand, not a curated artifact. Record a summary in docs/PROGRAM.md
 # instead of committing the JSON if a result is worth keeping permanently.
 evals/results/
+# Scorer output is regenerated from a (gitignored) results file by
+# `python evals/score.py <report>` — tracking it would leave stale verdicts in
+# the repo. The human-facing review sheets (evals/review/*.md) stay tracked.
+evals/review/*.json
 __pycache__/
 *.pyc
 .pytest_cache/
