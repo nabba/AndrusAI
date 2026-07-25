@@ -1,0 +1,34 @@
+# Ephemeral test runner. Kept separate from docker-compose.yml so the serving
+# stack never gains a test dependency.
+#
+#   docker build -f Dockerfile.test -t crewai-team-test:latest .
+#   docker compose -f docker-compose.test.yml run --rm test \
+#       python -m pytest tests/ -q -p no:cacheprovider
+#
+# Why compose rather than `docker run --env-file .env`: docker's own env-file
+# parser keeps inline comments, so `VOICE_MODE=off  # ...` reaches Settings
+# verbatim and every test file that imports app.config dies at collection.
+# Compose parses .env the way the gateway does.
+#
+# Deliberately absent, and load-bearing:
+#   * no `chroma_data` volume and CHROMA_DATA_ROOT cleared — ChromaDB is
+#     single-writer (PROGRAM §55/§86) and the live writer is the gateway. A test
+#     container that opened the same store is the dual-writer corruption path.
+#   * no ./workspace bind — tests write to the image's empty /app/workspace,
+#     which dies with the container instead of touching live ledgers.
+services:
+  test:
+    image: crewai-team-test:latest
+    env_file: .env
+    environment:
+      CHROMA_DATA_ROOT: ""
+      PYTHONPATH: /app
+      PYTHONDONTWRITEBYTECODE: "1"
+    working_dir: /app
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests
+      - ./evals:/app/evals
+      - ./conftest.py:/app/conftest.py
+    network_mode: none
+    command: python -m pytest tests/ -q -p no:cacheprovider

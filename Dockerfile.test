@@ -1,0 +1,12 @@
+# Thin test-runner image: the production gateway image plus the dev-only test
+# dependencies (pytest, TestClient). Keeping it separate means the runtime image
+# never ships a test runner, while iteration still costs no rebuild — mount
+# app/, tests/ and evals/ over this image instead.
+#
+# Build: docker build -f Dockerfile.test -t crewai-team-test:latest .
+# Run:   docker run --rm -v "$PWD/app:/app/app" -v "$PWD/tests:/app/tests" \
+#          -v "$PWD/evals:/app/evals" -w /app -e PYTHONPATH=/app \
+#          crewai-team-test:latest python -m pytest tests/ -q
+FROM crewai-team-gateway:latest
+COPY requirements-dev.txt /tmp/requirements-dev.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-dev.txt

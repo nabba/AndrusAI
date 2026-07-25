@@ -132,6 +132,42 @@ def _cited_identifiers(text: str) -> set[str]:
     return {item for item in out if item}
 
 
+def requires_grounded_synthesis(question: str) -> str | None:
+    """Name the request shape that makes retrieved evidence non-optional.
+
+    This is the *grounding* question — "must this answer rest on retrieved
+    sources?" — which is not the same as the *depth* question the score below
+    estimates. Conflating the two is what made grounding a lottery: the score
+    mixes text signals with the router's ``difficulty`` integer, and that
+    integer is not reproducible. Identical text ("please make me a report on
+    estona forest health…", 183 chars) was scored 5, 7 and 8 on different runs,
+    so the same request reached the gated ``deep_research`` path on some runs
+    and the ungated ``research`` path on others — and ``research`` has no
+    evidence or citation checking at all. Measured 2026-07-26; see
+    reports/GATE_DIAGNOSIS_2026-07-25.md.
+
+    Shape alone therefore decides grounding, with no difficulty term, so the
+    answer for a given request text never changes between runs. Returns the
+    matching shape name, or ``None`` when evidence is not structurally
+    required (a simple lookup like "what is Estonia's current population?"
+    stays on the fast path).
+    """
+    text = (question or "").strip()
+    if not text:
+        return None
+    if _EXPLICIT_DEPTH.search(text):
+        return "explicit-depth request"
+    if _REVIEW_SHAPE.search(text):
+        return "review/evidence-synthesis shape"
+    if _REPORT_SHAPE.search(text):
+        return "explicit report request"
+    # An analytical comparison across several things is a report in all but
+    # name — it cannot be answered honestly from model weights.
+    if _SYNTHESIS.search(text) and _BREADTH.search(text):
+        return "analytical comparison across multiple subjects"
+    return None
+
+
 @dataclass(frozen=True)
 class DeepResearchAssessment:
     """Explainable result of the deterministic depth gate."""
@@ -140,6 +176,14 @@ class DeepResearchAssessment:
     score: int
     threshold: int
     reasons: tuple[str, ...]
+    #: Shape that required grounding regardless of score, if any.
+    grounding_shape: str | None = None
+    #: True when no difficulty guess in 1..10 could change this verdict, i.e.
+    #: the same request text always takes the same fork. False marks the
+    #: residual the shape floor does not cover. Kept observable on purpose:
+    #: "which safety machinery ran" varying between identical runs went
+    #: unnoticed for days because nothing recorded it.
+    deterministic: bool = True
 
 
 def assess_deep_research(
@@ -183,18 +227,45 @@ def assess_deep_research(
         add(1, "long multi-constraint question")
     if text.count("?") >= 2 or len(re.findall(r"\b(?:and|versus|vs\.?|while)\b", text, re.I)) >= 2:
         add(1, "multiple subquestions")
+    difficulty_points = 0
     if difficulty >= 9:
-        add(3, "difficulty>=9")
+        difficulty_points = 3
     elif difficulty >= 8:
-        add(2, "difficulty>=8")
+        difficulty_points = 2
     elif difficulty >= 7:
-        add(1, "difficulty>=7")
+        difficulty_points = 1
+    if difficulty_points:
+        add(difficulty_points, f"difficulty>={min(difficulty, 9)}")
+
+    # The shape floor: a request whose form makes evidence mandatory takes the
+    # gated path whatever the score says, so the router's non-reproducible
+    # difficulty guess can never withhold grounding. Difficulty survives only
+    # as an additional route *into* the gated path — it can add grounding,
+    # never remove it.
+    grounding_shape = requires_grounded_synthesis(text)
+    if grounding_shape is not None:
+        reasons.append(f"grounding required: {grounding_shape}")
+
+    score_says_deep = score >= threshold
+    use_deep = score_says_deep or grounding_shape is not None
+
+    # Is this verdict reproducible for this text? A shape floor is unconditional,
+    # so it always is. Otherwise the verdict is reproducible only when no
+    # difficulty guess in 1..10 could have changed it — the difficulty bonus
+    # spans 0..3, so it is enough to compare both ends.
+    if grounding_shape is not None:
+        deterministic = True
+    else:
+        text_only = score - difficulty_points
+        deterministic = (text_only >= threshold) == (text_only + 3 >= threshold)
 
     return DeepResearchAssessment(
-        use_deep=score >= threshold,
+        use_deep=use_deep,
         score=score,
         threshold=threshold,
         reasons=tuple(reasons),
+        grounding_shape=grounding_shape,
+        deterministic=deterministic,
     )
 
 
@@ -230,14 +301,33 @@ def promote_research_decisions(
             "score": assessment.score,
             "threshold": assessment.threshold,
             "reasons": list(assessment.reasons),
+            "grounding_shape": assessment.grounding_shape,
+            "deterministic": assessment.deterministic,
         }
         if assessment.use_deep:
             decision["crew"] = "deep_research"
             logger.info(
-                "deep research auto-promoted (score=%d/%d, reasons=%s)",
+                "deep research auto-promoted (score=%d/%d, shape=%s, "
+                "deterministic=%s, reasons=%s)",
                 assessment.score,
                 assessment.threshold,
+                assessment.grounding_shape or "-",
+                assessment.deterministic,
                 ", ".join(assessment.reasons),
+            )
+        if not assessment.deterministic:
+            # The router's difficulty guess was the deciding vote, so this
+            # verdict is not reproducible for the same request text. Logged
+            # loudly rather than silently, because "which safety machinery ran"
+            # varying between identical runs is the defect this gate was
+            # changed to remove.
+            logger.warning(
+                "deep research verdict depended on router difficulty=%s "
+                "(score=%d/%d, use_deep=%s) — not reproducible for this text",
+                decision.get("difficulty"),
+                assessment.score,
+                assessment.threshold,
+                assessment.use_deep,
             )
     return out
 
@@ -684,6 +774,7 @@ def execute_deep_research(
 __all__ = [
     "DeepResearchAssessment",
     "assess_deep_research",
+    "requires_grounded_synthesis",
     "promote_research_decisions",
     "collect_deep_evidence",
     "execute_deep_research",

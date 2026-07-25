@@ -60,6 +60,29 @@ _brave_quota_state_loaded: bool = False
 _last_backend_used: str | None = None
 _last_failure_chain: list[str] = []
 _last_rejection_counts: dict[str, int] = {}
+# Why a backend produced nothing this call, keyed by backend name. Populated by
+# ``_record_backend_error``; consumed by ``_chain_label``.
+_last_backend_errors: dict[str, str] = {}
+
+
+def _record_backend_error(backend: str, exc: BaseException) -> None:
+    """Remember why ``backend`` produced nothing, so the failure chain can name
+    a real cause.
+
+    Every backend helper returns ``[]`` both when the search genuinely matched
+    nothing and when the request raised. The chain label was inferred from that
+    empty list alone, so a timeout, an HTTP error and a real zero-hit result all
+    read ``<backend>:no_results`` — which is why the 2026-07-25 investigation
+    could not tell whether SearXNG was broken or simply had no matches (see
+    reports/GATE_DIAGNOSIS_2026-07-25.md, Addendum 10 "Unresolved").
+    """
+    _last_backend_errors[backend] = f"{type(exc).__name__}: {exc}"[:200]
+
+
+def _chain_label(backend: str) -> str:
+    """``<backend>:no_results`` only when the backend really returned nothing."""
+    reason = _last_backend_errors.get(backend)
+    return f"{backend}:error({reason})" if reason else f"{backend}:no_results"
 
 
 def _load_brave_quota_block() -> None:
@@ -176,6 +199,7 @@ def _search_brave_raw(query: str, count: int) -> list[dict] | None:
         ]
     except Exception as exc:
         logger.debug("web_search: brave failed: %s", exc)
+        _record_backend_error("brave", exc)
         return []
 
 
@@ -199,6 +223,7 @@ def _search_searxng(query: str, count: int) -> list[dict]:
         ]
     except Exception as exc:
         logger.debug("web_search: searxng failed: %s", exc)
+        _record_backend_error("searxng", exc)
         return []
 
 
@@ -239,6 +264,7 @@ def _search_duckduckgo(query: str, count: int) -> list[dict]:
         return out
     except Exception as exc:
         logger.debug("web_search: ddg failed: %s", exc)
+        _record_backend_error("ddg", exc)
         return []
 
 
@@ -253,8 +279,10 @@ def search_brave(query: str, count: int = 5) -> list[dict]:
     Always returns a list (possibly empty when every tier failed).
     """
     global _last_backend_used, _last_failure_chain, _last_rejection_counts
+    global _last_backend_errors
     chain: list[str] = []
     _last_rejection_counts = {}
+    _last_backend_errors = {}
 
     res = _search_brave_raw(query, count)
     if res:
@@ -266,7 +294,7 @@ def search_brave(query: str, count: int = 5) -> list[dict]:
             return valid[:count]
         chain.append("brave:rejected")
     else:
-        chain.append("brave:quota" if res is None else "brave:error")
+        chain.append("brave:quota" if res is None else _chain_label("brave"))
 
     res = _search_searxng(query, count)
     if res:
@@ -278,7 +306,7 @@ def search_brave(query: str, count: int = 5) -> list[dict]:
             return valid[:count]
         chain.append("searxng:rejected")
     else:
-        chain.append("searxng:no_results")
+        chain.append(_chain_label("searxng"))
 
     res = _search_duckduckgo(query, count)
     if res:
@@ -290,7 +318,7 @@ def search_brave(query: str, count: int = 5) -> list[dict]:
             return valid[:count]
         chain.append("ddg:rejected")
     else:
-        chain.append("ddg:no_results")
+        chain.append(_chain_label("ddg"))
 
     _last_backend_used = None
     _last_failure_chain = chain
@@ -312,6 +340,7 @@ def get_search_status() -> dict:
         "last_backend_used": _last_backend_used,
         "last_failure_chain": list(_last_failure_chain),
         "last_rejection_counts": dict(_last_rejection_counts),
+        "last_backend_errors": dict(_last_backend_errors),
         "brave_quota_blocked_until": (
             _brave_quota_blocked_until if _brave_blocked_now() else None
         ),

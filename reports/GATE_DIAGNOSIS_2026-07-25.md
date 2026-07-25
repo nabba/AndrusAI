@@ -957,3 +957,134 @@ Every claim graded PROBED has a repeatable command or test behind it. Everything
 graded INFERRED is a story that fits the evidence — which is exactly what the two
 retracted claims also were. **Do not build on an INFERRED row without probing it
 first.** That is the single lesson of this whole effort.
+
+---
+
+## Addendum 11 — the routing coin flip, measured and closed (2026-07-26)
+
+Handoff item 1. The mechanism is now **probed**, and it was cheaper to probe than
+to re-run the golden set: the fork-selection logic is a deterministic scorer, so
+sweeping its one non-reproducible input settles the question offline, for free.
+
+### The mechanism
+
+`app/research/deep_path.py:assess_deep_research` is not an LLM call. It sums
+keyword-shape points and the router's `difficulty` integer, and compares the sum
+to `deep_research_min_score` (default 4). Only decisions whose `crew` is
+`research` are considered; whichever way that comparison lands decides between:
+
+| fork | grounding machinery |
+|---|---|
+| `deep_research` | evidence gate, untraced-citation check, critique |
+| `research` | **none** — `app/crews/research_crew.py` contains no evidence, citation or gate reference at all (verified by grep, 569 lines) |
+
+**A bare report request scored 2 against a threshold of 4.** So "make me a report
+on X" reached the gated path only if the router happened to guess difficulty ≥ 8.
+
+### The measurements
+
+**Scorer sweep** (`evals/probe_route_sensitivity.py`, no LLM, no spend):
+**4 of 12** golden questions changed fork on `difficulty` alone —
+`gs_report_industry` and `gs_multi_and` (deep only at d≥7),
+`gs_report_no_evaluate` and `gs_ambiguous_short_report` (deep only at d≥8).
+All four are report/analysis class, i.e. exactly the class where grounding matters.
+
+**Production data** (`control_plane.tickets`, post-promotion — `assign_to_crew`
+runs at orchestrator.py:3392, after promotion at :3321, so the column records the
+fork actually used):
+
+| question | observed difficulty → crew |
+|---|---|
+| dairy report | 5 → `research`; 7 → `deep_research`; 8 → `deep_research` |
+| forests report | 5 → `research`; 8 → `deep_research` |
+| Tallinn housing | 5 → `research` (twice) |
+| poem | 2 → `commander`; 8 → `creative` |
+
+The forest request, **byte-identical at 183 chars across seven runs**, was scored
+5, 7 and 8. The poem row confirms a second threshold of the same shape:
+`maybe_promote_to_creative` fires on `difficulty >= 6`.
+
+**One row does not fit** and is not explained: 07-24 14:39, difficulty 7, went
+`deep_research` while the then-live scorer (`_REPORT_SHAPE` was added by
+`e6fea929` at 07-24 17:00 — verified by re-running the pre-commit scorer) puts
+that text at 3/4. The likeliest reading is that the container held the change
+before it was committed, which cannot be checked now. Recorded rather than
+explained away.
+
+### The fix
+
+A **shape floor**, `requires_grounded_synthesis(text)`: explicit-depth, review
+shape, report shape, or analytical-comparison-across-subjects makes retrieved
+evidence mandatory *regardless of score*. Grounding therefore depends only on
+request text, which is reproducible.
+
+Deliberately not a threshold tweak. The scorer conflated two different questions
+— "must this be grounded?" and "how deep should it go?" — and only the first
+should gate safety machinery. The score route survives untouched, so difficulty
+can still *add* grounding, never withhold it.
+
+The residual is kept visible instead of being claimed away:
+`DeepResearchAssessment.deterministic` is False when no difficulty in 1..10 would
+have changed the verdict, and `promote_research_decisions` logs a WARNING when it
+fires. Before this, "which safety machinery ran" varying between identical runs
+was recorded nowhere.
+
+**Result:** all 12 golden questions are difficulty-invariant — 6 always gated, 6
+never. The fast questions stay fast (population lookup, poem, chat, calendar,
+coding, dossier all remain off the deep path, pinned by test).
+
+### The cost, measured
+
+Report-class tickets, last 4 days: `deep_research` avg **758 s**, `research` avg
+**104 s**. So reports get ~7× slower and some will now return an honest "could
+not ground this" instead of fluent ungrounded prose — `gs_report_forest` and
+`gs_report_industry` already fail that way on the gated path. Operator accepted
+this trade, and chose contract-based gating of the fast path as the next step.
+Recorded `cost_usd` was ~equal on both forks, but cost attribution is broken
+globally (see Bonus above), so no cost claim is made.
+
+### Also closed
+
+**`searxng:no_results` (was UNKNOWN).** The label was inferred from an empty
+return value, and every backend returns `[]` both for "matched nothing" and for
+"raised". The reason is now recorded per backend by `_record_backend_error` and
+rendered by `_chain_label`, so the chain reads either `searxng:no_results` or
+`searxng:error(TimeoutError: …)`. A direct probe found SearXNG healthy
+(5 results for a natural query), so the historical line was not a persistent
+misconfiguration; it cannot be diagnosed retrospectively because no reason was
+ever stored.
+
+**`9e9112e7` regression status (was unverified).** Verified: identical failure
+sets across `9e9112e7^`, `36747966`, and this tree — 77 failure lines each over a
+1,783-test selection. The 51 failures are pre-existing. Baselines are on disk at
+`.test-baselines/` (gitignored, outside `/tmp`), reproducible via the new
+`docker-compose.test.yml`.
+
+### Claims ledger for this addendum
+
+| claim | grade | evidence |
+|---|---|---|
+| Fork selection is a deterministic scorer + the router's difficulty integer | PROBED | code read; scorer executed over the golden set at every difficulty |
+| `research` has no grounding gate | PROBED | grep over all 569 lines |
+| 4/12 golden questions flipped fork on difficulty alone | MEASURED | scorer sweep, output in the probe |
+| Identical 183-char text scored 5, 7 and 8 | MEASURED | 7 `tickets` rows, full titles compared |
+| Same text reached both forks in production | MEASURED | `assigned_crew` across those rows |
+| Ticket `assigned_crew` is post-promotion | PROBED | call order in orchestrator.py (:3321 then :3392) |
+| `_REPORT_SHAPE` explains the 07-24 morning `research` row | PROBED | pre-commit scorer re-executed: 3/4 at d=7 |
+| The 07-24 14:39 row | **UNKNOWN** | does not fit the scorer-version model; not explained |
+| Shape floor makes all 12 difficulty-invariant | PROBED | sweep re-run post-fix; 24 tests, 5 of which fail with the floor disabled |
+| deep 758 s vs research 104 s for report-class | MEASURED | `tickets`, 4-day window, n=15 / n=5 |
+| SearXNG healthy now | PROBED | live call returned 5 results |
+| Why `searxng:no_results` was logged historically | **UNKNOWN** | no reason was ever recorded; instrumented so the next occurrence is diagnosable |
+| No regressions from this change | MEASURED | identical 77-line failure sets, +31 passes |
+
+### Deliberately not done
+
+The ONE_PATH_DESIGN §5 golden-set reproducibility re-run was **skipped by
+operator decision**: it would confirm the consequence, not the mechanism, at 12+
+dispatches and the wedge risk that materialised twice on 07-24. The mechanism is
+established from production data plus an offline sweep.
+
+Still open, unchanged: thread sprawl (36 unattributed `tokio-rt-worker`),
+content-starvation caps, the `TaskOutput` validation leak, whether an ungrounded
+report ever passed the evidence gate, and the eval Phase 2 full-reply gate.
