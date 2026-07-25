@@ -498,3 +498,77 @@ Recovered by removing both stale containers (stateless — data lives in the
 postgres services and the `workspace` bind mount) and running
 `docker compose up -d --no-deps gateway`. Healthy in 48s, `RestartCount=0`,
 zero tracebacks.
+
+---
+
+## Addendum 6 — designing the filter deliberately concluded: don't build it
+
+Asked to design the reverted relevance filter properly rather than defer it. The
+design work started by establishing what the code actually receives — the step
+skipped the first time — and that investigation invalidated the filter's premise.
+
+**What the input really is.** `DeepResearchCrew.run` → `ResearchCrew._extract_core_topic`
+→ `execute_deep_research` → `run.goal` → `collect_deep_evidence(run.goal)`.
+`_extract_core_topic` strips *injected context blocks* (KB passages, conversation
+history), **not** the router's instruction wrapper. So the goal's shape depends
+on whatever the routing LLM writes — sometimes near the user's words, sometimes
+"Produce a critical, well-sourced report (roughly 1500-2000 words, structured
+with headings) on…". No filter can assume either shape.
+
+**Then two plausible hypotheses died on contact with evidence.** Recording both,
+because each felt convincing:
+
+1. *"Instruction-shaped queries return nothing from searxng."* **Wrong.** Probed
+   the live instance: instruction-shaped queries return **20 results**, the same
+   as topic-shaped ones. Query shape is not why `searxng:no_results` was logged.
+2. *"The `search_validation` lexical-overlap filter drops everything."* **Wrong.**
+   It requires only **one** term of overlap (`if query_terms and not overlap`), so
+   it cannot explain an empty result set — and a long instruction query makes
+   overlap *more* likely, not less.
+
+**What IS established.** `web_search` has three tiers — Brave (paid), self-hosted
+searxng, DDG. Brave is **quota-exhausted (HTTP 402)**, and on 2026-07-25 all
+three failed together at least twice:
+
+```
+web_search: all backends failed for 'Conduct deep comparative research on solar
+  vs wind subsidy p': ['brave:quota', 'searxng:no_results', 'ddg:no_results']
+```
+
+With no web evidence, deep research falls back to KB (our own internal notes) and
+arXiv (keyword collisions — a solar-flare EUV paper for "solar"). **That is
+exactly the off-topic evidence set observed in `gs_multi_and`.** Both searxng and
+`_search_searxng` work when probed now, so that total failure was transient and
+is not currently reproducible.
+
+One incidental find: for a goal beginning "Produce a critical report on Estonian
+forest health…", the evidence set contained
+`https://www.merriam-webster.com/dictionary/produce` — a dictionary definition of
+the instruction's leading verb.
+
+### The design conclusion
+
+**The off-topic-evidence problem is retrieval AVAILABILITY, not ranking.** A
+relevance filter sits at the wrong end: when the web tier is down, it would
+correctly reject the KB/arXiv fallback and turn a bad answer into *no* answer.
+That is a more honest failure but not a better one, and it would have hidden the
+real cause — as it already did once, by regressing `gs_report_forest` into a
+no-evidence block that looked like a gate problem.
+
+So the filter is **not** being rebuilt. The operator action that unblocks web
+evidence is **topping up the Brave quota**; the reproducibility gap
+(`searxng:no_results` while searxng demonstrably works) needs a logged reason
+from `_search_searxng`'s exception path before it can be diagnosed — it currently
+swallows the error at `logger.debug`.
+
+### What was fixed instead
+
+`1d5aa105` — **the Brave quota backoff is now persisted.**
+`_brave_quota_blocked_until` lived only in a module global, so every gateway
+restart reset it, re-probed the exhausted API, earned another 402, and logged
+another 24h backoff the next restart would also forget. Three such logs on
+2026-07-25 (09:25, 14:32, 16:19) match that day's container recreations. Now
+written to `workspace/.brave_quota_block` (a bind mount) and read once per
+process, failure-isolated in both directions. 8 tests including a simulated
+restart; deploy verified by checking the code inside the running container, not
+just `/health`.
