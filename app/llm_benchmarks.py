@@ -296,23 +296,33 @@ def get_scores(task_type: str, blend_external: bool = True) -> dict[str, float]:
         return internal
 
     try:
-        from app.llm_external_ranks import get_external_score
+        from app.llm_external_ranks import get_external_scores_bulk
         from app.llm_catalog import CATALOG
     except Exception:
         return internal
 
-    # Union of models that have either signal
-    candidates = set(internal)
+    # ONE query for every model's external score (2026-07-25).
+    #
+    # This used to call ``get_external_score(name, task_type)`` per model, in a
+    # loop over the whole runtime catalog, and then AGAIN per candidate below —
+    # ~720 synchronous Postgres queries per call with a 360-entry catalog, on
+    # the ``create_specialist_llm`` path, i.e. per agent construction. Against
+    # the fixed 24-connection pool that is what wedged the gateway when
+    # ``thread_pool_size`` was raised 6→16 (3 force-restarts in 2.5h; stack in
+    # ``workspace/healing/loop_stalls/20260724T171644Z.txt`` names this exact
+    # chain). Fetching the whole map once is both correct and ~720× cheaper.
+    external = get_external_scores_bulk(task_type)
+
+    # Union of models that have either signal.
     # Only blend external signal for catalog-known models to avoid
     # injecting stale rows for retired identifiers.
-    for name in CATALOG:
-        if get_external_score(name, task_type) is not None:
-            candidates.add(name)
+    candidates = set(internal)
+    candidates.update(name for name in CATALOG if name in external)
 
     blended: dict[str, float] = {}
     for model in candidates:
         internal_score = internal.get(model)
-        external_score = get_external_score(model, task_type)
+        external_score = external.get(model)
         if internal_score is None and external_score is None:
             continue
         if internal_score is None:

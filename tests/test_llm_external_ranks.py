@@ -216,9 +216,14 @@ class TestBlendedScoring:
         assert "model-a" in internal
         internal_a = internal["model-a"]
 
+        # Patches the bulk seam: as of 2026-07-25 ``get_scores`` fetches every
+        # model's external score in ONE query instead of calling
+        # ``get_external_score`` per model over the whole catalog (721 queries
+        # per agent construction at 360 entries — it exhausted the 24-conn pool
+        # and wedged the gateway).
         with patch(
-            "app.llm_external_ranks.get_external_score",
-            side_effect=lambda name, tt: 0.9 if name == "model-a" else None,
+            "app.llm_external_ranks.get_external_scores_bulk",
+            side_effect=lambda tt=None, *a, **k: {"model-a": 0.9},
         ):
             with patch("app.llm_catalog.CATALOG", {"model-a": {"strengths": {}}}):
                 with patch(
@@ -255,8 +260,8 @@ class TestBlendedScoring:
         import app.llm_benchmarks as bm
 
         with (patch(
-                "app.llm_external_ranks.get_external_score",
-                side_effect=lambda name, tt: 0.77 if name == "claude-sonnet-4.6" else None,
+                "app.llm_external_ranks.get_external_scores_bulk",
+                side_effect=lambda tt=None, *a, **k: {"claude-sonnet-4.6": 0.77},
               ),
               patch("app.config.get_settings", return_value=SimpleNamespace(
                   external_ranks_enabled=True, external_ranks_weight=0.3,

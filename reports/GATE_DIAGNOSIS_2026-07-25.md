@@ -112,16 +112,51 @@ Because `start_request_tracking` returns an existing tracker when one is set, a 
 
 ## Relevant to handoff step 3 (concurrency / Postgres)
 
-The 15:43 wedge's stall dump names a **different** blocking vector than the psycopg2 pool contention seen at 17:16:
+> **⚠️ CORRECTED 2026-07-25 — the original text of this section was wrong.** It
+> read the 15:43 dump's *first-listed* thread as the blocking one and concluded
+> there was "a synchronous Postgres write in every LLM call's success callback"
+> blocking the event loop. On re-reading the dump properly:
+>
+> * The asyncio loop thread's entire stack is `asyncio/runners.py:118 run` —
+>   **no blocking Python frame at all.** The loop was starved, not blocked.
+> * `rate_throttle._store` already runs on a detached daemon thread
+>   (`rate_throttle.py:499`), so that write was never on the loop.
+> * Only **1–2** training-capture threads appear in either dump, against 74 and
+>   79 total threads.
+>
+> The dump's own header comment ("the asyncio loop thread's frame below names
+> the blocking call") is a heuristic that misleads when the loop is starved
+> rather than blocked. The two stalls are different events:
+>
+> | dump | duration | psycopg2-blocked threads | reading |
+> |---|---|---|---|
+> | `20260724T154312Z` | 6.2 s | 1 | GIL/CPU-starvation blip across 74 threads |
+> | `20260724T171644Z` | **36.5 s** | **7** | the real pool wedge |
+>
+> Only the 17:16 dump is the incident. The single genuine issue in the
+> training-capture path is that it spawns **one unbounded daemon thread per LLM
+> call**, each taking a pool connection — a contributor to thread count and pool
+> pressure, but not the mechanism, and both files involved
+> (`rate_throttle.py`, `training_collector.py`) are `TIER_IMMUTABLE`. Left
+> alone deliberately.
+
+**The actual mechanism, measured.** `create_specialist_llm` → `select_model` →
+`resolve_role_default` → `get_combined_scores` → `get_scores`, which looped over
+the whole runtime catalog calling `get_external_score` once per model — then
+again per candidate. Each of those is its own Postgres query. Measured against
+unmodified `3e1c3797` with the live catalog size of 360 entries:
 
 ```
-config.py:269 in mem0_postgres_url
-training_collector.py:174 in _store_to_postgres
-training_collector.py:161 in _store_record
-rate_throttle.py:495 in _store
+BASELINE queries for one get_scores() over a 360-entry catalog: 721
 ```
 
-That is a synchronous Postgres write in **every LLM call's success callback**. Caching the benchmark-score query in `create_specialist_llm` is necessary but **not sufficient** — this path must be audited too, and it gets hotter during a retry storm.
+**721 synchronous queries per agent construction**, against the fixed
+24-connection `CONTROL_PLANE_POOL_MAX` pool. Raising `thread_pool_size` 6→16
+multiplied that across more concurrent constructions, which is exactly how the
+gateway ended up with 7 threads blocked in `psycopg2/pool.py` inside this chain
+and 3 watchdog force-restarts in 2.5 h.
+
+Fixed 2026-07-25 (see the addendum below): bulk fetch + TTL cache, **721 → 1**.
 
 ---
 
@@ -175,3 +210,38 @@ the *other* synchronous-Postgres-on-the-hot-path vector named by the 15:43
 stall) before re-running the harness live. The harness will now refuse to
 record an invalid baseline, but it will not protect the gateway from the
 concurrency wedge.
+
+---
+
+## Addendum 2 — the DB-pool ceiling is fixed (2026-07-25)
+
+The prerequisite for re-recording a baseline, and for ever re-attempting the
+reverted concurrency bump.
+
+**Change:** `llm_external_ranks.get_external_scores_bulk()` fetches every
+model's external score in one query, behind a 300 s TTL cache invalidated on
+`_upsert`; `get_external_score()` now serves from that map, so all existing
+callers benefit without changing their call sites; `llm_benchmarks.get_scores()`
+takes the map once instead of looping the catalog twice.
+
+**Measured:** 721 → **1** query per `get_scores()` over a 360-entry catalog.
+Verified by running the same measurement against unmodified `3e1c3797`.
+
+**Tests:** `tests/test_benchmark_query_fanout_2026_07_25.py` — 8 tests pinning
+the *query count*, not just the result, since a correctness-only test passes on
+the broken version. Two pre-existing tests in `test_llm_external_ranks.py`
+patched `get_external_score` as their seam and were updated to patch the bulk
+function; their assertions are unchanged.
+
+**Regressions:** none. The failure set over `-k 'llm or benchmark or
+external_rank or catalog or selector or orchestrat or routing or commander or
+critic or vetting or creative or deep_research or artifact or parallel or
+tracker or credit or outcome'` is **70 on both** this tree and unmodified
+`3e1c3797`, verified by diffing the two sorted lists.
+
+**Still open before raising concurrency again:** the pool ceiling is no longer
+the binding constraint, but nothing here re-tests the *nested-semaphore
+starvation* that the reverted bump was originally trying to fix. Raise
+`thread_pool_size` / `ollama_max_concurrent_crews` only with a fresh trace of
+what the added threads do — and now that agent construction is ~721× cheaper in
+DB terms, that trace should look very different.

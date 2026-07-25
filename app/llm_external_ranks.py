@@ -38,6 +38,7 @@ import json
 import logging
 import os
 import statistics
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -432,6 +433,10 @@ def _upsert(ranks: Iterable[ExternalRank]) -> int:
             written += 1
         except Exception as exc:
             logger.debug(f"external_ranks: upsert {r.source}/{r.model_id}/{r.metric} failed: {exc}")
+    if written:
+        # New rows landed — drop the read cache so selection sees them on the
+        # next call rather than up to _BULK_CACHE_TTL_S later.
+        invalidate_external_score_cache()
     return written
 
 
@@ -484,6 +489,110 @@ def _stale(ttl_hours: float) -> bool:
     return True
 
 
+# ── Bulk score cache ────────────────────────────────────────────────────
+#
+# ``get_external_score`` used to issue one Postgres query per model, and
+# ``llm_benchmarks.get_scores`` calls it in a loop over the WHOLE runtime
+# catalog — twice. With 360 catalog entries that is ~720 synchronous queries
+# per ``create_specialist_llm`` call, i.e. per agent construction, against the
+# fixed 24-connection ``CONTROL_PLANE_POOL_MAX`` pool.
+#
+# That is the mechanism behind the 2026-07-24 incident: raising
+# ``thread_pool_size`` 6→16 multiplied those 720 queries across more concurrent
+# agent constructions, and the gateway wedged with 8 threads blocked in
+# ``psycopg2/pool.py`` inside this exact call path
+# (``workspace/healing/loop_stalls/20260724T171644Z.txt``), force-restarted 3×
+# in 2.5h. The concurrency bump was reverted; this is the actual fix, and the
+# prerequisite for ever re-attempting it.
+#
+# Two changes, both needed:
+#   * **Bulk fetch** — one query returns every model's score, killing the N+1.
+#   * **TTL cache** — rows refresh weekly (``refresh_all``), so a short
+#     in-process cache is safely stale-tolerant and removes repeat load
+#     across the many agent constructions inside one request.
+#
+# See reports/GATE_DIAGNOSIS_2026-07-25.md.
+_BULK_CACHE_TTL_S = 300.0
+
+_bulk_cache: dict[str, tuple[float, dict[str, float]]] = {}
+_bulk_cache_lock = threading.Lock()
+
+
+def _bulk_cache_key(task_type: str | None, max_age_hours: float) -> str:
+    return f"{task_type or ''}|{float(max_age_hours)}"
+
+
+def invalidate_external_score_cache() -> None:
+    """Drop the bulk cache. Call after writing new ``external_ranks`` rows."""
+    with _bulk_cache_lock:
+        _bulk_cache.clear()
+
+
+def get_external_scores_bulk(
+    task_type: str | None = None,
+    max_age_hours: float = DEFAULT_TTL_HOURS * 2,
+    *,
+    use_cache: bool = True,
+) -> dict[str, float]:
+    """Every model's aggregated external score, in ONE query.
+
+    Same filtering and aggregation as :func:`get_external_score`, evaluated for
+    all models at once. Returns ``{model_id: score}``; models with no usable
+    row are simply absent, which callers read as ``None``.
+
+    Fail-open: on any DB error returns an empty map, so selection degrades to
+    internal telemetry rather than raising inside model construction.
+    """
+    key = _bulk_cache_key(task_type, max_age_hours)
+    now = time.monotonic()
+    if use_cache:
+        with _bulk_cache_lock:
+            cached = _bulk_cache.get(key)
+            if cached is not None and (now - cached[0]) < _BULK_CACHE_TTL_S:
+                return cached[1]
+
+    try:
+        from app.control_plane.db import execute
+    except Exception:
+        return {}
+
+    try:
+        rows = execute(
+            """
+            SELECT model_id, metric, value
+              FROM control_plane.external_ranks
+             WHERE task_type IN ('', %s)
+               AND fetched_at >= NOW() - INTERVAL '1 hour' * %s
+               AND metric IN ('quality', 'elo', 'speed')
+            """,
+            (task_type or "", float(max_age_hours)),
+            fetch=True,
+        ) or []
+    except Exception:
+        logger.debug("get_external_scores_bulk: query failed", exc_info=True)
+        return {}
+
+    grouped: dict[str, list[float]] = {}
+    for row in rows:
+        value = row.get("value")
+        model_id = row.get("model_id")
+        if value is None or not model_id:
+            continue
+        try:
+            grouped.setdefault(str(model_id), []).append(float(value))
+        except (TypeError, ValueError):
+            continue
+
+    scores = {
+        model_id: round(statistics.mean(values), 4)
+        for model_id, values in grouped.items()
+        if values
+    }
+    with _bulk_cache_lock:
+        _bulk_cache[key] = (now, scores)
+    return scores
+
+
 def get_external_score(
     model_id: str,
     task_type: str | None = None,
@@ -496,28 +605,11 @@ def get_external_score(
     available quality-axis rows (``quality``, ``elo``, ``speed``) —
     ``cost`` and raw tokens counts are excluded from the blend because
     the selector already considers cost separately.
-    """
-    try:
-        from app.control_plane.db import execute
-    except Exception:
-        return None
 
-    rows = execute(
-        """
-        SELECT metric, value
-          FROM control_plane.external_ranks
-         WHERE model_id = %s
-           AND task_type IN ('', %s)
-           AND fetched_at >= NOW() - INTERVAL '1 hour' * %s
-           AND metric IN ('quality', 'elo', 'speed')
-        """,
-        (model_id, task_type or "", float(max_age_hours)),
-        fetch=True,
-    ) or []
-    values = [float(r["value"]) for r in rows if r.get("value") is not None]
-    if not values:
-        return None
-    return round(statistics.mean(values), 4)
+    Served from the shared bulk map (see :func:`get_external_scores_bulk`), so
+    a loop over many models costs one query instead of one query per model.
+    """
+    return get_external_scores_bulk(task_type, max_age_hours).get(model_id)
 
 
 def get_external_breakdown(model_id: str) -> dict[str, dict[str, float]]:
