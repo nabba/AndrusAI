@@ -245,3 +245,172 @@ starvation* that the reverted bump was originally trying to fix. Raise
 `thread_pool_size` / `ollama_max_concurrent_crews` only with a fresh trace of
 what the added threads do — and now that agent construction is ~721× cheaper in
 DB terms, that trace should look very different.
+
+---
+
+## Addendum 3 — FIRST VALID BASELINE recorded 2026-07-25
+
+`evals/results/baseline_2026-07-25.json`. Run in an ephemeral container on the
+compose network (no host process), `--sender eval-harness-20260725`,
+concurrency left at the reverted 6 / 2 so no concurrency change is bundled into
+the measurement.
+
+**`valid: true` · 0 credit errors · 0 HTTP errors · 9/12 delivered (75%)**
+
+The gateway survived all twelve questions. On 07-24 it wedged at question 7 and
+the last six never ran — that alone is the pool fix (721 → 1 queries per agent
+construction) doing its job.
+
+| question | 07-24 (void) | 07-25 (valid) | latency |
+|---|---|---|---|
+| gs_report_forest | FAILED | **FAILED** | 625s → 481s |
+| gs_report_industry | FAILED | **FAILED** | 320s → 858s |
+| gs_research_deep | FAILED | delivered | 1144s → 538s |
+| gs_research_light | delivered | delivered | 41s → 157s |
+| gs_writing_only | FAILED | delivered | 308s → **18s** |
+| gs_coding | delivered | delivered | 1452s → **64s** |
+| gs_multi_and | HTTP-err | **FAILED** | 1775s → 597s |
+| gs_short_chat | HTTP-err | delivered | — → 40s |
+| gs_calendar | HTTP-err | delivered | — → 42s |
+| gs_dossier | HTTP-err | delivered | — → 163s |
+| gs_report_no_evaluate | HTTP-err | delivered | — → 425s |
+| gs_ambiguous_short_report | HTTP-err | delivered | — → 264s |
+
+avg latency 472s → 304s; max 1775s → 858s.
+
+**Caveat on the comparison:** the 07-24 column is the void run, kept only for
+orientation. Five of its six completed questions ran under credit exhaustion, so
+the latency deltas cannot be attributed cleanly to the pool fix — the Fibonacci
+1452s → 64s and poem 308s → 18s improvements are consistent with agent
+construction having been the bottleneck, but a credit storm was also removed.
+Only 07-25 is a reference point.
+
+### The three remaining failures are NOT gate miscalibration
+
+This is the important finding, and it is a different problem from the one fixed.
+
+**gs_report_forest, gs_report_industry — the anti-fabrication check, firing
+correctly.** Both cleared the precondition I fixed (they no longer block on
+citation *format*) and now stop one check later, at `deep_path.py`'s untraced-
+citation check:
+
+```
+BLOCKED: … final synthesis contains citation(s) not retrieved by this run:
+  https://elfond.ee, https://keskkonnaagentuur.ee, https://www.eea.europa.eu
+  https://ec.europa.eu/eurostat, https://news.err.ee, https://piimaliit.ee
+```
+
+Every one is a **bare organization homepage**. These are real institutions, not
+hallucinated domains — but they were not in the run's evidence set. The model is
+padding its bibliography with plausible org homepages it never retrieved, which
+is precisely what that check exists to catch. Note the check already accepts
+substring matches (`token in identifier`), so a retrieved deep link would have
+covered its own domain; these genuinely aren't there.
+
+**Root cause is upstream, in the prompts.** `_build_draft_prompt` says *"attribute
+it to its source (author, link, or arXiv id)"* and `_build_critique_prompt` says
+*"Preserve real URLs/identifiers, cite sources inline"*. **Neither forbids
+introducing a source that is not in the supplied evidence.** The model is doing
+what it was asked. Fix: instruct both steps to cite ONLY from the supplied
+evidence, preferring `[Sn]` labels, and to name an unretrieved organisation
+without a URL.
+
+**gs_multi_and — the critic, also firing correctly**, on a retrieval failure:
+*"The research crew received an off-topic evidence bundle containing no data on
+oil shale or renewables"*. Evidence *retrieval* returned irrelevant results; the
+draft built on it was rightly withheld. Note this went through the `research`
+crew + critic, not `deep_research`, so the no-answer short circuit did not cover
+it — as documented in `app/crews/outcome.py`.
+
+**The no-answer fix is confirmed working.** All three failures now read *"The
+deep_research step didn't produce an answer: …"* with the real cause, instead of
+blaming adversarial review for an upstream bug.
+
+### What 75% does and does not mean
+
+It is a *delivery* rate, not a quality score. `gs_ambiguous_short_report`
+("report on Tallinn's housing prices") counts as delivered on **122 characters**
+— thin for the ask. The golden set still has no groundedness or completeness
+rubric, so the plan's success metrics 2 and 3 remain unmeasured.
+
+### Bearing on ANSWERING_V2_PLAN Phases 2–4
+
+The plan's premise was that *topology* caps quality. With a valid measurement in
+hand: **9/12 delivered, no wedge, no discarded work, and every remaining failure
+is a grounding or retrieval defect that a lead agent would inherit unchanged.**
+Two prompt lines and better evidence retrieval address all three. Nothing here
+argues for replacing the serving topology; the case for Phases 2–4 is now code
+health (5 research paths → 1, Python 3.14 / chromadb-2 unblocking), not answer
+quality — and should be scheduled as such.
+
+---
+
+## Addendum 4 — closed-citation-set fix, and two new findings (2026-07-25)
+
+Deployed `06caad82`. Re-ran only the three failing questions
+(`evals/results/retry_citation_fix_2026-07-25.json`, sender
+`eval-harness-20260725b`). Honest scorecard — **not** 2/3 fixed:
+
+| question | before | after | real status |
+|---|---|---|---|
+| gs_report_forest | blocked, untraced citations | **delivered, 6500 chars** | **genuinely fixed** |
+| gs_report_industry | blocked, untraced citations | blocked, *different* gate | **partly fixed** |
+| gs_multi_and | critic block | "delivered", 1780 chars | **NOT fixed** — see below |
+
+**gs_report_forest — fixed, and for the right reason.** The original incident
+question, failing since 07-23, now delivers a full report. It opens by scoping
+itself honestly: *"Note on scope: the user asked for 'data over the years.' The
+retrieved evidence in this run do[es not…]"* — which is exactly the intended
+behaviour. Told it may only cite what it was given, the model states the
+limitation instead of padding the bibliography.
+
+**gs_report_industry — the citation padding is gone; it now fails one gate
+later.** Before: `contains citation(s) not retrieved by this run` (untraced
+URLs). After: `anti-fabrication verification — empirical claims with no recorded
+measurement or retrieval-traced citation` — a different check (`HINT_VERIFY`,
+`run.py:1240`). Latency 858s → 217s, so it fails much earlier. The draft has
+stopped inventing links but still asserts numbers it cannot trace. Real progress
+in mechanism, still not delivered.
+
+### New finding A — the harness counts an honest non-answer as delivered
+
+`gs_multi_and` scored *delivered* on this content:
+
+> **Finding: this run cannot answer the question — the retrieved evidence
+> contains no Estonia energy data.** All retrieved sources are off-topic: AI
+> research-synthesis notes on a safety-invariant architecture [S1][S2][S3][S9]
+> [S10]; a generic probabilistic energy-forecasting model [S4]; a 250B-parameter
+> language model report [S5]; a solar-flare EUV irradiance predictor (solar
+> physics, not solar power) [S6]; and two text-diff web tools [S7][S8].
+
+That is a *better failure* than the previous self-blaming critic block — it names
+the real cause and cites its evidence correctly. But it is **not an answer to the
+question**, and `delivered` counts it as one. This is the same class of defect as
+the original scorer bug (which counted refusals as successes): the metric cannot
+see a well-formed non-answer. **The 9/12 baseline is therefore an upper bound.**
+Fixing it properly needs the groundedness/completeness rubric the golden set
+still lacks, not another substring marker — marker-based scoring has now been
+wrong twice.
+
+### New finding B — evidence retrieval is returning off-topic, partly
+### self-referential content
+
+For "Estonia's oil shale industry versus renewable energy", `collect_deep_evidence`
+returned AI-safety architecture notes from the system's **own** knowledge base,
+a 250B language-model report, two text-diff web tools, and a **solar-flare EUV
+irradiance predictor** — a keyword collision on "solar". Ten sources, zero on
+topic.
+
+This is upstream of every gate and is now the clear top defect: the gates and
+prompts are working correctly on evidence that should never have been handed to
+them. It also explains `gs_report_industry` — a draft cannot trace claims to
+evidence that isn't about its subject. Worth noting the run-to-run variance this
+implies: `gs_multi_and` was a *control* in this re-run and it moved, so single
+runs cannot distinguish a fix from a lucky sample. The forest result is credible
+because the blocking check and its cause were identified precisely; it is not
+credible on n=1 alone.
+
+**Next, in order:** (1) fix deep-evidence retrieval — relevance filtering and
+excluding the system's own internal notes from research KB hits; (2) add the
+groundedness/completeness rubric so `delivered` stops overcounting; (3) re-run
+the full twelve once both land.
