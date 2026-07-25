@@ -1,0 +1,65 @@
+{
+  "run": "after_brave_restored_2026-07-25",
+  "labelled_by": "assistant (manual read of full replies + DB result_summary)",
+  "labelled_at": "2026-07-25",
+  "purpose": "Phase 0/1 validation set. Any Phase 2 scorer must reproduce these.",
+  "caveat": "Derived from 200-char previews plus tickets.result_summary (500 chars). Sufficient to validate leakage/shape detection; NOT sufficient to validate groundedness judging — Phase 1 must store full replies first.",
+  "outcomes": {
+    "gs_report_forest": {
+      "verdict": "fail",
+      "clause": "ungrounded-by-disclosure"
+    },
+    "gs_report_industry": {
+      "verdict": "fail",
+      "clause": "leakage:raw_json"
+    },
+    "gs_research_deep": {
+      "verdict": "fail",
+      "clause": "false_capability_claim"
+    },
+    "gs_research_light": {
+      "verdict": "pass",
+      "clause": "figure_in_range+asof+attribution"
+    },
+    "gs_writing_only": {
+      "verdict": "pass",
+      "clause": "verse_shape+setting"
+    },
+    "gs_coding": {
+      "verdict": "pass",
+      "clause": "function+docstring+tests"
+    },
+    "gs_multi_and": {
+      "verdict": "blocked_infrastructure",
+      "clause": "named_cause+withheld_content"
+    },
+    "gs_short_chat": {
+      "verdict": "pass",
+      "clause": "brief_direct_response"
+    },
+    "gs_calendar": {
+      "verdict": "pass",
+      "clause": "events_with_times (shape-only; weakest question)"
+    },
+    "gs_dossier": {
+      "verdict": "fail",
+      "clause": "leakage:crash_traceback"
+    },
+    "gs_report_no_evaluate": {
+      "verdict": "fail",
+      "clause": "leakage:tool_call_syntax"
+    },
+    "gs_ambiguous_short_report": {
+      "verdict": "fail",
+      "clause": "leakage:react_scratchpad"
+    }
+  },
+  "summary": {
+    "pass": 5,
+    "fail": 6,
+    "blocked_infrastructure": 1,
+    "quality_rate": "5/11 = 45%",
+    "harness_reported": "12/12 = 100%",
+    "overstated_by": 7
+  }
+}
