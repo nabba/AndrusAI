@@ -889,3 +889,71 @@ names the blocking call — actively misleads when the loop is starved rather th
 blocked. Three claims in this report were made from single dumps and two had to be
 retracted. Correlate across multiple dumps and count threads before asserting a
 mechanism.
+
+---
+
+## Addendum 10 — claims ledger: what is probed, what is inferred
+
+This report is now ten addenda long and will be someone's starting point. Two of
+its three stall-dump conclusions had to be retracted, so every substantive claim
+is graded here by the evidence actually behind it. The original
+`ANSWER_QUALITY_DIAGNOSIS_2026-07-24.md` was believed wholesale and sent this
+effort down a wrong path for a day; this ledger exists so that cannot repeat.
+
+Grades: **PROBED** = a direct experiment or measurement was run · **MEASURED** =
+counted from logs/DB programmatically · **OBSERVED** = seen in one source, not
+independently confirmed · **INFERRED** = reasoning, no direct test ·
+**UNKNOWN** = explicitly unresolved · **RETRACTED** = asserted then withdrawn.
+
+### Fixes — all PROBED
+
+| claim | grade | evidence |
+|---|---|---|
+| Evidence gate's two halves disagreed on `[Sn]`; KB chunk ids made it unpassable | PROBED | code read + tests that fail on the old logic and pass on the new |
+| Creative budget compared whole-request spend to a per-run cap | PROBED | DB shows two runs with byte-identical 71,095 tok / $0.198364, second lasting 0.32 s; unit test reproduces |
+| Request cost tracker leaked into pooled threads | PROBED | test asserts the tracker is absent from pool workers after a run |
+| 721 Postgres queries per agent construction → 1 | PROBED | measurement executed against unmodified `3e1c3797` printed `721`; live container now prints `1` |
+| SubIA context block became the crew's task | PROBED | DB topics read `--- SubIA Context ---`; fix live-verified in container |
+| Critic 400 (system-after-assistant) | PROBED **with causation** | offending array `[assistant, system, user]` through a factory LLM: normalizer fires, call returns `OK`; previously 400 from every upstream |
+| Brave 402 was a self-imposed $25/mo cap | PROBED | direct API call returned `current_spend 25.0 / usage_limit 25.0` |
+| Substring scorer counts 5 of 6 known failures as success | PROBED | executed against the six shapes |
+
+### Diagnostic claims — mixed
+
+| claim | grade | note |
+|---|---|---|
+| 69 × HTTP 402, all failing over to `ollama/llama3.1:8b` during the baseline | MEASURED | counted from `errors.jsonl` |
+| First 402 landed during question 2; question 1 ran clean | MEASURED | timestamps |
+| **The 402 storm caused the 24-minute Fibonacci** | **INFERRED** | correlation only. Fibonacci later ran 64 s and 35 s, but the 721→1 fix landed in between, so the two causes cannot be separated. Do not quote as established. |
+| **max_tokens truncation removed the source list, hiding the literal URLs** | **INFERRED** | supported by the forest critic's own note ("terminates mid-sentence", "does not include the source list") but never directly tested |
+| Routing is non-deterministic (same question → `deep_research` vs `research`) | MEASURED | DB crew rows across runs |
+| Difficulty scoring is non-deterministic (poem d=8 then d=2 same day) | MEASURED | `tickets.difficulty` |
+| Critic crew failed 100% and silently | MEASURED | 5/5 `crew_tasks` rows failed; 94 `invalid_request` events in one afternoon |
+| Leaked scaffolding is a `TaskOutput` validation failure | OBSERVED | the crew error string; the delivery mechanism was not traced |
+| `gs_dossier` never reached a dossier crew (routed to `pim`) | OBSERVED | crew sequence in one run |
+| The 12/12 run was really ~5/12 | OBSERVED + PROBED | replies read by hand; the Phase 2 scorer independently reproduces 6/6 comparable labels |
+
+### Stalls — one retraction, one measurement
+
+| claim | grade | note |
+|---|---|---|
+| "Synchronous Postgres write in every LLM success callback blocked the loop" | **RETRACTED** | loop thread had no blocking frame; that write already ran on a daemon thread |
+| "A crew kickoff is executing on the event loop" | **RETRACTED** | that thread bottoms out in `_worker` — a pool worker, where crew work belongs |
+| Stalls are CPU/GIL starvation from thread sprawl | MEASURED | across three dumps the loop thread has no blocking call in two, with 1–4 threads inside `crewai`/`litellm` against ~70 |
+| **Thread sprawl, quantified (new)** | **MEASURED** | `/proc/1/status` on the idle gateway: **114 OS threads** — 73 `uvicorn` (the Python threads `faulthandler` shows), **36 `tokio-rt-worker`**, 3 `sqlx-sqlite-wor` |
+| The `training-capture` thread-per-LLM-call is the main sprawl contributor | **INFERRED** | it is the only *unbounded* source, but the measurement above shows **a third of all threads are Rust runtimes invisible to `faulthandler`** and unaccounted for by any Python-side analysis. Measure per-source before acting. |
+
+### Unresolved
+
+| question | grade |
+|---|---|
+| Why `searxng:no_results` was logged while searxng demonstrably works | **UNKNOWN** — `_search_searxng` swallows its exception at `logger.debug`, so no reason is recorded. Add the logged reason before diagnosing again. |
+| Whether an ungrounded report passed the evidence gate or was rewritten downstream | **UNKNOWN** — `gs_report_forest` went through `deep_research` yet delivered ungrounded prose; no column records the gate verdict |
+| Whether the closed-citation-set prompt licenses labelled-ungrounded reports | **INFERRED** — plausible reading of the instruction; not tested |
+
+### The one thing to take from this
+
+Every claim graded PROBED has a repeatable command or test behind it. Everything
+graded INFERRED is a story that fits the evidence — which is exactly what the two
+retracted claims also were. **Do not build on an INFERRED row without probing it
+first.** That is the single lesson of this whole effort.
