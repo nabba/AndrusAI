@@ -835,3 +835,57 @@ question scored **difficulty 8** earlier on 2026-07-25 and **difficulty 2** on
 re-run, so only the commander ran and the critic never fired (threshold 7). Same
 question, same day. This compounds the routing non-determinism already recorded:
 whether a question gets adversarial review at all varies run to run.
+
+### Addendum 9c — CORRECTION: the "crew kickoff on the event loop" claim was wrong
+
+Addendum 9 stated that `20260725T200233Z` showed *"a crew kickoff executing on the
+event loop thread"*. **That is wrong**, and it is the third hasty stall-dump
+reading in this report (see also the Addendum-2 correction on the 15:43 stall).
+
+The mistake: a thread-classifying script matched on the presence of
+`asyncio/runners` frames and labelled that thread "the asyncio loop". It is not.
+Read to the bottom, the crew thread is:
+
+```
+Thread 0x0000fffc46d5f160
+  asyncio/runners.py:118 run
+  crewai/flow/runtime/__init__.py:1994 kickoff
+  crewai/experimental/agent_executor.py:2780 invoke
+  crewai/agent/core.py:879 _execute_without_timeout
+  concurrent/futures/thread.py:59 run
+  concurrent/futures/thread.py:93 _worker      <-- a POOL WORKER
+```
+
+It bottoms out in `_worker` — exactly where crew work belongs. CrewAI's `kickoff`
+calls `asyncio.run()` internally, creating its own loop *inside that worker*. That
+is normal, not a defect.
+
+**What the three dumps actually show, consistently:**
+
+| dump | stall | loop-thread innermost frame | threads |
+|---|---|---|---|
+| `20260725T181203Z` | 50.2 s | `uvicorn/server.py:74 run` — outermost frame, no blocking call | 73 |
+| `20260725T200233Z` | 19.6 s | FastAPI/prometheus route-name resolution | 73 |
+| `20260725T201827Z` | 16.8 s | `asyncio/tasks.py:714 sleep` — **idle** | 69 |
+
+Two of three have the loop in **no blocking call whatsoever** — it is simply not
+being scheduled. Only 1–4 threads are inside `crewai`/`litellm` at any moment,
+against ~70 threads total. The consistent reading is **CPU/GIL starvation from
+thread sprawl**, the same conclusion the 15:43 stall reached. The 20:02 FastAPI
+frame is where a sample happened to land on a starved loop, not a cause.
+
+**So the actionable finding is thread sprawl, not crew placement.** ~70 threads in
+one process: `crew-parallel` (6), `ctx-fetch` (12), `commander`, the vetting pool,
+`idle-light`, Discord/Signal clients, plus **one `training-capture` thread spawned
+per LLM call** (`rate_throttle.py:499`). The per-call thread is the only unbounded
+contributor, and both files involved are `TIER_IMMUTABLE`, which is why it was
+left alone earlier — but it should be the first thing measured before any
+concurrency ceiling is touched again.
+
+**Methodological note, since this keeps recurring:** a single `faulthandler` dump
+is one sample of a starved process. It shows where threads *were*, not what caused
+the stall, and the dump's own header comment — claiming the loop thread's frame
+names the blocking call — actively misleads when the loop is starved rather than
+blocked. Three claims in this report were made from single dumps and two had to be
+retracted. Correlate across multiple dumps and count threads before asserting a
+mechanism.
