@@ -414,3 +414,87 @@ credible on n=1 alone.
 excluding the system's own internal notes from research KB hits; (2) add the
 groundedness/completeness rubric so `delivered` stops overcounting; (3) re-run
 the full twelve once both land.
+
+---
+
+## Addendum 5 — the relevance filter was WRONG and has been REVERTED (2026-07-25)
+
+`72e870b4` reverted in `c3e669f9`. It caused a regression and I shipped it on
+fixtures of the wrong shape.
+
+**Observed regression:** `gs_report_forest` — which delivered 6500 chars after
+the citation fix — came back at 208 chars, blocked by anti-fabrication
+verification. The filter had starved the run of evidence.
+
+**Root cause: I filtered against the wrong text.** `collect_deep_evidence`
+receives the **router-authored task string**, not the user's question. The
+rejection logs show what that means:
+
+```
+rejected off-topic hit for 'please make me a report on estona forest health…'
+  (shares 1 of 18 question terms (needs 2)): epi_004509
+rejected off-topic hit for 'Produce a critical, well-sourced report (roughly
+  1500-2000 words, structured wit…'
+  (mentions none of the question's entities: asian, association, baltic): epi_004393
+rejected off-topic hit for 'Estonian dairy industry market structure…'
+  (shares 1 of 125 question terms (needs 2)): epi_004829
+```
+
+Two distinct defects:
+
+1. **125 "question terms"** — the task string is a verbose instruction whose
+   significant terms are dominated by formatting boilerplate ("produce",
+   "critical", "sourced", "roughly", "structured", "words"). A genuinely
+   relevant source matches almost none of them, so the overlap test measured
+   the wrong thing entirely.
+2. **`entities: asian, association, baltic`** — `_entity_terms` scraped every
+   incidental capitalised word out of that long string. The real discriminator
+   (`Estonian`) was diluted among noise, and legitimate KB evidence (`epi_*`
+   rows) was rejected wholesale for not mentioning "Asian".
+
+**Why the tests passed anyway.** Every fixture I wrote used a clean
+user-style question (`"compare the economic and environmental trade-offs of
+Estonia's oil shale…"`). Production never passes that. The tests were
+well-constructed and thorough in both directions — and tested an input shape
+the code never sees. Catching the `Estonian`/`forests` morphology bug
+pre-deploy gave false confidence that the *rest* of the design was sound.
+
+**What a correct version needs:** derive the topic core from the **user's
+original question**, not the router task string — either by threading the user
+question through to `collect_deep_evidence`, or by extracting entities and
+salient nouns and ignoring instruction boilerplate. Entity matching should use
+only high-confidence entities, not every capitalised token. And any future
+fixture set must include a real router task string captured from the logs.
+
+**Still live and still good** (verified in the running container after the
+revert): the `[Sn]` gate precondition, the closed-citation-set prompts, the
+creative budget baseline, the credit breaker, the tracker-leak fix, the
+721→1 query fix. The reverted filter was the only regression.
+
+### Operational hazard found while reverting
+
+The revert deploy **silently failed and took the gateway down**. A prior
+half-completed recreate had left a stale container holding the name
+`crewai-team-gateway-1`, so `docker compose up` failed with a name conflict
+*after* stopping the running container:
+
+```
+Container f293923c6c3b_crewai-team-gateway-1  Error response from daemon:
+  Error when allocating new name: Conflict. The container name
+  "/crewai-team-gateway-1" is already in use…
+```
+
+`/health` went to `000`. Two contributing factors worth fixing:
+
+* I had piped `deploy_gateway.sh` through `grep -E "Recreated|Started|deploy
+  complete|✗"`, which **swallowed the error** — the run looked like it merely
+  printed nothing. Never filter a deploy script's output down to expected-success
+  patterns; the failure line will not match them.
+* `deploy_gateway.sh` does not detect or clear a stale `<hash>_<name>` container
+  before `compose up`, and does not fail loudly when the gateway ends up down.
+  Worth hardening.
+
+Recovered by removing both stale containers (stateless — data lives in the
+postgres services and the `workspace` bind mount) and running
+`docker compose up -d --no-deps gateway`. Healthy in 48s, `RestartCount=0`,
+zero tracebacks.
