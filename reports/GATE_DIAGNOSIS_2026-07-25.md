@@ -723,3 +723,73 @@ include a neighbouring question's tail, because crews outlive the HTTP response.
 Windows are clamped to the previous question's ticket, which removed most of it;
 `gs_report_no_evaluate` and `gs_ambiguous_short_report` still show a leading
 neighbour crew. Reports written from now on carry exact timestamps.
+
+---
+
+## Addendum 9 — critic 400 fixed; and an outage while probing it
+
+### The fix (`e698b6c6`, deployed + verified in container)
+
+Every OpenRouter upstream — Azure, Amazon Bedrock, Google, Anthropic — rejects
+the same shape identically, so it is our request, not a provider quirk:
+
+```
+messages.1: role 'system' must precede an 'assistant' message or end the array
+```
+
+**94 occurrences in one afternoon**, and it broke the critic crew 100% of the
+time *silently*, because `critic_crew.review()` catches the exception and returns
+the crew's original output. This is **D4 from 2026-07-24**, deferred then and
+live ever since.
+
+`app/llm_message_order.py` hoists any system message appearing after the first
+assistant message (and not final) to the front, preserving order, never editing
+content. Wired into `BudgetAwareCompletion.call/acall` — the per-call layer every
+factory-built LLM already passes through — before cache-control injection. 14
+tests including a wiring assertion, because without the wiring the module is
+inert, which is exactly the state the critic was in.
+
+Hoisting rather than re-roling because the offending messages are context
+summaries from `history_compression.to_langchain_messages`, which interleaves
+`[Previous exchange summary]` system messages between topics — one lands after an
+assistant turn whenever a summarised topic follows an unsummarised one.
+
+### The outage
+
+Probing the fix with one `gs_research_deep` question wedged the gateway
+(`/health` 000 for ~1694 s) and Postgres crashed and auto-recovered. The
+watchdog's restart **failed**:
+
+```
+Cannot restart container … PID 17953 is zombie and can not be killed.
+Use the --init option when creating containers…
+```
+
+Recovered by `docker rm -f` + `docker compose up -d --no-deps gateway`; healthy
+in 60 s, `RestartCount=0`, no tracebacks, fix still live. Postgres had already
+completed crash recovery on its own (`redo done`, `ready to accept connections`).
+
+**Not caused by the message-order change** — `llm_message_order` appears in
+neither stall dump, and the transform is pure list manipulation with no I/O or
+locks. What the dumps do show:
+
+* `20260725T200233Z` (19.6 s stall): the asyncio **loop thread** is inside
+  `crewai/flow/runtime/__init__.py:1994 kickoff` → `crewai/experimental/
+  agent_executor.py:2780 invoke`. **A crew kickoff is executing on the event
+  loop thread**, which is precisely the serving-path defect `ANSWERING_V2_PLAN`
+  exists to remove. `_commander_pool` exists so this should not happen.
+* 3–4 threads still blocked in `psycopg2/pool` despite the 721→1 query fix — that
+  fix reduced per-construction cost but did not eliminate pool contention.
+
+So the probe triggered a pre-existing wedge class, not a new one. Two follow-ups
+worth filing: find why a crew kickoff reaches the loop thread, and add `--init`
+(or `init: true` in compose) to the gateway so a zombie PID cannot block the
+watchdog's only recovery mechanism.
+
+### What remains unverified
+
+**The critic fix has not been confirmed end-to-end on a live crew.** It is
+unit-tested and verified present in the container, but the probe that would have
+proven a real critic run completing without a 400 is what caused the outage. The
+honest status is "deployed and unit-verified, not yet observed working in
+production".
