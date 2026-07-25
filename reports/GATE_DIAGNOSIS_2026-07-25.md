@@ -572,3 +572,71 @@ written to `workspace/.brave_quota_block` (a bind mount) and read once per
 process, failure-isolated in both directions. 8 tests including a simulated
 restart; deploy verified by checking the code inside the running container, not
 just `/health`.
+
+---
+
+## Addendum 7 — the 12/12 run was an artifact, and it exposed the real defect
+
+Brave limit raised (it was a self-imposed **$25/month spend cap**, `current_spend
+25.0 / usage_limit 25.0`, not a lapsed subscription). Brave verified live through
+the app's own path: `search_brave` → 5 rows, `backend used: brave`, empty failure
+chain, sources from IEA/OECD. Full 12-question run:
+`evals/results/after_brave_restored_2026-07-25.json` — **12/12 "delivered",
+`valid: true`, 0 credit errors, 0 HTTP errors.**
+
+**That number is meaningless.** Reading every reply instead of the summary:
+
+| question | what was actually returned |
+|---|---|
+| `gs_report_no_evaluate` | `call:web_search{query:…}` — **raw tool-call syntax**, 79 chars |
+| `gs_ambiguous_short_report` | ```` ```Thought: The user wants… ```` — **ReAct scratchpad** |
+| `gs_report_industry` | ```` ```json {"title":…,"subjects":[…]} ```` — **raw internal JSON** |
+| `gs_dossier` | `Dossier build failed: OSError: [Errno 36] File name too long` |
+| `gs_report_forest` | *"…drawn from general knowledge…"* — **explicitly ungrounded** |
+| `gs_multi_and` | honest non-answer |
+| `gs_research_deep` | refusal, falsely claiming no live source access |
+
+**Genuine answers: 5 of 12** (`short_chat`, `research_light` with source,
+`writing_only`, `calendar`, `coding`). The harness's `delivered` marker matches
+none of the leakage shapes, so it scored all seven failures as successes.
+
+### Root cause: the SubIA context block was the crew's task
+
+`crew_tasks` topics read literally `Research: --- SubIA Context --- loop:
+compressed scene (2 items…`. `_consume_pre_task_context`
+(`orchestrator.py:73-77`) prepends the SubIA block to every crew task, and
+`ResearchCrew._extract_core_topic`'s boundary list did not include that marker —
+so the crew's notion of its own task *was* the context block. That explains the
+leaked tool call, the leaked scratchpad, and the dossier filename built from
+`dossier_subia_context_loop_compressed_scene_2_items_0_74_self_assessment…`.
+
+**Present since at least 2026-07-24** — the same shape appears in that day's rows
+for the creative and delegated-research crews. It was visible in the very first
+`crew_tasks` query of this investigation and its significance was missed;
+degraded crew output was read as an answer-quality problem instead.
+
+Fixed in `4c11f769`: `--- End SubIA Context ---` added as a strip boundary, with
+a test pinning it against `_build_injection`'s source so the two lists cannot
+drift apart again. Deployed and verified inside the running container.
+
+### Two corrections to earlier claims in this report
+
+1. **Routing is non-deterministic, which confounds every cross-run comparison
+   here.** The same report questions went to `deep_research` (gated, grounded) at
+   14:32–16:30 and to plain `research` (ungated, leaky) at 17:51. The sequence
+   "2/12 → 9/12 → 12/12" was never measuring one pipeline. Any future comparison
+   must record which crew handled each question.
+2. **The closed-citation-set prompt (`06caad82`) may license labeled-ungrounded
+   reports.** It tells the model to name unretrieved sources in words and mark
+   them as not retrieved; `gs_report_forest` generalised that to writing the
+   entire report from general knowledge *and disclosing it*. That is a fair
+   reading of the instruction. Needs tightening: disclosure is not a substitute
+   for evidence.
+
+### Standing conclusion on the eval harness
+
+Marker-based scoring has now been wrong three times — refusals counted as
+successes, honest non-answers counted as successes, and now internal leakage
+counted as success. It should be replaced with a positive check (does the reply
+answer the question, with citations where required), not extended with more
+substrings.
