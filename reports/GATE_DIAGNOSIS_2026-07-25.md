@@ -140,3 +140,38 @@ That is a synchronous Postgres write in **every LLM call's success callback**. C
 ---
 
 *Produced 2026-07-25 by read-only forensics against Postgres control-plane tables, the structured error log, stall dumps, and code at `3e1c3797`. No code changed.*
+
+---
+
+## Addendum — all seven fixes SHIPPED + DEPLOYED + LIVE-VERIFIED 2026-07-25
+
+Commit `7205774b` on branch `fix/answer-quality-gate-diagnosis-2026-07-25`.
+Deployed via `./scripts/deploy_gateway.sh --no-pull`; gateway recreated 11:11,
+`/health` 200, `RestartCount=0`, no OOM, **zero tracebacks at boot**.
+
+| # | Fix | Where |
+|---|---|---|
+| 1 | Credit circuit breaker — absorbs a blip, suppresses failover past 6 credit errors / 5 min per provider, pages the operator once, self-closes after 10 min quiet | `app/llm_credit_breaker.py` + both `rate_throttle` failover paths (TIER_IMMUTABLE edit, operator-approved) |
+| 2 | Evidence-gate precondition accepts `[Sn]` labels (matching its own per-block check) and no longer treats internal KB chunk ids as citable | `app/research/deep_path.py:428` |
+| 3 | Creative budget delta-baselined at run entry; per-crew cost/token rows report their own contribution | `app/crews/creative_crew.py` |
+| 4 | Crew "no answer" is a typed signal; orchestrator skips vetting/critic and reports the real cause | `app/crews/outcome.py` + orchestrator short circuit |
+| 5 | Request cost tracker finalized in a `finally` at the request boundary; `parallel_runner` restores each worker's prior tracker | `orchestrator.handle`, `parallel_runner.py` |
+| 6 | "report" removed from the artifact-noun table — prose genre, not a file request | `app/agents/commander/artifact_intent.py` |
+| 7 | Eval harness refuses to start during a credit outage, counts 402s per question, aborts mid-run, never reports `valid: true` for a contaminated run | `evals/run_eval.py` |
+
+**Live sanity check inside the running container:** breaker thresholds 6/300s/600s;
+`classify_task("make me a report on Estonian forests").is_artifact == False` while
+`"make me a pdf report…" == True`; `_source_label_numbers` and `_run_baseline_usd`
+present; no-answer signal round-trips.
+
+**Tests:** 48 new tests pass. A broad sweep over the touched areas returns the
+**identical 34 failures on unmodified `3e1c3797`** (verified in a baseline
+worktree) — zero regressions; 761 passing vs 729 before.
+
+**Not done, deliberately:** the baseline has NOT been re-recorded. Two of the
+original handoff's prerequisites still stand — cache the benchmark-score query
+in `create_specialist_llm` (and audit `training_collector._store_to_postgres`,
+the *other* synchronous-Postgres-on-the-hot-path vector named by the 15:43
+stall) before re-running the harness live. The harness will now refuse to
+record an invalid baseline, but it will not protect the gateway from the
+concurrency wedge.
