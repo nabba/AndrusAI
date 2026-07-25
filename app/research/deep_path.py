@@ -118,115 +118,6 @@ def _source_label_numbers(text: str, source_count: int) -> set[int]:
     }
 
 
-# ── Topical relevance ───────────────────────────────────────────────────
-#
-# ``_usable_deep_evidence`` checks STRUCTURE — source class, identifier present,
-# excerpt length, fetched-ness, KB score. Nothing checked whether a hit is about
-# the question.
-#
-# 2026-07-25, live: "compare the economic and environmental trade-offs of
-# Estonia's oil shale industry versus renewable energy" retrieved ten
-# structurally-perfect sources with **zero** on topic — AI-safety architecture
-# notes from our own knowledge base, a generic energy-forecasting model, a 250B
-# language-model report, two text-diff web tools, and a solar-flare EUV
-# irradiance predictor (a keyword collision on "solar"). Every gate downstream
-# then behaved correctly on evidence that should never have reached it, and the
-# draft honestly reported that it could not answer.
-#
-# One filter covers all three source classes, including the self-referential KB
-# case: notes about our own architecture share no distinctive terms with an
-# external research question. A question that genuinely *is* about this system
-# still matches those notes, so legitimate self-inquiry is not fenced off.
-#
-# Deliberately lexical and cheap — no LLM call in the retrieval loop. Kept
-# permissive on purpose: over-rejecting would convert working answers into
-# "retrieved no evidence sources" blocks, which is a worse failure than a
-# slightly noisy evidence set.
-#
-# See reports/GATE_DIAGNOSIS_2026-07-25.md.
-
-# Shared significant terms required between question and hit.
-_MIN_TOPICAL_TERMS = 2
-
-# Prefix length for matching an entity across morphology ("Estonian"/"Estonia").
-_ENTITY_PREFIX = 5
-
-
-def _entity_terms(question: str) -> set[str]:
-    """Distinctive capitalised terms in the question — places, orgs, proper nouns.
-
-    The first word is skipped: it is capitalised by grammar, not because it
-    names anything. Possessives are stripped so ``Estonia's`` yields
-    ``estonia``.
-    """
-    from app.research.hypothesis import _STOPWORDS
-
-    words = re.findall(r"[A-Za-z][A-Za-z'’\-]*", question or "")
-    out: set[str] = set()
-    for index, word in enumerate(words):
-        if index == 0:
-            continue
-        bare = re.split(r"['’]", word)[0]
-        if len(bare) >= 3 and bare[0].isupper():
-            out.add(bare.lower())
-    return {term for term in out if term not in _STOPWORDS}
-
-
-def _term_matches(term: str, tokens: set[str]) -> bool:
-    """Whether ``term`` appears in ``tokens``, comparing on a short prefix.
-
-    Exact-token matching is not usable here and nearly shipped a regression:
-    for "how Estonian forests have changed", a source titled "Forest area …
-    in Estonia" shares ZERO exact tokens (``Estonian``/``Estonia``,
-    ``forests``/``forest``) and would have been thrown away, converting a
-    question that delivered in the 07-25 baseline into a "retrieved no evidence
-    sources" block. Prefix comparison absorbs ordinary morphology without
-    needing a stemmer.
-    """
-    prefix = term[:_ENTITY_PREFIX]
-    for token in tokens:
-        if token.startswith(prefix) or term.startswith(token[:_ENTITY_PREFIX]):
-            return True
-    return False
-
-
-def _entity_present(entities: set[str], tokens: set[str]) -> bool:
-    """Whether any question entity appears among ``tokens``."""
-    if not entities:
-        return True
-    return any(_term_matches(entity, tokens) for entity in entities)
-
-
-def _topically_relevant(question: str, hit) -> tuple[bool, str]:
-    """Whether ``hit`` is plausibly about ``question``. Returns (ok, reason)."""
-    from app.research.hypothesis import _hit_field, _significant_tokens
-
-    question_tokens = _significant_tokens(question)
-    if not question_tokens:
-        return True, "no distinctive question terms to match on"
-
-    hit_tokens = _significant_tokens(
-        f"{_hit_field(hit, 'title')} {_hit_field(hit, 'text')}"
-    )
-    matched = {
-        term for term in question_tokens if _term_matches(term, hit_tokens)
-    }
-    required = min(_MIN_TOPICAL_TERMS, len(question_tokens))
-    if len(matched) < required:
-        return False, (
-            f"shares {len(matched)} of {len(question_tokens)} question terms "
-            f"(needs {required})"
-        )
-
-    entities = _entity_terms(question)
-    if not _entity_present(entities, hit_tokens):
-        return False, (
-            "mentions none of the question's entities: "
-            + ", ".join(sorted(entities)[:3])
-        )
-    return True, f"shares {len(matched)} question term(s)"
-
-
 def _cited_identifiers(text: str) -> set[str]:
     """Machine-checkable identifiers asserted by a final synthesis."""
     out = {
@@ -477,18 +368,6 @@ def collect_deep_evidence(
                 logger.warning(
                     "deep research rejected non-evidentiary hit for %r: %s",
                     query[:80],
-                    str(getattr(hit, "id", "") or getattr(hit, "title", ""))[:160],
-                )
-                continue
-            # Relevance is judged against the ORIGINAL question, not the
-            # subquery that found the hit: a generated subquery can drift, and
-            # a hit that only matches the drifted phrasing is off topic for
-            # what the user actually asked.
-            relevant, why = _topically_relevant(question, hit)
-            if not relevant:
-                logger.warning(
-                    "deep research rejected off-topic hit for %r (%s): %s",
-                    query[:80], why,
                     str(getattr(hit, "id", "") or getattr(hit, "title", ""))[:160],
                 )
                 continue

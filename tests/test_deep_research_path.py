@@ -168,32 +168,22 @@ def test_query_plan_parser_accepts_fenced_json_and_bounds_queries() -> None:
 
 
 def test_deep_evidence_searches_original_plus_subqueries_and_dedups() -> None:
-    # This exercises query ordering + dedup. Fixtures must be TOPICAL: since
-    # 2026-07-25 collect_deep_evidence also drops hits unrelated to the
-    # question, and the original placeholder text ("original question" vs a hit
-    # titled "title") was correctly rejected as off-topic. See
-    # tests/test_deep_evidence_relevance_2026_07_25.py for that filter.
-    question = "carbon capture efficiency in cement production"
     calls: list[str] = []
 
     def search(query: str) -> list[LiteratureHit]:
         calls.append(query)
         return [LiteratureHit(
             source="arxiv", id="shared" if len(calls) < 3 else "third",
-            title="Carbon capture efficiency for cement kilns",
-            text=(
-                "Measured carbon capture efficiency in cement production "
-                f"clinker lines, evidence for {query}. " * 6
-            ),
+            title="title", text=(f"evidence for {query}. " * 12),
         )]
 
     hits = collect_deep_evidence(
-        question,
-        planner_fn=lambda _q: ["cement kiln capture rates", "clinker CO2 capture"],
+        "original question",
+        planner_fn=lambda _q: ["focused query one", "focused query two"],
         search_fn=search,
     )
     assert calls == [
-        question, "cement kiln capture rates", "clinker CO2 capture",
+        "original question", "focused query one", "focused query two",
     ]
     assert [hit.id for hit in hits] == ["shared", "third"]
 
