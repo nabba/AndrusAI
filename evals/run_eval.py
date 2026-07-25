@@ -46,7 +46,7 @@ _GOLDEN_SET_PATH = Path(__file__).parent / "golden_set.jsonl"
 # apology strings, the main.py soft/hard-timeout apologies). A hit here
 # means the pipeline gave up rather than answered — independent of
 # whether the ANSWER itself is any good.
-_FAILURE_MARKERS = (
+_GAVE_UP_MARKERS = (
     "wasn't able to put together an answer",
     "didn't finish in time or",
     "trouble understanding that request",
@@ -56,6 +56,31 @@ _FAILURE_MARKERS = (
     "stalled (no LLM activity",
     "currently handling",  # load-shed message
 )
+
+# 2026-07-24: the FIRST baseline run exposed a flaw in this instrument.
+# Six of twelve replies scored "delivered" on the original markers alone
+# while actually being explicit refusals or artifact-delivery failures —
+# the pipeline RAN (sometimes for 19 minutes), then declined to hand over
+# a result. Those are answer-quality failures from the user's point of
+# view and must not be counted as delivered, but they're a genuinely
+# different diagnostic class from "gave up / timed out" above, so they're
+# tracked separately rather than merged into one bucket.
+#
+# Sources: the epistemic/critic gate refusal path, the deep_research
+# artifact hand-off, and the creative-crew empty-output path. Matched on
+# apostrophe-free substrings so smart-vs-straight quotes ("I’m"/"I'm")
+# can't cause a miss.
+_REFUSAL_MARKERS = (
+    "withholding the draft",
+    "evidence gate did not clear",
+    "could not be delivered as a PDF",
+    "failed to produce any content",
+    "contains no actual research",
+    "won't present unsubstantiated claims",
+    "will not present unsubstantiated claims",
+)
+
+_FAILURE_MARKERS = _GAVE_UP_MARKERS + _REFUSAL_MARKERS
 
 
 @dataclass
@@ -82,6 +107,14 @@ class EvalReport:
         n = len(self.results)
         delivered = sum(1 for r in self.results if r.delivered)
         errored = sum(1 for r in self.results if not r.ok)
+        refused = sum(
+            1 for r in self.results
+            if r.failure_marker in _REFUSAL_MARKERS
+        )
+        gave_up = sum(
+            1 for r in self.results
+            if r.failure_marker in _GAVE_UP_MARKERS
+        )
         avg_latency = (
             sum(r.latency_s for r in self.results) / n if n else 0.0
         )
@@ -89,7 +122,10 @@ class EvalReport:
             "n": n,
             "delivered": delivered,
             "delivery_rate": round(delivered / n, 3) if n else 0.0,
-            "http_errors": errored,
+            # Distinct diagnostic classes — all count against delivery:
+            "refused_or_no_artifact": refused,  # ran, then withheld/failed hand-off
+            "gave_up_or_timed_out": gave_up,    # pipeline abandoned the request
+            "http_errors": errored,            # transport died (e.g. gateway restart)
             "avg_latency_s": round(avg_latency, 1),
             "max_latency_s": round(max((r.latency_s for r in self.results), default=0.0), 1),
         }
@@ -169,6 +205,49 @@ def _print_diff(a: dict, b: dict) -> None:
     print("after: ", b.get("summary"))
 
 
+def rescore(path: Path) -> dict:
+    """Re-score an existing report against the CURRENT marker lists, offline.
+
+    Added 2026-07-24 after the first baseline run showed the original
+    marker list scored explicit refusals as successes. Re-scoring in place
+    costs nothing and spends no budget, so a corrected baseline doesn't
+    require re-running 12 live questions against the gateway.
+
+    Caveat: this can only see ``reply_preview`` (200 chars), so a marker
+    appearing deeper in a long reply is invisible here — a re-scored
+    report is a floor on the failure count, not a ceiling. Every refusal
+    observed so far leads with its marker, so in practice it matches.
+    """
+    payload = json.loads(path.read_text())
+    changed = []
+    for r in payload["results"]:
+        if not r.get("ok"):
+            continue  # transport failure — already not delivered
+        marker = _detect_failure_marker(r.get("reply_preview", "") or "")
+        was = r.get("delivered")
+        now = marker is None and r.get("reply_chars", 0) >= 20
+        if marker and was != now:
+            r["failure_marker"] = marker
+            r["delivered"] = now
+            changed.append((r["id"], marker))
+    # Recompute the summary from the corrected rows.
+    rep = EvalReport(base_url=payload.get("base_url", ""), sender=payload.get("sender", ""))
+    rep.results = [
+        EvalResult(
+            id=r["id"], category=r["category"], prompt=r["prompt"], ok=r["ok"],
+            delivered=r["delivered"], latency_s=r["latency_s"],
+            reply_chars=r["reply_chars"], failure_marker=r.get("failure_marker"),
+            error=r.get("error"), reply_preview=r.get("reply_preview", ""),
+        )
+        for r in payload["results"]
+    ]
+    payload["summary"] = rep.summary()
+    payload["rescored"] = True
+    for qid, marker in changed:
+        print(f"  reclassified {qid}: delivered -> FAILED ({marker})", file=sys.stderr)
+    return payload
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base-url", default="http://127.0.0.1:8765")
@@ -180,7 +259,19 @@ def main() -> None:
     ap.add_argument("--out", type=Path, default=None, help="Write JSON report here.")
     ap.add_argument("--diff", nargs=2, metavar=("BEFORE_JSON", "AFTER_JSON"),
                      help="Skip running; just diff two previously-recorded reports.")
+    ap.add_argument("--rescore", type=Path, default=None, metavar="REPORT_JSON",
+                     help="Skip running; re-score an existing report against the "
+                          "current marker lists (offline, spends no budget). "
+                          "Writes in place unless --out is given.")
     args = ap.parse_args()
+
+    if args.rescore:
+        payload = rescore(args.rescore)
+        dest = args.out or args.rescore
+        dest.write_text(json.dumps(payload, indent=2))
+        print(json.dumps(payload["summary"], indent=2))
+        print(f"Re-scored report written to {dest}", file=sys.stderr)
+        return
 
     if args.diff:
         before = json.loads(Path(args.diff[0]).read_text())
