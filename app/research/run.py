@@ -408,6 +408,21 @@ def _build_draft_prompt(run: ExecutorRun) -> str:
         "quantitative claim, attribute it to its source (author, link, or "
         "arXiv id) so the finding is citable. Do not cite a source for a claim "
         "unless its evidence excerpt actually supports that claim.",
+        # Closed citation set (2026-07-25). Without this, drafts padded their
+        # bibliography with real-but-unretrieved organisation homepages
+        # (elfond.ee, piimaliit.ee, ec.europa.eu/eurostat …), which the
+        # anti-fabrication gate then correctly blocked — two report-class
+        # questions failed this way in the 07-25 baseline. The old wording
+        # invited it: "attribute it to its source" never said *which* sources
+        # exist. See reports/GATE_DIAGNOSIS_2026-07-25.md.
+        "CITATION RULE — the evidence list below is the ONLY set of sources you "
+        "may cite. Cite each source by its [S<n>] label, and optionally its "
+        "exact identifier copied verbatim from that entry. Never write a URL, "
+        "DOI, or arXiv id that does not appear verbatim in the list — not even "
+        "a real organisation's homepage, and not in a 'Sources'/'References' "
+        "section. When you must name an organisation or dataset that was not "
+        "retrieved, name it in words with NO link and mark it explicitly as "
+        "not retrieved by this run.",
         f"\nResearch question: {run.goal}",
     ]
     if investigation:
@@ -428,6 +443,17 @@ def _build_critique_prompt(run: ExecutorRun) -> str:
         "Check every material factual claim against the retrieved evidence below.",
         "Remove or explicitly label unsupported claims and resolve contradictions.",
         "Preserve real URLs/identifiers, cite sources inline, and answer the user's exact question.",
+        # Same closed citation set as the draft step — the critique output is
+        # what the evidence gate actually inspects (it prefers HINT_CRITIQUE
+        # over HINT_DRAFT), so an editor that re-adds homepages would undo the
+        # draft's discipline. "Preserve real URLs" above is not a licence to
+        # introduce new ones.
+        "CITATION RULE — the retrieved evidence below is the ONLY set of "
+        "sources that may appear as links. Keep [S<n>] labels and identifiers "
+        "copied verbatim from it. STRIP any URL, DOI, or arXiv id in the draft "
+        "that is not in that list — including real organisation homepages and "
+        "anything in a 'Sources'/'References' section — and either re-cite the "
+        "claim to a listed source or mark it as not retrieved by this run.",
         f"\nResearch question: {run.goal}",
         f"\nDraft to audit:\n{draft[:8000]}",
         "\nRetrieved evidence:\n" + ("\n\n".join(evidence) or "[none retrieved]"),
