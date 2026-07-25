@@ -150,13 +150,33 @@ def _make_class():
                 pass
             return args, kwargs
 
+        def _normalize_message_order(self, args, kwargs):
+            """Repair system-message position before the provider rejects it.
+
+            Every OpenRouter upstream returns 400 "role 'system' must precede an
+            'assistant' message or end the array" for the shape CrewAI's
+            native-tools path can build. That silently broke the critic crew
+            100% of the time (see app/llm_message_order.py). Runs BEFORE
+            cache-control injection so the hoisted system message is the one
+            considered for cache marking. Failure-soft.
+            """
+            try:
+                from app.llm_message_order import normalize_call_args
+                return normalize_call_args(
+                    args, kwargs, model=getattr(self, "model", ""),
+                )
+            except Exception:
+                return args, kwargs
+
         def call(self, *args, **kwargs):  # type: ignore[override]
             self._run_pre_check()
+            args, kwargs = self._normalize_message_order(args, kwargs)
             args, kwargs = self._inject_cache_control(args, kwargs)
             return super().call(*args, **kwargs)
 
         async def acall(self, *args, **kwargs):  # type: ignore[override]
             self._run_pre_check()
+            args, kwargs = self._normalize_message_order(args, kwargs)
             args, kwargs = self._inject_cache_control(args, kwargs)
             return await super().acall(*args, **kwargs)
 
