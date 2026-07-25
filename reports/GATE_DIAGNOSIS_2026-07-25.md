@@ -793,3 +793,45 @@ unit-tested and verified present in the container, but the probe that would have
 proven a real critic run completing without a 400 is what caused the outage. The
 honest status is "deployed and unit-verified, not yet observed working in
 production".
+
+### Addendum 9b — the critic fix is now verified live, with causation
+
+Two separate confirmations, and they establish different things:
+
+**1. The critic completed for the first time.** Invoked directly in the running
+container with a small draft: ran 37.1 s, produced a 2329-char substantive
+review, returned a verdict. `control_plane.crew_tasks`:
+
+```
+21:05:32 | critic | completed |
+17:50:20 | critic | failed    | Task execution failed: litellm.BadReques…
+17:37:34 | critic | failed    | Task execution failed: litellm.BadReques…
+```
+
+Zero new `invalid_request` errors (delta 0 across the whole probe). **But the
+normalizer logged no firing for that run**, so this alone does not prove the fix
+caused it — that invocation simply did not build an offending array.
+
+**2. Causation, established directly.** Calling a factory-built LLM with the
+exact production shape (`[assistant, system, user]`):
+
+```
+CLASS: BudgetAwareCompletion | has _normalize: True
+INFO app.llm_message_order  hoisted 1 misplaced system message(s) to the front
+RESULT: SUCCEEDED 'OK'
+```
+
+The array that previously returned 400 from every upstream now succeeds, with the
+repair visibly firing. So the fix demonstrably repairs the reported shape, and the
+critic's first successful run is consistent with it.
+
+The critic's review was also *good* — it correctly judged a two-sentence "report
+over the years" as not a report, named the missing evidence (SMI time-series, FAO
+FRA, crown-condition monitoring) and called it unrepairable rather than revisable.
+That quality of review has not been running for days.
+
+**Incidental finding: difficulty scoring is non-deterministic too.** The poem
+question scored **difficulty 8** earlier on 2026-07-25 and **difficulty 2** on
+re-run, so only the commander ran and the critic never fired (threshold 7). Same
+question, same day. This compounds the routing non-determinism already recorded:
+whether a question gets adversarial review at all varies run to run.
