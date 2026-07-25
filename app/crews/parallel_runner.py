@@ -76,12 +76,30 @@ def run_parallel(
 
     def _throttled(fn):
         """Wrap callable with semaphore so only N crews hit Ollama at once.
-        Also propagates the request cost tracker to child threads."""
-        # Propagate request cost tracker from parent thread
-        if parent_tracker is not None:
-            set_active_tracker(parent_tracker)
-        with _ollama_semaphore:
-            return fn()
+        Also propagates the request cost tracker to child threads.
+
+        The propagated tracker is RESTORED afterwards (2026-07-25). ``_pool``
+        is process-lifetime, so a ContextVar left set in a worker persists into
+        whatever that worker runs next — including a task belonging to a
+        different request. Since ``start_request_tracking`` is nesting-aware
+        and returns an already-set tracker instead of creating a fresh one, a
+        leaked tracker made the next request inherit the previous request's
+        accumulated spend, silently shrinking every per-crew budget derived
+        from it. See reports/GATE_DIAGNOSIS_2026-07-25.md.
+        """
+        if parent_tracker is None:
+            with _ollama_semaphore:
+                return fn()
+        # Restore whatever this worker had before, rather than clearing
+        # outright: nested fan-out legitimately re-enters run_parallel from a
+        # worker that already carries a tracker, and that one must survive.
+        prior_tracker = get_active_tracker()
+        set_active_tracker(parent_tracker)
+        try:
+            with _ollama_semaphore:
+                return fn()
+        finally:
+            set_active_tracker(prior_tracker)
 
     futures = {}
     for label, fn in tasks:

@@ -800,6 +800,25 @@ def _try_credit_failover_sync(
     if detect_credit_error(exc) is None:
         return None
 
+    # Credit breaker (2026-07-25): absorb a blip, refuse to absorb an outage.
+    # Failing over to a tool-incapable local model 69 times in 38 minutes kept
+    # the system replying while making its answers worthless, and hid the
+    # outage for a day. Past the threshold, let the real 402 propagate —
+    # callers already handle credit errors as a typed condition.
+    # See app/llm_credit_breaker.py and reports/GATE_DIAGNOSIS_2026-07-25.md.
+    try:
+        from app.llm_credit_breaker import record_credit_error, should_failover
+        record_credit_error(model)
+        if not should_failover(model):
+            logger.error(
+                "failover: credit breaker open for %r — propagating the "
+                "credit error instead of answering from a local fallback "
+                "that cannot call tools", model,
+            )
+            return None
+    except Exception:
+        logger.debug("credit breaker consult failed", exc_info=True)
+
     local_model = _select_local_failover_model(model)
     if not local_model:
         logger.warning(
@@ -840,6 +859,20 @@ async def _try_credit_failover_async(
         return None
     if detect_credit_error(exc) is None:
         return None
+
+    # Credit breaker — see the sync path above for the rationale.
+    try:
+        from app.llm_credit_breaker import record_credit_error, should_failover
+        record_credit_error(model)
+        if not should_failover(model):
+            logger.error(
+                "failover: credit breaker open for %r — propagating the "
+                "credit error instead of answering from a local fallback "
+                "that cannot call tools", model,
+            )
+            return None
+    except Exception:
+        logger.debug("credit breaker consult failed", exc_info=True)
 
     local_model = _select_local_failover_model(model)
     if not local_model:

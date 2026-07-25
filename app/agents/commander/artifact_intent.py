@@ -113,7 +113,20 @@ _ARTIFACT_NOUNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (r"\bmap\b",                      (".png", ".jpg", ".svg", ".geotiff", ".tif", ".pdf")),
 
     # Documents
-    (r"\b(pdf|report)\b",             (".pdf",)),
+    #
+    # "report" is deliberately NOT here (2026-07-25). It names a *genre of
+    # prose*, not a file: "make me a report on Estonian forest health" is a
+    # request for an answer, and classifying it as artifact-shape put the crew
+    # under a contract it had no tools to satisfy. Live consequence on
+    # 2026-07-24: the crew produced a full report, had no working
+    # coding_session tools, emitted `ARTIFACT: workspace/output/
+    # estonia_forest_health_report.pdf` with the text inline, and the verifier
+    # turned a delivered report into "could not be delivered as a PDF".
+    # An actual file request still classifies, because it says so —
+    # "pdf report", "report as a PDF", "export the report" all match either
+    # ``pdf`` below or ``_EXPLICIT_EXTENSION_RE``.
+    # See reports/GATE_DIAGNOSIS_2026-07-25.md.
+    (r"\bpdf\b",                      (".pdf",)),
     (r"\b(slides?|presentation|deck|powerpoint)\b",
                                      (".pptx", ".pdf")),
     (r"\b(document|word\s+doc)\b",   (".docx", ".pdf")),

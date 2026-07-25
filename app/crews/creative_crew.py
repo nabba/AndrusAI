@@ -28,6 +28,7 @@ Safety invariant preservation:
 """
 from __future__ import annotations
 
+import contextvars
 import logging
 import time as _time
 from dataclasses import dataclass, field
@@ -103,14 +104,48 @@ class BudgetExceeded(RuntimeError):
     """Raised internally when the creative budget cap is hit mid-run."""
 
 
-def _check_budget(budget_usd: float, phase: str) -> None:
+# Cost already on the request's ledger when THIS creative run started.
+#
+# ``get_active_tracker()`` returns the *request-level* tracker, which is
+# nesting-aware by design (``rate_throttle.start_request_tracking``): nested
+# crews deliberately share the outer Commander tracker so the request's total
+# cost is correct.  Comparing that shared cumulative total against this crew's
+# own per-run budget was therefore wrong in two compounding ways:
+#
+#   1. The budget was silently reduced by everything the request had already
+#      spent (routing, earlier crews) before the creative crew even started.
+#   2. On a retry, the *previous* creative run's spend was still on the ledger,
+#      so the retry tripped its very first check having made zero LLM calls.
+#
+# Both were observed live on 2026-07-24: run #1 (171 s, $0.198) produced a real
+# poem but aborted mid-run and fell back to its raw phase transcript; run #2
+# aborted in 0.32 s with zero LLM calls while reporting run #1's byte-identical
+# tokens/cost.  See ``reports/GATE_DIAGNOSIS_2026-07-25.md``.
+#
+# The budget must therefore be measured as a DELTA against a baseline captured
+# at run entry.  Reset in ``run_creative_crew``'s ``finally`` so the baseline
+# can never leak onto a pooled thread and shrink a later run's budget.
+_run_baseline_usd: contextvars.ContextVar[float] = contextvars.ContextVar(
+    "creative_run_baseline_usd", default=0.0,
+)
+
+
+def _run_spend_usd() -> float | None:
+    """Cost incurred by the current creative run alone, or None if untracked."""
     tracker = get_active_tracker()
     if tracker is None:
+        return None
+    return max(0.0, tracker.total_cost_usd - _run_baseline_usd.get())
+
+
+def _check_budget(budget_usd: float, phase: str) -> None:
+    spent = _run_spend_usd()
+    if spent is None:
         return
-    if tracker.total_cost_usd > budget_usd:
+    if spent > budget_usd:
         raise BudgetExceeded(
             f"creative_crew: budget ${budget_usd:.2f} exceeded in phase {phase} "
-            f"(actual ${tracker.total_cost_usd:.4f}) — aborting"
+            f"(this run spent ${spent:.4f}) — aborting"
         )
 
 
@@ -424,38 +459,62 @@ def run_creative_crew(
     final: str = ""
     start = _time.monotonic()
 
+    # Baseline the request ledger so this run's budget measures THIS run's
+    # spend, not the whole request's. See ``_run_baseline_usd``.
+    _entry_tracker = get_active_tracker()
+    _baseline_usd = _entry_tracker.total_cost_usd if _entry_tracker else 0.0
+    _baseline_tokens = _entry_tracker.total_tokens if _entry_tracker else 0
+    _baseline_token = _run_baseline_usd.set(_baseline_usd)
+
     try:
-        phase1 = _phase_initiation(task_description, budget_usd)
-        phase2 = _phase_discussion(task_description, phase1, budget_usd, rounds=discussion_rounds)
-        conv = _phase_convergence(task_description, phase1 + phase2, budget_usd)
-        final = conv.text
-    except BudgetExceeded as bx:
-        aborted_reason = str(bx)
-        logger.warning(aborted_reason)
-        # Best-so-far fallback: use last available output.
-        if phase2:
-            final = phase2[-1].text
-        elif phase1:
-            final = "\n\n---\n\n".join(f"[{p.role}]\n{p.text}" for p in phase1)
-        else:
-            _scale = f", auto-scaled from ${eb.base_usd:.2f}" if eb.scaled else ""
-            _cap = f"; hit the ${eb.ceiling_usd:.2f} ceiling" if eb.ceiling_hit else ""
-            final = (
-                f"Creative run hit its ${budget_usd:.2f} budget before producing output "
-                f"(input ~{eb.input_tokens:,} tokens{_scale}{_cap}). "
-                f"Raise creative_run_budget_usd in /cp/settings, or send a smaller input."
-            )
-    except Exception as exc:
-        logger.exception(f"creative_crew: unhandled error: {exc}")
-        aborted_reason = f"error: {exc}"
-        crew_failed("creative", task_id, str(exc)[:200])
-        update_belief("creative_crew", "failed", current_task=task_description[:100])
-        raise
+        try:
+            phase1 = _phase_initiation(task_description, budget_usd)
+            phase2 = _phase_discussion(task_description, phase1, budget_usd, rounds=discussion_rounds)
+            conv = _phase_convergence(task_description, phase1 + phase2, budget_usd)
+            final = conv.text
+        except BudgetExceeded as bx:
+            aborted_reason = str(bx)
+            logger.warning(aborted_reason)
+            # Best-so-far fallback: use last available output.
+            if phase2:
+                final = phase2[-1].text
+            elif phase1:
+                final = "\n\n---\n\n".join(f"[{p.role}]\n{p.text}" for p in phase1)
+            else:
+                # Nothing at all was produced. Do NOT return prose describing
+                # the failure as if it were the answer — that string used to
+                # flow into vetting and the critic, which reviewed it as a
+                # draft and told the user the *review* had withheld their
+                # answer. Signal the outcome so the orchestrator can skip the
+                # gates and report this cause verbatim.
+                _scale = f", auto-scaled from ${eb.base_usd:.2f}" if eb.scaled else ""
+                _cap = f"; hit the ${eb.ceiling_usd:.2f} ceiling" if eb.ceiling_hit else ""
+                final = (
+                    f"Creative run hit its ${budget_usd:.2f} budget before producing output "
+                    f"(input ~{eb.input_tokens:,} tokens{_scale}{_cap}). "
+                    f"Raise creative_run_budget_usd in /cp/settings, or send a smaller input."
+                )
+                try:
+                    from app.crews.outcome import record_no_answer
+                    record_no_answer("creative", final)
+                except Exception:
+                    logger.debug("creative_crew: no-answer signal failed", exc_info=True)
+        except Exception as exc:
+            logger.exception(f"creative_crew: unhandled error: {exc}")
+            aborted_reason = f"error: {exc}"
+            crew_failed("creative", task_id, str(exc)[:200])
+            update_belief("creative_crew", "failed", current_task=task_description[:100])
+            raise
+    finally:
+        _run_baseline_usd.reset(_baseline_token)
 
     duration = _time.monotonic() - start
     tracker = get_active_tracker()
-    cost = tracker.total_cost_usd if tracker else 0.0
-    tokens = tracker.total_tokens if tracker else 0
+    # Report THIS run's contribution, not the shared request total — the
+    # latter made every creative row echo the parent commander's figures
+    # (and a 0.32 s abort report 71,095 tokens it never spent).
+    cost = max(0.0, tracker.total_cost_usd - _baseline_usd) if tracker else 0.0
+    tokens = max(0, tracker.total_tokens - _baseline_tokens) if tracker else 0
     models = ", ".join(sorted(tracker.models_used)) if (tracker and tracker.models_used) else ""
 
     # Torrance scoring (infrastructure-level — M7)

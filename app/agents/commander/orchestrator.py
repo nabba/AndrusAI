@@ -2981,19 +2981,46 @@ class Commander:
                 logger.debug(
                     "Commander subjective request begin failed", exc_info=True,
                 )
+        # ── Request-boundary cleanup (2026-07-25) ────────────────────────
+        # ``handle()`` is the top of the request stack and runs on a
+        # long-lived pooled thread (``main._commander_pool``). Request-scoped
+        # ContextVars set below therefore MUST be cleared here: a thread that
+        # keeps them retains them for the *next* request it serves.
+        #
+        # ``_handle_locked`` calls ``finalize_request_tracking()`` on its happy
+        # path, but three early returns in its routing-failure arms and any
+        # exception in the ~1,000 lines between skipped it — leaving the cost
+        # tracker set on the worker. Because ``start_request_tracking`` is
+        # nesting-aware (it returns an *existing* tracker rather than creating
+        # one), the next request landing on that thread adopted the stale
+        # tracker, inheriting its spend for every budget check. That is how a
+        # creative run reported 71,095 tokens it never spent. The finalize
+        # below is idempotent — a second call just returns None.
         try:
-            with agent_scope("commander"), sender_scope(sender or None):
-                result = self._handle_locked(
-                    user_input, sender, attachments,
-                    request_subjective_context=subjective_context,
-                )
-        except BaseException:
+            try:
+                with agent_scope("commander"), sender_scope(sender or None):
+                    result = self._handle_locked(
+                        user_input, sender, attachments,
+                        request_subjective_context=subjective_context,
+                    )
+            except BaseException:
+                if envelope is not None:
+                    envelope.finalize("Request failed before completion.", success=False)
+                raise
             if envelope is not None:
-                envelope.finalize("Request failed before completion.", success=False)
-            raise
-        if envelope is not None:
-            envelope.finalize(result, success=True)
-        return result
+                envelope.finalize(result, success=True)
+            return result
+        finally:
+            try:
+                from app.rate_throttle import finalize_request_tracking
+                finalize_request_tracking()
+            except Exception:
+                logger.debug("request tracker cleanup failed", exc_info=True)
+            try:
+                from app.crews.outcome import clear_no_answer
+                clear_no_answer()
+            except Exception:
+                logger.debug("no-answer cleanup failed", exc_info=True)
 
     def _handle_locked(
         self,
@@ -3620,6 +3647,57 @@ class Commander:
                     "task_progress emit failed at crew complete: %s",
                     _prog_exc, exc_info=False,
                 )
+
+            # ── No-answer short circuit (2026-07-25) ─────────────────────
+            # A crew that produced nothing returns prose *describing* why.
+            # Reviewing that as if it were a draft is how the 07-24 golden
+            # set produced "I'm withholding the draft because adversarial
+            # review found an unresolved critical quality issue: The
+            # creative crew failed to produce any content due to a budget
+            # exhaustion error" — the critic was right about its input, but
+            # the message blamed review for an upstream budget bug and
+            # buried the actual cause. There is nothing here to vet, revise
+            # or adversarially review, so skip the enhancers entirely and
+            # report the crew's own cause. See app/crews/outcome.py.
+            try:
+                from app.crews.outcome import consume_no_answer
+                _no_answer = consume_no_answer()
+            except Exception:
+                _no_answer = None
+                logger.debug("no-answer check raised", exc_info=True)
+            if _no_answer is not None:
+                logger.warning(
+                    "crew %s produced no answer (%s) — skipping "
+                    "vetting/critic and reporting the cause directly",
+                    _no_answer.crew, _no_answer.cause,
+                )
+                _phase_log(
+                    "no_answer", time.monotonic(),
+                    crew=_no_answer.crew, difficulty=difficulty, ok=False,
+                )
+                try:
+                    from app.observability.task_progress import (
+                        record_failure_context,
+                    )
+                    record_failure_context(
+                        "crew_no_answer",
+                        f"{_no_answer.crew}: {_no_answer.cause}"[:500],
+                    )
+                except Exception:
+                    pass
+                final_result = _no_answer.user_message()
+                if _ticket_id:
+                    try:
+                        from app.control_plane.tickets import get_tickets
+                        get_tickets().complete(
+                            _ticket_id, final_result[:500],
+                            cost_usd=0, tokens=0,
+                        )
+                        self._last_ticket_finalized = True
+                    except Exception:
+                        pass
+                finalize_request_tracking()
+                return final_result
 
             # S10: Run vetting + proactive scan in parallel (independent operations)
             # Skip proactive scan for easy tasks — saves 5-10s of LLM latency

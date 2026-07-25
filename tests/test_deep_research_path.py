@@ -253,7 +253,10 @@ def test_deep_gate_blocks_a_synthesis_untraceable_to_retrieved_sources() -> None
     )
 
     assert action == "verify"
-    assert "no identifier retrieved" in note
+    # Wording updated 2026-07-25: the precondition now also accepts a valid
+    # ``[S<n>]`` evidence label, so the note names both accepted forms. A draft
+    # citing NEITHER — as here — must still block.
+    assert "neither a retrieved identifier nor an" in note
 
 
 def test_deep_evidence_rejects_unfetched_web_snippets() -> None:

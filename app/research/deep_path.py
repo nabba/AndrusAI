@@ -95,6 +95,29 @@ def _usable_deep_evidence(hit) -> bool:
     return source == "arxiv"
 
 
+_SOURCE_LABEL_RE = re.compile(r"\[S(\d+)\]", re.IGNORECASE)
+
+
+def _source_label_numbers(text: str, source_count: int) -> set[int]:
+    """Return the ``[S<n>]`` evidence labels in ``text`` that name a real source.
+
+    ``[S<n>]`` is the citation form the run's own prompts teach: every source
+    is rendered to the drafting and critique models as
+    ``[S1] Title (web) — <identifier>`` by
+    :func:`app.research.run._literature_evidence`.  A label is only counted
+    when ``n`` actually indexes this run's evidence set (1-based), so an
+    invented ``[S99]`` never launders an uncited claim.
+    """
+    return {
+        number
+        for number in (
+            int(match.group(1))
+            for match in _SOURCE_LABEL_RE.finditer(text or "")
+        )
+        if 1 <= number <= source_count
+    }
+
+
 def _cited_identifiers(text: str) -> set[str]:
     """Machine-checkable identifiers asserted by a final synthesis."""
     out = {
@@ -410,26 +433,45 @@ def _deep_evidence_gate_for(run) -> Callable[..., tuple[str | None, str]]:
         if not usable_rows:
             return "verify", "deep research retrieved no evidence sources"
 
-        identifiers: list[str] = []
+        # Two kinds of identifier, and only one of them is something a writer
+        # can legitimately reproduce.  A URL / DOI / arXiv id is *citable* —
+        # the drafting model is shown it and can quote it.  A KB row's ``id``
+        # is an internal chunk key: it is provenance, but no draft could ever
+        # contain it, so requiring it as proof of citation made this gate
+        # unpassable by construction for KB-sourced runs (2026-07-25).
+        identifiers: list[str] = []           # every identifier, for provenance
+        citable_identifiers: list[str] = []   # the subset a draft can quote
         for row in usable_rows:
             metadata_value = row.get("metadata")
             metadata: dict = (
                 metadata_value if isinstance(metadata_value, dict) else {}
             )
-            identifier = str(
-                metadata.get("url")
-                or row.get("id")
-                or metadata.get("doi")
-                or ""
+            citable = str(
+                metadata.get("url") or metadata.get("doi") or ""
             ).strip()
+            identifier = citable or str(row.get("id") or "").strip()
             if identifier:
                 identifiers.append(identifier)
+            if citable:
+                citable_identifiers.append(citable)
 
-        cited = [identifier for identifier in identifiers if identifier in text]
-        if not cited:
+        # Accept EITHER a literal retrieved identifier or a valid ``[S<n>]``
+        # evidence label.  The per-block claim check below has always treated
+        # ``[S<n>]`` as valid tracing; this precondition did not, so the two
+        # halves of one gate disagreed.  In practice the raw URLs live in the
+        # trailing source list, which max_tokens truncation removes first —
+        # so a correctly-cited draft was routinely blocked on citation
+        # *format* while its inline ``[S<n>]`` citations were ignored
+        # (2026-07-25: both live report failures blocked exactly here).
+        cited = [
+            identifier for identifier in citable_identifiers if identifier in text
+        ]
+        labelled = _source_label_numbers(text, len(usable_rows))
+        if not cited and not labelled:
             return (
                 "verify",
-                "final synthesis cites no identifier retrieved by this run",
+                "final synthesis cites neither a retrieved identifier nor an "
+                "[S<n>] evidence label from this run",
             )
 
         # A single valid source must not launder additional invented URLs,
@@ -461,13 +503,8 @@ def _deep_evidence_gate_for(run) -> Callable[..., tuple[str | None, str]]:
             traces_identifier = any(
                 identifier in block for identifier in identifiers
             )
-            source_labels = {
-                int(match.group(1))
-                for match in re.finditer(r"\[S(\d+)\]", block, re.IGNORECASE)
-            }
-            traces_source_label = any(
-                1 <= source_number <= len(usable_rows)
-                for source_number in source_labels
+            traces_source_label = bool(
+                _source_label_numbers(block, len(usable_rows))
             )
             if traces_identifier or traces_source_label:
                 continue
@@ -603,22 +640,44 @@ def execute_deep_research(
 
     if run.status is ExecutorStatus.COMPLETED and final_text:
         return final_text
+
+    # The remaining branches all return prose *about* a failure rather than an
+    # answer. Flag them so the orchestrator skips vetting/critic instead of
+    # reviewing a failure notice as if it were a draft — the critic used to
+    # read one of these strings, correctly report "no actual research here",
+    # and tell the user that *review* had withheld their answer.
+    def _no_answer(cause: str) -> None:
+        try:
+            from app.crews.outcome import record_no_answer
+            record_no_answer("deep_research", cause)
+        except Exception:
+            logger.debug("deep research no-answer signal failed", exc_info=True)
+
     if run.status is ExecutorStatus.BLOCKED:
+        gate_detail = outcome.gate_note or run.blocked_reason
+        _no_answer(
+            "the research-evidence gate did not clear the draft "
+            f"({gate_detail})"
+        )
         return (
             "I completed the research passes, but the evidence gate did not "
             "clear the draft, so I won't present unsupported claims as a "
-            f"finished answer. Gate detail: {outcome.gate_note or run.blocked_reason}"
+            f"finished answer. Gate detail: {gate_detail}"
         )
     if final_text:
+        # Partial but substantive — this IS an answer, just a caveated one.
         return (
             "[Unverified partial research — the full run did not complete.]\n\n"
             + final_text
             + f"\n\nRun status: {run.status.value}."
         )
+    reason = (
+        run.failure_reason or run.abort_reason or "no usable evidence returned"
+    )
+    _no_answer(f"no substantive draft (status {run.status.value}; {reason})")
     return (
         "Deep research could not produce a substantive draft. "
-        f"Run status: {run.status.value}; reason: "
-        f"{run.failure_reason or run.abort_reason or 'no usable evidence returned'}."
+        f"Run status: {run.status.value}; reason: {reason}."
     )
 
 
