@@ -41,10 +41,64 @@ _session.headers.update({
 # the quota resets monthly so the backoff doesn't need to be precise.
 _BRAVE_QUOTA_BACKOFF_S = 24 * 3600
 
+# The backoff is PERSISTED (2026-07-25). It used to live only in this module
+# global, so every gateway restart reset it to 0 and the next search hit a
+# known-exhausted paid API again — earning another 402 and another 24h "backoff"
+# that the next restart would also forget. Observed three times on 2026-07-25
+# alone, matching that day's restarts. A quota that resets monthly must not be
+# re-probed on a process lifecycle.
+#
+# ``workspace/`` is a bind mount, so the file survives container recreation.
+# Every access is failure-isolated: an unreadable or unwritable state file
+# degrades to the old in-memory behaviour rather than breaking search.
+_BRAVE_QUOTA_STATE_PATH = os.environ.get(
+    "BRAVE_QUOTA_STATE_PATH", "/app/workspace/.brave_quota_block"
+)
+
 _brave_quota_blocked_until: float = 0.0  # epoch seconds; 0 = no block
+_brave_quota_state_loaded: bool = False
 _last_backend_used: str | None = None
 _last_failure_chain: list[str] = []
 _last_rejection_counts: dict[str, int] = {}
+
+
+def _load_brave_quota_block() -> None:
+    """Read the persisted block deadline once per process."""
+    global _brave_quota_blocked_until, _brave_quota_state_loaded
+    if _brave_quota_state_loaded:
+        return
+    _brave_quota_state_loaded = True
+    try:
+        with open(_BRAVE_QUOTA_STATE_PATH) as handle:
+            stored = float((handle.read() or "0").strip() or 0)
+    except Exception:
+        return
+    # Ignore a nonsensically distant deadline so a corrupt file can't disable
+    # Brave forever.
+    if stored > time.time() + _BRAVE_QUOTA_BACKOFF_S:
+        logger.warning(
+            "web_search: ignoring implausible persisted Brave block (%s)", stored,
+        )
+        return
+    if stored > _brave_quota_blocked_until:
+        _brave_quota_blocked_until = stored
+        remaining = stored - time.time()
+        if remaining > 0:
+            logger.info(
+                "web_search: Brave still quota-blocked for %.1fh (persisted)",
+                remaining / 3600.0,
+            )
+
+
+def _persist_brave_quota_block(until_epoch: float) -> None:
+    try:
+        with open(_BRAVE_QUOTA_STATE_PATH, "w") as handle:
+            handle.write(str(until_epoch))
+    except Exception:
+        logger.debug(
+            "web_search: could not persist Brave quota block to %s",
+            _BRAVE_QUOTA_STATE_PATH, exc_info=True,
+        )
 
 
 # ── Per-task search budget (principled stopping criterion) ───────────────────
@@ -83,6 +137,7 @@ class search_budget:
 
 
 def _brave_blocked_now() -> bool:
+    _load_brave_quota_block()
     return _brave_quota_blocked_until > time.time()
 
 
@@ -102,8 +157,10 @@ def _search_brave_raw(query: str, count: int) -> list[dict] | None:
         )
         if r.status_code == 402:
             _brave_quota_blocked_until = time.time() + _BRAVE_QUOTA_BACKOFF_S
+            _persist_brave_quota_block(_brave_quota_blocked_until)
             logger.warning(
-                "web_search: Brave quota exhausted (HTTP 402) — backing off %dh",
+                "web_search: Brave quota exhausted (HTTP 402) — backing off %dh "
+                "(persisted, so a restart won't re-probe)",
                 _BRAVE_QUOTA_BACKOFF_S // 3600,
             )
             return None
