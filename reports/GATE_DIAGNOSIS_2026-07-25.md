@@ -1088,3 +1088,74 @@ established from production data plus an offline sweep.
 Still open, unchanged: thread sprawl (36 unattributed `tokio-rt-worker`),
 content-starvation caps, the `TaskOutput` validation leak, whether an ungrounded
 report ever passed the evidence gate, and the eval Phase 2 full-reply gate.
+
+---
+
+## Addendum 12 — the content-starvation item was wrong about the mechanism (2026-07-26)
+
+The deferred list carried "the 4096-token writer ceiling" and "`max_tokens`
+truncation still cuts drafts mid-sentence" as causes of thin reports. Addendum 10
+graded the underlying claim **INFERRED**. Measuring it first changed the answer.
+
+### Measured
+
+`workspace/llm_benchmarks.db:token_usage`, **62,675 calls over 14 days**, counting
+completions pinned exactly at a known cap:
+
+| cap | exact hits | where it comes from |
+|---|---|---|
+| 512 | **85** | `goodhart_guard`, `discover-topics`, local prediction/compression |
+| 1024 | 6 | the router |
+| 4096 | 2 | — |
+| 2500 / 3000 / 3500 | **0** | `_focused_completion` default / draft / critique |
+
+**The research draft and critique caps are never reached.** The 512 pin that *is*
+being hit 85 times belongs to internal machinery (`goodhart-check` on Sonnet,
+`discover-topics` on local qwen), not to any user-facing answer.
+
+Coverage was verified before drawing that conclusion: rows do exist inside a known
+`deep_research` window (2026-07-25T17:00–17:35). A first attempt found "zero rows"
+there and nearly became a fourth hasty claim — the ledger stores ISO `T`
+timestamps and the query used a space separator. The absence was in the query.
+
+### So the likelier mechanism is a character clamp, and those recorded nothing
+
+Two clamps sit directly on the report path in `app/research/run.py`:
+
+* `investigation[:4000]` → the draft prompt
+* `draft[:8000]` → the critique prompt
+
+The second matters most: the evidence gate inspects `HINT_CRITIQUE` in preference
+to `HINT_DRAFT`, so anything clipped at that hop is invisible to the gate —
+including a trailing source list. That produces the observed symptom with no
+`max_tokens` truncation at all, which is exactly what the ledger shows.
+
+A character clamp can never appear in a token ledger, and neither clamp logged
+anything. So this stays a **hypothesis**, not a finding.
+
+### Shipped: recording, not a cap change
+
+* `app/content_clamp.py` — `clamp(text, limit, what=...)` replaces `text[:n]` at
+  both report-path sites, logging the overflow with the hop name and keeping
+  per-hop counters (`times_clamped`, `chars_dropped`, `largest_drop`).
+* `_focused_completion` now logs when `finish_reason == "length"` — the one
+  truncation signal a cost ledger structurally cannot provide, since a capped
+  completion and a naturally-ending one have identical token counts. Discarding it
+  is why the claim stayed untested for two days.
+
+Deliberately **no limit was raised**. Whether 4000/8000/3000 are too tight is a
+question the next real report now answers with numbers, per
+`feedback_verify_before_recommending`. Raising them blind would repeat the pattern
+that produced the reverted relevance filter.
+
+### Claims ledger
+
+| claim | grade | evidence |
+|---|---|---|
+| Research caps 2500/3000/3500 are never hit | MEASURED | 0 exact hits in 62,675 calls / 14 days |
+| Something truncates at 512, 85 times | MEASURED | same query; roles and models identified |
+| Those 512 hits are internal, not the answer path | OBSERVED | roles are `goodhart-check` / `discover-topics` / null-on-local |
+| The ledger covers the deep-research window | PROBED | rows listed for 2026-07-25T17:00–17:35 after fixing the timestamp format |
+| `draft->critique` clipping can hide a source list from the gate | **INFERRED** | the gate prefers `HINT_CRITIQUE` (code read) and the clamp precedes it, but no instance is recorded. Instrumented; do not quote as established. |
+| Clamps and `finish_reason` were recorded nowhere before | PROBED | code read; 11 tests pin the new recording |
+| No regressions | MEASURED | identical failure set vs `36747966`; the one extra row (`test_overspend_clamps_headroom_to_zero`) was newly *selected* by widening `-k` with "clamp" and fails on pristine HEAD too — verified in a worktree |

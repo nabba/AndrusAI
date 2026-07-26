@@ -63,6 +63,7 @@ from app.autonomous_executor.models import (
     ExecutorStatus,
     ExecutorStep,
 )
+from app.content_clamp import clamp
 
 logger = logging.getLogger(__name__)
 
@@ -426,7 +427,10 @@ def _build_draft_prompt(run: ExecutorRun) -> str:
         f"\nResearch question: {run.goal}",
     ]
     if investigation:
-        parts.append("\nInvestigation notes:\n" + investigation[:4000])
+        parts.append(
+            "\nInvestigation notes:\n"
+            + clamp(investigation, 4000, what="investigation->draft"),
+        )
     if hyps:
         parts.append("Hypotheses considered:\n" + "\n".join(f"- {h}" for h in hyps))
     if evidence:
@@ -455,7 +459,9 @@ def _build_critique_prompt(run: ExecutorRun) -> str:
         "anything in a 'Sources'/'References' section — and either re-cite the "
         "claim to a listed source or mark it as not retrieved by this run.",
         f"\nResearch question: {run.goal}",
-        f"\nDraft to audit:\n{draft[:8000]}",
+        # The gate inspects the critique in preference to the draft, so anything
+        # clipped here is invisible to it — including a trailing source list.
+        "\nDraft to audit:\n" + clamp(draft, 8000, what="draft->critique"),
         "\nRetrieved evidence:\n" + ("\n\n".join(evidence) or "[none retrieved]"),
     ])
 
@@ -876,7 +882,19 @@ def _focused_completion(
         resp = cast(Any, handle.create(
             messages=[{"role": "user", "content": prompt}], max_tokens=max_tokens
         ))
-        text = resp.choices[0].message.content or ""
+        choice = resp.choices[0]
+        text = choice.message.content or ""
+        # Hitting max_tokens is the one truncation the cost ledger cannot show:
+        # it records completion counts, and a capped completion is
+        # indistinguishable from one that simply ended there. Only
+        # ``finish_reason`` says which. Discarding it is why "truncation removed
+        # the source list" stayed an untested inference for two days.
+        if str(getattr(choice, "finish_reason", "") or "").lower() == "length":
+            logger.warning(
+                "research.run: %s hit its max_tokens=%d ceiling — output is "
+                "truncated (%d chars produced)",
+                task_hint, max_tokens, len(text),
+            )
         try:
             from app.lifecycle_hooks import get_registry, HookContext, HookPoint
 
