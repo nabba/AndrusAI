@@ -29,7 +29,10 @@ retrieved sources — and it needs a structured evidence set. ``ResearchCrew`` i
 plain ``crew.kickoff()`` returning a string and captures no such set, so giving it
 the real evidence gate requires building per-request evidence capture first. This
 is the narrower, feasible half: it establishes that a reply is an ANSWER rather
-than internal machinery. Groundedness for the non-deep path remains open.
+than internal machinery. The evidence-capture half now exists —
+``app/evidence_capture.py`` records what the tools returned, and
+``app/crews/grounding.py`` checks the fast fork's citations against it
+(observe-mode by default; see its docstring).
 
 Conservatism, because a false positive here destroys a good answer
 -----------------------------------------------------------------

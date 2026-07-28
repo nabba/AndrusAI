@@ -134,6 +134,12 @@ requires building per-request evidence capture first. This establishes only that
 a reply is an *answer* rather than internal machinery — which is exactly the
 failure that occurred three times.
 
+**Shipped (2026-07-28):** that per-request evidence capture
+(`app/evidence_capture.py`) plus the untraced-citation check it enables for the
+fast fork (`app/crews/grounding.py`) — the second concrete instance of "one
+definition, applied at the chokepoint". Observe-mode by default; enforcement is
+an env flip to be made on the observe logs. See GATE_DIAGNOSIS Addendum 13.
+
 **The experiment that decides the rewrite:** re-run the golden set and check
 whether outcomes are now *reproducible across runs*.
 

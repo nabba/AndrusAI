@@ -6,6 +6,7 @@ import trafilatura
 import requests
 from requests.adapters import HTTPAdapter
 from app.audit import log_tool_blocked
+from app.evidence_capture import record_tool_text
 
 # Reusable HTTP session with connection pooling
 _session = requests.Session()
@@ -179,15 +180,18 @@ def web_fetch(url: str) -> str:
         # Original 32K could fill a 32K-context local model entirely.
         _MAX_TEXT_CHARS = 12000
         text = trafilatura.extract(html_text)
-        if text:
-            return text[:_MAX_TEXT_CHARS]
-
-        from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html_text, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header"]):
-            tag.decompose()
-        text = soup.get_text(separator="\n", strip=True)
-        return text[:_MAX_TEXT_CHARS]
+        if not text:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html_text, "html.parser")
+            for tag in soup(["script", "style", "nav", "footer", "header"]):
+                tag.decompose()
+            text = soup.get_text(separator="\n", strip=True)
+        clipped = text[:_MAX_TEXT_CHARS]
+        # Per-request evidence capture: the fetched URL (requested and final —
+        # they differ across redirects) plus URLs inside the returned content
+        # are all "URLs a tool actually returned" for the grounding check.
+        record_tool_text("web_fetch", clipped, urls=(url, str(response.url or "")))
+        return clipped
     except Exception:
         return "Fetch error: unable to retrieve URL content."
 

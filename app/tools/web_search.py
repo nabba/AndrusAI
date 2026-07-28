@@ -21,6 +21,7 @@ import requests
 from crewai.tools import tool
 
 from app.config import get_brave_api_key
+from app.evidence_capture import record_search_results
 from app.tools.search_validation import validate_search_results as _validate_results
 
 logger = logging.getLogger(__name__)
@@ -291,6 +292,7 @@ def search_brave(query: str, count: int = 5) -> list[dict]:
         if valid:
             _last_backend_used = "brave"
             _last_failure_chain = chain
+            record_search_results(query, valid[:count], "brave")
             return valid[:count]
         chain.append("brave:rejected")
     else:
@@ -303,6 +305,7 @@ def search_brave(query: str, count: int = 5) -> list[dict]:
         if valid:
             _last_backend_used = "searxng"
             _last_failure_chain = chain
+            record_search_results(query, valid[:count], "searxng")
             return valid[:count]
         chain.append("searxng:rejected")
     else:
@@ -315,6 +318,7 @@ def search_brave(query: str, count: int = 5) -> list[dict]:
         if valid:
             _last_backend_used = "ddg"
             _last_failure_chain = chain
+            record_search_results(query, valid[:count], "ddg")
             return valid[:count]
         chain.append("ddg:rejected")
     else:

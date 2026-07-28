@@ -23,6 +23,8 @@ from typing import Type
 
 from pydantic import BaseModel, Field
 
+from app.evidence_capture import record_tool_text
+
 logger = logging.getLogger(__name__)
 
 # ── Singleton client ─────────────────────────────────────────────────────────
@@ -87,6 +89,7 @@ def firecrawl_scrape(url: str, only_main_content: bool = True) -> str:
         # layer hasn't been built yet.
         _route_to_subia_predictor(url, str(source), str(title), content)
 
+        record_tool_text("firecrawl_scrape", content, urls=(url, str(source)))
         return f"# {title}\nSource: {source}\n\n{content}"
     except Exception as e:
         logger.error(f"Firecrawl scrape failed for {url}: {e}")
@@ -154,7 +157,9 @@ def firecrawl_extract(url: str, prompt: str, schema_json: str = None) -> str:
         result = client.extract(**kwargs)
         # Result is a Pydantic model — convert to dict
         data = result.model_dump() if hasattr(result, "model_dump") else {"raw": str(result)}
-        return json.dumps(data, indent=2, ensure_ascii=False, default=str)
+        payload = json.dumps(data, indent=2, ensure_ascii=False, default=str)
+        record_tool_text("firecrawl_extract", payload, urls=(url,))
+        return payload
     except Exception as e:
         logger.error(f"Firecrawl extract failed for {url}: {e}")
         return f"Error extracting from {url}: {str(e)[:200]}"
@@ -251,7 +256,9 @@ def firecrawl_search(query: str, limit: int = 5) -> str:
             content = item.get("markdown", "")[:2000]
             output_parts.append(f"\n---\n### [{i+1}] {title}\nURL: {url}\n\n{content}")
 
-        return "\n".join(output_parts)
+        joined = "\n".join(output_parts)
+        record_tool_text("firecrawl_search", joined)
+        return joined
     except Exception as e:
         logger.error(f"Firecrawl search failed for '{query}': {e}")
         return f"Error searching '{query}': {str(e)[:200]}"

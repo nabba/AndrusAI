@@ -1969,6 +1969,7 @@ class Commander:
         result = ""
         success = True
         crew_error = None
+        _evidence_rec = None  # bound by capture_evidence around the dispatch
         _exec_t0 = _time.monotonic()  # Stage 6 — crew_exec phase timer
         # Tag all LLM calls made inside this crew with the canonical task
         # type so the telemetry recorder in rate_throttle can attribute
@@ -1987,7 +1988,13 @@ class Commander:
                 # ``else: return crew_task`` behaviour).
                 from app.crews import registry as _crew_registry
                 from app.crews.lifecycle import suppress_subjective_boundary
-                with suppress_subjective_boundary():
+                # Evidence capture (2026-07-28): record which URLs the
+                # search/fetch tools return during this crew run, so the
+                # post-crew grounding check can verify cited sources were
+                # actually retrieved. Passive — recording changes nothing.
+                from app.evidence_capture import capture_evidence
+                with suppress_subjective_boundary(), \
+                        capture_evidence() as _evidence_rec:
                     dispatched = _crew_registry.dispatch(
                         crew_name, enriched_task,
                         parent_task_id=parent_task_id,
@@ -2338,6 +2345,7 @@ class Commander:
         # vetting/critic — there is nothing to review. Non-strict mode: an
         # ambiguous marker must dominate the reply, because a false positive
         # here would destroy a genuine answer.
+        _artifacts = []
         try:
             from app.crews.output_integrity import describe, find_artifacts
             _artifacts = find_artifacts(result or "")
@@ -2352,6 +2360,26 @@ class Commander:
                 record_no_answer(crew_name, _cause)
         except Exception:
             logger.debug("output integrity check raised", exc_info=True)
+
+        # ── Fast-path grounding (2026-07-28): cited URLs must have been
+        # returned by a tool in this run ─────────────────────────────────
+        # The `research` fork counterpart of the deep gate's untraced-citation
+        # check, fed by the evidence recorder attached around the dispatch
+        # above. Observe-mode by default (FAST_PATH_GROUNDING env); the module
+        # decides scope and mode so this call is safe for every crew. Skipped
+        # when output integrity already suppressed the reply — a leakage cause
+        # must not be overwritten by a grounding cause.
+        if not _artifacts:
+            try:
+                from app.crews.grounding import enforce_fast_path_grounding
+                enforce_fast_path_grounding(
+                    crew_name=crew_name,
+                    reply=result or "",
+                    recorder=_evidence_rec,
+                    task_text=enriched_task,
+                )
+            except Exception:
+                logger.debug("fast-path grounding check raised", exc_info=True)
 
         # ── Cure B (2026-05-10): post-run artifact verification ──
         # If handle() classified this task as artifact-shape, the

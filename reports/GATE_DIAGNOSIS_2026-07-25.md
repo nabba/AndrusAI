@@ -1159,3 +1159,77 @@ that produced the reverted relevance filter.
 | `draft->critique` clipping can hide a source list from the gate | **INFERRED** | the gate prefers `HINT_CRITIQUE` (code read) and the clamp precedes it, but no instance is recorded. Instrumented; do not quote as established. |
 | Clamps and `finish_reason` were recorded nowhere before | PROBED | code read; 11 tests pin the new recording |
 | No regressions | MEASURED | identical failure set vs `36747966`; the one extra row (`test_overspend_clamps_headroom_to_zero`) was newly *selected* by widening `-k` with "clamp" and fails on pristine HEAD too — verified in a worktree |
+
+---
+
+## Addendum 13 — the fast fork gets an evidence set (2026-07-28)
+
+The operator-chosen next step from Addendum 11: contract-based gating of the
+fast path — "give `ResearchCrew` an evidence set so it can be checked without
+forcing the slow fork". This is the first increment: **capture everywhere,
+check the `research` fork, observe before enforcing.**
+
+### What exists now
+
+* **`app/evidence_capture.py`** — a per-request, thread-safe, bounded recorder
+  attached around every crew dispatch (`orchestrator._run_crew_inner`).
+  `search_brave` (all three backends), `web_fetch` and the firecrawl
+  scrape/extract/search tools report every URL they return. Both structured
+  result fields and URLs *inside* returned content count — the research
+  prompt's own rule is "every URL you cite must be one a tool actually
+  returned", and a URL in a fetched page was. `ResearchCrew._run_parallel`
+  re-attaches the parent's recorder inside its pool threads (ContextVars do
+  not propagate there on their own).
+* **`app/crews/grounding.py`** — the fast-fork counterpart of the deep gate's
+  untraced-citation check. Coverage semantics deliberately mirror
+  `deep_path._deep_evidence_gate_for` (cited token equals or is a substring of
+  a returned identifier, so a retrieved deep link covers its own domain), plus
+  trailing-slash normalisation on both sides. URLs present in the task input
+  are allowed — citing what you were handed is not fabrication.
+* **Wiring**: check runs after `output_integrity`, and never overwrites a
+  leakage cause with a grounding cause.
+
+### Mode: observe by default, and why
+
+`FAST_PATH_GROUNDING` = `off` | `observe` (default) | `enforce`. In observe
+mode an untraced citation is logged (with per-origin evidence counts) and
+counted, and the reply is delivered unchanged. The reverted relevance filter
+(Addendum 5) is the reason: it shipped against fixtures whose input shape
+production never passes. This checker has never seen a real fast-fork reply,
+so it measures first; the flip to enforce is a decision to make on those
+logs. In enforce mode a violation becomes the typed no-answer signal
+(`outcome.record_no_answer`), so the orchestrator reports the real cause
+instead of delivering fabricated citations.
+
+### Deliberate narrowings
+
+* **URLs only.** The recorder cannot see a DOI inside a fetched PDF; checking
+  DOI/arXiv citations here would flag legitimately-sourced identifiers. Those
+  remain the deep gate's job, against its structured evidence set.
+* **`research` crew only.** `deep_research` has its own stricter gate;
+  other crews' citation semantics are unmeasured.
+* **Enforcement requires a non-empty captured evidence set.** Un-hooked tools
+  (memory, KB search, composio, wiki, youtube) can legitimately source a
+  citation; with nothing captured, fabrication and unrecorded provenance are
+  indistinguishable, and that ambiguity must not destroy a real answer.
+  Un-hooked coverage shows up in observe logs as untraced citations with a
+  named origin breakdown — widening the hooks is a data-driven follow-up.
+
+### One bug the tests caught before it shipped
+
+`EvidenceRecorder` defines `__len__`, so an **empty recorder is falsy** —
+`recorder or EvidenceRecorder()` re-attached worker threads to a *fresh*
+recorder and silently discarded everything a sub-agent recorded. Only the
+thread-propagation test caught it; single-threaded fixtures cannot see this
+failure. Fixed with `is not None`.
+
+### Claims ledger for this addendum
+
+| claim | grade | evidence |
+|---|---|---|
+| Capture records what the hooked tools return, across threads | PROBED | 26 tests incl. a pool-thread propagation test and a behavioral `_run_parallel` test that fails if the re-attach wiring is removed |
+| The check flags the incident shape (padded org-homepage bibliography) | PROBED | test fixture is the Addendum-3 shape (`piimaliit.ee`, `ec.europa.eu/eurostat` cited, never retrieved) |
+| Covered-domain / trailing-slash / input-supplied URLs are not flagged | PROBED | dedicated false-positive tests |
+| Observe mode cannot suppress a reply | PROBED | test asserts no no-answer signal is recorded |
+| No regressions | MEASURED | identical 92-line failure sets (91 F + 1 E, pre-existing) on pristine `a92f0fcf` and this tree over a 2,303-test selection (Addendum-3 `-k` widened with research/web_search/web_fetch/firecrawl/integrity/grounding/evidence/clamp); +26 passes |
+| How real fast-fork replies cite, and how often citations go untraced | **UNKNOWN** | that is precisely what observe mode measures. **Do not flip to `enforce` until the observe logs have been read.** |

@@ -12,6 +12,7 @@ from app.firebase_reporter import (
     crew_started, crew_completed, crew_failed, update_sub_agent_progress,
 )
 from app.crews.parallel_runner import run_parallel
+from app.evidence_capture import active_recorder, propagated
 from app.tools.web_search import search_budget
 from app.memory.belief_state import update_belief
 from app.benchmarks import record_metric
@@ -416,6 +417,12 @@ class ResearchCrew:
         # Q10: Extract KB context from parent task to pass to each sub-agent
         kb_context = self._extract_kb_context(topic)
 
+        # Per-request evidence capture rides a ContextVar, which run_parallel's
+        # pool threads do not inherit — capture the parent's recorder here and
+        # re-attach it inside each sub-agent so their tool results land in the
+        # same evidence set the post-crew grounding check reads.
+        recorder = active_recorder()
+
         def make_sub_fn(subtopic: str):
             def fn():
                 sub_id = crew_started(
@@ -446,7 +453,7 @@ class ResearchCrew:
                             agents=[researcher], tasks=[task],
                             process=Process.sequential, verbose=settings.crew_verbose,
                         )
-                        with search_budget():
+                        with search_budget(), propagated(recorder):
                             result = str(crew.kickoff())
                         if not result or result.strip().lower() in ("none", ""):
                             raise ValueError("Empty LLM response")
