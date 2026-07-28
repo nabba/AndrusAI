@@ -1233,3 +1233,42 @@ failure. Fixed with `is not None`.
 | Observe mode cannot suppress a reply | PROBED | test asserts no no-answer signal is recorded |
 | No regressions | MEASURED | identical 92-line failure sets (91 F + 1 E, pre-existing) on pristine `a92f0fcf` and this tree over a 2,303-test selection (Addendum-3 `-k` widened with research/web_search/web_fetch/firecrawl/integrity/grounding/evidence/clamp); +26 passes |
 | How real fast-fork replies cite, and how often citations go untraced | **UNKNOWN** | that is precisely what observe mode measures. **Do not flip to `enforce` until the observe logs have been read.** |
+
+---
+
+## Addendum 14 — the 36 `tokio-rt-worker` threads are chromadb's Rust core (2026-07-28)
+
+Addendum 10 flagged a third of the gateway's threads as "Rust runtimes
+invisible to `faulthandler` and unaccounted for by any Python-side analysis",
+and made attribution a precondition for touching any concurrency ceiling.
+Attributed by experiment, in the deployed container:
+
+* `import chromadb` → +15 threads, all named `python` (telemetry/BLAS pools) —
+  **not** the Rust workers.
+* `chromadb.PersistentClient(path=/tmp/…)` → **+5 `tokio-rt-worker`,
+  +2 `sqlx-sqlite-wor`** — the exact names in the gateway census. (Throwaway
+  path; the live store is single-writer and was not touched.)
+* one collection write → tokio 5→9 (lazy growth), sqlx stays 2, +5 `python`
+  (the onnx embedding pool).
+
+Live census at the post-deploy boot: **133 threads = 75 `uvicorn` +
+36 `tokio-rt-worker` + 22 `sqlx-sqlite-wor`**. sqlx workers are 2 per client →
+~11 clients, and the workspace holds exactly **11 chroma stores** (7 KBs +
+a test snapshot + three May drill-scratch dirs); clients are path-cached
+(`get_client_for_path`), so this thread population scales with the number of
+distinct stores opened, **not with request load**. `sqlx-sqlite-wor` grew
+3 (07-25) → 22 (07-28), consistent with more stores having been opened in this
+boot, bounded by the number of distinct paths — worth a glance only if it
+keeps climbing past the store count (dated drill/test paths do add new cache
+entries).
+
+Implication for the deferred concurrency item: these ~58 Rust threads are I/O
+runtime workers that should not hold the GIL, so the GIL/CPU-starvation stall
+analysis concerns the 75 Python (`uvicorn`) threads, not the headline 133.
+
+| claim | grade | evidence |
+|---|---|---|
+| `tokio-rt-worker` + `sqlx-sqlite-wor` come from chromadb client construction | PROBED | direct causation in a fresh process; thread names match the census exactly |
+| 22 sqlx ≈ 11 clients ↔ 11 stores on disk | MEASURED + OBSERVED | arithmetic matches; which stores are open in-process is not directly verifiable from outside |
+| per-client tokio worker count | MEASURED in probe only | 5 at construction, 9 after one write; live 36 across ~11 clients averages ~3.3 — sizing varies, not pinned |
+| Rust workers don't participate in GIL starvation | **INFERRED** | standard extension-runtime behaviour; not directly measured here |
